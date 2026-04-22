@@ -1,0 +1,45 @@
+[workspace]
+resolver = "2"
+members = [
+  "crates/*",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+description = "A simple control plane to configure the DPAA2 dataplane of NXP's LX2160."
+repository = "https://github.com/cunabli/dpaa2-controlplane"
+license = "Apache-2.0"
+rust-version = "1.95"
+
+[workspace.dependencies]
+
+[workspace.lints.rust]
+missing_docs = "warn" 
+elided_lifetimes_in_paths = "warn"
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+all = "warn"
+pedantic = "warn" 
+
+[profile.release]
+lto = "fat"
+codegen-units = 1
+strip = "symbols"
+panic = "abort"
+
+[profile.small]
+inherits = "release"
+opt-level = "z"
+strip = true
+
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
+
+[profile.debugging]
+inherits = "dev"
+debug = true
