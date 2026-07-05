@@ -3,5 +3,17 @@ name = "dpaa2-api"
 version.workspace = true
 license.workspace = true
 edition.workspace = true
+description.workspace = true
+repository.workspace = true
+rust-version.workspace = true
 
 [dependencies]
+thiserror.workspace = true
+
+[features]
+# Exposes the in-memory fake backend (D10) so downstream crates can unit-test
+# the observe -> reconcile -> act loop with no hardware.
+testkit = []
+
+[lints]
+workspace = true
