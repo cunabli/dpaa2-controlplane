@@ -1,0 +1,6 @@
+# Causally start DPAA2 provisioning when the MC root container appears.
+#
+# This is the *only* udev involvement in the reconciliation trigger (design D4): a
+# one-shot poke, no provisioning work in udev itself. The service's own readiness
+# probe then waits for the MC to become responsive before acting.
+ACTION=="add", SUBSYSTEM=="fsl-mc", KERNEL=="dprc.1", TAG+="systemd", ENV{SYSTEMD_WANTS}+="dpaa2-provision.service"

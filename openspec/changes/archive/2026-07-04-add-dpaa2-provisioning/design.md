@@ -13,7 +13,7 @@ discarded systemd-oneshot-as-primary, pure-udev-shell, and gNMI-as-mechanism. Th
 document settles the architecture and the decisions surfaced while pressure-testing
 it, and maps them onto the existing four-crate workspace.
 
-Target scope: 2×10G SFP+ and 1×25G QSFP28-breakout on the ClearFog LX2160A,
+Target scope: 2×10G SFP+ and 1×25G QSFP28-breakout on the LX2160A board,
 point-to-point DPNI↔DPMAC, with room to extend.
 
 ## Goals / Non-Goals
@@ -93,6 +93,23 @@ that already owns the config is the natural producer.
 state (kept as fallback if MAC-match proves unworkable); MC object labels (only if
 labels are settable and persist — unverified).
 
+**REVISED after board testing (2026-07-05).** Two assumptions above were wrong:
+1. *The matchable MAC is not on the DPMAC.* `restool dpmac info dpmac.3` reports no
+   usable MAC on this board; the address lives on the **DPNI** (inherited from the
+   DPMAC at connect — the board's burned-in MAC, e.g. `d0:63:b4:04:96:25`, distinct
+   from the DPNI's random locally-administered *permanent* MAC). `link::match_mac`
+   now sources it declared → connected-DPNI → DPMAC.
+2. *Generation cannot precede provisioning.* The DPNI (hence its MAC) does not exist
+   until `create_dpni` plugs it, by which point the kernel has already named the
+   netdev `eth1`. So generation moved to **after** `converge`, and `link::apply`
+   re-triggers udev per interface (`udevadm trigger --action=add --settle
+   /sys/class/net/eth1`) to rename it this boot. Board log confirms the chain:
+   `Probed interface eth1` → `wrote link file … name=wan0` → `applying stable name
+   via udev from=eth1 to=wan0` → `dpni.1 wan0: renamed from eth1`. The interface is
+   admin-down at that point in boot (before `network-pre.target`), so the rename is
+   accepted. The `udevadm control --reload` is retained; the per-interface trigger is
+   the load-bearing step and needs no `ip link` fallback (6.6).
+
 ### D4. udev is presentation only, never the reconciliation trigger
 The synthetic-event fanout DAG from the design doc is dropped. udev/`systemd.link`
 does exactly one job: rename the netdev when it appears. The reconciler owns
@@ -161,12 +178,19 @@ The phase-1 `McControl` shim reproduces the exact sequence `ls-addni`/`ls-listni
 use. Use `--script` for machine-parseable output (returns just the object id),
 avoiding fragile table scraping.
 
-Create + connect (our `create_dpni` + `connect`):
+Create + connect (our `create_dpni` + `connect`). **A DPNI is not usable alone**:
+`dpaa2-eth` *allocates* a DPBP, a DPMCP, and one DPCON per queue from the container's
+pool at probe, backed by a per-core DPIO pool. Those objects must already exist, so
+`create_dpni` provisions them first exactly as `ls-addni`'s own `create_dpni` does
+(corrects the original E4 assumption — the driver does **not** create them):
 ```
-dpni=$(restool --script dpni create --options="$options" $dpni_args)
-        # dpni_args: num_queues (default = nproc), num_tcs, mac_entries,
-        # vlan_entries, qos_entries, fs_entries, num_cgs, container, num_channels
-restool dprc assign $container --object=$dpni --plugged=1   # plug → driver binds
+# private dependencies first (each created then `dprc assign --plugged=1`)
+#   ensure one dpio per core (+ a companion dpmcp each) — idempotent top-up
+#   dpbp create; dpmcp create; N× (dpcon create --num-priorities=2), N = num_queues
+dpni=$(restool --script dpni create --num-queues=$nproc $dpni_args)
+        # dpni_args: num_tcs, mac_entries, vlan_entries, qos_entries, fs_entries, …
+[restool dpni update $dpni --mac-addr=$mac]                 # actuate mode only
+restool dprc assign $container --object=$dpni --plugged=1   # plug → driver probes
 restool dprc connect $container --endpoint1=$dpni --endpoint2=$dpmac
 restool dprc sync                                           # force bus rescan
 ```
@@ -221,9 +245,15 @@ and existing objects persist in the MC untouched.
 - A created DPNI netdev **inherits the connected DPMAC's MAC** (verified: dpni.7→
   dpmac.7 gave MAC …29 = dpmac.7's MAC). MACs are sequential and readable from
   `restool dpmac info` ahead of time → naming needs no MAC actuation.
-- `dpaa2-eth` **auto-allocates DPBP/DPCON/DPMCP per interface at probe** (verified:
-  connecting a DPNI spawned dpbp.N + ~16 dpcon + dpmcp). We provision only DPNI +
-  connection; buffer pools are out of scope.
+- **CORRECTION (verified on board 2026-07-05):** `dpaa2-eth` does **not** create
+  DPBP/DPCON/DPMCP — it *allocates* them from objects that must already exist in the
+  container. A minimal DPNI + connect fails at probe with
+  `fsl_mc_dprc: No more resources of type dpcon left`. The earlier observation that
+  "connecting a DPNI spawned dpbp.N + ~16 dpcon + dpmcp" was in fact `ls-addni`
+  creating them. `create_dpni` must therefore provision a DPBP, a DPMCP, one DPCON
+  per queue, and top up the per-core DPIO pool — exactly as `ls-addni`'s own
+  `create_dpni` does (see `ls-main`). This is confined to the `dpaa2-mc` adapter; the
+  core model is unchanged.
 - `dprc.1` has **no `firmware_version` attribute** on MC 10.32.0.
 - Unconnected DPMACs each appear as a placeholder netdev `macN`; connecting a DPNI
   replaces `macN` with the `dpaa2-eth` `ethX`. Origin of `macN` naming TBD (E6).
@@ -236,8 +266,10 @@ Resolved:
 - **E2 — RESOLVED:** indices per the board-findings table above.
 - **E3 — RESOLVED (best case):** netdev inherits the DPMAC's stable MAC; naming keys
   on it with no MAC actuation. Assert mode is sufficient; MAC actuation deferred.
-- **E4 — RESOLVED (favorable):** minimal DPNI + connect yields a working netdev; the
-  driver auto-creates DPBP/DPCON/DPMCP. No buffer-pool provisioning needed.
+- **E4 — REOPENED then RESOLVED (unfavorable, 2026-07-05):** minimal DPNI + connect
+  does **not** yield a working netdev — the driver allocates DPBP/DPCON/DPMCP/DPIO
+  from a pool that must be pre-provisioned. `create_dpni` now creates a DPBP, a
+  DPMCP, one DPCON per queue, and tops up the per-core DPIO pool (mirrors `ls-addni`).
 - **E5 — RESOLVED (probe changed):** no `firmware_version` attr; readiness must be
   probed by issuing an MC command (e.g. `dprc info`) and retrying — see D5.
 

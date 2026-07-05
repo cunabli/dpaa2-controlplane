@@ -14,11 +14,14 @@ rust-version = "1.95"
 
 [workspace.dependencies]
 dpaa2-api = { path = "crates/dpaa2-api" }
+dpaa2-config = { path = "crates/dpaa2-config" }
 dpaa2-mc = { path = "crates/dpaa2-mc" }
 thiserror = "2"
 serde = { version = "1", features = ["derive"] }
 toml = "0.8"
+clap = { version = "4", features = ["derive"] }
 tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 [workspace.lints.rust]
 missing_docs = "warn" 

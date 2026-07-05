@@ -3,5 +3,28 @@ name = "dpaa2-tools"
 version.workspace = true
 license.workspace = true
 edition.workspace = true
+description.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[lib]
+name = "dpaa2_tools"
+path = "src/lib.rs"
+
+[[bin]]
+name = "dpaa2ctl"
+path = "src/main.rs"
 
 [dependencies]
+dpaa2-api.workspace = true
+dpaa2-config.workspace = true
+dpaa2-mc.workspace = true
+clap.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+[dev-dependencies]
+dpaa2-api = { workspace = true, features = ["testkit"] }
+
+[lints]
+workspace = true

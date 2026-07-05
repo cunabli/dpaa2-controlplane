@@ -1,6 +1,6 @@
 ## Why
 
-On the SolidRun ClearFog LX2160A, DPAA2 network interfaces do not exist as kernel
+On the LX2160A board, DPAA2 network interfaces do not exist as kernel
 netdevs until the NXP Management Complex (MC) firmware is up and DPAA2 objects
 (DPNI, DPMAC) have been created and connected via the MC portal, then bound by the
 `fsl_dpaa2_eth` driver. This provisioning is *hardware configuration*, must run

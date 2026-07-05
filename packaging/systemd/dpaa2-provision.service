@@ -1,0 +1,37 @@
+[Unit]
+Description=DPAA2 DPNI provisioning (reconcile MC firmware to topology.toml)
+Documentation=https://github.com/cunabli/dpaa2-controlplane
+# Provisioning is hardware configuration and must finish before the network stack
+# tries to configure the resulting interfaces (design D5).
+Wants=network-pre.target
+Before=network-pre.target
+After=systemd-udevd.service
+# Nothing to do without a desired topology.
+ConditionPathExists=/etc/dpaa2/topology.toml
+# Started causally when dprc.1 appears (see 99-dpaa2-provision.rules); the readiness
+# probe below waits for the MC to actually respond, since MC 10.32.0 exposes no
+# firmware_version attribute to stat.
+# Bounds in-boot retries from a transient restool/MC hiccup (see Restart= below).
+StartLimitIntervalSec=60
+StartLimitBurst=3
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# A transient restool/MC hiccup mid-`ensure` should retry in-boot, not fail the
+# unit for the whole boot.
+Restart=on-failure
+RestartSec=5
+# Safety net over our own tools' internal deadlines (wait-ready/ensure below both
+# self-limit to 60s); this unit runs Before=network-pre.target, so a bug that lets
+# either hang past its own deadline must not stall boot indefinitely.
+TimeoutStartSec=90
+# Block until the Management Complex answers an MC command (issues `restool`).
+ExecStartPre=/usr/bin/dpaa2ctl wait-ready --timeout 60
+# Generate .link naming, reload udev, then converge MC state to the topology.
+ExecStart=/usr/bin/dpaa2ctl ensure --deadline 60
+# Report divergence without failing the boot; status is a diagnostic surface.
+ExecReload=/usr/bin/dpaa2ctl ensure --deadline 60
+
+[Install]
+WantedBy=multi-user.target
