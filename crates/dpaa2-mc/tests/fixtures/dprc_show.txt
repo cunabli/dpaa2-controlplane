@@ -1,0 +1,10 @@
+dprc.1 contains 14 objects:
+object          label           plugged-state
+dpmac.17                        plugged
+dpni.0          eth0            plugged
+dpmac.3                         unplugged
+dpmac.7                         plugged
+dpni.7          wan0            plugged
+dpbp.0                          plugged
+dpcon.0                         plugged
+dpmcp.1                         plugged

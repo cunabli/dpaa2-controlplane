@@ -1,0 +1,6 @@
+dpmac version: 4.4
+dpmac object id/portal id: 5
+link type: DPMAC_LINK_TYPE_FIXED
+eth interface: CAUI
+max rate: 25000 Mbps
+mac address: 00:00:00:00:00:1f

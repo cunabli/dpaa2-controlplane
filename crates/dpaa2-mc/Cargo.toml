@@ -3,5 +3,13 @@ name = "dpaa2-mc"
 version.workspace = true
 license.workspace = true
 edition.workspace = true
+description.workspace = true
+repository.workspace = true
+rust-version.workspace = true
 
 [dependencies]
+dpaa2-api.workspace = true
+tracing.workspace = true
+
+[lints]
+workspace = true

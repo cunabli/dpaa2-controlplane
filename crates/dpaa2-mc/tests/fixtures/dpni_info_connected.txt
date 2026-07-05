@@ -1,0 +1,14 @@
+dpni version: 7.8
+dpni id: 7
+plugged state: plugged
+endpoint state: 1
+endpoint: dpmac.7, link is up
+link status: 1 - up
+mac address: 00:00:00:00:00:29
+dpni_attr_options value is: 0x0
+num_queues: 8
+num_tcs: 1
+mac_filter_entries: 16
+vlan_filter_entries: 0
+qos_entries: 0
+fs_entries: 64

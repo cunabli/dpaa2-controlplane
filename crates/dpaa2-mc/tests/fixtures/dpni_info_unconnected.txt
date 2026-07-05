@@ -1,0 +1,9 @@
+dpni version: 7.8
+dpni id: 9
+plugged state: plugged
+endpoint state: 0
+endpoint: No object associated
+link status: 0 - down
+mac address: 00:00:00:00:00:00
+num_queues: 8
+num_tcs: 1
