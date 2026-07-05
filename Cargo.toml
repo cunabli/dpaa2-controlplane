@@ -13,7 +13,10 @@ license = "Apache-2.0"
 rust-version = "1.95"
 
 [workspace.dependencies]
+dpaa2-api = { path = "crates/dpaa2-api" }
 thiserror = "2"
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
 
 [workspace.lints.rust]
 missing_docs = "warn" 

@@ -1,0 +1,25 @@
+# DPAA2 desired topology for the LX2160A board.
+#
+# Each [[port]] is keyed by its stable DPMAC anchor. The DPNI index is NEVER named
+# here — a managed DPNI's identity is derived from its connection edge to the DPMAC
+# (design D1). Board mapping (verified 2026-07-04, MC 10.32.0):
+#   dpmac.3-6   = QSFP28 breakout, 25G (CAUI)
+#   dpmac.7-10  = SFP+ cage, 10G (XFI)
+#   dpmac.17    = onboard 1G management (already dpni.0 — do NOT list here)
+#
+# `mac` is optional. When present it is asserted by default (verified against the
+# netdev's inherited DPMAC MAC, never written). Set `mac_mode = "actuate"` only to
+# have the reconciler set the DPNI primary MAC.
+
+[[port]]
+dpmac = "dpmac.7"
+name = "lan0"
+
+[[port]]
+dpmac = "dpmac.8"
+name = "lan1"
+
+# Example 25G port on the QSFP28 breakout:
+# [[port]]
+# dpmac = "dpmac.3"
+# name = "wan0"
