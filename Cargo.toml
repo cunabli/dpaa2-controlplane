@@ -18,7 +18,7 @@ dpaa2-config = { path = "crates/dpaa2-config" }
 dpaa2-mc = { path = "crates/dpaa2-mc" }
 thiserror = "2"
 serde = { version = "1", features = ["derive"] }
-toml = "0.8"
+toml = "1.1"
 clap = { version = "4", features = ["derive"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
