@@ -17,7 +17,7 @@ jobs:
         with:
           fetch-depth: 0
       - name: Install git-cliff
-        uses: taiki-e/install-action@v2.85.8
+        uses: taiki-e/install-action@v2.85.12
         with:
           tool: git-cliff
       - name: Generate release notes
@@ -58,7 +58,7 @@ jobs:
           toolchain: ${{ matrix.rust }}
           target: ${{ matrix.job.target }}
       - name: Install cross
-        uses: taiki-e/install-action@v2.85.8
+        uses: taiki-e/install-action@v2.85.12
         with:
           tool: cross
       - name: Build release binary
