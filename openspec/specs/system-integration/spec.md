@@ -1,7 +1,9 @@
 # system-integration Specification
 
 ## Purpose
-TBD - created by archiving change add-dpaa2-provisioning. Update Purpose after archive.
+Define how the reconciler is triggered causally on MC readiness, ordered before
+network configuration, and how stable interface names are applied via
+`systemd.link`.
 ## Requirements
 ### Requirement: Reconciler is triggered causally on MC readiness
 The reconciler SHALL be started by a systemd unit gated on the appearance of the MC
@@ -25,16 +27,18 @@ resulting interfaces, ordered before `network-pre.target`.
   to configure the DPAA2 interfaces
 
 ### Requirement: Stable naming via MAC match, presentation-only udev
-Stable interface names SHALL be applied by `systemd.link` files matching each port's
-known MAC address and setting the desired name. These files SHALL be generated at
+Stable interface names SHALL be applied by `systemd.link` files that match each
+port's MAC address and set the desired name. These files SHALL be generated at
 runtime from the topology into `/run/systemd/network/` (not shipped as static files
-and not produced by a systemd generator), and the reconciler SHALL reload udev link
-configuration before provisioning so the config is loaded before the netdev appears.
-udev/`systemd.link` SHALL be used only for renaming (presentation) and SHALL NOT be
-part of the reconciliation trigger or fan-out.
+and not produced by a systemd generator). Because a port's matchable MAC lives on its
+DPNI and does not exist until the DPNI is provisioned — by which point the kernel has
+already named the netdev — the reconciler SHALL generate the `.link` files after
+convergence and SHALL apply the rename to the existing interface via a per-interface
+udev retrigger. udev/`systemd.link` SHALL be used only for renaming (presentation)
+and SHALL NOT be part of the reconciliation trigger or fan-out.
 
 #### Scenario: Netdev renamed by MAC match
-- **WHEN** a DPAA2 netdev appears with a port's known MAC
+- **WHEN** a provisioned DPNI's netdev carries the port's inherited MAC
 - **THEN** it is renamed to that port's configured name via the generated
   `systemd.link` file in `/run/systemd/network/`
 

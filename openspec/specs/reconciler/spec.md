@@ -1,7 +1,9 @@
 # reconciler Specification
 
 ## Purpose
-TBD - created by archiving change add-dpaa2-provisioning. Update Purpose after archive.
+Define the backend-neutral domain model of MC objects and the pure
+`reconcile(desired, observed) -> Plan` engine that computes the transitions to
+converge observed MC state toward operator intent.
 ## Requirements
 ### Requirement: Topology is modeled as an object graph with lifecycle state
 The `dpaa2-api` crate SHALL model the topology as a graph of typed MC objects, each

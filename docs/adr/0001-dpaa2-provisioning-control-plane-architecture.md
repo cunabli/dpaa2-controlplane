@@ -99,11 +99,11 @@ containable precisely because it lives entirely in the southbound adapter.
 The design assumed the `.link` could match the **DPMAC's** MAC, read ahead of time, and
 be written *before* provisioning so udev caught the netdev-add event. Two errors:
 
-1. `restool dpmac info` reports **no usable MAC** on this board. The address lives on the
-   **DPNI**, inherited from the DPMAC at connect (the board's globally-unique burned-in
-   MAC, e.g. `d0:63:b4:04:96:25` — distinct from the DPNI's *random* locally-administered
-   *permanent* MAC, which would drift per boot). Matching must source the MAC declared →
-   connected-DPNI → DPMAC.
+1. `restool dpmac info` **shows** a MAC, but it is not reliable ahead of connect: the
+   address that lands on the netdev is inherited by the **DPNI** from the DPMAC at
+   connect (the board's globally-unique burned-in MAC, e.g. `d0:63:b4:04:96:25` —
+   distinct from the DPNI's *random* locally-administered *permanent* MAC, which would
+   drift per boot). Matching must source the MAC declared → connected-DPNI → DPMAC.
 2. The DPNI (hence its MAC) does not exist until `create_dpni` plugs it, by which point
    the kernel has already named the netdev `eth1`. So `.link` generation must run **after**
    convergence, and the rename must be *force-applied* to the existing interface via a

@@ -7,8 +7,9 @@
       MC command (e.g. `dprc info`) and retry
 - [x] 0.4 E3: netdev inherits the DPMAC's stable MAC (no actuation needed); naming
       keys on it via `systemd.link`
-- [x] 0.5 E4: minimal DPNI + connect yields a working netdev; driver auto-allocates
-      DPBP/DPCON/DPMCP — no buffer-pool provisioning needed
+- [x] 0.5 E4: minimal DPNI + connect does NOT yield a working netdev; `dpaa2-eth`
+      allocates DPBP/DPCON/DPMCP from a container pool that must already exist, so
+      `create_dpni` provisions them (+ per-core DPIO) as `ls-addni` does
 - [x] 0.6 restool v2.4 present (MC 10.32.0 compatible)
 - [x] 0.7 E6: `macN` = `fsl_dpaa2_mac` kernel name kept by stock `99-default.link`;
       zero permanent MAC → no collision with our MAC-keyed `10-dpaa2-*.link`
@@ -76,8 +77,9 @@
 - [x] 6.1 systemd unit gated on `dprc.1` readiness, ordered `Before=network-pre.target`
 - [x] 6.2 One-line udev poke on `dprc.1` add (trigger once; no reconciliation in udev)
 - [x] 6.3 Generate `systemd.link` files (MAC → stable name) into
-      `/run/systemd/network/` from the topology; `udevadm control --reload` before
-      provisioning (reconciler-owned; not a systemd generator)
+      `/run/systemd/network/` from the topology after convergence, then re-trigger
+      udev per interface to apply the rename (reconciler-owned; not a systemd
+      generator) — the DPNI MAC does not exist until provisioning
 - [x] 6.4 Handle fixed-link ports with no rename stage
 - [x] 6.5 Install layout: binary, unit, `.link`, `/etc/dpaa2/topology.toml`
 - [x] 6.6 End-to-end validation on the board (cold boot → named interfaces)

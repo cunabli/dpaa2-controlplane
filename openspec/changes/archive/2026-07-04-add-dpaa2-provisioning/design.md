@@ -94,11 +94,12 @@ state (kept as fallback if MAC-match proves unworkable); MC object labels (only 
 labels are settable and persist — unverified).
 
 **REVISED after board testing (2026-07-05).** Two assumptions above were wrong:
-1. *The matchable MAC is not on the DPMAC.* `restool dpmac info dpmac.3` reports no
-   usable MAC on this board; the address lives on the **DPNI** (inherited from the
-   DPMAC at connect — the board's burned-in MAC, e.g. `d0:63:b4:04:96:25`, distinct
-   from the DPNI's random locally-administered *permanent* MAC). `link::match_mac`
-   now sources it declared → connected-DPNI → DPMAC.
+1. *The matchable MAC is not reliable before connect.* `restool dpmac info` does show
+   a MAC, but the address that lands on the netdev is the burned-in MAC the **DPNI**
+   inherits from the DPMAC *at connect* (e.g. `d0:63:b4:04:96:25`, distinct from the
+   DPNI's random locally-administered *permanent* MAC); it cannot be read and pinned
+   ahead of provisioning. `link::match_mac` now sources it declared → connected-DPNI
+   → DPMAC.
 2. *Generation cannot precede provisioning.* The DPNI (hence its MAC) does not exist
    until `create_dpni` plugs it, by which point the kernel has already named the
    netdev `eth1`. So generation moved to **after** `converge`, and `link::apply`
@@ -243,8 +244,10 @@ and existing objects persist in the MC untouched.
 - The original `dpaa2-init-design.md` port mapping (dpmac.3/4 = 10G, dpmac.17 =
   25G) is **incorrect for this board** and is superseded by the table above.
 - A created DPNI netdev **inherits the connected DPMAC's MAC** (verified: dpni.7→
-  dpmac.7 gave MAC …29 = dpmac.7's MAC). MACs are sequential and readable from
-  `restool dpmac info` ahead of time → naming needs no MAC actuation.
+  dpmac.7 gave MAC …29 = dpmac.7's MAC) → naming needs no MAC actuation. `restool
+  dpmac info` shows the MAC, but the value only lands on the netdev once the DPNI
+  inherits it at connect, so naming reads it from the connected DPNI rather than
+  pinning it ahead of time (see the D3 revision).
 - **CORRECTION (verified on board 2026-07-05):** `dpaa2-eth` does **not** create
   DPBP/DPCON/DPMCP — it *allocates* them from objects that must already exist in the
   container. A minimal DPNI + connect fails at probe with

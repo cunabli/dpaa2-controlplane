@@ -16,7 +16,7 @@ The DPAA2 control plane installs four kinds of artifact on the Debian target. Na
 ```
 dprc.1 add ──udev poke──▶ dpaa2-provision.service
                               │ ExecStartPre: dpaa2ctl wait-ready   (probe MC command, retry)
-                              │ ExecStart:    dpaa2ctl ensure       (generate .link, reload udev, converge)
+                              │ ExecStart:    dpaa2ctl ensure       (converge, then generate .link + retrigger udev rename)
                               ▼
                          named ethX before network-pre.target
 ```

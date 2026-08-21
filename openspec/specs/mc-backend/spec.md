@@ -1,7 +1,9 @@
 # mc-backend Specification
 
 ## Purpose
-TBD - created by archiving change add-dpaa2-provisioning. Update Purpose after archive.
+Define the southbound `McControl`/`KernelControl` ports and the phase-1 `restool`
+shim that observes and actuates fsl-mc objects behind them, so the core stays free
+of any transport.
 ## Requirements
 ### Requirement: Southbound is split into MC control and kernel control ports
 The system SHALL define two southbound ports as traits in `dpaa2-api`:
@@ -30,14 +32,23 @@ lint intact.
 - **THEN** it compiles under `unsafe_code = "forbid"`
 
 ### Requirement: MC operations are expressed at MC-command granularity
-The `McControl` trait SHALL expose operations at the granularity of individual MC
-commands (create one object, connect one edge, etc.), not at "provision a whole
-port" granularity, so that a future ioctl implementation maps one-to-one onto MC
-firmware commands behind the same trait.
+The `McControl` trait SHALL expose object operations at MC-command granularity
+(connect one edge, set one MAC, disconnect, destroy) so that a future ioctl
+implementation maps one-to-one onto MC firmware commands behind the same trait.
+Creating a DPNI is the one coarse exception discovered on the board: `dpaa2-eth`
+*allocates* a DPBP, a DPMCP, and one DPCON per queue from a container pool that must
+already exist, so `create_dpni` SHALL provision those private dependencies (and top
+up the per-core DPIO pool), mirroring `ls-addni`, rather than leave a bare DPNI that
+fails at probe.
 
 #### Scenario: Connect is a single-edge operation
 - **WHEN** the executor connects a DPNI to a DPMAC
 - **THEN** it issues one `McControl` connect call for that single edge
+
+#### Scenario: Creating a DPNI provisions its private dependencies
+- **WHEN** `create_dpni` runs against a container missing the driver's pool objects
+- **THEN** it provisions a DPBP, a DPMCP, and one DPCON per queue and tops up the
+  per-core DPIO pool before the DPNI is plugged
 
 ### Requirement: Binding and netdev observation live in KernelControl
 `KernelControl` SHALL perform driver binding via the kernel's sysfs bind interface

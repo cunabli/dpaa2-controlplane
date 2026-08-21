@@ -1,7 +1,8 @@
 # topology-config Specification
 
 ## Purpose
-TBD - created by archiving change add-dpaa2-provisioning. Update Purpose after archive.
+Parse and validate the declarative operator topology and convert it into the
+backend-neutral desired-state model, keyed by stable DPMAC anchors.
 ## Requirements
 ### Requirement: Declarative topology is keyed by stable DPMAC anchors
 The system SHALL read a declarative topology in which each port is identified by its

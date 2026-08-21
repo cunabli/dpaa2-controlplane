@@ -1,12 +1,16 @@
 # provisioning-cli Specification
 
 ## Purpose
-TBD - created by archiving change add-dpaa2-provisioning. Update Purpose after archive.
+Define the `dpaa2ctl` binary and the imperative shell that drives observe →
+reconcile → act → wait → re-observe to convergence, exposing state and the
+desired-vs-actual delta as a first-class surface.
 ## Requirements
-### Requirement: CLI exposes reconcile, status, and dry-run
-The `dpaa2-tools` binary SHALL provide subcommands to reconcile the system toward
-the desired topology, to report status, and to preview actions without applying
-them. The dry-run output SHALL be the exact plan that reconcile would execute.
+### Requirement: CLI exposes scan, ensure, status, and dry-run
+The `dpaa2-tools` binary (`dpaa2ctl`) SHALL provide subcommands to observe the system
+(`scan`), reconcile it toward the desired topology (`ensure`), report status
+(`status`), and preview actions without applying them (`dry-run`). It SHALL also
+expose the MC-readiness probe (`wait-ready`) the boot unit gates on. The dry-run
+output SHALL be the exact plan that `ensure` would execute.
 
 #### Scenario: Dry-run applies nothing
 - **WHEN** the operator runs the dry-run subcommand
