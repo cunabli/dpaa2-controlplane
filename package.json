@@ -1,5 +1,11 @@
 {
 	"dependencies": {
 		"@fission-ai/openspec": "^1.5.0"
+	},
+	"devDependencies": {
+		"@informalsystems/quint": "0.32.0"
+	},
+	"config": {
+		"apalache_version": "0.62.1"
 	}
 }

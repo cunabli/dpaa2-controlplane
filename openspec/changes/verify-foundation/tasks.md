@@ -8,14 +8,14 @@ board task is an operator sitting sync point.
 
 ## 0. Tracking and toolchain scaffold
 
-- [ ] 0.1 Create the `verify-foundation` beads epic and one issue per
+- [x] 0.1 Create the `verify-foundation` beads epic and one issue per
       task below, wiring dependencies (0 → 1 → 2 → 3 → 4 → 5 serial →
       6) and instantiating the six-point DoD per issue
-- [ ] 0.2 Add the Quint toolchain via pnpm and pin Apalache; create the
+- [x] 0.2 Add the Quint toolchain via pnpm and pin Apalache; create the
       `models/` skeleton (core/, families/, retro/, traces/,
       COVERAGE.md stub) and the `dpaa2-verify` crate skeleton in the
       workspace
-- [ ] 0.3 Amend ADR-0003 §8: the Mellanox decision point fires in this
+- [x] 0.3 Amend ADR-0003 §8: the Mellanox decision point fires in this
       change; record flagged dpmac.7/9 for reachability-level traffic
       now, revert question re-decided at change #9 (design D8)
 

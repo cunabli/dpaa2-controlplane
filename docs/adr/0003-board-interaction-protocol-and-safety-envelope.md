@@ -1,6 +1,7 @@
 # ADR-0003: Board interaction protocol and port safety envelope
 
-- **Status:** Accepted — scoping session 2026-08-22
+- **Status:** Accepted — scoping session 2026-08-22; §8 amended
+  2026-08-22 by `verify-foundation` (change #2)
 - **Date:** 2026-08-22
 - **Supersedes / relates to:** OpenSpec change `restool-baseline` (design
   D4–D5); ADR-0002 (the MBT modes that run under this protocol)
@@ -75,13 +76,21 @@ It is treated as an explicit *assumption* until `verify-foundation`
 
 ### 8. Decision point: Mellanox device-tree revert
 
-Before the first traffic-bearing phase (change #9, `cross-dprc-links`),
-choose between (a) careful flagged use of dpmac.7/9 against the production
-peer, or (b) reverting the device tree so dpmac.3 lands on the on-board
-Mellanox — removing the forbidden external wire and gaining a local,
-non-production peer that suites can hammer freely. (b) is preferred on paper
-but changes board configuration; it is decided when reached. Until then
-dpmac.3 remains total-deny.
+Before the first traffic-bearing phase, choose between (a) careful
+flagged use of dpmac.7/9 against the production peer, or (b) reverting
+the device tree so dpmac.3 lands on the on-board Mellanox — removing the
+forbidden external wire and gaining a local, non-production peer that
+suites can hammer freely. (b) is preferred on paper but changes board
+configuration; it is decided when reached.
+
+**Amended 2026-08-22 — the decision point fired at change #2, not #9.**
+`verify-foundation` pulled traffic-bearing scenarios forward, making it
+the first traffic-bearing phase. Outcome: option (a) — per-run-flagged
+use of dpmac.7/9 — is exercised there, limited to reachability-level
+traffic (minimal frames through configured object groups, no rate
+targets, nothing restarts or reconfigures the peer). Option (b) is not
+foreclosed: it is re-decided at change #9 (`cross-dprc-links`) when
+sustained traffic suites arrive. Until then dpmac.3 remains total-deny.
 
 ## Consequences
 
@@ -107,4 +116,6 @@ dpmac.3 remains total-deny.
 - ADR-0002 — batch/online MBT definitions.
 - `docs/baseline/traffic-inventory.md` — the scenario inventory this ADR's
   matrix governs.
-- `docs/ROADMAP.md` — Mellanox decision point at change #9.
+- `docs/ROADMAP.md` — Mellanox decision point, re-decided at change #9.
+- OpenSpec change `verify-foundation`, `design.md` D8 — the early firing
+  of the §8 decision point.

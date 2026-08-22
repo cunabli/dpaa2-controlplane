@@ -38,13 +38,16 @@ All 16 families are ported; tiers order the work, they do not cut it.
 
 ## Decision points
 
-- **Mellanox DT revert (at #9, before the first traffic-bearing suite).**
-  Choose between (a) careful, flagged use of dpmac.7/9 against the cn10k
-  production peer, or (b) reverting the device tree so dpmac.3 lands on the
-  on-board Mellanox — which removes the forbidden external wire and gains a
-  local, non-production, link-up-capable peer that suites can hammer freely.
-  (b) is preferred on paper but changes board configuration and is decided
-  when reached. Until then dpmac.3 remains total-deny (ADR-0003).
+- **Mellanox DT revert (fired at #2; re-decided at #9 before sustained
+  traffic suites).** Choose between (a) careful, flagged use of dpmac.7/9
+  against the cn10k production peer, or (b) reverting the device tree so
+  dpmac.3 lands on the on-board Mellanox — which removes the forbidden
+  external wire and gains a local, non-production, link-up-capable peer
+  that suites can hammer freely. `verify-foundation` (#2) became the first
+  traffic-bearing phase, so the decision fired early: (a) is exercised
+  there at reachability level only; (b) stays open and is re-decided at
+  #9 when sustained traffic arrives (ADR-0003 §8, amended). Until then
+  dpmac.3 remains total-deny.
 - **DPL tape-out (#14).** Stays on the table, deprioritized; nothing earlier
   depends on it, so it can never hold the series hostage.
 - **TLA+ escalation (any model).** Taken per-model only when Apalache cannot
