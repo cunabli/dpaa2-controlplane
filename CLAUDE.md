@@ -30,6 +30,7 @@ This rust monorepo stores the following crates/:
 
 The repository also contains:
 - docs/adr/: numbered decision records that track the current agreement as to what the library and crates target, what do not target, and its parts to do so
+- docs/ROADMAP.md: contains the current design and execution roadmap for all the features planned and their state is tracked in openspecs
 - README.md: succinct and clear presentation of the problem, the solution and an example of use
 - CHANGELOG.md: semver-style description of the sequence of changes and entirely managed with cliff automatically
 
@@ -44,9 +45,10 @@ The repository also contains:
 - Development workflow is complete when `cargo build | fmt | clippy | clippy --tests | doc` all pass
 - Git commits messages are conventional and include assistance authorship, reference to spec phase, and describe why the change takes place succinctly and simple words
 - Git commit content is self standing, it is amendable until sealed, and branches may be forked off to help reordering commits for independent review
+- docs/{adr,ROADMAP.md} are always kept up to date after changes
 
 
-<!-- BEGIN BEADS INTEGRATION v:1 profile:minimal hash:970c3bf2 -->
+<!-- BEGIN BEADS INTEGRATION v:1 profile:minimal hash:6cd5cc61 -->
 ## Beads Issue Tracker
 
 This project uses **bd (beads)** for issue tracking. Run `bd prime` to see full workflow context and commands.
@@ -90,7 +92,6 @@ This protocol applies when ending a Beads implementation workflow. It is subordi
 
    # Team-maintainer opt-in only, unless current instructions forbid it:
    git pull --rebase
-   bd dolt push
    git push
    git status
    ```

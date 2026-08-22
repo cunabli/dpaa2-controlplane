@@ -1,0 +1,7 @@
+{
+  "database": "dolt",
+  "backend": "dolt",
+  "dolt_mode": "embedded",
+  "dolt_database": "dpaa2_controlplane",
+  "project_id": "4ec6fa67-41fc-4424-a6a9-346f34e2207e"
+}
