@@ -86,7 +86,7 @@ order (0.1 → `.1` … 7.3 → `.25`). `bd list --parent dpaa2-controlplane-mru
 
 ## 7. Close-out
 
-- [ ] 7.1 Verify every spec requirement scenario against the produced
+- [x] 7.1 Verify every spec requirement scenario against the produced
       documents; fill unknown/unverified registers honestly
 - [ ] 7.2 Cross-link: family docs ↔ object-model ↔ ROADMAP ↔ ADRs;
       CHANGELOG flows from conventional commits
