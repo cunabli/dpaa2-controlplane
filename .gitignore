@@ -9,3 +9,7 @@ output
 *.db
 .beads-credential-key
 .beads/proxieddb/
+
+# Board captures: operator material (MACs, topology details) — never committed
+/results
+/scripts
