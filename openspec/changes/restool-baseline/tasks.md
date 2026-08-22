@@ -63,8 +63,8 @@ order (0.1 → `.1` … 7.3 → `.25`). `bd list --parent dpaa2-controlplane-mru
 
 ## 4. Tier B family documents
 
-- [ ] 4.1 `dpdmux.md` — demux topologies, kernel/VPP sharing relevance
-- [ ] 4.2 `dpsw.md` — switch object, port model, control-interface options
+- [x] 4.1 `dpdmux.md` — demux topologies, kernel/VPP sharing relevance
+- [x] 4.2 `dpsw.md` — switch object, port model, control-interface options
 
 ## 5. Tier C family documents
 
