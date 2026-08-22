@@ -6,7 +6,8 @@ dpni, dpmac, dpbp, dpio, dpcon, dpmcp, dpseci, dpdmux, dpsw, dpaiop, dpci,
 dpdcei, dpdmai, dprtc, dpdbg — under `docs/baseline/`, each following the
 same template: command surface, option inventory, attribute mutability,
 MC API notes, kernel-side behavior, lifecycle ordering and dependencies,
-intent mapping, silent-failure notes, and an unknown/unverified register.
+intent mapping, silent-failure notes, invariant candidates, and an
+unknown/unverified register.
 
 #### Scenario: Family document exists and is complete
 - **WHEN** a reader opens `docs/baseline/<family>.md` for any of the 16
