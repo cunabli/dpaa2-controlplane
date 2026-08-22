@@ -77,7 +77,7 @@ order (0.1 → `.1` … 7.3 → `.25`). `bd list --parent dpaa2-controlplane-mru
 
 - [x] 6.1 `object-model.md` — relationship map: containment, connect edges,
       create-vs-allocate, allocation pools, lifecycle ordering
-- [ ] 6.2 `traffic-inventory.md` — scenario classification against the port
+- [x] 6.2 `traffic-inventory.md` — scenario classification against the port
       safety matrix (spec: no scenario names dpmac.3)
 - [ ] 6.3 Analyze `ls-main`/`ls-debug`/`ls-append-dpl` end-to-end and place
       each script behavior in the family documents' used-by columns
