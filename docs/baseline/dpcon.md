@@ -7,86 +7,111 @@ Claim markers, used per claim throughout: **[read]** = derived from source or
 manual, not yet observed; **[verified]** = observed on the board against the
 pinned reference environment (see `reference-environment.md`).
 
-Findings are written to be provable: every behavioral claim names its
-**observables** (which query shows it) and, where it constrains or enables a
-transition, is distilled into the Invariant candidates section below as a
-precise proposition a Quint model can carry — either invariant-bearing (a
-property the model must uphold) or invariant-breaking (a plausible belief
-the corpus shows is false, which the model must not encode).
+Findings are written to be provable: behavioral claims name their
+observables and are distilled into the Invariant candidates section as
+propositions a Quint model can carry — invariant-bearing or
+invariant-breaking.
+
+The DPCON is a QBMan concentrator channel: it aggregates frame queues so
+one consumer (a dpni queue's servicing core) dequeues them through one
+channel with priority levels. It is an allocatable pool object (shared
+mechanics: `dpbp.md`); the kernel eth driver draws **one dpcon per
+channel** — the C1 resource that, when missing, produced the original
+"No more resources of type dpcon left" probe failure (ADR-0001)
+[verified].
 
 ## Command surface
 
-What restool exposes for this family (`create`, `destroy`, `info`, `update`,
-…), with the ioctl/MC command each maps to where known.
-
-_Not yet populated._
+restool v2.4: 4 verbs (`dpcon_commands.c:475-493`) [read]. `info` prints
+id, version, plugged state, **`qbman channel id`** (the id used by
+dequeue operations — distinct from the object id), num-priorities,
+label.
 
 ## Option inventory: used vs available
 
-Every option of every command, each marked **used** (by which of
-`ls-main`/`ls-debug`/`ls-append-dpl`, with the default value it passes) or
-**available-but-unused** (with semantics from source or manual).
+One create option: `--num-priorities` (1–8, **default 2** — unlike
+dpio's default of 8), plus `--container` [read]. Used by: ls-addni
+(`--num-priorities=2`, `min(num_queues, ncores)` dpcons per dpni);
+our dprc-script mirrors the recipe for kernel-linked dpnis [verified].
+ls-addsw/ls-addmux create none (their consumers use ANY-CPU FQDANs, no
+concentrator) [read].
 
-_Not yet populated._
+Gap in the vendor recipe [read]: ls-addni's dpcon count follows
+`--num-queues` and **ignores `--num-channels`** — a multi-channel dpni
+is silently under-provisioned; and a mid-loop dpcon create failure just
+stops the loop and proceeds with fewer.
 
 ## Attribute mutability
 
-Create-time-immutable vs mutable-at-runtime, per attribute. Immutable-
-attribute drift is refused, never repaired, by the reconciler; this
-classification feeds the typestate design.
-
-_Not yet populated._
+`num_priorities` is the only create field, immutable. Runtime:
+`dpcon_set_notification` (re)targets the channel at a DPIO with a
+priority and user context; `DPCON_INVALID_DPIO_ID` (-1) disables
+notifications. The priority ceiling in that call is the **DPIO's**
+priority count, not the dpcon's own [read].
 
 ## MC API notes
 
-MC 10.x command-format details, version-gated behavior from `mc-utils/api`
-deltas, firmware-side semantics not visible in restool's C.
-
-_Not yet populated._
+The dpcon flib is **byte-identical between MC 10.32.0 and 10.39.0** —
+no delta for the pinned pair [read, mc-utils diff].
 
 ## Kernel-side behavior (Linux 6.6.52)
 
-Driver binding, allocation from container pools, sysfs/netdev surfaces, udev
-reactions — where the kernel, not restool, defines the observable semantics.
-
-_Not yet populated._
+- Sole in-tree pool consumer: dpaa2-eth, one per channel =
+  `min(CPUs with affine dpio, dpni.num_queues)`. Lifecycle:
+  allocate → open → **reset** → enable → get_attributes; free:
+  disable → close → object_free — **no reset on release** (dirty
+  objects circulate; DPBP-I3's pattern) [read].
+- The **qbman channel id** (`qbman_ch_id`), not the object id, goes
+  into the notification context and CDAN setup — two id spaces, same
+  trap as dpbp's bpid [read].
+- dpaa2-eth always registers the io service **before**
+  `dpcon_set_notification` (the documented ordering contract) and
+  always uses **priority 0** — the created priority levels (2 by
+  recipe) are unused capacity in the kernel path [read].
+- Exhaustion: first dpcon missing → silent `-EPROBE_DEFER`; shortage
+  *after* the first → "Not enough DPCONs, will go on as-is" and a
+  degraded probe with dark queues (dpni.md DPNI-I5) [read].
 
 ## Lifecycle ordering and dependencies
 
-What must exist first, what allocates vs creates, ordering constraints for
-create/connect/plug/destroy.
-
-_Not yet populated._
+Create + plug before the consumer dpni (C1) [verified]; count = one per
+polled queue per consumer. The DPDK/VPP child container follows the
+same one-per-queue shape via its own claim path [verified in use].
+Teardown returns to pool without reset; `dpcon destroy` requires
+unbinding from `fsl_mc_allocator` first [read].
 
 ## Intent mapping
 
-Which network construct(s) of the intent layer this family serves, and the
-derivation rules that size or place it.
-
-_Not yet populated._
+Derived companion of dpni sizing: `#dpcon = min(num_queues, consumer
+cores)` per dpni (kernel regime), one per polled queue (VPP regime).
+`--num-priorities=2` is the deployed constant; nothing in the corpus
+consumes priority > 0, so the intent layer treats priorities as an
+opaque vendor default until a consumer needs them [read/verified].
 
 ## Silent-failure notes
 
-Known ways this family fails quietly (misconfiguration accepted, drops with
-no counter, state that looks converged but is not). Feeds the loudness
-invariants of the models.
-
-_Not yet populated._
+- Post-first-dpcon exhaustion degrades the consumer quietly (dark
+  queues, info-level log) — the strongest pool-family instance of
+  probe-success ≠ full-function [read].
+- ls-addni proceeds after a mid-loop dpcon create failure [read].
+- No reset on pool return [read].
+- restool `destroy` error overwritten by close in child containers
+  (family-wide) [read].
 
 ## Invariant candidates
 
-The section's findings distilled into checkable propositions, one row per
-candidate: a stable id (`dpcon-I<n>`), the proposition (state predicate,
-transition precondition/postcondition, or temporal property — precise enough
-to transcribe into Quint), the observables that check it, and its status
-(candidate / board-pending / verified / refuted). Negative knowledge is
-listed too, as invariant-breaking entries ("the model must NOT assume …").
-
-_Not yet populated._
+| Id | Proposition | Observables | Status |
+|---|---|---|---|
+| DPCON-I1 | Companion cardinality: a kernel-bound dpni consumes exactly `min(affine-dpio CPUs, num_queues)` dpcons; consumer probe outcome is monotone in pool free-count with threshold 1 (defer below, degrade between 1 and full, complete at full) | pool free-count vs probe result vs channel count | verified (C1 + shortfall path [read]) |
+| DPCON-I2 | Two id spaces: dequeue/notification addressing uses `qbman_ch_id`, never the object id; the model must carry both per dpcon | `dpcon info` channel id vs object id | candidate |
+| DPCON-I3 | **Breaking:** the model must NOT assume created priority capacity is used — every in-corpus consumer drives priority 0 only; priorities are create-immutable dead weight until proven otherwise | CDAN configs; consumer source | candidate |
+| DPCON-I4 | Notification retargeting is the one mutable edge: dpcon→dpio binding can change at runtime (set_notification), and disabling is expressed as dpio id −1, not a separate state | `set_notification` sequences + dequeue behavior | candidate |
+| DPCON-I5 | **Breaking:** pool membership ⇒ clean state is false (no reset on free) — shared with DPBP-I3 | re-allocated dpcon state before consumer reset | candidate |
 
 ## Unknown / unverified register
 
-Claims that could not be established from the corpus, recorded as candidates
-for board validation — never omitted, never guessed.
-
-_Not yet populated._
+1. What MC does with priority values 1–7 on dequeue when the consumer
+   never configures them (scheduling semantics unobserved).
+2. Whether `dpcon_reset` clears a live notification target.
+3. The DPDK child-container dpcon claim path's exact count expression
+   (behaviorally one-per-queue [verified]; source outside corpus).

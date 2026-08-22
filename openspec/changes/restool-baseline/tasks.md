@@ -51,14 +51,14 @@ order (0.1 → `.1` … 7.3 → `.25`). `bd list --parent dpaa2-controlplane-mru
 
 - [x] 3.1 `dprc.md` — containment, assign/plug, pools, generate-dpl noted
       as tape-out seed
-- [ ] 3.2 `dpni.md` — extend from ADR-0001/C1-C2 knowledge; full option
+- [x] 3.2 `dpni.md` — extend from ADR-0001/C1-C2 knowledge; full option
       inventory vs ls-addni
-- [ ] 3.3 `dpmac.md` — link types, MAC inheritance semantics (C2), counters
-- [ ] 3.4 `dpbp.md` + `dpio.md` + `dpcon.md` + `dpmcp.md` — pool objects,
+- [x] 3.3 `dpmac.md` — link types, MAC inheritance semantics (C2), counters
+- [x] 3.4 `dpbp.md` + `dpio.md` + `dpcon.md` + `dpmcp.md` — pool objects,
       including the paid-for sizing rules (DPIO ≥ 2·(1+workers), two-DPBP,
       DPCON per queue, DPMCP companions) with their vpp-dpaa2-support
       evidence anchors
-- [ ] 3.5 `dpseci.md` — SEC queue pairs, priorities, congestion; anchor to
+- [x] 3.5 `dpseci.md` — SEC queue pairs, priorities, congestion; anchor to
       the crypto ADRs in vpp-dpaa2-support
 
 ## 4. Tier B family documents
