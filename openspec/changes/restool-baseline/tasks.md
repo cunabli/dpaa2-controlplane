@@ -68,7 +68,7 @@ order (0.1 → `.1` … 7.3 → `.25`). `bd list --parent dpaa2-controlplane-mru
 
 ## 5. Tier C family documents
 
-- [ ] 5.1 `dpaiop.md`, `dpci.md`, `dpdcei.md`, `dpdmai.md`, `dprtc.md`,
+- [x] 5.1 `dpaiop.md`, `dpci.md`, `dpdcei.md`, `dpdmai.md`, `dprtc.md`,
       `dpdbg.md` — same template; each MUST answer board-exercisability on
       this DPC (design Open Questions) and resolve whether dpdbg is an
       object family or a debug facade
