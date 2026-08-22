@@ -75,7 +75,7 @@ order (0.1 → `.1` … 7.3 → `.25`). `bd list --parent dpaa2-controlplane-mru
 
 ## 6. Cross-cutting documents
 
-- [ ] 6.1 `object-model.md` — relationship map: containment, connect edges,
+- [x] 6.1 `object-model.md` — relationship map: containment, connect edges,
       create-vs-allocate, allocation pools, lifecycle ordering
 - [ ] 6.2 `traffic-inventory.md` — scenario classification against the port
       safety matrix (spec: no scenario names dpmac.3)
