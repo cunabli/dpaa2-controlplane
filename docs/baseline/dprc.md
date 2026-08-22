@@ -88,7 +88,19 @@ Constraints stated by restool's own help [read]:
 | `sync` | ls-main | after object creation batches |
 | `create --options=<mask>` | ls-append-dpl only | mask read from the DPL dts |
 
-ls-debug uses no dprc commands [read].
+ls-debug uses no dprc *commands*, but it mutates the family's kernel
+machinery: it disables `/sys/bus/fsl-mc/autorescan` bus-wide for its
+entire run and restores the prior value on exit (`ls-debug:309-314,75-80`)
+— while it runs, child-DPRC hot-plug rescans (the only automatic
+visibility path for child containers, see Kernel-side) are suppressed for
+every other actor on the system [read].
+
+ls-append-dpl's `create_dprc` accepts exactly three DPL container
+properties — `compatible`, `parent`, `options` — and **hard-exits on any
+other** (`ls-append-dpl:81-107`): the icid/portal-id pinning the DPL
+format can express (ch. 24) is refused by the script, not just absent
+from restool. Its `create_connection` issues every connect on a
+hardcoded `dprc.1` ancestor [read].
 
 Deletion (`ls-main`'s `ls-delete` verb) does not use `dprc destroy` for
 targeted removal at all: it walks the **kernel's device-link graph**

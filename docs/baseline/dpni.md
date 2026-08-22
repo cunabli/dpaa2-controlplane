@@ -107,6 +107,17 @@ ls-debug touches dpni only as a glob passed to the dpdbg dumper
 (`ls-debug:266,278`); ls-append-dpl is fully generic (DPL property names
 mechanically become `--long-options`) and has no dpni-specific code [read].
 
+**ls-listni** (`ls-main:1049-1096`) is the family's read-only consumer:
+`dprc list --full-path`, then per container an unanchored
+`dprc show | grep dpni` (labels containing "dpni" match too), then per
+dpni a scrape of rendered `dpni info` text for label and endpoint — two
+full info calls per dpni, each pulling all 7 statistics pages. The netdev
+name is resolved from sysfs under the **root-container path only**
+(`/sys/bus/fsl-mc/drivers/fsl_mc_dprc/<root>/<dpni>/net/`, retried up to
+`PROBE_MAX_TRIES=10000`): a child-container or VFIO-bound dpni — every
+VPP dpni on this board — spins the retry loop and then lists with no
+interface name, indistinguishable from a probe failure [read].
+
 ## Attribute mutability
 
 The create/runtime split is absolute and asymmetric [read,

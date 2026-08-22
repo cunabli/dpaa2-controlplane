@@ -79,7 +79,7 @@ order (0.1 → `.1` … 7.3 → `.25`). `bd list --parent dpaa2-controlplane-mru
       create-vs-allocate, allocation pools, lifecycle ordering
 - [x] 6.2 `traffic-inventory.md` — scenario classification against the port
       safety matrix (spec: no scenario names dpmac.3)
-- [ ] 6.3 Analyze `ls-main`/`ls-debug`/`ls-append-dpl` end-to-end and place
+- [x] 6.3 Analyze `ls-main`/`ls-debug`/`ls-append-dpl` end-to-end and place
       each script behavior in the family documents' used-by columns
 - [ ] 6.4 Seed `docs/upstream/findings.md` with divergences found during
       3–6

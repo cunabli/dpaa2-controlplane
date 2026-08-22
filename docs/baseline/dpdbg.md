@@ -49,7 +49,11 @@ actually drives): it lazily auto-creates dpdbg before *every* operation
 (existence probed by string-matching `info` output), then uses all five
 `set` modules and both `dump` forms. Its `destroy_dpdbg()` helper is
 **defined and never called** — the object, once created, is never removed
-[read]. Available-unused: `destroy`, `info` as an actual display (only
+[read]. Side effect beyond the family: for its whole run it disables
+`/sys/bus/fsl-mc/autorescan` bus-wide ("we manually handle this"),
+restoring the prior value via an EXIT trap — suppressing child-DPRC
+hot-plug visibility for every concurrent actor (see dprc.md,
+Kernel-side) [read]. Available-unused: `destroy`, `info` as an actual display (only
 substring-scanned), the get-api-version flib call (implemented, no verb).
 No shell completion, no restool.md entry — the family is undocumented in
 restool's own manual [read].
