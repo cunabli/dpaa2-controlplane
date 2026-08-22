@@ -12,6 +12,10 @@ observables and are distilled into the Invariant candidates section as
 propositions a Quint model can carry — invariant-bearing or
 invariant-breaking.
 
+Cross-family relationships are mapped in [object-model.md](object-model.md);
+the board scenarios that will settle this document's open items are
+classified in [traffic-inventory.md](traffic-inventory.md).
+
 The DPCON is a QBMan concentrator channel: it aggregates frame queues so
 one consumer (a dpni queue's servicing core) dequeues them through one
 channel with priority levels. It is an allocatable pool object (shared

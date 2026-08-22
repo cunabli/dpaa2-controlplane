@@ -12,6 +12,10 @@ observables and are distilled into the Invariant candidates section as
 propositions a Quint model can carry — invariant-bearing or
 invariant-breaking.
 
+Cross-family relationships are mapped in [object-model.md](object-model.md);
+the board scenarios that will settle this document's open items are
+classified in [traffic-inventory.md](traffic-inventory.md).
+
 Tier C question answered up front: dpdbg is a **real MC object family, not
 a facade** — it owns module id 0xf in the MC opcode space with the full
 canonical verb set, is created/destroyed against a dprc token, opened by

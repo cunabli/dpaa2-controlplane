@@ -12,6 +12,10 @@ observables and are distilled into the Invariant candidates section as
 propositions a Quint model can carry — invariant-bearing or
 invariant-breaking.
 
+Cross-family relationships are mapped in [object-model.md](object-model.md);
+the board scenarios that will settle this document's open items are
+classified in [traffic-inventory.md](traffic-inventory.md).
+
 The DPIO is a QBMan software portal: the per-CPU doorway for enqueue,
 dequeue, buffer acquire/release, and notifications. Unlike
 dpbp/dpcon/dpmcp it is **not an allocatable pool object** in the kernel

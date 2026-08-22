@@ -12,6 +12,10 @@ observables and are distilled into the Invariant candidates section as
 propositions a Quint model can carry — invariant-bearing or
 invariant-breaking.
 
+Cross-family relationships are mapped in [object-model.md](object-model.md);
+the board scenarios that will settle this document's open items are
+classified in [traffic-inventory.md](traffic-inventory.md).
+
 The DPDCEI fronts the DCE compression/decompression engine — an optional
 SoC block that **this platform has**: DPAA2UM rev 53 Table 2-1 (p. 2-8)
 lists DPDCEI platforms as LS2080, LS2088, **LX2160** [read, manual].

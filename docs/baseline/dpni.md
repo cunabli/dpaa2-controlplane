@@ -12,6 +12,10 @@ observables and are distilled into the Invariant candidates section as
 propositions a Quint model can carry — invariant-bearing or
 invariant-breaking.
 
+Cross-family relationships are mapped in [object-model.md](object-model.md);
+the board scenarios that will settle this document's open items are
+classified in [traffic-inventory.md](traffic-inventory.md).
+
 The DPNI (Data Path Network Interface) is the network-interface object: a
 consumer (kernel `fsl_dpaa2_eth`, DPDK dpaa2 PMD) binds it to get an
 ingress/egress datapath, and it connects to a DPMAC (physical port), another

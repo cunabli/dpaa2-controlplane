@@ -12,6 +12,10 @@ observables and are distilled into the Invariant candidates section as
 propositions a Quint model can carry — invariant-bearing or
 invariant-breaking.
 
+Cross-family relationships are mapped in [object-model.md](object-model.md);
+the board scenarios that will settle this document's open items are
+classified in [traffic-inventory.md](traffic-inventory.md).
+
 The DPMCP is an MC command portal: a small MMIO window through which a
 software context sends the 64-byte MC commands every other family runs
 on. It carries no datapath function — it is the **control plane's own

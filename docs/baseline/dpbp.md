@@ -12,6 +12,10 @@ observables and are distilled into the Invariant candidates section as
 propositions a Quint model can carry — invariant-bearing or
 invariant-breaking.
 
+Cross-family relationships are mapped in [object-model.md](object-model.md);
+the board scenarios that will settle this document's open items are
+classified in [traffic-inventory.md](traffic-inventory.md).
+
 The DPBP is a QBMan buffer pool. It is the simplest object family — no
 create options at all — and the archetype of the **allocatable pool
 object**: consumers (dpni via `fsl_dpaa2_eth` or the DPDK PMD, dpsw)

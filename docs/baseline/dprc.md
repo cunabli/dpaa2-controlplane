@@ -12,6 +12,10 @@ observables and are distilled into the Invariant candidates section as
 propositions a Quint model can carry — invariant-bearing or
 invariant-breaking.
 
+Cross-family relationships are mapped in [object-model.md](object-model.md);
+the board scenarios that will settle this document's open items are
+classified in [traffic-inventory.md](traffic-inventory.md).
+
 The DPRC (Data Path Resource Container) is the container family everything
 else lives in: a software context (kernel, VPP, a VM) is associated with one
 DPRC holding every object and resource it may use; parents spawn descendant

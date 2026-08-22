@@ -16,6 +16,10 @@ precise proposition a Quint model can carry — either invariant-bearing (a
 property the model must uphold) or invariant-breaking (a plausible belief
 the corpus shows is false, which the model must not encode).
 
+Cross-family relationships are mapped in [object-model.md](object-model.md);
+the board scenarios that will settle this document's open items are
+classified in [traffic-inventory.md](traffic-inventory.md).
+
 ## Command surface
 
 What restool exposes for this family (`create`, `destroy`, `info`, `update`,

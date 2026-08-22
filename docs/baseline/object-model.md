@@ -6,7 +6,11 @@ from a family document and carries its anchor — `(dpni.md, DPNI-I4)` means
 the claim, its evidence, and its verification status live there. This doc
 adds no new evidence; it arranges the per-family facts into the five views
 a typestate design and a Quint lifecycle model need: containment, connect
-edges, create-vs-allocate, allocation pools, and lifecycle ordering.
+edges, create-vs-allocate, allocation pools, and lifecycle ordering. The
+change series that consumes this map is sequenced in
+[../ROADMAP.md](../ROADMAP.md); the process rules the views lean on are
+ADR-0003 (board envelope) and ADR-0006 (single-initiating-writer) under
+[../adr/](../adr/).
 
 ## 1. Containment: the DPRC tree
 

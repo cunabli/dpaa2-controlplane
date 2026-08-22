@@ -12,6 +12,10 @@ observables and are distilled into the Invariant candidates section as
 propositions a Quint model can carry — invariant-bearing or
 invariant-breaking.
 
+Cross-family relationships are mapped in [object-model.md](object-model.md);
+the board scenarios that will settle this document's open items are
+classified in [traffic-inventory.md](traffic-inventory.md).
+
 The DPMAC represents a physical MAC/SerDes port. It is the identity anchor
 of the whole control plane (ADR-0001 §3): dpmac ids are fixed by the DPC,
 never renumber, and a port is keyed by its dpmac, with the dpni derived by

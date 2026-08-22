@@ -40,6 +40,14 @@ failed run self-heals on the next one and interface names never drift from inten
 - **Architecture & rationale** — [`docs/adr/0001-dpaa2-provisioning-control-plane-architecture.md`](docs/adr/0001-dpaa2-provisioning-control-plane-architecture.md),
   including the non-obvious hardware behaviours the design had to accommodate.
 - **Behavioural contract** — the capability specs under [`openspec/specs/`](openspec/specs/).
+- **Object baselines** — one document per DPAA2 object family under
+  [`docs/baseline/`](docs/baseline/), joined by the
+  [cross-family relationship map](docs/baseline/object-model.md) and the
+  [validation traffic inventory](docs/baseline/traffic-inventory.md), all
+  pinned to the [reference environment](docs/baseline/reference-environment.md).
+- **Port series roadmap** — [`docs/ROADMAP.md`](docs/ROADMAP.md); process
+  decisions as numbered ADRs under [`docs/adr/`](docs/adr/); upstream-shareable
+  divergences in [`docs/upstream/findings.md`](docs/upstream/findings.md).
 - **On-board deployment** (systemd unit, udev trigger, install layout) — [`packaging/README.md`](packaging/README.md).
 - **API reference** — [docs.rs](https://docs.rs/dpaa2-controlplane), or `cargo doc --open`.
 
