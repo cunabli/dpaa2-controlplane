@@ -345,6 +345,18 @@ mod tests {
         // The same trace under a flagged link-signaling run passes.
         assert!(check_trace(LINK_FLAGGED, &trace).is_ok());
 
+        // The V-LINK setup shape: a flagged link run rewiring dpmac.7
+        // away from the boot dpni.1. dpni.1 is a consumer object, not the
+        // management NIC — only dpni.0 is total-deny — so it passes.
+        assert!(
+            check_text(
+                LINK_FLAGGED,
+                "restool dprc disconnect dprc.1 --endpoint=dpni.1\n\
+                 restool dprc connect dprc.1 --endpoint1=dpni.1 --endpoint2=dpmac.7"
+            )
+            .is_ok()
+        );
+
         // A link run touching the unwired set exceeds its ports.
         let unwired = trace_of(&[ModelAction::LinkChange { obj: dpmac(4) }]);
         assert!(check_trace(LINK_FLAGGED, &unwired).is_err());

@@ -788,11 +788,15 @@ pub fn drive(action: &ModelAction, pre: &MachineView, names: &Binding) -> Result
             // Root, for the same reason connect is: disconnect is the
             // other half of the same topology-change privilege, and a
             // default-created container's handle does not hold it.
+            //
+            // Singular `--endpoint`, not connect's numbered pair: restool
+            // takes either end of the edge and removes the whole link
+            // (`dprc_commands.c`, cmd_dprc_disconnect).
             cmd(argv(&[
                 "dprc",
                 "disconnect",
                 names.name(ROOT_DPRC)?,
-                &format!("--endpoint1={}", names.endpoint(*e)?),
+                &format!("--endpoint={}", names.endpoint(*e)?),
             ]))
         }
         // Design recipe: `dprc sync` after mutations; the model's rescan
@@ -860,6 +864,10 @@ pub struct Expected {
     pub endpoint: Option<Option<EndpointRef>>,
     /// A driver claims the device in sysfs.
     pub driver_bound: Option<bool>,
+    /// Live link status, as `<fam> info` prints it. Defaulted so plan
+    /// files written before this field existed still deserialize.
+    #[serde(default)]
+    pub link_up: Option<bool>,
 }
 
 impl Expected {
@@ -870,6 +878,7 @@ impl Expected {
             plugged: None,
             endpoint: None,
             driver_bound: None,
+            link_up: None,
         }
     }
 }
@@ -914,10 +923,31 @@ pub fn readback(
         ModelAction::CreateContainer { parent } => show(*parent),
         ModelAction::CreateObject { container, .. } => show(*container),
         ModelAction::AssignChild { dst, .. } => show(*dst),
-        ModelAction::Plug { obj } | ModelAction::Unplug { obj } => show(parent_of(post, *obj)?),
+        ModelAction::Plug { obj } => show(parent_of(post, *obj)?),
+        // Unplug is also the kernel's unbind trigger (DPRC-I2), so the
+        // driver link is part of what it must be read back on.
+        ModelAction::Unplug { obj } => {
+            let mut probes = show(parent_of(post, *obj)?)?;
+            probes.extend(driver(*obj)?);
+            Ok(probes)
+        }
         ModelAction::Destroy { obj } => show(parent_of(pre, *obj)?),
         ModelAction::ConnectEdge { a, .. } => info(*a),
         ModelAction::DisconnectEdge { e } => info(*e),
+        // A link change has no driving command, but it does have a
+        // read-back: the object's own `info`, which is where restool
+        // renders link status. A connected object gets its peer's `info`
+        // captured beside it — the peer's `, link is up` is DPRC
+        // *connection* state, and the whole point of DPMAC-I5 is that it
+        // does not move with the link. Capturing both in one step is the
+        // evidence for that split; only the first probe is judged.
+        ModelAction::LinkChange { obj } => {
+            let mut probes = info(EndpointRef { obj: *obj, port: 0 })?;
+            if let Some(peer) = post.peer_of(*obj) {
+                probes.extend(info(peer)?);
+            }
+            Ok(probes)
+        }
         ModelAction::KernelBind { obj }
         | ModelAction::VfioBind { obj }
         | ModelAction::Unbind { obj } => driver(*obj),
@@ -946,6 +976,28 @@ pub fn expect(
             .ok_or_else(|| format!("{o} not in post-state"))?
             .plugged)
     };
+    // Only asserted for families whose `info` renders link status the
+    // model can predict ([`renders_link_status`]); for the rest the
+    // expectation stays silent rather than claim an unobservable field.
+    let link_of = |o: ObjRef| -> Result<Option<bool>, String> {
+        renders_link_status(o.fam)
+            .then(|| {
+                Ok(post
+                    .objs
+                    .get(&o)
+                    .ok_or_else(|| format!("{o} not in post-state"))?
+                    .link_up)
+            })
+            .transpose()
+    };
+    let bound_of = |o: ObjRef| -> Result<bool, String> {
+        Ok(post
+            .objs
+            .get(&o)
+            .ok_or_else(|| format!("{o} not in post-state"))?
+            .bind
+            != BindView::Unbound)
+    };
     Ok(match action {
         ModelAction::CreateContainer { .. } | ModelAction::CreateObject { .. } => {
             let created =
@@ -956,11 +1008,19 @@ pub fn expect(
                 ..Expected::about(created)
             })
         }
-        ModelAction::AssignChild { obj, .. }
-        | ModelAction::Plug { obj }
-        | ModelAction::Unplug { obj } => Some(Expected {
+        ModelAction::AssignChild { obj, .. } | ModelAction::Plug { obj } => Some(Expected {
             present: Some(true),
             plugged: Some(plugged_of(*obj)?),
+            ..Expected::about(*obj)
+        }),
+        // `assign --plugged=0` is the kernel's unbind trigger (DPRC-I2),
+        // and the model's `unplugT` releases the bind with the plug — so
+        // the driver must be gone by the read-back. Read from the
+        // post-state rather than restated here, as everywhere else.
+        ModelAction::Unplug { obj } => Some(Expected {
+            present: Some(true),
+            plugged: Some(plugged_of(*obj)?),
+            driver_bound: Some(bound_of(*obj)?),
             ..Expected::about(*obj)
         }),
         ModelAction::Destroy { obj } => Some(Expected {
@@ -969,7 +1029,13 @@ pub fn expect(
         }),
         ModelAction::ConnectEdge { a, b } => Some(Expected {
             endpoint: Some(Some(*b)),
+            link_up: link_of(a.obj)?,
             ..Expected::about(a.obj)
+        }),
+        ModelAction::LinkChange { obj } => Some(Expected {
+            present: Some(true),
+            link_up: link_of(*obj)?,
+            ..Expected::about(*obj)
         }),
         ModelAction::DisconnectEdge { e } => Some(Expected {
             endpoint: Some(post.peer_of(e.obj)),
@@ -981,13 +1047,7 @@ pub fn expect(
             // the probe leaves them unbound. The trace's post-state is
             // where that verdict lives, so read it rather than restate
             // the table here.
-            driver_bound: Some(
-                post.objs
-                    .get(obj)
-                    .ok_or_else(|| format!("{obj} not in post-state"))?
-                    .bind
-                    != BindView::Unbound,
-            ),
+            driver_bound: Some(bound_of(*obj)?),
             ..Expected::about(*obj)
         }),
         ModelAction::Unbind { obj } => Some(Expected {
@@ -1011,6 +1071,8 @@ pub struct Observed {
     pub endpoint: Option<Option<String>>,
     /// A driver claims the device in sysfs.
     pub driver_bound: Option<bool>,
+    /// Live link status as `<fam> info` renders it.
+    pub link_up: Option<bool>,
 }
 
 /// Parses probe outputs into an [`Observed`], for the object named
@@ -1033,6 +1095,12 @@ pub fn observe(
         ));
     }
     let mut obs = Observed::default();
+    // A step may carry more than one `info` probe, and only the first is
+    // the observation: a link change also probes its peer, whose output
+    // is captured as evidence of the DPMAC-I5 split and must not be read
+    // as this object's answer. First `info` wins; later ones live in
+    // their result file.
+    let mut info_read = false;
     for (probe, out) in probes.iter().zip(outputs) {
         match probe {
             Probe::Restool(v)
@@ -1046,10 +1114,25 @@ pub fn observe(
                 obs.plugged = row.map(|l| !l.split_whitespace().any(|t| t == "unplugged"));
             }
             Probe::Restool(v) if v.get(1).map(String::as_str) == Some("info") => {
-                obs.endpoint = Some(parse_endpoint_line(
-                    v.first().map_or("", String::as_str),
-                    out,
-                ));
+                if !info_read {
+                    info_read = true;
+                    if reports_absent(out) {
+                        // Not an info block at all: the object is not
+                        // there, and a nonexistent object has no peer.
+                        obs.present = Some(false);
+                        obs.endpoint = Some(None);
+                    } else {
+                        obs.endpoint = Some(parse_endpoint_line(
+                            v.first().map_or("", String::as_str),
+                            out,
+                        ));
+                        // Nothing on stdout is the object's absence too:
+                        // restool sends some of its errors to stderr,
+                        // which the probe discards.
+                        obs.present = Some(!out.trim().is_empty());
+                        obs.link_up = parse_link_status_line(out);
+                    }
+                }
             }
             Probe::Restool(v) => {
                 return Err(format!("unrecognized read-back probe: {v:?}"));
@@ -1063,6 +1146,16 @@ pub fn observe(
         }
     }
     Ok(obs)
+}
+
+/// Whether an `<fam> info` capture is restool's "no such object" answer
+/// rather than an info block. restool prints `<obj> does not exist` on
+/// *stdout*, so the probe captures it verbatim (board V-LINK-2 step 0:
+/// `dpni.1 does not exist`, the consumer container absent on a bare
+/// boot). Read as an ordinary info it would look like a present object
+/// with no endpoint line; it is the opposite — an absent one.
+fn reports_absent(info_output: &str) -> bool {
+    info_output.trim().ends_with("does not exist")
 }
 
 /// The peer object reference an `<fam> info` read-back reports, e.g.
@@ -1087,6 +1180,49 @@ fn parse_endpoint_line(fam: &str, info_output: &str) -> Option<String> {
     let token = line.split(',').next()?.trim();
     let (kind, _idx) = token.split_once('.')?;
     kind.starts_with("dp").then(|| token.to_owned())
+}
+
+/// The live link status an `<fam> info` read-back reports, or `None`
+/// when the output carries no such line.
+///
+/// restool prints it as `link status: <n> - up` / `- down` / `- error
+/// state` (`dpci_commands.c:245`, `dpni_commands.c:621`); the numeric
+/// field is the same value spelled twice, so the word is what is read.
+///
+/// This is deliberately NOT the `, link is up` that `dpmac info` and the
+/// `endpoint:` line of `dpni info` append (`dpmac_commands.c:190`,
+/// `dpni_commands.c:520`). That text is the DPRC *connection* state that
+/// `dprc_get_connection` returned, not MAC link state, and reading it as
+/// link state is exactly what DPMAC-I5 forbids — the different wording
+/// is what keeps it out of this parse.
+fn parse_link_status_line(info_output: &str) -> Option<bool> {
+    let line = info_output
+        .lines()
+        .find_map(|l| l.trim().strip_prefix("link status:"))?;
+    match line.rsplit('-').next()?.trim() {
+        "up" => Some(true),
+        "down" => Some(false),
+        // "error state", or wording a later restool invents: unobserved
+        // beats guessed.
+        _ => None,
+    }
+}
+
+/// Whether `<fam> info` renders a link status the model can predict, and
+/// so whether a step's expectation may assert one.
+///
+/// dpci and dpni. A dpci link has no PHY behind it — DPCI-I5 holds that
+/// it follows the two ends' consumer enables, which the model carries —
+/// so the model's `linkUp` is the whole answer. `dpni info` prints the
+/// identical `link status:` line (`dpni_commands.c:621`), and the V-LINK
+/// scenarios put the cable behind it into the model: an operator drives
+/// the physical flap and the trace's `linkChange` steps carry the state
+/// it produces, so the field is predicted and therefore asserted.
+///
+/// dpmac stays out: it prints no link status at all, only the DPRC
+/// connection state that DPMAC-I5 forbids reading as one.
+fn renders_link_status(fam: Family) -> bool {
+    matches!(fam, Family::Dpci | Family::Dpni)
 }
 
 /// Whether `<fam> info` reports peers as one block per interface rather
@@ -1204,6 +1340,13 @@ pub fn judge(
             "driver_bound",
             want.to_string(),
             observed.driver_bound.map(|b| b.to_string()),
+        );
+    }
+    if let Some(want) = expected.link_up {
+        check(
+            "link_up",
+            want.to_string(),
+            observed.link_up.map(|b| b.to_string()),
         );
     }
     Ok(StepVerdict {
@@ -1325,7 +1468,8 @@ mod tests {
             ]))])
         );
 
-        // Disconnect is the same privilege, so the same container.
+        // Disconnect is the same privilege, so the same container — and
+        // one `--endpoint`, since either end names the whole edge.
         let disconnect = ModelAction::DisconnectEdge {
             e: EndpointRef {
                 obj: dpci(0),
@@ -1338,7 +1482,7 @@ mod tests {
                 "dprc",
                 "disconnect",
                 "dprc.1",
-                "--endpoint1=dpci.0",
+                "--endpoint=dpci.0",
             ]))])
         );
     }
@@ -1618,6 +1762,53 @@ mod tests {
         assert_eq!(obs.driver_bound, Some(false));
     }
 
+    /// restool answers `info` on an object that is not there with
+    /// `<obj> does not exist`, on stdout. V-LINK-2 step 0 meets it on a
+    /// bare boot: the consumer container and its dpni were captured from
+    /// a provisioned moment and do not exist yet, so the auxiliary
+    /// disconnect no-ops and reads this back. It must observe an absent
+    /// object with no peer — and the step's `endpoint=none` expectation
+    /// must keep passing on it.
+    #[test]
+    fn observe_reads_does_not_exist_as_an_absent_object() {
+        let info = Probe::Restool(argv(&["dpni", "info", "dpni.1"]));
+        let obs = observe(&[info], &["dpni.1 does not exist\n".to_owned()], "dpni.1").unwrap();
+        assert_eq!(obs.present, Some(false));
+        assert_eq!(obs.endpoint, Some(None));
+        assert_eq!(obs.link_up, None);
+
+        let names = Binding::seed(&state(Some((1, true))));
+        let v = judge(
+            &Expected {
+                endpoint: Some(None),
+                ..Expected::about(dpni(1))
+            },
+            &obs,
+            &names,
+            ExitEvidence { ok: true },
+        )
+        .unwrap();
+        assert!(v.pass, "{:?}", v.mismatches);
+
+        // Nothing more is claimed than absence: an expectation that the
+        // object is present fails against the same read-back.
+        let v = judge(
+            &Expected {
+                present: Some(true),
+                ..Expected::about(dpni(1))
+            },
+            &obs,
+            &names,
+            ExitEvidence { ok: true },
+        )
+        .unwrap();
+        assert!(!v.pass);
+        assert_eq!(
+            v.mismatches,
+            vec!["present: expected true, read back false"]
+        );
+    }
+
     #[test]
     fn binding_rejects_foreign_creates_and_unbound_refs() {
         let mut names = Binding::seed(&state(None));
@@ -1769,6 +1960,111 @@ mod tests {
         )
         .unwrap();
         assert_eq!(obs.endpoint, Some(Some("dpmac.4".to_owned())));
+    }
+
+    /// The dpci link line, in restool's own wording, and the dpmac line
+    /// that must never be read as one (DPMAC-I5).
+    #[test]
+    fn observe_reads_the_dpci_link_status_line_and_no_other() {
+        let dpci_info = |status: &str| {
+            format!(
+                "dpci version: 3.4\n\
+                 dpci id: 0\n\
+                 plugged state: unplugged\n\
+                 num_priorities: 1\n\
+                 connected peer: dpci.1\n\
+                 peer's num_of_priorities: 1\n\
+                 link status: {status}\n"
+            )
+        };
+        let probe = Probe::Restool(argv(&["dpci", "info", "dpci.0"]));
+
+        let obs = observe(
+            std::slice::from_ref(&probe),
+            &[dpci_info("0 - down")],
+            "dpci.0",
+        )
+        .unwrap();
+        assert_eq!(obs.link_up, Some(false));
+        let obs = observe(
+            std::slice::from_ref(&probe),
+            &[dpci_info("1 - up")],
+            "dpci.0",
+        )
+        .unwrap();
+        assert_eq!(obs.link_up, Some(true));
+        // Neither up nor down: unobserved beats guessed.
+        let obs = observe(&[probe], &[dpci_info("2 - error state")], "dpci.0").unwrap();
+        assert_eq!(obs.link_up, None);
+
+        // `dpmac info` says "link is up", and that is the DPRC connection
+        // state, not MAC link state (DPMAC-I5): it must not be read here.
+        let obs = observe(
+            &[Probe::Restool(argv(&["dpmac", "info", "dpmac.4"]))],
+            &["dpmac version: 4.5\nendpoint: dpni.5, link is up\n".to_owned()],
+            "dpmac.4",
+        )
+        .unwrap();
+        assert_eq!(obs.link_up, None);
+    }
+
+    /// The suite's whole point: connecting two dpcis with nothing enabled
+    /// must expect the link *down* — and a board that says otherwise must
+    /// fail the step, not slip through.
+    #[test]
+    fn connect_carries_the_link_expectation_for_dpci() {
+        let dpci = |num| ObjRef {
+            fam: Family::Dpci,
+            num,
+        };
+        let ep = |o| EndpointRef { obj: o, port: 0 };
+
+        let mut pre = state(None);
+        pre.objs
+            .insert(dpci(0), obj(Some(dprc1()), false, BindView::Unbound));
+        pre.objs
+            .insert(dpci(1), obj(Some(dprc1()), false, BindView::Unbound));
+        let mut post = pre.clone();
+        post.edges.insert((ep(dpci(0)), ep(dpci(1))));
+
+        let connect = ModelAction::ConnectEdge {
+            a: ep(dpci(0)),
+            b: ep(dpci(1)),
+        };
+        let e = expect(&connect, &pre, &post).unwrap().unwrap();
+        assert_eq!(e.link_up, Some(false));
+
+        // A board reporting the link up refutes DPCI-I5; the step fails.
+        let names = Binding::seed(&pre);
+        let v = judge(
+            &e,
+            &Observed {
+                endpoint: Some(Some("dpci.1".to_owned())),
+                link_up: Some(true),
+                ..Observed::default()
+            },
+            &names,
+            ExitEvidence { ok: true },
+        )
+        .unwrap();
+        assert!(!v.pass);
+        assert_eq!(
+            v.mismatches,
+            vec!["link_up: expected false, read back true"]
+        );
+
+        // A dpmac endpoint has no predictable link status, so the
+        // expectation stays silent rather than assert an unobservable.
+        let dpmac = ObjRef {
+            fam: Family::Dpmac,
+            num: 7,
+        };
+        let connect = ModelAction::ConnectEdge {
+            a: ep(dpmac),
+            b: ep(dpci(0)),
+        };
+        let e = expect(&connect, &pre, &post).unwrap().unwrap();
+        assert_eq!(e.link_up, None);
     }
 
     /// A bind step expects whatever the model's post-state says: a

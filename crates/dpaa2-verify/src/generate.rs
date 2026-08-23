@@ -160,7 +160,64 @@ fn expect_comment(e: &Expected) -> String {
     if let Some(b) = e.driver_bound {
         let _ = write!(s, " driver_bound={b}");
     }
+    if let Some(l) = e.link_up {
+        let _ = write!(s, " link={}", if l { "up" } else { "down" });
+    }
     s
+}
+
+/// The instruction an awaited step needs a human for, or `None` when the
+/// board takes the step on its own (a kernel probe, a pool draw) and a
+/// settle is all the script can do.
+///
+/// Enable, disable and link change are the ones nothing on the board can
+/// take: restool enables nothing (§5 step 7) and no command moves a PHY.
+/// The script stops there and says exactly what to do, so the read-back
+/// that follows observes the state the trace asked for rather than
+/// whatever the port happened to be doing.
+fn operator_instruction(
+    action: &ModelAction,
+    post: &MachineView,
+    names: &Binding,
+) -> Result<Option<String>, String> {
+    let netdev = |o: ObjRef, dir: &str| -> Result<String, String> {
+        Ok(format!(
+            "bring the consumer {dir}: find the netdev under /sys/bus/fsl-mc/devices/{}/net/ and ip link set <it> {dir}",
+            names.name(o)?
+        ))
+    };
+    Ok(match action {
+        ModelAction::Enable { obj } => Some(netdev(*obj, "up")?),
+        ModelAction::Disable { obj } => Some(netdev(*obj, "down")?),
+        ModelAction::LinkChange { obj } => {
+            // The cable hangs off the peer (a dpmac), so that is the port
+            // the operator is being asked about; an object with no edge
+            // can only name itself.
+            let wired = names.name(post.peer_of(*obj).map_or(*obj, |p| p.obj))?;
+            // The instruction names both faces of the link because a bare
+            // ack is not evidence: V-LINK-2's flap-down step was acked and
+            // then read the link still up, and a premature ack is
+            // indistinguishable from a real firmware finding. Two rev-2
+            // findings shape the wording. The stimulus must be physical —
+            // an admin-down of the peer interface leaves its transmitter
+            // lit, so carrier never drops on this side. And the MC-visible
+            // state lags the local carrier flag by longer than the probe
+            // delay, so the carrier flag alone still races the read-back;
+            // the operator must see restool's own `link status:` move too.
+            let dev = names.name(*obj)?;
+            let fam = obj.fam.as_str();
+            Some(if post.objs.get(obj).is_some_and(|o| o.link_up) {
+                format!(
+                    "restore the link facing {wired} (reinsert the cable), then verify both faces: cat /sys/class/net/<netdev>/carrier reads 1 (the netdev is under /sys/bus/fsl-mc/devices/{dev}/net/) and restool {fam} info {dev} shows link status: 1, and only then press enter"
+                )
+            } else {
+                format!(
+                    "take the link facing {wired} down physically (on this wiring an admin-down of the peer interface does not drop light, only pulling the cable does), then verify both faces: cat /sys/class/net/<netdev>/carrier reads 0 (the netdev is under /sys/bus/fsl-mc/devices/{dev}/net/) and restool {fam} info {dev} shows link status: 0, and only then press enter"
+                )
+            })
+        }
+        _ => None,
+    })
 }
 
 /// The script preamble: header, self-check, helpers, reference-pair
@@ -386,20 +443,42 @@ pub fn generate(
     // (model id, shell var, parent's rendered name) per created object;
     // the parent is needed for the trap's best-effort unplug.
     let mut teardown: Vec<(ObjRef, String, Option<String>)> = Vec::new();
+    // Boot edges the suite tears down: both ends were there at boot, so
+    // nothing this run destroys will restore them and the trap must.
+    let mut severed: Vec<(crate::adapter::EndpointRef, crate::adapter::EndpointRef)> = Vec::new();
     let mut steps = Vec::new();
 
     for (i, step) in trace.steps.iter().enumerate() {
         let title = format!("{:?}", step.action);
         let _ = write!(body, "\n# step {i}: {title}\n");
 
+        if let ModelAction::DisconnectEdge { e } = &step.action
+            && let Some(peer) = pre.peer_of(e.obj)
+            && trace.init.objs.contains_key(&e.obj)
+            && trace.init.objs.contains_key(&peer.obj)
+        {
+            severed.push((*e, peer));
+        }
+
         let created = crate::adapter::created_object(&pre, &step.post);
         let d = drive(&step.action, &pre, &sym).map_err(|e| format!("step {i}: {e}"))?;
         let driven = match &d {
             Drive::Await(why) => {
                 let _ = writeln!(body, "# awaited: {why}");
-                if !matches!(step.action, ModelAction::LinkChange { .. }) {
+                match operator_instruction(&step.action, &step.post, &sym)
+                    .map_err(|e| format!("step {i}: {e}"))?
+                {
+                    // The instruction is double-quoted so a created
+                    // object's runtime name expands into it.
+                    Some(what) => {
+                        let _ = writeln!(body, "printf '>> operator action: %s\\n' \"{what}\"");
+                        let _ = writeln!(body, "printf '   press enter when done: '");
+                        let _ = writeln!(body, "read -r _ack");
+                    }
                     // Give the kernel a moment before probing its work.
-                    let _ = writeln!(body, "sleep 1");
+                    None => {
+                        let _ = writeln!(body, "sleep 1");
+                    }
                 }
                 false
             }
@@ -531,6 +610,21 @@ pub fn generate(
             // the board, three bystanders at once. Waiting lets each
             // walk finish over a container nobody is still changing.
             trap.push_str("  sleep 2\n");
+        }
+        // Last, once the scratch objects that took the port are gone:
+        // put the boot wiring back. A severed reference-environment edge
+        // outlives the run otherwise, and the next boot is not a
+        // teardown the suite is allowed to assume.
+        for (a, b) in &severed {
+            let (Some(root), Ok(a), Ok(b)) = (root.as_ref(), sym.endpoint(*a), sym.endpoint(*b))
+            else {
+                return Err("cannot restore a severed boot edge: unresolved endpoint".to_owned());
+            };
+            let _ = writeln!(
+                trap,
+                "  # restore boot wiring severed by this suite (reference-environment edge)\n  \
+                 restool dprc connect {root} --endpoint1={a} --endpoint2={b} {log}\n  sleep 2"
+            );
         }
         trap.push_str("}\ntrap teardown EXIT\n");
         let footer = format!("\necho \"suite {} complete\"\n", spec.id);
@@ -843,6 +937,86 @@ mod tests {
         sh_parses(&s);
     }
 
+    /// A flap prompt must ask for evidence, not an ack: V-LINK-2's
+    /// flap-down step was acked and then read the link still up, and a
+    /// premature ack is indistinguishable from a real firmware finding.
+    /// Both directions name the carrier file under the object's own
+    /// netdev *and* the restool read-back, because the MC-visible state
+    /// lags the carrier flag; the down direction also says the stimulus
+    /// has to be physical. The emitted script still parses as sh — the
+    /// prompt is interpolated into a double-quoted printf argument.
+    #[test]
+    fn link_flap_prompts_demand_a_local_carrier_read() {
+        let dpni = ObjRef {
+            fam: Family::Dpni,
+            num: 2,
+        };
+        let dpmac = ObjRef {
+            fam: Family::Dpmac,
+            num: 7,
+        };
+        let ep = |o| crate::adapter::EndpointRef { obj: o, port: 0 };
+
+        let mut init = MachineView::default();
+        init.objs.insert(dprc(1), obj(None, true));
+        init.objs.insert(dpni, obj(Some(dprc(1)), true));
+        init.objs.insert(dpmac, obj(Some(dprc(1)), true));
+        init.edges.insert((ep(dpni), ep(dpmac)));
+        // One scratch create, so the trap the emitter always writes has a
+        // body: a flap-only trace is not a shape any suite has.
+        let mut made = init.clone();
+        made.objs.insert(dpbp(101), obj(Some(dprc(1)), false));
+        let mut up = made.clone();
+        up.objs.get_mut(&dpni).unwrap().link_up = true;
+        let mut down = up.clone();
+        down.objs.get_mut(&dpni).unwrap().link_up = false;
+
+        let mut spec = spec(SuiteKind::Standard);
+        spec.run = RunClass {
+            class: TrafficClass::LinkSignaling,
+            flagged: true,
+        };
+        let trace = MbtTrace {
+            init,
+            steps: vec![
+                MbtStep {
+                    action: ModelAction::CreateObject {
+                        fam: Family::Dpbp,
+                        container: dprc(1),
+                    },
+                    post: made,
+                },
+                MbtStep {
+                    action: ModelAction::LinkChange { obj: dpni },
+                    post: up,
+                },
+                MbtStep {
+                    action: ModelAction::LinkChange { obj: dpni },
+                    post: down,
+                },
+            ],
+        };
+        let s = generate(&spec, &trace, RecoveryGuarantee::Verified)
+            .unwrap()
+            .script;
+
+        assert!(s.contains(
+            "restore the link facing dpmac.7 (reinsert the cable), then verify both faces: \
+             cat /sys/class/net/<netdev>/carrier reads 1 \
+             (the netdev is under /sys/bus/fsl-mc/devices/dpni.2/net/) \
+             and restool dpni info dpni.2 shows link status: 1, and only then press enter"
+        ));
+        assert!(s.contains(
+            "take the link facing dpmac.7 down physically (on this wiring an admin-down of the \
+             peer interface does not drop light, only pulling the cable does), then verify both \
+             faces: cat /sys/class/net/<netdev>/carrier reads 0 \
+             (the netdev is under /sys/bus/fsl-mc/devices/dpni.2/net/) \
+             and restool dpni info dpni.2 shows link status: 0, and only then press enter"
+        ));
+
+        sh_parses(&s);
+    }
+
     #[test]
     fn scripts_are_reviewable_and_guarded() {
         let suite = generate(
@@ -891,6 +1065,71 @@ mod tests {
             .success();
         std::fs::remove_file(&path).ok();
         assert!(ok, "emitted script does not parse as sh");
+    }
+
+    /// Severing a boot edge is the one mutation destroying the scratch
+    /// set cannot undo, so the trap reconnects it — last, after every
+    /// destroy has released the port, and rendered from the endpoints the
+    /// trace actually cut.
+    #[test]
+    fn teardown_restores_a_severed_boot_edge() {
+        let dpni = ObjRef {
+            fam: Family::Dpni,
+            num: 1,
+        };
+        let dpmac = ObjRef {
+            fam: Family::Dpmac,
+            num: 7,
+        };
+        let ep = |o| crate::adapter::EndpointRef { obj: o, port: 0 };
+
+        let mut init = MachineView::default();
+        init.objs.insert(dprc(1), obj(None, true));
+        init.objs.insert(dpni, obj(Some(dprc(1)), true));
+        init.objs.insert(dpmac, obj(Some(dprc(1)), true));
+        init.edges.insert((ep(dpni), ep(dpmac)));
+        let mut s1 = init.clone();
+        s1.edges.clear();
+        let mut s2 = s1.clone();
+        s2.objs.insert(dpbp(101), obj(Some(dprc(1)), false));
+
+        let trace = MbtTrace {
+            init,
+            steps: vec![
+                MbtStep {
+                    action: ModelAction::DisconnectEdge { e: ep(dpni) },
+                    post: s1,
+                },
+                MbtStep {
+                    action: ModelAction::CreateObject {
+                        fam: Family::Dpbp,
+                        container: dprc(1),
+                    },
+                    post: s2,
+                },
+            ],
+        };
+        let mut spec = spec(SuiteKind::Standard);
+        spec.run = RunClass {
+            class: TrafficClass::LinkSignaling,
+            flagged: true,
+        };
+        let s = generate(&spec, &trace, RecoveryGuarantee::Verified)
+            .unwrap()
+            .script;
+
+        let restore = s
+            .find("restool dprc connect dprc.1 --endpoint1=dpni.1 --endpoint2=dpmac.7")
+            .expect("trap must reconnect the severed boot edge");
+        let destroy = s.find("restool dpbp destroy").unwrap();
+        let trap_end = s.find("}\ntrap teardown EXIT").unwrap();
+        assert!(destroy < restore, "restore comes after the destroys");
+        assert!(restore < trap_end, "restore stays inside the trap");
+        // Only a boot edge is restored: the disconnect is driven with
+        // restool's own singular option.
+        assert!(s.contains("restool dprc disconnect dprc.1 --endpoint=dpni.1"));
+
+        sh_parses(&s);
     }
 
     #[test]

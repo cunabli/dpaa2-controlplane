@@ -130,8 +130,14 @@ module main {
       // --- teardown mirror (§5) ---
       .then(disableAt(dpni0))
       .then(disconnectEdgeAt(ep(dpni0)))
-      .then(unplugAt(dpni0))          // kernel unbind trigger; draws released
+      // The board refuses --plugged=0 while a driver holds the object
+      // (V-LINK-5 step 14), so the teardown unbinds first; the unbind is
+      // what releases the census draws.
+      .then(unbindAt(dpni0))
+      .then(unplugAt(dpni0))
       .then(destroyAt(dpni0))
+      // dpio0 needs no unbind: the reference pair cannot hot-bind a
+      // runtime dpio (ADR-0008), so its probe above left it unbound.
       .then(unplugAt(dpio0))
       .then(destroyAt(dpio0))
       .then(unplugAt(dpmcp0))

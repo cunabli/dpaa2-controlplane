@@ -78,6 +78,41 @@ module machine {
 
   action init = s' = initialState
 
+  // The reference environment as a link scenario meets it
+  // (docs/baseline/reference-environment.md): the same boot population as
+  // `initialState`, plus the consumer child container dprc.2 and the boot
+  // edge `dpni` ↔ `mac` a scenario must sever before it can use the port
+  // itself. Additive — `init` and every module built on it are untouched.
+  pure def wiredState(dpni: ObjId, mac: ObjId): CoreState = {
+    // dprc.2 is listed *unplugged* in the parent's own listing
+    // (reference-environment.md, "child, labeled, unplugged in the
+    // parent's listing"), which is how the VPP container presents itself
+    // to the root — plugged state here is the parent's view, not the
+    // container's liveness.
+    val dprc2 = { fam: Dprc, num: 2 }
+    initialState
+      .with("objs", initialState.objs
+        .put(dprc2, bootObj(Some(dprc1), 2).with("plugged", false))
+        // The consumer's own dpni. Its VFIO/VPP bind is deliberately not
+        // modeled: no scenario probes it, and the container is never
+        // entered — only the root-side edge it holds is.
+        .put(dpni, bootObj(Some(dprc2), dpni.num)))
+      .with("dprcs", initialState.dprcs
+        // "options as root minus TOPOLOGY_CHANGES_ALLOWED" — which is why
+        // topology commands for objects inside it run on the root.
+        .put(dprc2, { icid: 2, perms: rootPerms.exclude(Set(TopologyChanges)),
+                      locked: false }))
+      .with("conns", Set(({ obj: dpni, port: 0 }, { obj: mac, port: 0 })))
+      // Both id spaces already have boot occupants here: dprc.2 is the
+      // child container, and the dpni space is taken up to dpni.1 —
+      // dpni.0 is the total-deny management NIC and dpni.1 is this boot
+      // object. A runtime create must not mint either number again.
+      .with("nextNum", initialState.nextNum.set(Dprc, 3).set(Dpni, 2))
+  }
+
+  action initWiredAt(dpni: ObjId, mac: ObjId): bool =
+    s' = wiredState(dpni, mac)
+
   // Highest endpointPorts across the family modules (dpsw/dpdmux at
   // model scope). Apalache demands constant integer ranges, so the port
   // range is constant-then-filtered rather than sized per family.
@@ -164,6 +199,16 @@ module machine {
   action unplugAt(o: ObjId): bool = all {
     s.objs.keys().contains(o),
     s.objs.get(o).plugged,
+    // The board refuses `dprc assign --plugged=0` while a driver holds
+    // the object: exit 240 (the 8-bit rendering of -EBUSY), the object
+    // still plugged and the driver still bound (V-LINK-5 step 14, on a
+    // bound/enabled/link-up netdev; the same refusal met earlier on a
+    // driver-bound dpmcp in V-LIFE-DPIO-1's rev-1 teardown). That
+    // answers dprc.md unknown 9 in the first of its three directions:
+    // unplug is refused under a bound driver, not raced against it. The
+    // model refuses only what restool refuses, so the bind must be
+    // released first — unbind, then unplug.
+    s.objs.get(o).bind == Unbound,
     // Unplugging a drawn pool object out from under its consumer is
     // not in the corpus — refused until a family doc settles it.
     s.objs.get(o).allocatedBy == None,
