@@ -61,7 +61,7 @@ board task is an operator sitting sync point.
 - [x] 4.2 Encode the port safety matrix and traffic classes as data;
       enforce at generation and in the execution wrapper (dpmac.3,
       dpmac.17, dpni.0 unreferenceable)
-- [ ] 4.3 Build the batch-suite generator: simulator traces →
+- [x] 4.3 Build the batch-suite generator: simulator traces →
       reviewable scripts with inline expectations, reference-pair
       assertion, result files for offline diff; mutating-suite gate on
       the recovery guarantee

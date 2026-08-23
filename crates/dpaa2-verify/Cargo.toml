@@ -11,9 +11,15 @@ rust-version.workspace = true
 name = "dpaa2_verify"
 path = "src/lib.rs"
 
+[[bin]]
+name = "dpaa2-verify"
+path = "src/main.rs"
+
 [dependencies]
+clap.workspace = true
 dpaa2-api.workspace = true
 dpaa2-mc.workspace = true
+serde.workspace = true
 serde_json.workspace = true
 
 [lints]

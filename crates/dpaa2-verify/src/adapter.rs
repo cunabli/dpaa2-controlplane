@@ -32,7 +32,9 @@ use std::fmt;
 use serde_json::Value;
 
 /// The 16 MC object families (object-model.md §3).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
 #[allow(missing_docs)]
 pub enum Family {
     Dprc,
@@ -103,7 +105,9 @@ impl Family {
 
 /// A model-space object id (`ObjId` in `core/types.qnt`): the restool id
 /// space, distinct from MC hardware ids (law §6.4).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
 pub struct ObjRef {
     /// The object family.
     pub fam: Family,
@@ -117,8 +121,46 @@ impl fmt::Display for ObjRef {
     }
 }
 
+impl std::str::FromStr for ObjRef {
+    type Err = String;
+
+    /// Parses `dpni.100`-style references (the inverse of `Display`).
+    fn from_str(s: &str) -> Result<Self, String> {
+        let (kind, num) = s
+            .split_once('.')
+            .ok_or_else(|| format!("not an object ref: `{s}`"))?;
+        let fam = [
+            Family::Dprc,
+            Family::Dpni,
+            Family::Dpmac,
+            Family::Dpbp,
+            Family::Dpio,
+            Family::Dpcon,
+            Family::Dpmcp,
+            Family::Dpseci,
+            Family::Dpsw,
+            Family::Dpdmux,
+            Family::Dpaiop,
+            Family::Dpci,
+            Family::Dpdcei,
+            Family::Dpdmai,
+            Family::Dprtc,
+            Family::Dpdbg,
+        ]
+        .into_iter()
+        .find(|f| f.as_str() == kind)
+        .ok_or_else(|| format!("unknown family `{kind}`"))?;
+        Ok(Self {
+            fam,
+            num: num.parse().map_err(|e| format!("bad object number: {e}"))?,
+        })
+    }
+}
+
 /// A model-space connect endpoint (`type.id.port`, object-model.md §2).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
 pub struct EndpointRef {
     /// The endpoint's object.
     pub obj: ObjRef,
@@ -484,6 +526,13 @@ impl Binding {
         Ok(name.to_owned())
     }
 
+    /// Binds a model id to an arbitrary name without validation — the
+    /// batch generator uses this to render commands over shell variables
+    /// (`${OBJ_dpni_100}`) whose real names only exist at run time.
+    pub fn bind_symbolic(&mut self, model: ObjRef, name: impl Into<String>) {
+        self.names.insert(model, name.into());
+    }
+
     /// The board name bound to a model id.
     ///
     /// # Errors
@@ -716,7 +765,7 @@ pub fn drive(action: &ModelAction, pre: &MachineView, names: &Binding) -> Result
 // --- read-back side --------------------------------------------------
 
 /// One observation probe.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Probe {
     /// A read-only `restool` invocation.
     Restool(Vec<String>),
@@ -729,7 +778,7 @@ pub enum Probe {
 
 /// The model's expectation for one step's read-back, in model-space ids.
 /// Only the fields the step's probes can observe are `Some`.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Expected {
     /// The object the expectation is about.
     pub object: ObjRef,

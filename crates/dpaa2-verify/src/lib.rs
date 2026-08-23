@@ -7,6 +7,7 @@
 //! See `openspec/changes/verify-foundation` for the requirements.
 
 pub mod adapter;
+pub mod generate;
 pub mod itf;
 pub mod replay;
 pub mod safety;
