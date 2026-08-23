@@ -47,11 +47,11 @@ board task is an operator sitting sync point.
 
 ## 3. Retro-model and ITF replay
 
-- [ ] 3.1 Retro-model the reconciler's dpni↔dpmac association flow as
+- [x] 3.1 Retro-model the reconciler's dpni↔dpmac association flow as
       a core-model instantiation; freeze its traces
-- [ ] 3.2 Build the ITF replayer in `dpaa2-verify`; retro traces green
+- [x] 3.2 Build the ITF replayer in `dpaa2-verify`; retro traces green
       against the existing reconciler in `cargo test`
-- [ ] 3.3 Wire the full CI ladder (typecheck → simulate → ITF replay →
+- [x] 3.3 Wire the full CI ladder (typecheck → simulate → ITF replay →
       marked Apalache) as pnpm scripts and a CI job
 
 ## 4. MBT harness

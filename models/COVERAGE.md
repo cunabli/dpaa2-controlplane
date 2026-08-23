@@ -22,7 +22,7 @@ Dispositions:
   traffic-inventory scenario that settles it. Board results fold back
   into the row as suites complete (task 5.6).
 
-Tally: 51 modeled, 46 deferred, 8 board-pending — 105 candidates.
+Tally: 52 modeled, 45 deferred, 8 board-pending — 105 candidates.
 
 | Candidate | Disposition | Location / owning change / settling scenario | CI rung | Board status |
 |-----------|-------------|----------------------------------------------|---------|--------------|
@@ -39,7 +39,7 @@ Tally: 51 modeled, 46 deferred, 8 board-pending — 105 candidates.
 | DPRC-I11 | modeled | `main.qnt` `DPRC_I11Test` + `DPRC_I11SpawnTest`/`DPRC_I11UnlockTest` | simulate | pending V-DPRC-3 (who unlocks) |
 | DPNI-I1 | modeled | structural — LAW 1: no cfg block in state, no action mutates one | typecheck | — |
 | DPNI-I2 | modeled | `main.qnt` `DPNI_I2Test` | simulate | pending V-DPNI-3 |
-| DPNI-I3 | deferred | this change ph.3 retro-model (task 3.1); MAC value semantics → `dpmac-typestate` (#7) | — | verified (ADR-0001 C2) |
+| DPNI-I3 | modeled | `retro/reconciler.qnt` association runs, replayed by `dpaa2-verify` against the reconciler; MAC value semantics → `dpmac-typestate` (#7) | itf-replay | verified (ADR-0001 C2) |
 | DPNI-I4 | modeled | `machine.qnt` kernelBind census guard + `main.qnt` `DPNI_I4Test` | simulate | verified (ADR-0001 C1) |
 | DPNI-I5 | deferred | `dpni-typestate` (#5) + `pool-objects` (#6): queue/channel counts abstracted to draw=1 at core scope | — | — |
 | DPNI-I6 | deferred | this change ph.4 adapter — LAW 2: observation = read-back, never exit status | — | pending V-DPNI-2 (create-then-fail exit shape) |

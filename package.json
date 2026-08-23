@@ -1,4 +1,13 @@
 {
+	"scripts": {
+		"model:typecheck": "quint typecheck models/main.qnt && quint typecheck models/retro/reconciler.qnt",
+		"model:test": "quint test models/main.qnt --main=main && quint test models/retro/reconciler.qnt --main=retro",
+		"model:simulate": "quint run models/main.qnt --main=main --invariant=stateInvariants --max-steps=40 --max-samples=200",
+		"model:replay": "cargo test -p dpaa2-verify",
+		"model:verify": "quint verify models/main.qnt --main=main --invariant=stateInvariants --max-steps=1 --apalache-version=$npm_package_config_apalache_version",
+		"model:validation": "pnpm model:typecheck && pnpm model:test && pnpm model:simulate && pnpm model:replay && pnpm model:verify",
+		"model:freeze": "quint test models/retro/reconciler.qnt --main=retro --out-itf='models/traces/{test}.itf.json'"
+	},
 	"dependencies": {
 		"@fission-ai/openspec": "^1.5.0"
 	},

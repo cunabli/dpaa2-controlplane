@@ -5,7 +5,7 @@ truth lives in `docs/baseline/` (16 family documents distilled into
 `object-model.md`); this tree renders it as one state machine the
 simulator can drive, so a wrong belief about the Management Complex
 fails a check here before it becomes Rust. Process rules: ADR-0002
-(formal methods, CI ladder), design decisions D2–D5 and D9 of
+(formal methods, CI validation), design decisions D2–D5 and D9 of
 `openspec/changes/verify-foundation`.
 
 ## Quint in one minute
@@ -44,7 +44,7 @@ exactly what the evidence tags mark and the phase-5 board suites close.
 
 ## What is proven, and by which rung
 
-Cheapest rung first (ADR-0002 §6); a failure stops the ladder there.
+Cheapest rung first (ADR-0002 §6); a failure stops the validation there.
 
 1. **Typecheck** — every module parses and typechecks.
 2. **Simulate** — the machine's guards admit the baseline's canonical
@@ -58,8 +58,11 @@ Cheapest rung first (ADR-0002 §6); a failure stops the ladder there.
    model state are harness-owned or deferred — `COVERAGE.md` records
    every disposition.
 3. **ITF replay** — frozen traces from `traces/` replay against the
-   Rust core in `cargo test` (task 3.2), keeping model and code honest
-   against each other with no board attached.
+   Rust core in `cargo test` (`crates/dpaa2-verify`), keeping model and
+   code honest against each other with no board attached. The replayer
+   projects each observation state of a trace to the reconciler's
+   `ObservedTopology`, runs the pure `reconcile()`, and diffs the plan
+   against the steps the model actually took.
 4. **Apalache** — symbolic checking of the invariants each model header
    explicitly marks; unmarked invariants are simulator-only. Version
    pinned in `package.json` `config.apalache_version` (0.56.1 — the
@@ -103,8 +106,11 @@ models/
 ├── families/             16 per-family FamilyParams records; laws as data,
 │                         no family forks the lifecycle logic; params.qnt
 │                         is the corpus-wide ALL_PARAMS table
-├── retro/                reconciler dpni↔dpmac retro-model (task 3.1)
-├── traces/               committed frozen ITF traces (tasks 3.x, phase 5)
+├── retro/                reconciler dpni↔dpmac retro-model: directed
+│                         runs mirroring the RestoolMc recipe, epoched
+│                         by the reconciler's observation points
+├── traces/               committed frozen ITF traces (retro now,
+│                         board divergences in phase 5)
 ├── main.qnt              instantiation of machine with all 16 families;
 │                         directed *Test runs
 ├── COVERAGE.md           the invariant coverage ledger (design D9)
@@ -119,28 +125,28 @@ drift between the two.
 
 ## Running
 
-Quint is repo-local; always go through `pnpm exec` (until task 3.3
-wires pnpm scripts and the CI job):
+The validation is wired as pnpm scripts (task 3.3; the CI job `model-validation`
+runs the same rungs in the same order):
 
 ```sh
-# rung 1: typecheck (silent on success, exit 0)
-pnpm exec quint typecheck models/main.qnt
+pnpm model:typecheck   # rung 1: main + retro (silent on success)
+pnpm model:test        # rung 2a: directed runs — lifecycle, refusals, retro
+pnpm model:simulate    # rung 2b: random exploration under stateInvariants
+pnpm model:replay      # rung 3: frozen ITF traces vs the reconciler (cargo)
+pnpm model:verify      # rung 4: Apalache on the marked subset (~3 min; JVM)
+pnpm model:validation  # all of the above, cheapest first, stop on failure
 
-# rung 2a: directed runs — canonical lifecycle + refusal tests
-pnpm exec quint test models/main.qnt --main=main
-
-# rung 2b: random exploration under the named state invariants
-pnpm exec quint run models/main.qnt --main=main --invariant=stateInvariants \
-  --max-steps=40 --max-samples=200
-
-# rung 4: Apalache on the marked subset (~3 min; needs a JVM)
-pnpm exec quint verify models/main.qnt --main=main \
-  --invariant=stateInvariants --max-steps=1
+pnpm model:freeze      # regenerate models/traces/ from the retro runs
 
 # poke at the machine interactively
 pnpm exec quint repl
 >>> .load models/main.qnt
 ```
+
+`model:freeze` rewrites the committed traces; the replayer's epoch
+tables (`crates/dpaa2-verify/tests/retro_replay.rs`) transcribe the
+observation points documented in `retro/reconciler.qnt`, so a trace
+whose shape changed fails `model:replay` loudly — update both together.
 
 `quint test` only picks up `run` definitions whose names match `Test` —
 name directed runs `<what>Test`.
