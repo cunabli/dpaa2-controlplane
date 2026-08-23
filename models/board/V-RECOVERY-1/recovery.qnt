@@ -10,9 +10,9 @@
 // to the scenario and guards that leave exactly one action enabled per
 // state. Any seed therefore freezes the same three-step trace:
 //
-//   pnpm exec quint run models/board/recovery.qnt --main=recovery \
+//   pnpm exec quint run models/board/V-RECOVERY-1/recovery.qnt --main=recovery \
 //     --mbt --max-steps=3 --n-traces=1 --max-samples=1 \
-//     --out-itf=models/traces/recovery.itf.json
+//     --out-itf=models/board/V-RECOVERY-1/recovery.itf.json
 //
 // Raw main.qnt simulation is not usable here: unconstrained picks reach
 // total-deny objects and restool-unreachable containers, which the
@@ -21,8 +21,8 @@
 // Named invariants: none — the machine's guards carry the model gate;
 // the suite's read-back carries conformance. TLA+ escalation: none.
 module recovery {
-  import types.* from "../core/types"
-  import params.* from "../families/params"
+  import types.* from "../../core/types"
+  import params.* from "../../families/params"
 
   // DPC-born dpmacs of the reference environment (as models/main.qnt).
   pure val REF_DPMACS: Set[int] = Set(3, 4, 5, 6, 7, 8, 9, 10, 17)
@@ -30,7 +30,7 @@ module recovery {
   import machine(
     PARAMS = ALL_PARAMS,
     BOOT_DPMACS = REF_DPMACS
-  ) as m from "../core/machine"
+  ) as m from "../../core/machine"
 
   // Model ids the run creates, deterministic from the per-family
   // counters (dprc numbering starts at 2, dpbp at 0).

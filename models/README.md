@@ -109,12 +109,13 @@ models/
 ├── retro/                reconciler dpni↔dpmac retro-model: directed
 │                         runs mirroring the RestoolMc recipe, epoched
 │                         by the reconciler's observation points
-├── board/                phase-5 scenario modules (restricted step sets
-│                         the board suites are generated from) and the
-│                         generated suites themselves; RECOVERY-VERIFIED
-│                         marker lands here when task 5.1 passes
-├── traces/               committed frozen ITF traces (retro now,
-│                         board divergences in phase 5)
+├── board/                one directory per phase-5 suite, holding its
+│                         scenario module (the restricted step set the
+│                         suite is generated from), frozen trace and
+│                         generated suite; RECOVERY-VERIFIED marker
+│                         lands here when task 5.1 passes
+├── traces/               committed frozen ITF traces of the retro runs
+│                         (board suite traces live beside their module)
 ├── main.qnt              instantiation of machine with all 16 families;
 │                         directed *Test runs
 ├── COVERAGE.md           the invariant coverage ledger (design D9)

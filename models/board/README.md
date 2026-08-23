@@ -7,9 +7,10 @@ guards that leave exactly one action enabled per state, so `quint run
 --mbt` freezes the same trace under any seed. Raw `main.qnt` simulation
 is not usable suite input: unconstrained picks reach total-deny objects
 and restool-unreachable containers, and the generator refuses such
-traces (correctly). The frozen trace (`models/traces/`), the generated
-`.sh`/`.plan.json`, and this ledger are committed together; result
-files stay under `results/` (gitignored — operator material).
+traces (correctly). Each suite owns a directory here (`models/board/<ID>/`)
+holding its scenario module, frozen trace and generated
+`.sh`/`.plan.json`, committed together with this ledger; result files
+stay under `results/` (gitignored — operator material).
 
 `RECOVERY-VERIFIED` is the recovery-guarantee marker (ADR-0003 §7):
 committed when suite V-RECOVERY-1 passed, its presence is what lets the
@@ -63,12 +64,12 @@ to the online driver.
 Each module's header records its freeze command. Then:
 
 ```sh
-cargo run -p dpaa2-verify -- generate --trace models/traces/<t>.itf.json --id <ID> --out models/board
+cargo run -p dpaa2-verify -- generate --trace models/board/<ID>/<t>.itf.json --id <ID> --out models/board/<ID>
 ```
 
 (V-RECOVERY-1 adds `--recovery-verification`.) Offline diff after a
 sitting:
 
 ```sh
-cargo run -p dpaa2-verify -- diff --plan models/board/<ID>.plan.json --results results/<dir>
+cargo run -p dpaa2-verify -- diff --plan models/board/<ID>/<ID>.plan.json --results results/<dir>
 ```

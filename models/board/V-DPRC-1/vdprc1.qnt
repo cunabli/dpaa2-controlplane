@@ -22,22 +22,22 @@
 // Guards leave exactly one action enabled per state, so any seed
 // freezes the same thirteen-step trace:
 //
-//   pnpm exec quint run models/board/vdprc1.qnt --main=vdprc1 \
+//   pnpm exec quint run models/board/V-DPRC-1/vdprc1.qnt --main=vdprc1 \
 //     --mbt --max-steps=13 --n-traces=1 --max-samples=1 \
-//     --out-itf=models/traces/vdprc1.itf.json
+//     --out-itf=models/board/V-DPRC-1/vdprc1.itf.json
 //
 // Named invariants: none — the machine's guards carry the model gate.
 // TLA+ escalation: none.
 module vdprc1 {
-  import types.* from "../core/types"
-  import params.* from "../families/params"
+  import types.* from "../../core/types"
+  import params.* from "../../families/params"
 
   pure val REF_DPMACS: Set[int] = Set(3, 4, 5, 6, 7, 8, 9, 10, 17)
 
   import machine(
     PARAMS = ALL_PARAMS,
     BOOT_DPMACS = REF_DPMACS
-  ) as m from "../core/machine"
+  ) as m from "../../core/machine"
 
   // Model ids the run creates, deterministic from the per-family
   // counters (dprc numbering starts at 2, dpni/dpbp at 0 — the model

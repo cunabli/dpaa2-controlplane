@@ -15,22 +15,22 @@
 // Guards leave exactly one action enabled per state, so any seed
 // freezes the same ten-step trace:
 //
-//   pnpm exec quint run models/board/vlife_dpni1.qnt --main=vlife_dpni1 \
+//   pnpm exec quint run models/board/V-LIFE-DPNI-1/vlife_dpni1.qnt --main=vlife_dpni1 \
 //     --mbt --max-steps=10 --n-traces=1 --max-samples=1 \
-//     --out-itf=models/traces/vlife_dpni1.itf.json
+//     --out-itf=models/board/V-LIFE-DPNI-1/vlife_dpni1.itf.json
 //
 // Named invariants: none — the machine's guards carry the model gate.
 // TLA+ escalation: none.
 module vlife_dpni1 {
-  import types.* from "../core/types"
-  import params.* from "../families/params"
+  import types.* from "../../core/types"
+  import params.* from "../../families/params"
 
   pure val REF_DPMACS: Set[int] = Set(3, 4, 5, 6, 7, 8, 9, 10, 17)
 
   import machine(
     PARAMS = ALL_PARAMS,
     BOOT_DPMACS = REF_DPMACS
-  ) as m from "../core/machine"
+  ) as m from "../../core/machine"
 
   pure val theDpmcp: ObjId = { fam: Dpmcp, num: 0 }
   pure val theDpbp: ObjId = { fam: Dpbp, num: 0 }

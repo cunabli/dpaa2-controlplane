@@ -10,22 +10,22 @@
 // Guards leave exactly one action enabled per state, so any seed
 // freezes the same five-step trace:
 //
-//   pnpm exec quint run models/board/vdpni1.qnt --main=vdpni1 \
+//   pnpm exec quint run models/board/V-DPNI-1/vdpni1.qnt --main=vdpni1 \
 //     --mbt --max-steps=5 --n-traces=1 --max-samples=1 \
-//     --out-itf=models/traces/vdpni1.itf.json
+//     --out-itf=models/board/V-DPNI-1/vdpni1.itf.json
 //
 // Named invariants: none — the machine's guards carry the model gate.
 // TLA+ escalation: none.
 module vdpni1 {
-  import types.* from "../core/types"
-  import params.* from "../families/params"
+  import types.* from "../../core/types"
+  import params.* from "../../families/params"
 
   pure val REF_DPMACS: Set[int] = Set(3, 4, 5, 6, 7, 8, 9, 10, 17)
 
   import machine(
     PARAMS = ALL_PARAMS,
     BOOT_DPMACS = REF_DPMACS
-  ) as m from "../core/machine"
+  ) as m from "../../core/machine"
 
   pure val scratchDprc: ObjId = { fam: Dprc, num: 2 }
   pure val theDpni: ObjId = { fam: Dpni, num: 0 }
