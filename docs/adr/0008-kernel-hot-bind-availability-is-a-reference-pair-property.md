@@ -2,7 +2,9 @@
 
 - **Status:** Accepted — board sitting 2026-08-23 (V-LIFE-DPIO-1,
   V-LIFE-DPSECI-1, V-LIFE-DPDMAI-1, rev 2), extended the same day with
-  the bisect that root-caused the bystander unbind (§4–§6)
+  the bisect that root-caused the bystander unbind (§4–§6) and with the
+  batch-3 sittings (V-DPSW-1, V-DPDMUX-1) that anchored the two
+  remaining available rows and settled the spacing experiment
 - **Date:** 2026-08-23
 - **Supersedes / relates to:** OpenSpec change `verify-foundation` (task
   5.2, the per-family lifecycle suites); ADR-0003 §2 (evidence is
@@ -53,8 +55,16 @@ statement about the driver's existence. dpni is true and board-anchored
 (V-LIFE-DPNI-1). dpio, dpseci and dpdmai are false, each for the
 mechanism above. Every driver-less family is trivially false, pooled
 families included: allocator custody is modeled as pool membership, not
-a bind. The remaining true rows (dpsw, dpdmux, dprtc, dpmac, dprc) stand
-on the driver being present and are not yet board-anchored.
+a bind. dpsw and dpdmux are true and board-anchored (V-DPSW-1,
+V-DPDMUX-1) — with a condition on the dpsw row worth stating plainly:
+its driver takes a runtime-created object only when that object was
+built in the shape it accepts, control interface on and both the
+flooding and broadcast domains scoped per FDB. Those are not the
+defaults the command-line tool applies when unasked, so a
+default-created dpsw is refused at probe, and the refusal is logged
+rather than silent. dprtc, dpmac and dprc remain true on the strength
+of their drivers being present; the first two are boot-born, so nothing
+creates one at runtime to test.
 
 ### 2. A probe that cannot succeed changes nothing
 
@@ -133,6 +143,25 @@ The one link that cannot be checked from the kernel tree is why a
 descriptor for a plugged, untouched object came back with its plugged
 bit clear. It is left as an open question below.
 
+A later suite showed how much worse the same window can be. Its
+teardown ran just two destroys, and a single scan window took the
+drivers off *three* boot residents at once — a network object, a
+physical port object, and the crypto object — leaving the crypto
+algorithm list completely empty rather than partially so, and the
+network object's detach taking the management interface down with it.
+The same run also removed a boot portal object outright and re-added
+it, which is the first direct sighting of the removal arm rather than
+the silent-detach arm: two different endings from one race. It
+reproduced on two consecutive fresh boots, so it is near-deterministic
+rather than a rare coincidence.
+
+What distinguishes that suite from the earlier ones, whose bystanders
+survived, is the state of the object being destroyed: it was both
+driver-bound and connected. Tearing that down raises more firmware
+events than destroying a bare object does, so more of them land while a
+scan is already walking. The window is not a fixed size — it widens
+with how much the destroy has to undo.
+
 ### 5. Why the damage is permanent, and total
 
 Two properties of the SEC driver turn a single stray detach into a
@@ -161,16 +190,30 @@ stale plugged bit; the SEC driver's driver-global registration state;
 and its cache lifetime. None is introduced by this port — all three sit
 in the reference kernel as shipped.
 
-### 6. Sitting risk
+### 6. Teardown spaces its destroys; sitting risk is contained, not gone
 
 Any suite that destroys objects in the Linux root can, through the race
 above, silently unbind an arbitrary bystander in that container — a
 dpni carrying traffic just as easily as a dpseci. The unbind leaves no
 log entry and the object's directory stays in place, so only a driver
-link check finds it. Post-sitting health checks should read the boot
-dpseci's driver link explicitly, and any anomaly means a reboot before
-the next sitting, since neither the crypto namespace nor a detached
-driver recovers within a boot.
+link check finds it.
+
+The fix follows from the mechanism rather than from guessing: if the
+damage comes from a destroy landing while a scan is still walking, then
+waiting for the walk should end it. Generated teardowns now pause after
+every destroy, and only after a destroy — the unbind and unplug steps
+raise no object event and need no pause. A re-sitting of the suite that
+had cost three bystanders their drivers ran five destroys with no
+enumeration error logged at all, no bystander touched, and the object
+count back at its exact starting value. That is the whole fix, and it
+belongs to the generator, so every suite gets it.
+
+The risk is contained rather than eliminated. The pause is a timing
+accommodation, not a lock: nothing prevents the race, and a slow enough
+scan would still meet the next destroy. Post-sitting health checks
+should still read the boot dpseci's driver link explicitly, and any
+anomaly still means a reboot before the next sitting, since neither the
+crypto namespace nor a detached driver recovers within a boot.
 
 ## Open questions and revisit triggers
 
@@ -178,11 +221,14 @@ driver recovers within a boot.
   to that point is anchored in the kernel source; this last link is not
   checkable from it. The working explanation is that fetching objects by
   index while destroy commands are in flight can return a torn or stale
-  descriptor, because the object table shifts underneath the index. To
-  confirm the timing end to end, rerun the sequence that killed the
-  bystander with pauses between the teardown's unplug and destroy
-  commands: if the kill stops happening, the race is established. Any
-  firmware update re-anchors this question from scratch.
+  descriptor, because the object table shifts underneath the index.
+  The timing half of that is now settled — the spaced-destroy experiment
+  below confirms the concurrency — but not the firmware half: nothing
+  explains why one walk reported three live, untouched objects as
+  unplugged in the same pass. Spacing makes the question unreachable in
+  practice, since the condition no longer occurs, so answering it would
+  need a deliberate reproduction rather than a sitting. Any firmware
+  update re-anchors it from scratch.
 - **Registrations outlive the binding.** Twelve algorithm entries
   remained registered after the holder was detached, which fits the
   driver-global tables above: the detach ran the removal path for some
@@ -195,7 +241,11 @@ driver recovers within a boot.
   change in how dpio seats relate to CPU count would flip dpio, and a
   fix to the crypto unregister path would flip dpseci. Treat the whole
   table as evidence about this pair, not as a property of the hardware.
-- **The unanchored true rows.** dpsw and dpdmux are marked available on
-  the strength of their drivers being loaded, and their positive faces
-  are batch 3. dprtc and dpmac are boot-born, so their rows are vacuous
-  until something creates one at runtime.
+- **The unanchored true rows.** dpsw and dpdmux are settled on the board
+  (V-DPSW-1, V-DPDMUX-1). What remains unanchored is dprc, and dprtc and
+  dpmac, whose rows are vacuous while nothing creates one at runtime.
+- **Does spacing hold under a heavier teardown?** Every destroy the
+  experiment covered was one object in one container. A teardown that
+  removes a container still holding residents, or several connected
+  objects at once, raises more events per command than anything measured
+  here. Revisit when a suite of that shape is authored.

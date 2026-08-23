@@ -73,7 +73,7 @@ board task is an operator sitting sync point.
 - [x] 5.1 Generate the recovery-guarantee suite (scratch mutation set,
       reboot, diff vs DPL baseline); operator runs it; guarantee
       verified or the program stops (board milestone)
-- [ ] 5.2 Generate the full object-lifecycle sweep (scratch DPRCs,
+- [x] 5.2 Generate the full object-lifecycle sweep (scratch DPRCs,
       unwired dpmacs, unconditional teardown); operator runs; diff,
       amend models/baseline, freeze divergence traces
 - [ ] 5.3 Generate link-signaling V-LINK-1..5 (dpmac.7/9, per-run
