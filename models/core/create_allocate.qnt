@@ -31,6 +31,7 @@ module create_allocate {
   // visibility, DPRC-I6), unbound, disabled, pristine.
   pure def newObj(parent: ObjId, hw: int): ObjState = {
     parent: Some(parent),
+    owner: Some(parent),
     plugged: false,
     busVisible: false,
     bind: Unbound,

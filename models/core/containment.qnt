@@ -59,6 +59,14 @@ module containment {
   // either. RootOnly families are pinned (DPMAC-I1, DPDBG-I1). Moving a
   // dprc itself is not in the corpus — refused until a family doc adds
   // it.
+  //
+  // Single hop only (ADR-0007): the restool/MC primitive moves an object
+  // along one tree edge — assign pushes it down into a direct child of
+  // its container, unassign pulls it back up to that container's parent.
+  // The board refused a sibling-to-sibling assign outright (V-DPRC-1:
+  // exit 255, object unmoved), and NXP's own provisioning scripts never
+  // hop more than one edge. A sibling move is two legal hops: up, then
+  // down. mc.global is not a restool destination.
   pure def canMove(s: CoreState, params: Family -> FamilyParams,
                    o: ObjId, dst: ObjId): bool = and {
     s.objs.keys().contains(o),
@@ -66,12 +74,21 @@ module containment {
     params.get(o.fam).placement == AnyContainer,
     dst.fam == Dprc,
     s.dprcs.keys().contains(dst),
+    not(isMcGlobal(s, dst)),
     not(s.objs.get(o).plugged),
     s.objs.get(o).bind == Unbound,
     s.objs.get(o).allocatedBy == None,
     not(lockedAnywhere(s, dst)),
     match s.objs.get(o).parent {
-      | Some(p) => not(lockedAnywhere(s, p))
+      | Some(p) => and {
+          not(lockedAnywhere(s, p)),
+          or {
+            // down-hop: dst is a direct child of o's container
+            s.objs.keys().contains(dst) and s.objs.get(dst).parent == Some(p),
+            // up-hop: dst is o's container's own parent
+            parentSet(s, p).contains(dst),
+          },
+        }
       | None => false
     },
   }

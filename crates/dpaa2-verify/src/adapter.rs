@@ -666,14 +666,32 @@ pub fn drive(action: &ModelAction, pre: &MachineView, names: &Binding) -> Result
             }
         }
         ModelAction::AssignChild { obj, dst } => {
+            // The restool/MC primitive moves along one tree edge
+            // (ADR-0007): assign pushes down into a direct child,
+            // unassign pulls back up to the container's parent. The
+            // direction falls out of the pre-state tree.
             let parent = parent_of(pre, *obj)?;
-            cmd(argv(&[
-                "dprc",
-                "assign",
-                names.name(parent)?,
-                &format!("--object={}", names.name(*obj)?),
-                &format!("--child={}", names.name(*dst)?),
-            ]))
+            if parent_of(pre, *dst).is_ok_and(|p| p == parent) {
+                cmd(argv(&[
+                    "dprc",
+                    "assign",
+                    names.name(parent)?,
+                    &format!("--object={}", names.name(*obj)?),
+                    &format!("--child={}", names.name(*dst)?),
+                ]))
+            } else if parent_of(pre, parent)? == *dst {
+                cmd(argv(&[
+                    "dprc",
+                    "unassign",
+                    names.name(*dst)?,
+                    &format!("--object={}", names.name(*obj)?),
+                    &format!("--child={}", names.name(parent)?),
+                ]))
+            } else {
+                Err(format!(
+                    "assignChild {obj} -> {dst} is not a single hop from {parent}"
+                ))
+            }
         }
         ModelAction::Plug { obj } => {
             let parent = parent_of(pre, *obj)?;
@@ -1177,6 +1195,70 @@ mod tests {
         assert_eq!(
             drive(&destroy, &pre, &names).unwrap(),
             Drive::Cmds(vec![Cmd::Restool(argv(&["dpni", "destroy", "dpni.5"]))])
+        );
+    }
+
+    #[test]
+    fn moves_render_one_hop_as_assign_or_unassign_and_refuse_the_rest() {
+        // dprc.1 ─┬─ dprc.2 ── dpni.100
+        //         └─ dprc.3
+        let dprc = |num| ObjRef {
+            fam: Family::Dprc,
+            num,
+        };
+        let mut pre = MachineView::default();
+        pre.objs.insert(dprc(1), obj(None, true, BindView::Unbound));
+        pre.objs
+            .insert(dprc(2), obj(Some(dprc(1)), false, BindView::Unbound));
+        pre.objs
+            .insert(dprc(3), obj(Some(dprc(1)), false, BindView::Unbound));
+        pre.objs
+            .insert(dpni(100), obj(Some(dprc(2)), false, BindView::Unbound));
+        let names = Binding::seed(&pre);
+
+        // up-hop: child → its container's parent renders unassign on the
+        // destination, --child naming the current holder.
+        let up = ModelAction::AssignChild {
+            obj: dpni(100),
+            dst: dprc(1),
+        };
+        assert_eq!(
+            drive(&up, &pre, &names).unwrap(),
+            Drive::Cmds(vec![Cmd::Restool(argv(&[
+                "dprc",
+                "unassign",
+                "dprc.1",
+                "--object=dpni.100",
+                "--child=dprc.2",
+            ]))])
+        );
+
+        // sibling: not a tree edge — refused as a malformed trace, the
+        // board refused the equivalent command outright (V-DPRC-1).
+        let sibling = ModelAction::AssignChild {
+            obj: dpni(100),
+            dst: dprc(3),
+        };
+        drive(&sibling, &pre, &names).unwrap_err();
+
+        // down-hop: container → direct child renders assign on the holder.
+        let mut pre_down = pre.clone();
+        pre_down
+            .objs
+            .insert(dpni(100), obj(Some(dprc(1)), false, BindView::Unbound));
+        let down = ModelAction::AssignChild {
+            obj: dpni(100),
+            dst: dprc(3),
+        };
+        assert_eq!(
+            drive(&down, &pre_down, &names).unwrap(),
+            Drive::Cmds(vec![Cmd::Restool(argv(&[
+                "dprc",
+                "assign",
+                "dprc.1",
+                "--object=dpni.100",
+                "--child=dprc.3",
+            ]))])
         );
     }
 

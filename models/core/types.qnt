@@ -41,6 +41,13 @@ module types {
     // §1 containment: every object lives in exactly one DPRC at a time;
     // None only for the MC's own container (dprc.0 / mc.global).
     parent: Option[ObjId],
+    // The container that created the object, fixed for life (ADR-0007
+    // §2): destroy authority is creator-bound — the manual's *_DESTROY
+    // sections all demand the token of "the parent container that
+    // created the object", and the board refused a destroy issued after
+    // the object had moved away from its creator. Boot objects are owned
+    // by their boot parent.
+    owner: Option[ObjId],
     // §5 step 4: plug is the kernel's bind trigger (DPRC-I2) and the
     // mobility gate (DPRC-I3).
     plugged: bool,

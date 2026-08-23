@@ -73,6 +73,7 @@ module main {
 
   // Ids the runs create, deterministic from the per-family counters.
   pure val dprc2: ObjId = { fam: Dprc, num: 2 }
+  pure val dprc3: ObjId = { fam: Dprc, num: 3 }
   pure val dpni0: ObjId = { fam: Dpni, num: 0 }
   pure val dpio0: ObjId = { fam: Dpio, num: 0 }
   pure val dpbp0: ObjId = { fam: Dpbp, num: 0 }
@@ -173,6 +174,83 @@ module main {
       .then(createObjectAt(Dpni, dprc1))
       .then(plugAt(dpni0))
       .then(assignChildAt(dpni0, dprc2).fail())
+
+  // Moves are single-hop (ADR-0007; board V-DPRC-1): a sibling-to-
+  // sibling assign was refused outright by the board — the legal route
+  // is one hop up to the shared parent, then one hop down.
+  run moveSiblingRefusedTest =
+    init
+      .then(createContainerAt(dprc1))                  // dprc.2
+      .then(createContainerAt(dprc1))                  // dprc.3
+      .then(createObjectAt(Dpni, dprc2))
+      .then(assignChildAt(dpni0, dprc3).fail())        // sibling: no tree edge
+
+  run moveTwoHopRouteTest =
+    init
+      .then(createContainerAt(dprc1))                  // dprc.2
+      .then(createContainerAt(dprc1))                  // dprc.3
+      .then(createObjectAt(Dpni, dprc2))
+      .then(assignChildAt(dpni0, dprc1))               // up-hop
+      .then(assignChildAt(dpni0, dprc3))               // down-hop
+      .expect(s.objs.get(dpni0).parent == Some(dprc3))
+
+  // Container destroy releases what it created, observed shape only
+  // (ADR-0007 §2; board V-DPRC-1): an unplugged, unbound resident the
+  // container created goes with it; a plugged resident keeps the
+  // refusal.
+  run destroyReleasesOwnedResidentTest =
+    init
+      .then(createContainerAt(dprc1))
+      .then(createObjectAt(Dpni, dprc2))
+      .then(destroyAt(dprc2))
+      .expect(not(s.objs.keys().contains(dpni0)))
+
+  run destroyOwnedPluggedRefusedTest =
+    init
+      .then(createContainerAt(dprc1))
+      .then(createObjectAt(Dpni, dprc2))
+      .then(plugAt(dpni0))
+      .then(destroyAt(dprc2).fail())
+
+  // …but a foreign resident is evicted one hop up, not destroyed
+  // (ADR-0007 §2; board V-DPRC-1 rev 2: the moved-in dpni reappeared in
+  // the destroyed container's parent, unplugged).
+  run destroyEvictsForeignResidentTest =
+    init
+      .then(createContainerAt(dprc1))                  // dprc.2
+      .then(createContainerAt(dprc1))                  // dprc.3
+      .then(createObjectAt(Dpni, dprc2))
+      .then(assignChildAt(dpni0, dprc1))               // up-hop
+      .then(assignChildAt(dpni0, dprc3))               // down-hop
+      .then(destroyAt(dprc3))
+      .expect(and {
+        s.objs.keys().contains(dpni0),
+        s.objs.get(dpni0).parent == Some(dprc1),
+      })
+
+  // Destroy authority is creator-bound (ADR-0007 §2; board V-DPRC-1
+  // rev 2: MC "No privilege" once the object left its creator)…
+  run destroyMovedObjectRefusedTest =
+    init
+      .then(createContainerAt(dprc1))                  // dprc.2
+      .then(createContainerAt(dprc1))                  // dprc.3
+      .then(createObjectAt(Dpni, dprc2))
+      .then(assignChildAt(dpni0, dprc1))
+      .then(assignChildAt(dpni0, dprc3))
+      .then(destroyAt(dpni0).fail())                   // owner ≠ parent
+
+  // …and repatriating the object restores it.
+  run repatriatedDestroyTest =
+    init
+      .then(createContainerAt(dprc1))                  // dprc.2
+      .then(createContainerAt(dprc1))                  // dprc.3
+      .then(createObjectAt(Dpni, dprc2))
+      .then(assignChildAt(dpni0, dprc1))
+      .then(assignChildAt(dpni0, dprc3))
+      .then(assignChildAt(dpni0, dprc1))               // back up
+      .then(assignChildAt(dpni0, dprc2))               // back home
+      .then(destroyAt(dpni0))                          // owner == parent
+      .expect(not(s.objs.keys().contains(dpni0)))
 
   run refusesIllegalPairTest =
     init.then(connectEdgeAt(ep(mac7), ep(mac9)).fail())    // no dpmac↔dpmac edge (§2)

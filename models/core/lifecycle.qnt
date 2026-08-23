@@ -132,12 +132,29 @@ module lifecycle {
   // object's edges with it; the unknown is ledgered in phase 2. Destroy
   // exit codes are untrusted corpus-wide (DPMAC-I8) — an
   // observation-layer law for the harness, not a state transition.
+  //
+  // Destroying a dprc splits its residents by ownership (ADR-0007;
+  // V-DPRC-1 both sittings): residents the container *created* are
+  // released with it (board: owned unplugged dpni gone in one command),
+  // while foreign residents survive and are evicted one hop up into the
+  // container's own parent (board: a moved-in dpni reappeared there,
+  // unplugged). Eviction is a move, so bus visibility drops as in
+  // assignT. The guard in machine.qnt admits only the observed resident
+  // shape — unplugged, unbound, undrawn, non-dprc — so no allocations to
+  // release beyond o's own.
   pure def destroyT(s: CoreState, o: ObjId): CoreState = {
     val s1 = releaseAllocations(s, o)
-    s1.with("objs", dropKey(s1.objs, o))
-      .with("dprcs",
-        if (s1.dprcs.keys().contains(o)) dropKey(s1.dprcs, o)
-        else s1.dprcs)
-      .with("conns", s1.conns.filter(c => c._1.obj != o and c._2.obj != o))
+    val up = s1.objs.get(o).parent
+    val gone = residents(s1, o)
+      .filter(r => s1.objs.get(r).owner == Some(o))
+      .union(Set(o))
+    val evicted = residents(s1, o).exclude(gone)
+    val s2 = evicted.fold(s1, (acc, r) =>
+      setObj(acc, r, acc.objs.get(r).with("parent", up)
+                                    .with("busVisible", false)))
+    s2.with("objs", s2.objs.keys().exclude(gone).mapBy(x => s2.objs.get(x)))
+      .with("dprcs", s2.dprcs.keys().exclude(gone).mapBy(x => s2.dprcs.get(x)))
+      .with("conns", s2.conns.filter(c =>
+        not(gone.contains(c._1.obj)) and not(gone.contains(c._2.obj))))
   }
 }

@@ -42,7 +42,8 @@ module machine {
   // number (unique within a family — the only uniqueness the second id
   // space promises, §6.4). Runtime creates draw from nextHw = 100 up.
   pure def bootObj(parent: Option[ObjId], hw: int): ObjState = {
-    parent: parent, plugged: true, busVisible: true, bind: Unbound,
+    parent: parent, owner: parent,
+    plugged: true, busVisible: true, bind: Unbound,
     enabled: false, pristine: true, linkUp: false, allocatedBy: None,
     hwId: hw,
   }
@@ -404,7 +405,28 @@ module machine {
         }
       | None => false
     },
-    if (o.fam == Dprc) residents(s, o) == Set() else true,
+    // Destroy authority is creator-bound (ADR-0007 §2): the manual's
+    // *_DESTROY sections demand the token of the container that created
+    // the object, and the board refused `dpni destroy` on an object
+    // moved away from its (already destroyed) creator — with restool
+    // exiting 0 over the MC "No privilege" error, so only read-back saw
+    // it (DPMAC-I8). Repatriating restores authority.
+    s.objs.get(o).owner == s.objs.get(o).parent,
+    // A container destroy handles residents by ownership (V-DPRC-1 both
+    // sittings): residents the container created are released with it;
+    // foreign residents are evicted one hop up, not destroyed. Only the
+    // observed resident shape is admitted either way — unplugged,
+    // unbound, undrawn, not itself a dprc. NXP's own teardown tooling
+    // empties containers first, so wider shapes stay refused until a
+    // probe proves them (ADR-0007).
+    if (o.fam == Dprc)
+      residents(s, o).forall(r => and {
+        r.fam != Dprc,
+        not(s.objs.get(r).plugged),
+        s.objs.get(r).bind == Unbound,
+        s.objs.get(r).allocatedBy == None,
+      })
+    else true,
     s' = destroyT(s, o),
   }
 
