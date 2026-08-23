@@ -114,6 +114,23 @@ fn shell_var(o: ObjRef) -> String {
     format!("OBJ_{}_{}", o.fam.as_str(), o.num)
 }
 
+/// Model-space spelling used inside scripts (`dpni_0`, `dpni_0.1` for
+/// endpoints): deliberately distinct from board-name syntax, so the
+/// total-deny text scan and the script's grep self-check only ever
+/// match real board references — a model-minted `dpni.0` (symbolic,
+/// board-named later) must not read as the board's management dpni.0.
+fn model_key(o: ObjRef) -> String {
+    format!("{}_{}", o.fam.as_str(), o.num)
+}
+
+fn model_ep_key(e: crate::adapter::EndpointRef) -> String {
+    if e.port == 0 {
+        model_key(e.obj)
+    } else {
+        format!("{}.{}", model_key(e.obj), e.port)
+    }
+}
+
 /// Renders one command as a script line through the given helper.
 fn cmd_line(step: usize, cmd: &Cmd) -> String {
     match cmd {
@@ -122,9 +139,10 @@ fn cmd_line(step: usize, cmd: &Cmd) -> String {
     }
 }
 
-/// Renders the expectation comment beside a step.
+/// Renders the expectation comment beside a step, in model-space
+/// spelling ([`model_key`]).
 fn expect_comment(e: &Expected) -> String {
-    let mut s = format!("# expect: {}", e.object);
+    let mut s = format!("# expect: {}", model_key(e.object));
     if let Some(p) = e.present {
         let _ = write!(s, " present={p}");
     }
@@ -134,7 +152,7 @@ fn expect_comment(e: &Expected) -> String {
     if let Some(ref ep) = e.endpoint {
         match ep {
             Some(peer) => {
-                let _ = write!(s, " endpoint={peer}");
+                let _ = write!(s, " endpoint={}", model_ep_key(*peer));
             }
             None => s.push_str(" endpoint=none"),
         }
@@ -365,7 +383,9 @@ pub fn generate(
     let mut model_names = Binding::seed(&trace.init);
     let mut pre = trace.init.clone();
     let mut body = String::new();
-    let mut teardown: Vec<(ObjRef, String)> = Vec::new();
+    // (model id, shell var, parent's rendered name) per created object;
+    // the parent is needed for the trap's best-effort unplug.
+    let mut teardown: Vec<(ObjRef, String, Option<String>)> = Vec::new();
     let mut steps = Vec::new();
 
     for (i, step) in trace.steps.iter().enumerate() {
@@ -391,10 +411,22 @@ pub fn generate(
                         "{var}=\"$(run_create {i} restool {})\"",
                         argv.join(" ")
                     );
-                    let _ = writeln!(body, "echo \"{c} ${{{var}}}\" >> \"$RESULTS/created.txt\"");
+                    let _ = writeln!(
+                        body,
+                        "echo \"{} ${{{var}}}\" >> \"$RESULTS/created.txt\"",
+                        model_key(c)
+                    );
+                    let parent = match step.post.objs.get(&c).and_then(|o| o.parent) {
+                        Some(p) => Some(
+                            sym.name(p)
+                                .map_err(|e| format!("step {i}: {e}"))?
+                                .to_owned(),
+                        ),
+                        None => None,
+                    };
                     sym.bind_symbolic(c, format!("${{{var}}}"));
                     model_names.bind_symbolic(c, c.to_string());
-                    teardown.push((c, var));
+                    teardown.push((c, var, parent));
                     for extra in &cmds[1..] {
                         let _ = writeln!(body, "{}", cmd_line(i, extra));
                     }
@@ -453,9 +485,20 @@ pub fn generate(
     } else {
         let mut trap =
             String::from("\n# --- unconditional teardown (ADR-0003 §6) ---\nteardown() {\n");
-        for (obj, var) in teardown.iter().rev() {
+        for (obj, var, parent) in teardown.iter().rev() {
             // `:-` defaults keep the trap alive under `set -u` when the
-            // run aborted before this object was ever created.
+            // run aborted before this object was ever created. Non-dprc
+            // objects are unplugged first, best-effort: a root-container
+            // object still holding a kernel driver refuses destroy, and
+            // the unplug is what triggers its unbind.
+            if obj.fam != crate::adapter::Family::Dprc
+                && let Some(parent) = parent
+            {
+                let _ = writeln!(
+                    trap,
+                    "  [ -n \"${{{var}:-}}\" ] && restool dprc assign {parent} --object=\"${{{var}}}\" --plugged=0 2>/dev/null || true"
+                );
+            }
             let _ = writeln!(
                 trap,
                 "  [ -n \"${{{var}:-}}\" ] && restool {} destroy \"${{{var}}}\" 2>/dev/null || true",
@@ -518,7 +561,10 @@ pub fn diff(
                 .trim()
                 .split_once(' ')
                 .ok_or_else(|| format!("malformed created.txt line: `{line}`"))?;
-            names.bind_symbolic(model.parse::<ObjRef>()?, board.trim());
+            // Model ids appear in scripts in their model-space spelling
+            // (`dpni_0`, [`model_key`]); family names carry no
+            // underscore, so the first one is the separator.
+            names.bind_symbolic(model.replacen('_', ".", 1).parse::<ObjRef>()?, board.trim());
         }
     }
 
@@ -724,7 +770,7 @@ mod tests {
         // Every command visible; expectations beside steps.
         assert!(s.contains("run_create 0 restool --script dprc create dprc.1"));
         assert!(s.contains("--plugged=1"));
-        assert!(s.contains("# expect: dpbp.101 present=true plugged=true"));
+        assert!(s.contains("# expect: dpbp_101 present=true plugged=true"));
         // Created objects recorded for the offline diff, then torn down
         // unconditionally in reverse order.
         assert!(s.contains("created.txt"));
@@ -802,7 +848,7 @@ mod tests {
         // and dpbp.101 -> dpbp.5; every read-back conforms.
         let results = |name: &str| -> Option<String> {
             match name {
-                "created.txt" => Some("dprc.100 dprc.2\ndpbp.101 dpbp.5\n".to_owned()),
+                "created.txt" => Some("dprc_100 dprc.2\ndpbp_101 dpbp.5\n".to_owned()),
                 "step-0-probe-0.txt" => Some("dprc.2    unplugged\n".to_owned()),
                 "step-1-probe-0.txt" | "step-2-probe-0.txt" => {
                     let plugged = if name.starts_with("step-1") {

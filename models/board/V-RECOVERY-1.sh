@@ -49,19 +49,19 @@ restool dprc generate-dpl dprc.1 > "$RESULTS/pre-dpl.dts"
 
 # step 0: CreateContainer { parent: ObjRef { fam: Dprc, num: 1 } }
 OBJ_dprc_2="$(run_create 0 restool --script dprc create dprc.1)"
-echo "dprc.2 ${OBJ_dprc_2}" >> "$RESULTS/created.txt"
-# expect: dprc.2 present=true plugged=false
+echo "dprc_2 ${OBJ_dprc_2}" >> "$RESULTS/created.txt"
+# expect: dprc_2 present=true plugged=false
 probe 0 0 restool dprc show dprc.1
 
 # step 1: CreateObject { fam: Dpbp, container: ObjRef { fam: Dprc, num: 2 } }
 OBJ_dpbp_0="$(run_create 1 restool --script dpbp create --container=${OBJ_dprc_2})"
-echo "dpbp.0 ${OBJ_dpbp_0}" >> "$RESULTS/created.txt"
-# expect: dpbp.0 present=true plugged=false
+echo "dpbp_0 ${OBJ_dpbp_0}" >> "$RESULTS/created.txt"
+# expect: dpbp_0 present=true plugged=false
 probe 1 0 restool dprc show ${OBJ_dprc_2}
 
 # step 2: Plug { obj: ObjRef { fam: Dpbp, num: 0 } }
 run 2 restool dprc assign ${OBJ_dprc_2} --object=${OBJ_dpbp_0} --plugged=1
-# expect: dpbp.0 present=true plugged=true
+# expect: dpbp_0 present=true plugged=true
 probe 2 0 restool dprc show ${OBJ_dprc_2}
 
 # --- no teardown: the reboot is the teardown (ADR-0003 §7) ---

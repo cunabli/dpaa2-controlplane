@@ -184,10 +184,13 @@ pub fn check_cmd(run: RunClass, cmd: &Cmd) -> Result<(), Violation> {
 }
 
 /// The generation-side gate: checks every object a model trace
-/// references before any script is emitted. Boot-born model ids name
-/// the real board objects, so the total-deny and class ceilings apply
-/// directly; runtime-created ids are board-named only at execution,
-/// where [`check_cmd`] independently covers them.
+/// references before any script is emitted. Only boot-born ids (present
+/// in the trace's initial state) are screened: those name the real
+/// board objects literally, so the total-deny and class ceilings apply
+/// directly. Runtime-created model ids are symbolic — the model's
+/// counters can mint e.g. a model `dpni.0` that the board will name
+/// differently — and are board-named only at execution, where
+/// [`check_cmd`] independently covers every rendered command.
 ///
 /// # Errors
 ///
@@ -199,6 +202,7 @@ pub fn check_trace(run: RunClass, trace: &MbtTrace) -> Result<(), Violation> {
             .action
             .refs()
             .iter()
+            .filter(|r| trace.init.objs.contains_key(r))
             .map(ObjRef::to_string)
             .collect::<Vec<_>>()
             .join(" ");
@@ -230,9 +234,30 @@ mod tests {
         }
     }
 
+    /// A trace whose init state carries the boot population every real
+    /// trace has (root container and DPC-born dpmacs) — trace screening
+    /// applies to boot-born ids only.
     fn trace_of(actions: &[ModelAction]) -> MbtTrace {
+        let mut init = MachineView::default();
+        let boot = std::iter::once(ObjRef {
+            fam: Family::Dprc,
+            num: 1,
+        })
+        .chain([3, 4, 7, 9, 17].map(dpmac));
+        for o in boot {
+            init.objs.insert(
+                o,
+                crate::adapter::ObjView {
+                    parent: None,
+                    plugged: true,
+                    bus_visible: true,
+                    bind: crate::adapter::BindView::Unbound,
+                    link_up: false,
+                },
+            );
+        }
         MbtTrace {
-            init: MachineView::default(),
+            init,
             steps: actions
                 .iter()
                 .map(|a| MbtStep {
@@ -241,6 +266,20 @@ mod tests {
                 })
                 .collect(),
         }
+    }
+
+    #[test]
+    fn runtime_created_model_ids_pass_trace_screening() {
+        // The model's counters mint dpni.0 for the first runtime-created
+        // dpni; it is symbolic (the board names creates itself), so the
+        // trace screen must not confuse it with the board's management
+        // dpni.0. The execution-side scan still covers rendered names.
+        let created = ObjRef {
+            fam: Family::Dpni,
+            num: 0,
+        };
+        let trace = trace_of(&[ModelAction::Plug { obj: created }]);
+        assert!(check_trace(LIFECYCLE, &trace).is_ok());
     }
 
     #[test]
