@@ -342,9 +342,14 @@ object-lifecycle-only scenarios except where noted):
    creation-order artifact or consumed companion?
 8. ~~MC 10.32 → 10.39 DPRC command deltas~~ — resolved: none (see MC API
    notes).
-9. Whether `assign --plugged` on an object bound to a kernel driver is
+9. ~~Whether `assign --plugged` on an object bound to a kernel driver is
    refused by MC or races the driver (link-signaling class if tested on a
-   netdev-backed object).
+   netdev-backed object).~~ **Answered** — board suite V-LINK-5,
+   2026-08-23: `dprc assign --plugged=0` on a kernel-bound, link-up,
+   netdev-backed dpni exits 240 (8-bit −EBUSY) with the object still
+   plugged and the driver still bound. It is refused, not raced and not
+   silently dropped; releasing such an object requires unbinding the
+   driver first.
 10. `dump-mem` output semantics and whether partitions beyond PEB exist on
     LX2160A firmware.
 11. `/dev/dprc.N` permissions: the kernel sets no mode/owner (default misc

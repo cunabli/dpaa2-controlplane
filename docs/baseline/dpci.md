@@ -151,8 +151,13 @@ must also name the userspace consumer, or be refused.
 
 ## Unknown / unverified register
 
-1. Does link state go up on connect alone, or only after both ends issue
-   `DPCI_ENABLE`? (Decides DPCI-I5; restool never enables.)
+1. ~~Does link state go up on connect alone, or only after both ends issue
+   `DPCI_ENABLE`? (Decides DPCI-I5; restool never enables.)~~
+   **Answered** — board suite V-LINK-1, 2026-08-23: a restool-created
+   pair reads `link status: 0 - down` immediately after the connect,
+   with the peer named and its priority count visible. Connecting sets
+   no link state; only a consumer's enable can raise it, which restool
+   has no verb for.
 2. ~~Does destroy of a still-connected dpci succeed, or does MC demand a
    disconnect first? (restool doesn't guard it.)~~ **Answered** — board
    suite V-DPCI-1, 2026-08-23: the MC destroys a connected dpci without

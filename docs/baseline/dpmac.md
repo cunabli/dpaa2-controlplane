@@ -227,6 +227,12 @@ The family-level pattern: **the observation surface is weaker than the
 state**. Endpoint "link is up" is not MAC link state; counter absence is
 not zero; exit 0 is not destroyed. The reconciler must observe dpmacs
 via attributes + connection queries, never via restool's rendered text.
+Weaker is not unrelated, though: on a bound, enabled pair the endpoint
+line's `, link is up/down` text was observed co-varying with a physical
+cable flap at both ends while the connection edge itself persisted
+(peers still named) — so it is not a static rendering of the edge
+either, and reading it as evidence of *anything* stable is unsafe
+[verified 2026-08-24, V-LINK-2 rev 3].
 
 ## Invariant candidates
 
@@ -249,6 +255,17 @@ via attributes + connection queries, never via restool's rendered text.
    an escape hatch of unknown semantics.)
 2. MC semantics of `state_valid = 0` in `set_link_state` — does the `up`
    bit take effect? Every kernel push depends on the answer.
+   **Answered on the kernel path** — board suite V-LINK-2 rev 3,
+   2026-08-24: with a physical cable pull on a wired pair, the peer's
+   `dpni info` `link status:` tracked PHY reality down and back up.
+   Since every kernel push carries `state_valid = 0`, the `up` bit does
+   take effect — with a propagation lag, the MC-visible state trailing
+   the local carrier flag by enough that a probe fired at the moment of
+   the flap reads the stale value. The same sitting showed an
+   admin-down of the peer's interface is not a link-down stimulus on
+   this wiring: it never drops the light the peer transmits. The direct
+   raw probe (issuing `SET_LINK_STATE` ourselves with chosen field
+   values) stays open — V-LINK-3, deferred to the online driver.
 3. Provenance of `serdes_eq_settings` and `ifg_cfg` (no DPC property
    exists; `set_params` covers IPG only) — RCW/firmware defaults
    presumed.

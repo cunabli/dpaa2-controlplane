@@ -31,6 +31,9 @@ generator emit mutating suites.
 | V-DPCI-1 | `vdpci1.qnt` | **passed** 2026-08-23 (rev 2), 7/7 — answers dpci.md unknown #2: the MC destroys a connected dpci without demanding a disconnect first, the edge dying with the object as the model assumed, and the connect itself is legal while both endpoints are unplugged. Rev 1 diverged twice over: the connect was issued on the scratch container the pair lives in and the MC refused it with No privilege, which anchored the topology-changes option-bit finding (connects now render against the root ancestor); and the conforming rev-2 connect was then scored wrong by a read-back parser that knew only one family's wording for the peer line |
 | V-DPSW-1 | `vdpsw1.qnt` | **passed** 2026-08-23 (batch 3), 9/9 — the switch driver does take a dpsw created at runtime, but only one built in the shape it accepts: control interface on, flooding and broadcast both scoped per FDB. Those are not restool's silent defaults, and a default-built switch is refused at probe with the reason logged, so the create carries them explicitly. The census drew the created dpmcp and dpbp companions rather than any boot resident, and the connect read back through the per-interface dialect |
 | V-DPDMUX-1 | `vdpdmux1.qnt` | **passed** 2026-08-23 (rev 2, batch 3), 7/7 — the evb driver takes a runtime dpdmux and gates only on the object's API version, so no create-time configuration is at stake; the uplink-to-dpmac connect was clean. Rev 1's own face passed too, but its unspaced teardown reproducibly tripped the ADR-0008 rescan race: three boot residents silently unbound in one scan window — the boot dpni among them, which took the management interface down — plus a boot dpmcp fully removed and re-added. A settle after each destroy removed every marker and every casualty in rev 2 |
+| V-LINK-1 | `vlink1.qnt` | **passed** 2026-08-23 (batch 4), 4/4 — answers dpci.md unknown #1 and settles DPCI-I5: a restool-created dpci pair reads `link status: 0 - down` right after the connect, with the peer named and the peer's priorities visible. The edge is up and the link is not; the connect carries no link state and restool, which has no enable verb for this family, can never raise it — link-up is the consumer's to grant |
+| V-LINK-2 | `vlink2.qnt` | **passed** 2026-08-24 (rev 3, batch 4), 16/16 — the first suite to flap a wired dpmac. With a real cable pull, `dpni info`'s `link status:` tracked PHY reality down and back up, and since every kernel link push carries `state_valid=0`, that answers dpmac.md unknown #2 on the kernel path: the `up` bit does take effect, with propagation lag. Revs 1 and 2 both read a stale `up` at the flap-down step, for two causes the bench work separated: an admin-down of the peer's interface never drops the light it transmits, so only pulling the cable is a link-down stimulus on this wiring; and the MC-visible link state lags the local carrier flag, so a probe fired the moment the operator acknowledges reads the old answer. Rev 3's acknowledgments require the carrier flag and the restool read-back to agree before continuing; the post-sitting census was clean at the 97-object baseline, so the teardown reclaimed the full scratch set. Evidence probes also caught both endpoint lines' `, link is up/down` text co-varying with the flap while the connection edge itself persisted — DPMAC-I5's law stands, its assumed independence from link state does not |
+| V-LINK-5 | `vlink5.qnt` | **ran once** 2026-08-23 (batch 4) and **retired with its answer** — answers dprc.md unknown #9: `dprc assign --plugged=0` on a kernel-bound, link-up, netdev-backed dpni exited 240 (8-bit −EBUSY) with the object still plugged and the driver still bound. A refusal, not a race and not a silent drop, and the second anchor after V-LIFE-DPIO-1 rev 1's teardown refusal on a driver-bound dpmcp. Every other step passed. The model's `unplugAt` now requires an unbound object, which makes the probing step untraceable — the retirement is the finding, and the module header carries the do-not-regenerate note |
 
 V-LIFE-DPNI-1 carries the "per-family lifecycle scenarios" of design
 D7 step 2 for the dpni family: the §5 canonical order through the
@@ -64,6 +67,8 @@ design D9):
 | V-DPSW-2..3 | V-DPSW-2 is a raw-reset probe; V-DPSW-3 needs per-scenario endpoint counts. The positive create+connect face landed as V-DPSW-1 | online driver |
 | V-DPDMUX-2..3 | V-DPDMUX-2's dpni-uplink refusal is model-forbidden (like V-DPMAC-2) so it cannot be traced; V-DPDMUX-3 is a cross-regime reset probe. The positive uplink connect landed as V-DPDMUX-1 | online driver |
 | V-DPCI-2 | options-discard hardware probe (OPR config), attribute read-back | online driver |
+| V-LINK-3 | raw `SET_LINK_STATE` commands through `/dev/dprc.N` that no crate code drives; its kernel-path half is already answered by V-LINK-2 (dpmac.md unknown #2) | online driver |
+| V-LINK-4 | the peer-request channel (`dpni_set_link_cfg`, reachable as `ethtool -A`) has no restool verb, and the flagged wiring carries no kernel netdev to drive it from | online driver |
 | V-DPDCEI-1 probes | GET_API_VERSION / dce_version reads; the create face is V-LIFE-DPDCEI-1 | online driver |
 | V-DPDMAI-2 | shutdown/reboot-cycle shaped — the V-RECOVERY-1 two-script pattern, not a plain batch suite | later, recovery-shaped suite |
 | V-DPRTC-1..2, V-DPDBG-1 | root-container residents with fixed disposition (traffic-inventory §4, design D7 step 4): online driver, per-step operator confirmation — task 5.4, not 5.2 | online driver (5.4) |
@@ -127,6 +132,20 @@ Connecting a switch-family object to a dpmac wakes the mac driver on
 the peer: both sittings logged the dpmac configuring its link mode the
 moment the edge came up, without anything else touching that dpmac.
 Worth knowing before reading a sitting's log as unexplained activity.
+
+Batch 4 closes the batchable half of link signaling: V-LINK-1 and
+V-LINK-2 passed, V-LINK-5 answered its unknown and retired, and only
+V-LINK-3 and V-LINK-4 remain, both in the deferral table above. These
+are the first suites to run explicitly flagged against a wired pair,
+and the wiring changed how a suite asks for help: an operator
+acknowledgment is no longer a keystroke but an assertion, with both
+faces of the state — the kernel's carrier flag and restool's own
+read-back — required to agree before the run continues, because the
+MC-visible link lags the local one. Teardown gained the matching
+repair: a suite that severs a boot connection restores it before
+finishing. On the live bare boot that step is vacuous, since the boot
+pair the reference capture shows is a provisioned-moment artifact and
+no such edge exists to restore (reference-environment.md).
 
 ## Regenerating
 

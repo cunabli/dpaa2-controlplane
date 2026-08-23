@@ -27,7 +27,7 @@ Tally: 52 modeled, 45 deferred, 8 board-pending — 105 candidates.
 | Candidate | Disposition | Location / owning change / settling scenario | CI rung | Board status |
 |-----------|-------------|----------------------------------------------|---------|--------------|
 | DPRC-I1 | modeled | `core/invariants.qnt` `DPRC_I1` (also DPMCP-I4's placement face) | apalache | — |
-| DPRC-I2 | modeled | `core/invariants.qnt` `DPRC_I2` | apalache | pending V-LINK-5 (plugged-race on a bound netdev) |
+| DPRC-I2 | modeled | `core/invariants.qnt` `DPRC_I2` (`unplugAt` now requires an unbound object) | apalache | verified (V-LINK-5: unplug of a bound netdev-backed dpni refused −EBUSY, not raced) |
 | DPRC-I3 | modeled | `main.qnt` `DPRC_I3Test` | simulate | pending V-DPRC-1 (exact MC error) |
 | DPRC-I4 | modeled | `core/invariants.qnt` `DPRC_I4` | apalache | verified (prior work) |
 | DPRC-I5 | modeled | `core/connect.qnt` `canConnect` + `main.qnt` `DPNI_I9Test` | simulate | — |
@@ -52,12 +52,12 @@ Tally: 52 modeled, 45 deferred, 8 board-pending — 105 candidates.
 | DPMAC-I1 | modeled | `core/invariants.qnt` `DPMAC_I1` (no-additions + root-pin; destroy is off-nominal) | apalache | verified (ADR-0001 §3); pending V-DPMAC-2 (phantom create) |
 | DPMAC-I2 | deferred | `dpmac-typestate` (#7): MAC values not in core state | — | verified (ADR-0001 C2) |
 | DPMAC-I3 | deferred | `dpmac-typestate` (#7): attr surface with the eth_if/IPG exceptions | — | — |
-| DPMAC-I4 | board-pending | V-LINK-4 (directional channels; core carries a single linkUp — refined in #7) | — | pending |
-| DPMAC-I5 | modeled | `main.qnt` `DPMAC_I5Test` (connection ⊥ link state) | simulate | pending V-LINK-2 |
+| DPMAC-I4 | board-pending | V-LINK-4 (directional channels; core carries a single linkUp — refined in #7) | — | pending V-LINK-4, deferred to the online driver (no restool verb for the peer-request channel, no kernel netdev on the flagged wiring) |
+| DPMAC-I5 | modeled | `main.qnt` `DPMAC_I5Test` (connection ⊥ link state) | simulate | verified (V-LINK-2 rev 3: never read as link state — but on a bound, enabled pair the connection-state text co-varies with the flap, so the two are not independent) |
 | DPMAC-I6 | deferred | `dpmac-typestate` (#7): driver arbitration ⟺ peer topology not in core machine | — | verified (production use) |
 | DPMAC-I7 | deferred | this change ph.4 adapter: counter vocabulary firmware-versioned, refusals silent | — | pending V-DPMAC-1 |
 | DPMAC-I8 | modeled | `main.qnt` `DPSECI_I8Test` (class witness: model refuses only what restool refuses) + ph.4 adapter law | simulate | — |
-| DPMAC-I9 | deferred | this change ph.4 adapter: emitted fields carried per action | — | pending V-LINK-3 |
+| DPMAC-I9 | deferred | this change ph.4 adapter: emitted fields carried per action | — | kernel path verified (V-LINK-2 rev 3: `up` takes effect with `state_valid=0`, with propagation lag); raw probe pending V-LINK-3 (online driver) |
 | DPBP-I1 | modeled | `main.qnt` `DPBP_I5Test` (zero cfg; identity is the hwId) | simulate | — |
 | DPBP-I2 | modeled | `core/invariants.qnt` `DPBP_I2` + `main.qnt` `DPBP_I2Test`/`DPBP_I2PlugTest` | apalache | pending V-POOL-1 |
 | DPBP-I3 | modeled | `main.qnt` `DPBP_I3Test` (dirty return on free) | simulate | pending V-POOL-2 (dpbp_reset drain) |
@@ -112,7 +112,7 @@ Tally: 52 modeled, 45 deferred, 8 board-pending — 105 candidates.
 | DPCI-I2 | modeled | structural — the model carries no dpci options state | typecheck | pending V-DPCI-2 |
 | DPCI-I3 | modeled | `main.qnt` `DPCI_I3Test` + `families/dpci.qnt` createTriggersRescan=false | simulate | pending V-DPCI-1 |
 | DPCI-I4 | board-pending | V-DPCI-1 | — | pending |
-| DPCI-I5 | modeled | `main.qnt` `DPCI_I5Test` (connect sets no link state) | simulate | pending V-LINK-1 |
+| DPCI-I5 | modeled | `main.qnt` `DPCI_I5Test` (connect sets no link state) | simulate | verified (V-LINK-1: pair reads link-down after connect; consumer enable required) |
 | DPDCEI-I1 | deferred | `intent-layer` (#3): consumer-absence refusal is an intent-layer rule | — | pending V-DPDCEI-1 |
 | DPDCEI-I2 | deferred | this change ph.4 generator | — | pending V-GENDPL-1 |
 | DPDCEI-I3 | deferred | this change ph.4 adapter (LAW 2; `DPSECI_I8Test` is the class witness) | — | — |

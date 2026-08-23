@@ -51,6 +51,16 @@ The dprc.2 numbers are live confirmation of the sizing rules the intent
 layer codifies (ADR-0005): the two-DPBP rule, and DPIO = 10 = 2·(1+4) for
 a main+4-worker consumer. Anchor for the phase-3 pool-object documents.
 
+**This is a provisioned moment, not a bare boot** [board-observed
+2026-08-23]. dprc.2 and its dpnis exist only while a consumer has
+provisioned them: on a freshly booted board with no consumer, there is
+no child container and none of those dpnis, and the wired dpmacs sit
+unconnected. The ids are not reserved either — a dpni created at
+runtime on such a boot was minted the same id the capture shows on the
+boot pair. So a scenario must establish the objects it needs rather
+than assume this topology, and must not read an id from this capture as
+identifying the same object on the board.
+
 DPNI shapes observed: the management dpni.0 is a plain NIC
 (num_queues 16, 1 TC); the VPP DPNIs carry num_queues 16, 8 TCs, 24 CGs,
 num_opr 8, and options HAS_KEY_MASKING, HAS_OPR, OPR_PER_TC, SINGLE_SENDER,

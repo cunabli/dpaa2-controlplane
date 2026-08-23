@@ -76,7 +76,7 @@ board task is an operator sitting sync point.
 - [x] 5.2 Generate the full object-lifecycle sweep (scratch DPRCs,
       unwired dpmacs, unconditional teardown); operator runs; diff,
       amend models/baseline, freeze divergence traces
-- [ ] 5.3 Generate link-signaling V-LINK-1..5 (dpmac.7/9, per-run
+- [x] 5.3 Generate link-signaling V-LINK-1..5 (dpmac.7/9, per-run
       flags); operator runs; diff and fold back
 - [ ] 5.4 Root-container dpdbg/dprtc probes under the online driver,
       per-step confirmation; dprtc.0 destroy only after 5.1; UART
