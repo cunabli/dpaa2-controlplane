@@ -483,6 +483,11 @@ pub fn generate(
             Some(postboot_script(&spec.id)),
         )
     } else {
+        // Teardown stderr is evidence, not noise: a refused unplug is
+        // exactly how a leaked object goes unnoticed, so it lands in a
+        // log instead of /dev/null. stdout stays on the console.
+        let log = "2>>\"$RESULTS/teardown.log\"";
+        let root = sym.name(crate::adapter::ROOT_DPRC).ok().map(str::to_owned);
         let mut trap =
             String::from("\n# --- unconditional teardown (ADR-0003 §6) ---\nteardown() {\n");
         for (obj, var, parent) in teardown.iter().rev() {
@@ -494,14 +499,27 @@ pub fn generate(
             if obj.fam != crate::adapter::Family::Dprc
                 && let Some(parent) = parent
             {
+                // A root-container object may be driver-bound by teardown
+                // time — after `dprc sync` the kernel's fsl_mc_allocator
+                // claims free pool companions — and restool refuses
+                // `--plugged=0` on anything holding a driver. Unbind it
+                // first if it is bound; child-container objects never are
+                // (DPRC-I6), so they skip this.
+                if root.as_deref() == Some(parent.as_str()) {
+                    let dev = format!("/sys/bus/fsl-mc/devices/${{{var}}}");
+                    let _ = writeln!(
+                        trap,
+                        "  [ -n \"${{{var}:-}}\" ] && [ -e \"{dev}/driver\" ] && echo \"${{{var}}}\" > \"{dev}/driver/unbind\" {log} || true"
+                    );
+                }
                 let _ = writeln!(
                     trap,
-                    "  [ -n \"${{{var}:-}}\" ] && restool dprc assign {parent} --object=\"${{{var}}}\" --plugged=0 2>/dev/null || true"
+                    "  [ -n \"${{{var}:-}}\" ] && restool dprc assign {parent} --object=\"${{{var}}}\" --plugged=0 {log} || true"
                 );
             }
             let _ = writeln!(
                 trap,
-                "  [ -n \"${{{var}:-}}\" ] && restool {} destroy \"${{{var}}}\" 2>/dev/null || true",
+                "  [ -n \"${{{var}:-}}\" ] && restool {} destroy \"${{{var}}}\" {log} || true",
                 obj.fam.as_str()
             );
         }
@@ -751,6 +769,49 @@ mod tests {
         )
         .unwrap_err();
         assert!(err.contains("outside the scratch set"), "{err}");
+    }
+
+    /// A root-resident object may be driver-bound when the trap runs, and
+    /// restool refuses to unplug anything holding a driver — so teardown
+    /// unbinds first, and its stderr is kept rather than discarded.
+    #[test]
+    fn teardown_unbinds_root_residents_before_unplugging_and_keeps_stderr() {
+        let mut init = MachineView::default();
+        init.objs.insert(dprc(1), obj(None, true));
+        let mut s1 = init.clone();
+        s1.objs.insert(dpbp(101), obj(Some(dprc(1)), false));
+        let mut s2 = s1.clone();
+        s2.objs.get_mut(&dpbp(101)).unwrap().plugged = true;
+        let trace = MbtTrace {
+            init,
+            steps: vec![
+                MbtStep {
+                    action: ModelAction::CreateObject {
+                        fam: Family::Dpbp,
+                        container: dprc(1),
+                    },
+                    post: s1,
+                },
+                MbtStep {
+                    action: ModelAction::Plug { obj: dpbp(101) },
+                    post: s2,
+                },
+            ],
+        };
+        let s = generate(
+            &spec(SuiteKind::Standard),
+            &trace,
+            RecoveryGuarantee::Verified,
+        )
+        .unwrap()
+        .script;
+
+        let unbind = s.find("/driver/unbind").unwrap();
+        let unplug = s.find("--plugged=0").unwrap();
+        assert!(unbind < unplug, "unbind must precede the unplug");
+        assert!(!s.contains("--plugged=0 2>/dev/null"));
+        assert!(s.contains("2>>\"$RESULTS/teardown.log\""));
+        sh_parses(&s);
     }
 
     #[test]

@@ -592,6 +592,12 @@ pub enum Drive {
 /// deliberately not any device's real address.
 pub const SCRATCH_MAC: &str = "02:00:00:00:00:01";
 
+/// The Linux root container, present in every board trace's boot state.
+pub const ROOT_DPRC: ObjRef = ObjRef {
+    fam: Family::Dprc,
+    num: 1,
+};
+
 /// Extra `restool --script <fam> create` arguments per family, beyond
 /// the container. Empty means bare create on MC defaults (the V-*-1
 /// bare-create probes rely on that). Non-empty rows follow the ls-addni
@@ -602,6 +608,15 @@ fn create_args(fam: Family) -> &'static [&'static str] {
         Family::Dpio => &["--channel-mode=DPIO_LOCAL_CHANNEL", "--num-priorities=8"],
         // dpcon.md / ls-addni: 2 priorities.
         Family::Dpcon => &["--num-priorities=2"],
+        // restool has no bare dpseci create either: dpseci_commands.c
+        // rejects a create that sets neither queue count nor priorities,
+        // and the two must agree in length. These are restool's own
+        // documented example values.
+        Family::Dpseci => &["--num-queues=2", "--priorities=2,4"],
+        // restool has no bare dpdcei create: dpdcei_commands.c rejects a
+        // create that omits either flag, so these are mandatory, not a
+        // recipe. Engine and priority are ours; the rest stays MC default.
+        Family::Dpdcei => &["--engine=DPDCEI_ENGINE_DECOMPRESSION", "--priority=1"],
         _ => &[],
     }
 }
@@ -737,21 +752,29 @@ pub fn drive(action: &ModelAction, pre: &MachineView, names: &Binding) -> Result
             }]))
         }
         ModelAction::ConnectEdge { a, b } => {
-            let container = parent_of(pre, a.obj)?;
+            // Always the root, never the endpoints' own container.
+            // `dprc connect` runs on the named container's MC handle, and
+            // a container restool created without --options carries no
+            // DPRC_CFG_OPT_TOPOLOGY_CHANGES_ALLOWED, so that handle may
+            // not connect anything (board: MC No privilege, status 0x4).
+            // restool only asks for a common ancestor, and the root is
+            // the one ancestor guaranteed to hold the privilege.
             cmd(argv(&[
                 "dprc",
                 "connect",
-                names.name(container)?,
+                names.name(ROOT_DPRC)?,
                 &format!("--endpoint1={}", names.endpoint(*a)?),
                 &format!("--endpoint2={}", names.endpoint(*b)?),
             ]))
         }
         ModelAction::DisconnectEdge { e } => {
-            let container = parent_of(pre, e.obj)?;
+            // Root, for the same reason connect is: disconnect is the
+            // other half of the same topology-change privilege, and a
+            // default-created container's handle does not hold it.
             cmd(argv(&[
                 "dprc",
                 "disconnect",
-                names.name(container)?,
+                names.name(ROOT_DPRC)?,
                 &format!("--endpoint1={}", names.endpoint(*e)?),
             ]))
         }
@@ -981,7 +1004,10 @@ pub fn observe(
                 obs.plugged = row.map(|l| !l.split_whitespace().any(|t| t == "unplugged"));
             }
             Probe::Restool(v) if v.get(1).map(String::as_str) == Some("info") => {
-                obs.endpoint = Some(parse_endpoint_line(out));
+                obs.endpoint = Some(parse_endpoint_line(
+                    v.first().map_or("", String::as_str),
+                    out,
+                ));
             }
             Probe::Restool(v) => {
                 return Err(format!("unrecognized read-back probe: {v:?}"));
@@ -994,13 +1020,25 @@ pub fn observe(
     Ok(obs)
 }
 
-/// The peer object reference of a restool `endpoint:` line, e.g.
-/// `endpoint: dpmac.7, link is up` → `dpmac.7`. Lines reporting no
-/// association (or an absent line) mean no peer.
-fn parse_endpoint_line(info_output: &str) -> Option<String> {
+/// The peer object reference an `<fam> info` read-back reports, e.g.
+/// `endpoint: dpmac.7, link is up` → `dpmac.7`.
+///
+/// restool words this per family rather than uniformly — the same trap
+/// the dpdcei and dpseci create flags sprang. dpci prints `connected
+/// peer: dpci.1`, or `no peer` when it has none (dpci_commands.c:236).
+/// dpni and dpmac print `endpoint: <type>.<id>` (a dpsw or dpdmux peer
+/// adds its interface id), or `No object associated`
+/// (dpni_commands.c:507, dpmac_commands.c:177). Either unconnected
+/// wording, and an absent line, mean no peer.
+fn parse_endpoint_line(fam: &str, info_output: &str) -> Option<String> {
+    let prefix = if fam == Family::Dpci.as_str() {
+        "connected peer:"
+    } else {
+        "endpoint:"
+    };
     let line = info_output
         .lines()
-        .find_map(|l| l.trim().strip_prefix("endpoint:"))?;
+        .find_map(|l| l.trim().strip_prefix(prefix))?;
     let token = line.split(',').next()?.trim();
     let (kind, _idx) = token.split_once('.')?;
     kind.starts_with("dp").then(|| token.to_owned())
@@ -1131,6 +1169,112 @@ mod tests {
                 .insert(dpni(num), obj(Some(dprc1()), plugged, BindView::Unbound));
         }
         v
+    }
+
+    #[test]
+    fn drive_renders_dpseci_create_with_mandatory_flags() {
+        let pre = state(None);
+        let names = Binding::seed(&pre);
+
+        let create = ModelAction::CreateObject {
+            fam: Family::Dpseci,
+            container: dprc1(),
+        };
+        assert_eq!(
+            drive(&create, &pre, &names).unwrap(),
+            Drive::Cmds(vec![Cmd::Restool(argv(&[
+                "--script",
+                "dpseci",
+                "create",
+                "--num-queues=2",
+                "--priorities=2,4",
+                "--container=dprc.1",
+            ]))])
+        );
+    }
+
+    /// The endpoints sit in a scratch container, but the connect must
+    /// still run on the root: a default-created container's handle has
+    /// no topology-change privilege and the MC refuses it there.
+    #[test]
+    fn drive_connects_child_container_objects_through_the_root() {
+        let scratch = ObjRef {
+            fam: Family::Dprc,
+            num: 2,
+        };
+        let dpci = |num| ObjRef {
+            fam: Family::Dpci,
+            num,
+        };
+
+        let mut pre = state(None);
+        pre.objs
+            .insert(scratch, obj(Some(dprc1()), true, BindView::Unbound));
+        pre.objs
+            .insert(dpci(0), obj(Some(scratch), true, BindView::Unbound));
+        pre.objs
+            .insert(dpci(1), obj(Some(scratch), true, BindView::Unbound));
+        let names = Binding::seed(&pre);
+
+        let connect = ModelAction::ConnectEdge {
+            a: EndpointRef {
+                obj: dpci(0),
+                port: 0,
+            },
+            b: EndpointRef {
+                obj: dpci(1),
+                port: 0,
+            },
+        };
+        assert_eq!(
+            drive(&connect, &pre, &names).unwrap(),
+            Drive::Cmds(vec![Cmd::Restool(argv(&[
+                "dprc",
+                "connect",
+                "dprc.1",
+                "--endpoint1=dpci.0",
+                "--endpoint2=dpci.1",
+            ]))])
+        );
+
+        // Disconnect is the same privilege, so the same container.
+        let disconnect = ModelAction::DisconnectEdge {
+            e: EndpointRef {
+                obj: dpci(0),
+                port: 0,
+            },
+        };
+        assert_eq!(
+            drive(&disconnect, &pre, &names).unwrap(),
+            Drive::Cmds(vec![Cmd::Restool(argv(&[
+                "dprc",
+                "disconnect",
+                "dprc.1",
+                "--endpoint1=dpci.0",
+            ]))])
+        );
+    }
+
+    #[test]
+    fn drive_renders_dpdcei_create_with_mandatory_flags() {
+        let pre = state(None);
+        let names = Binding::seed(&pre);
+
+        let create = ModelAction::CreateObject {
+            fam: Family::Dpdcei,
+            container: dprc1(),
+        };
+        assert_eq!(
+            drive(&create, &pre, &names).unwrap(),
+            Drive::Cmds(vec![Cmd::Restool(argv(&[
+                "--script",
+                "dpdcei",
+                "create",
+                "--engine=DPDCEI_ENGINE_DECOMPRESSION",
+                "--priority=1",
+                "--container=dprc.1",
+            ]))])
+        );
     }
 
     #[test]
@@ -1346,6 +1490,30 @@ mod tests {
             "dpni.5",
         )
         .unwrap();
+        assert_eq!(obs.endpoint, Some(None));
+
+        // dpci speaks its own dialect: `connected peer:`, and `no peer`
+        // where dpni says `No object associated`. Text as the board
+        // prints it.
+        let info = Probe::Restool(argv(&["dpci", "info", "dpci.0"]));
+        let out = "dpci version: 3.4\n\
+                   dpci id: 0\n\
+                   plugged state: unplugged\n\
+                   num_priorities: 1\n\
+                   connected peer: dpci.1\n\
+                   peer's num_of_priorities: 1\n\
+                   link status: 0 - down\n"
+            .to_owned();
+        let obs = observe(std::slice::from_ref(&info), &[out], "dpci.0").unwrap();
+        assert_eq!(obs.endpoint, Some(Some("dpci.1".to_owned())));
+        let out = "dpci version: 3.4\n\
+                   dpci id: 0\n\
+                   plugged state: unplugged\n\
+                   num_priorities: 1\n\
+                   connected peer: no peer\n\
+                   link status: 0 - down\n"
+            .to_owned();
+        let obs = observe(&[info], &[out], "dpci.0").unwrap();
         assert_eq!(obs.endpoint, Some(None));
 
         let probe = Probe::SysfsRead {
