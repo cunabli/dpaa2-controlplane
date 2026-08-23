@@ -6,6 +6,6 @@
 		"@informalsystems/quint": "0.32.0"
 	},
 	"config": {
-		"apalache_version": "0.62.1"
+		"apalache_version": "0.56.1"
 	}
 }

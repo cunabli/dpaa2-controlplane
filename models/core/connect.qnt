@@ -2,7 +2,8 @@
 // Connections are owned by the dprc family: restool is type-agnostic,
 // the MC validates pair legality. Pure helpers; actions in machine.qnt.
 //
-// Named invariants: none yet (phase 2). Apalache-marked subset: none.
+// Named invariants: none here — the phase-2 encodings live in
+// core/invariants.qnt and models/main.qnt under baseline ids.
 module connect {
   import types.* from "./types"
 

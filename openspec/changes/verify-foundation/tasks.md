@@ -34,15 +34,15 @@ board task is an operator sitting sync point.
 
 ## 2. Invariant encoding and coverage ledger
 
-- [ ] 2.1 Encode the six cross-cutting laws (object-model.md §6) and
+- [x] 2.1 Encode the six cross-cutting laws (object-model.md §6) and
       the touched families' candidates under their baseline ids,
       Breaking ones as prohibited-assumption encodings (design D3)
-- [ ] 2.2 Encode Tier B, then Tier C candidates; fallback checkpoint —
+- [x] 2.2 Encode Tier B, then Tier C candidates; fallback checkpoint —
       if intractable, truncate here and ledger the tail as deferred
       with owning changes named
-- [ ] 2.3 Mark the Apalache subset per model header; Apalache green on
+- [x] 2.3 Mark the Apalache subset per model header; Apalache green on
       marked invariants; record any TLA+ escalation taken
-- [ ] 2.4 Fill `models/COVERAGE.md`: every candidate modeled /
+- [x] 2.4 Fill `models/COVERAGE.md`: every candidate modeled /
       deferred-to-named-change / board-pending-with-scenario-id
 
 ## 3. Retro-model and ITF replay

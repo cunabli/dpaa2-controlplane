@@ -13,3 +13,6 @@ output
 # Board captures: operator material (MACs, topology details) — never committed
 /results
 /scripts
+
+# Apalache scratch output (quint verify)
+_apalache-out/

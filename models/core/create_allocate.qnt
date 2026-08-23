@@ -3,7 +3,8 @@
 // creation writes the objs map; allocation only flips allocatedBy on an
 // existing pooled object.
 //
-// Named invariants: none yet (phase 2). Apalache-marked subset: none.
+// Named invariants: none here — the phase-2 encodings live in
+// core/invariants.qnt and models/main.qnt under baseline ids.
 module create_allocate {
   import types.* from "./types"
   import containment.* from "./containment"

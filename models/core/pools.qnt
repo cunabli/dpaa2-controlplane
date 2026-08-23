@@ -8,7 +8,8 @@
 // predicates phase-2 invariants and the family sizing derivations lean
 // on.
 //
-// Named invariants: none yet (phase 2). Apalache-marked subset: none.
+// Named invariants: none here — the phase-2 encodings live in
+// core/invariants.qnt and models/main.qnt under baseline ids.
 module pools {
   import types.* from "./types"
   import create_allocate.* from "./create_allocate"

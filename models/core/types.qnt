@@ -3,8 +3,9 @@
 // cites the view or law it carries. Pure types only — the machine that
 // animates them is machine.qnt.
 //
-// Named invariants: none yet (encoded in phase 2 under baseline ids).
-// Apalache-marked subset: none yet. TLA+ escalation: none.
+// Named invariants: none here — the phase-2 encodings live in
+// core/invariants.qnt and models/main.qnt under baseline ids.
+
 module types {
   // The 16 MC object families of the corpus (object-model.md §3 table).
   type Family =

@@ -50,14 +50,29 @@ Cheapest rung first (ADR-0002 §6); a failure stops the ladder there.
 2. **Simulate** — the machine's guards admit the baseline's canonical
    lifecycle traces and refuse the transitions the baseline forbids.
    Directed runs in `main.qnt` pin both directions; random simulation
-   sweeps for runtime errors and deadlocks. Named invariants (phase 2)
-   will run here too, under their baseline ids (`DPRC-I6`, `DPNI-I2`, …).
+   sweeps for runtime errors, deadlocks, and the named state invariants
+   of `core/invariants.qnt`, under their baseline ids (`DPRC_I1`,
+   `DPNI_I9`, …). Candidates that are action-guard properties or
+   Breaking absence-of-assumption witnesses are directed `<ID>Test`
+   runs in `main.qnt` instead; candidates not expressible over the
+   model state are harness-owned or deferred — `COVERAGE.md` records
+   every disposition.
 3. **ITF replay** — frozen traces from `traces/` replay against the
    Rust core in `cargo test` (task 3.2), keeping model and code honest
    against each other with no board attached.
 4. **Apalache** — symbolic checking of the invariants each model header
    explicitly marks; unmarked invariants are simulator-only. Version
-   pinned in `package.json` `config.apalache_version`.
+   pinned in `package.json` `config.apalache_version` (0.56.1 — the
+   newest version the quint 0.32.0 client can drive; 0.62.1 starts a
+   server the client never completes a check against). The marked set
+   is all nine state invariants at bounded depth 1: init plus every
+   single-step successor class, symbolically — deeper bounds cost tens
+   of minutes per step on this machine size, and the simulator already
+   covers depth 40 randomly. Empirical constraints the corpus honors:
+   `ALL_PARAMS` lives in `families/params.qnt` because the verify-path
+   flattener loses sum-type constructors whose only value use is in the
+   main module (QNT404), and integer ranges must be constant
+   (`machine.MAX_ENDPOINT_PORTS`).
 
 The board itself is never a CI rung (ADR-0003): board suites are
 generated from these models by the `dpaa2-verify` harness (phase 4) and
@@ -83,9 +98,11 @@ models/
 │   ├── create_allocate.qnt view 3 — create gates, pool membership
 │   ├── pools.qnt         view 4 — draw census predicates
 │   ├── lifecycle.qnt     view 5 — pure CoreState -> CoreState transforms
-│   └── machine.qnt       the composed machine: consts, init, 20 actions, EVIDENCE
+│   ├── machine.qnt       the composed machine: consts, init, 20 actions, EVIDENCE
+│   └── invariants.qnt    phase-2 state invariants under baseline ids; §6 law map
 ├── families/             16 per-family FamilyParams records; laws as data,
-│                         no family forks the lifecycle logic
+│                         no family forks the lifecycle logic; params.qnt
+│                         is the corpus-wide ALL_PARAMS table
 ├── retro/                reconciler dpni↔dpmac retro-model (task 3.1)
 ├── traces/               committed frozen ITF traces (tasks 3.x, phase 5)
 ├── main.qnt              instantiation of machine with all 16 families;
@@ -112,8 +129,13 @@ pnpm exec quint typecheck models/main.qnt
 # rung 2a: directed runs — canonical lifecycle + refusal tests
 pnpm exec quint test models/main.qnt --main=main
 
-# rung 2b: random exploration
-pnpm exec quint run models/main.qnt --main=main --max-steps=40 --max-samples=200
+# rung 2b: random exploration under the named state invariants
+pnpm exec quint run models/main.qnt --main=main --invariant=stateInvariants \
+  --max-steps=40 --max-samples=200
+
+# rung 4: Apalache on the marked subset (~3 min; needs a JVM)
+pnpm exec quint verify models/main.qnt --main=main \
+  --invariant=stateInvariants --max-steps=1
 
 # poke at the machine interactively
 pnpm exec quint repl
@@ -136,12 +158,18 @@ family baseline doc first — the model never introduces ground truth.
 a `main.qnt` directed run (or add a `…Test`) so the new guard is pinned
 in both the admitted and the refused direction.
 
-**An invariant (phase 2 convention)** — encode it under its baseline id
-so ledger, docs, and model never drift. Breaking candidates encode the
-*absence* of the convenient assumption plus a property that would catch
-code relying on it. List it in the owning model's header; mark it there
-if Apalache should check it symbolically (and record any TLA+
-escalation in the same header). Add its row to `COVERAGE.md`.
+**An invariant** — encode it under its baseline id so ledger, docs, and
+model never drift. A machine-enforced state predicate goes into
+`core/invariants.qnt` and the `stateInvariants` conjunction in
+`main.qnt`; an action-guard property or Breaking absence-of-assumption
+witness goes in as a directed `<ID>Test` run (Breaking = the *absence*
+of the convenient assumption plus a property that would catch code
+relying on it). List it in the owning model's header; mark it there if
+Apalache should check it symbolically (and record any TLA+ escalation
+in the same header). Add its row to `COVERAGE.md`. NB: a failed action
+leaves the state unset in the simulator, so a `.fail()` step must be
+the last step of its run — split refusal and continuation into sibling
+runs off a shared prefix run.
 
 **A discovered divergence (board evidence)** — amend the model and the
 owning baseline document in the same change (ADR-0002 §2), freeze a

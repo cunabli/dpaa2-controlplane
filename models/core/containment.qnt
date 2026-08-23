@@ -2,7 +2,8 @@
 // Pure helpers over CoreState; the machine (machine.qnt) wires them into
 // actions.
 //
-// Named invariants: none yet (phase 2). Apalache-marked subset: none.
+// Named invariants: none here — the phase-2 encodings live in
+// core/invariants.qnt and models/main.qnt under baseline ids.
 module containment {
   import types.* from "./types"
 

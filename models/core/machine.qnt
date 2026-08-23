@@ -12,7 +12,8 @@
 // awaits phase 5. A failed board step against a Read transition means
 // "claim was never verified", not "model wrong".
 //
-// Named invariants: none yet (phase 2). Apalache-marked subset: none.
+// Named invariants: none here — the phase-2 encodings live in
+// core/invariants.qnt and models/main.qnt under baseline ids.
 // TLA+ escalation: none.
 module machine {
   import types.* from "./types"
@@ -76,10 +77,16 @@ module machine {
 
   action init = s' = initialState
 
+  // Highest endpointPorts across the family modules (dpsw/dpdmux at
+  // model scope). Apalache demands constant integer ranges, so the port
+  // range is constant-then-filtered rather than sized per family.
+  pure val MAX_ENDPOINT_PORTS = 2
+
   // Connect endpoints existing right now, one per port (§2 type.id.port).
   def candidateEndpoints: Set[Endpoint] =
     s.objs.keys().map(o =>
-      0.to(PARAMS.get(o.fam).endpointPorts - 1)
+      0.to(MAX_ENDPOINT_PORTS - 1)
+        .filter(p => p < PARAMS.get(o.fam).endpointPorts)
         .map(p => { obj: o, port: p })
     ).flatten()
 
@@ -197,12 +204,19 @@ module machine {
     s' = kernelBindT(s, PARAMS, o, mcps.union(bps).union(cons)),
   }
 
+  // Draw sets are built from single picks, not powersets: every family
+  // census draws at most 1 per pool family (FamilyParams.draw), and
+  // powerset nondet is what made Apalache intractable. Extend to
+  // multi-picks only when a family module actually draws more.
   action kernelBind = {
     nondet o = s.objs.keys().oneOf()
-    nondet mcps = s.objs.keys().powerset().oneOf()
-    nondet bps = s.objs.keys().powerset().oneOf()
-    nondet cons = s.objs.keys().powerset().oneOf()
-    kernelBindAt(o, mcps, bps, cons)
+    nondet mcp = s.objs.keys().oneOf()
+    nondet bp = s.objs.keys().oneOf()
+    nondet con = s.objs.keys().oneOf()
+    kernelBindAt(o,
+      if (PARAMS.get(o.fam).draw.dpmcp == 0) Set() else Set(mcp),
+      if (PARAMS.get(o.fam).draw.dpbp == 0) Set() else Set(bp),
+      if (PARAMS.get(o.fam).draw.dpcon == 0) Set() else Set(con))
   }
 
   // VFIO claim: any family in the container, pooled ones included —

@@ -4,7 +4,8 @@
 // rescan → enable) and the weaker-guaranteed teardown mirror. Guards
 // live beside the actions in machine.qnt.
 //
-// Named invariants: none yet (phase 2). Apalache-marked subset: none.
+// Named invariants: none here — the phase-2 encodings live in
+// core/invariants.qnt and models/main.qnt under baseline ids.
 module lifecycle {
   import types.* from "./types"
   import containment.* from "./containment"
