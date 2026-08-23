@@ -130,10 +130,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "dpaa2-hal"
+version = "0.1.0"
+
+[[package]]
 name = "dpaa2-mc"
 version = "0.1.0"
 dependencies = [
  "dpaa2-api",
+ "dpaa2-hal",
  "tracing",
 ]
 

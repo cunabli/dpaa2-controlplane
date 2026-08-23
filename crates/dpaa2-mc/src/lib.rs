@@ -2,8 +2,9 @@
 //!
 //! This crate is the hexagon's southbound adapter: it implements the neutral
 //! [`dpaa2_api::McControl`] and [`dpaa2_api::KernelControl`] trait seams over
-//! `restool` v2.4 and the fsl-mc sysfs bus, so the pure core can drive real
-//! hardware without depending on either. It introduces **no `unsafe` code**.
+//! `restool` v2.4 and the fsl-mc sysfs bus (through the `dpaa2-hal`
+//! primitives), so the pure core can drive real hardware without depending on
+//! either. It introduces **no `unsafe` code**.
 //!
 //! The implementation lives in dedicated modules; this file only wires them up and
 //! re-exports the public surface:

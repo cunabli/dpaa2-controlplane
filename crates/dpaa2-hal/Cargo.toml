@@ -1,5 +1,5 @@
 [package]
-name = "dpaa2-mc"
+name = "dpaa2-hal"
 version.workspace = true
 license.workspace = true
 edition.workspace = true
@@ -8,9 +8,6 @@ repository.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-dpaa2-api.workspace = true
-dpaa2-hal.workspace = true
-tracing.workspace = true
 
 [lints]
 workspace = true
