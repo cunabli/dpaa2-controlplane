@@ -56,11 +56,41 @@ firmware.
 ### 5. Unsafe is confined to the single ioctl call-site module
 
 The workspace-wide `unsafe_code = "forbid"` (ADR-0001 C4) stands everywhere
-except one module in `dpaa2-mc`: the ioctl call site. That module carries the
+except one module in `dpaa2-hal` (the kernel-primitives crate added by the
+2026-08-23 amendment, ADR-0001 §6; this section originally said `dpaa2-mc`):
+the ioctl call site. That module carries the
 crate-level opt-out, the safety comments, and nothing else. Command
 marshalling — the bulk of the portal — is safe, explicit little-endian
 serialization; no `#[repr(C)]` transmutes, no pointer casts outside the one
 module.
+
+### 6. Notes carried to change #10 (amended 2026-08-23)
+
+Triaged from the pre-series port notes and recorded here so #10's
+just-in-time proposal starts from them rather than rediscovering them:
+
+- **Struct layout fidelity** is the core hazard of hand-written
+  little-endian serialization (§5): every command's field/bit layout must be
+  anchored to restool's `mc_v10/` tree and covered by encode tests.
+  Byte-level fixtures come from recorded restool traces (captured ioctl
+  payloads), not from linking the C flib — an FFI reference oracle was
+  considered and rejected, because the restool binary already *is* the C
+  code behind a process boundary and the differential gate (§3) covers it.
+- **ioctl numbers and magic values** must match the kernel driver exactly.
+  They live outside the MC command format itself, so they need their own
+  checked constants; nothing else in this ADR covers them.
+- **The error-surface mapping** (MC status → errno-style → reported error)
+  must be enumerated explicitly: §3's "equivalent error surfaces" clause is
+  only checkable against an enumerated mapping.
+- **Handle lifecycle is a typestate.** The MC ABI is token-based (open →
+  command-by-token → close); the typed handle witnesses a successful open
+  per ADR-0002 §3, making use-after-close and double-close unrepresentable —
+  the C tool avoids them only by bool-flag convention.
+- **miri and fuzzing were considered and dropped**: miri cannot execute the
+  ioctl the single unsafe module exists to make, and the portal decodes
+  responses only from firmware the §4 startup assertion pins. The lean
+  equivalent is property-based encode/decode round-trips in #10's normal
+  test suite.
 
 ## Consequences
 

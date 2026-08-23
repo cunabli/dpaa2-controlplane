@@ -60,7 +60,10 @@ compiler come first (change #3, `intent-layer`); named profiles are later
 sugar over it; raw object-level configuration remains only as the escape
 hatch. If intent expression outgrows this tool, adopting an established
 intent modeling language (YANG or similar) is the recorded revisit trigger —
-the construct vocabulary is designed to survive that translation.
+the construct vocabulary is designed to survive that translation. Should
+that trigger fire, gNMI over OpenConfig-style paths is the pre-identified
+candidate transport and schema (amended 2026-08-23); no northbound wire
+interface is built ahead of it.
 
 ## Consequences
 

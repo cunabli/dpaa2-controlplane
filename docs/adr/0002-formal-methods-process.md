@@ -43,6 +43,18 @@ A change's Quint model lands green (typecheck, simulate, marked invariants
 Apalache-checked) *before* its Rust lands. The model is the design artifact;
 the typestate encoding follows it.
 
+What a typestate can prove (amended 2026-08-23): the encoding captures the
+transition *sequences* the code itself enforces, making undesired
+hardware/kernel/userspace configuration states unrepresentable. A transition
+may be gated by a fallible runtime check on observed data —
+parse-don't-validate: success promotes the value into the next state's type,
+and that type is a witness that the check ran and passed *at transition
+time*. What no type can prove is that the hardware *remains* in that state:
+drift is re-discovered as plain observed data and handled level-triggered
+through `reconcile` (ADR-0001 §2). The reconciler's observed snapshot is
+always plain data, never a type parameter, and a typestate never substitutes
+for re-observation.
+
 ### 4. Model↔board conformance is dual-mode MBT over one shared adapter
 
 One adapter binds the three faces together: model action ↔ restool command ↔

@@ -33,6 +33,8 @@ The system is split into a backend/frontend-neutral **core** (`dpaa2-api`) and t
   ioctl, `serde`) and no config format. Dependencies point *inward*.
 - `dpaa2-mc` — southbound adapter over `restool` v2.4 (`McControl`) and the fsl-mc
   sysfs bus (`KernelControl`).
+- `dpaa2-hal` — typed kernel-facing primitives beneath `dpaa2-mc` (added by
+  amendment, §6).
 - `dpaa2-config` — northbound adapter turning `topology.toml` into the neutral model.
 - `dpaa2-tools` — the imperative shell (`dpaa2ctl`): observe → reconcile → act →
   re-observe, plus `systemd.link` naming.
@@ -73,6 +75,34 @@ Interface names come from stock `systemd.link` `[Match] MACAddress=` → `[Link]
 files that the reconciler generates into `/run/systemd/network/` (volatile, regenerated
 each boot, so they cannot drift from `topology.toml`). No custom udev helper, no marker
 files, no persistence.
+
+### 6. Amendment (2026-08-23): `dpaa2-hal` — the kernel-primitives layer
+
+The hexagon gains one crate below the southbound adapter. `dpaa2-hal` holds
+the typed, policy-free primitives for every hardware-facing kernel interface:
+today the fsl-mc sysfs bus reader; later the VFIO binding, the netlink link
+operations, and the MC-portal ioctl transport as their changes arrive
+(ROADMAP #4, #9, #10). `dpaa2-mc` remains the southbound adapter — it
+implements the `dpaa2-api` port traits *using* those primitives and keeps the
+policy (resource recipes, the restool subprocess backend, which is a process
+shim rather than a hardware interface and therefore stays out of the HAL).
+
+Two reasons, both architectural rather than speculative:
+
+- This workspace is a public library in the making, and a crate is the unit
+  a consumer can depend on. Typed fsl-mc kernel interfaces without the
+  reconciler adapter is a plausible consumer, and the layering mirrors both
+  the embedded-Rust convention (PAC → HAL → driver) and NXP's own stack
+  (flib under restool).
+- Splitting later is a breaking release once published; after change #10 it
+  would also mean relocating the workspace's single unsafe module (ADR-0004
+  §5) after the differential gates had run against it in place. Moving one
+  sysfs module now is mechanical.
+
+The crate is populated just-in-time: an interface moves in only when its
+change brings a live consumer; no API is designed ahead of the change that
+needs it. A standalone restool-parity CLI remains a non-goal — `dpaa2-tools`
+specializes whatever surface needs exposing.
 
 ## What implementation taught us (the corrections)
 
