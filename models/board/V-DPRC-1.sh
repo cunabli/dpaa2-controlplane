@@ -41,6 +41,8 @@ case "$kernel" in 6.6.52*) ;; *) echo "refusing: kernel is not 6.6.52: $kernel" 
 
 # --- unconditional teardown (ADR-0003 §6) ---
 teardown() {
+  [ -n "${OBJ_dpbp_0:-}" ] && restool dprc assign ${OBJ_dprc_2} --object="${OBJ_dpbp_0}" --plugged=0 2>/dev/null || true
+  [ -n "${OBJ_dpbp_0:-}" ] && restool dpbp destroy "${OBJ_dpbp_0}" 2>/dev/null || true
   [ -n "${OBJ_dpni_0:-}" ] && restool dprc assign ${OBJ_dprc_2} --object="${OBJ_dpni_0}" --plugged=0 2>/dev/null || true
   [ -n "${OBJ_dpni_0:-}" ] && restool dpni destroy "${OBJ_dpni_0}" 2>/dev/null || true
   [ -n "${OBJ_dprc_3:-}" ] && restool dprc destroy "${OBJ_dprc_3}" 2>/dev/null || true
@@ -66,34 +68,55 @@ echo "dpni_0 ${OBJ_dpni_0}" >> "$RESULTS/created.txt"
 # expect: dpni_0 present=true plugged=false
 probe 2 0 restool dprc show ${OBJ_dprc_2}
 
-# step 3: AssignChild { obj: ObjRef { fam: Dpni, num: 0 }, dst: ObjRef { fam: Dprc, num: 3 } }
-run 3 restool dprc assign ${OBJ_dprc_2} --object=${OBJ_dpni_0} --child=${OBJ_dprc_3}
+# step 3: AssignChild { obj: ObjRef { fam: Dpni, num: 0 }, dst: ObjRef { fam: Dprc, num: 1 } }
+run 3 restool dprc unassign dprc.1 --object=${OBJ_dpni_0} --child=${OBJ_dprc_2}
 # expect: dpni_0 present=true plugged=false
-probe 3 0 restool dprc show ${OBJ_dprc_3}
+probe 3 0 restool dprc show dprc.1
 
-# step 4: Plug { obj: ObjRef { fam: Dpni, num: 0 } }
-run 4 restool dprc assign ${OBJ_dprc_3} --object=${OBJ_dpni_0} --plugged=1
-# expect: dpni_0 present=true plugged=true
+# step 4: AssignChild { obj: ObjRef { fam: Dpni, num: 0 }, dst: ObjRef { fam: Dprc, num: 3 } }
+run 4 restool dprc assign dprc.1 --object=${OBJ_dpni_0} --child=${OBJ_dprc_3}
+# expect: dpni_0 present=true plugged=false
 probe 4 0 restool dprc show ${OBJ_dprc_3}
 
-# step 5: Destroy { obj: ObjRef { fam: Dprc, num: 2 } }
-run 5 restool dprc destroy ${OBJ_dprc_2}
-# expect: dprc_2 present=false
-probe 5 0 restool dprc show dprc.1
+# step 5: Plug { obj: ObjRef { fam: Dpni, num: 0 } }
+run 5 restool dprc assign ${OBJ_dprc_3} --object=${OBJ_dpni_0} --plugged=1
+# expect: dpni_0 present=true plugged=true
+probe 5 0 restool dprc show ${OBJ_dprc_3}
 
-# step 6: Unplug { obj: ObjRef { fam: Dpni, num: 0 } }
-run 6 restool dprc assign ${OBJ_dprc_3} --object=${OBJ_dpni_0} --plugged=0
+# step 6: CreateObject { fam: Dpbp, container: ObjRef { fam: Dprc, num: 2 } }
+OBJ_dpbp_0="$(run_create 6 restool --script dpbp create --container=${OBJ_dprc_2})"
+echo "dpbp_0 ${OBJ_dpbp_0}" >> "$RESULTS/created.txt"
+# expect: dpbp_0 present=true plugged=false
+probe 6 0 restool dprc show ${OBJ_dprc_2}
+
+# step 7: Unplug { obj: ObjRef { fam: Dpni, num: 0 } }
+run 7 restool dprc assign ${OBJ_dprc_3} --object=${OBJ_dpni_0} --plugged=0
 # expect: dpni_0 present=true plugged=false
-probe 6 0 restool dprc show ${OBJ_dprc_3}
-
-# step 7: Destroy { obj: ObjRef { fam: Dpni, num: 0 } }
-run 7 restool dpni destroy ${OBJ_dpni_0}
-# expect: dpni_0 present=false
 probe 7 0 restool dprc show ${OBJ_dprc_3}
 
-# step 8: Destroy { obj: ObjRef { fam: Dprc, num: 3 } }
-run 8 restool dprc destroy ${OBJ_dprc_3}
-# expect: dprc_3 present=false
+# step 8: AssignChild { obj: ObjRef { fam: Dpni, num: 0 }, dst: ObjRef { fam: Dprc, num: 1 } }
+run 8 restool dprc unassign dprc.1 --object=${OBJ_dpni_0} --child=${OBJ_dprc_3}
+# expect: dpni_0 present=true plugged=false
 probe 8 0 restool dprc show dprc.1
+
+# step 9: AssignChild { obj: ObjRef { fam: Dpni, num: 0 }, dst: ObjRef { fam: Dprc, num: 2 } }
+run 9 restool dprc assign dprc.1 --object=${OBJ_dpni_0} --child=${OBJ_dprc_2}
+# expect: dpni_0 present=true plugged=false
+probe 9 0 restool dprc show ${OBJ_dprc_2}
+
+# step 10: Destroy { obj: ObjRef { fam: Dpni, num: 0 } }
+run 10 restool dpni destroy ${OBJ_dpni_0}
+# expect: dpni_0 present=false
+probe 10 0 restool dprc show ${OBJ_dprc_2}
+
+# step 11: Destroy { obj: ObjRef { fam: Dprc, num: 3 } }
+run 11 restool dprc destroy ${OBJ_dprc_3}
+# expect: dprc_3 present=false
+probe 11 0 restool dprc show dprc.1
+
+# step 12: Destroy { obj: ObjRef { fam: Dprc, num: 2 } }
+run 12 restool dprc destroy ${OBJ_dprc_2}
+# expect: dprc_2 present=false
+probe 12 0 restool dprc show dprc.1
 
 echo "suite V-DPRC-1 complete"

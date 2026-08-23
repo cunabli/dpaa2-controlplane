@@ -90,6 +90,31 @@
     },
     {
       "index": 3,
+      "title": "AssignChild { obj: ObjRef { fam: Dpni, num: 0 }, dst: ObjRef { fam: Dprc, num: 1 } }",
+      "driven": true,
+      "probes": [
+        {
+          "Restool": [
+            "dprc",
+            "show",
+            "dprc.1"
+          ]
+        }
+      ],
+      "created": null,
+      "expected": {
+        "object": {
+          "fam": "Dpni",
+          "num": 0
+        },
+        "present": true,
+        "plugged": false,
+        "endpoint": null,
+        "driver_bound": null
+      }
+    },
+    {
+      "index": 4,
       "title": "AssignChild { obj: ObjRef { fam: Dpni, num: 0 }, dst: ObjRef { fam: Dprc, num: 3 } }",
       "driven": true,
       "probes": [
@@ -114,7 +139,7 @@
       }
     },
     {
-      "index": 4,
+      "index": 5,
       "title": "Plug { obj: ObjRef { fam: Dpni, num: 0 } }",
       "driven": true,
       "probes": [
@@ -139,32 +164,35 @@
       }
     },
     {
-      "index": 5,
-      "title": "Destroy { obj: ObjRef { fam: Dprc, num: 2 } }",
+      "index": 6,
+      "title": "CreateObject { fam: Dpbp, container: ObjRef { fam: Dprc, num: 2 } }",
       "driven": true,
       "probes": [
         {
           "Restool": [
             "dprc",
             "show",
-            "dprc.1"
+            "dprc.2"
           ]
         }
       ],
-      "created": null,
+      "created": {
+        "fam": "Dpbp",
+        "num": 0
+      },
       "expected": {
         "object": {
-          "fam": "Dprc",
-          "num": 2
+          "fam": "Dpbp",
+          "num": 0
         },
-        "present": false,
-        "plugged": null,
+        "present": true,
+        "plugged": false,
         "endpoint": null,
         "driver_bound": null
       }
     },
     {
-      "index": 6,
+      "index": 7,
       "title": "Unplug { obj: ObjRef { fam: Dpni, num: 0 } }",
       "driven": true,
       "probes": [
@@ -189,7 +217,57 @@
       }
     },
     {
-      "index": 7,
+      "index": 8,
+      "title": "AssignChild { obj: ObjRef { fam: Dpni, num: 0 }, dst: ObjRef { fam: Dprc, num: 1 } }",
+      "driven": true,
+      "probes": [
+        {
+          "Restool": [
+            "dprc",
+            "show",
+            "dprc.1"
+          ]
+        }
+      ],
+      "created": null,
+      "expected": {
+        "object": {
+          "fam": "Dpni",
+          "num": 0
+        },
+        "present": true,
+        "plugged": false,
+        "endpoint": null,
+        "driver_bound": null
+      }
+    },
+    {
+      "index": 9,
+      "title": "AssignChild { obj: ObjRef { fam: Dpni, num: 0 }, dst: ObjRef { fam: Dprc, num: 2 } }",
+      "driven": true,
+      "probes": [
+        {
+          "Restool": [
+            "dprc",
+            "show",
+            "dprc.2"
+          ]
+        }
+      ],
+      "created": null,
+      "expected": {
+        "object": {
+          "fam": "Dpni",
+          "num": 0
+        },
+        "present": true,
+        "plugged": false,
+        "endpoint": null,
+        "driver_bound": null
+      }
+    },
+    {
+      "index": 10,
       "title": "Destroy { obj: ObjRef { fam: Dpni, num: 0 } }",
       "driven": true,
       "probes": [
@@ -197,7 +275,7 @@
           "Restool": [
             "dprc",
             "show",
-            "dprc.3"
+            "dprc.2"
           ]
         }
       ],
@@ -214,7 +292,7 @@
       }
     },
     {
-      "index": 8,
+      "index": 11,
       "title": "Destroy { obj: ObjRef { fam: Dprc, num: 3 } }",
       "driven": true,
       "probes": [
@@ -231,6 +309,31 @@
         "object": {
           "fam": "Dprc",
           "num": 3
+        },
+        "present": false,
+        "plugged": null,
+        "endpoint": null,
+        "driver_bound": null
+      }
+    },
+    {
+      "index": 12,
+      "title": "Destroy { obj: ObjRef { fam: Dprc, num: 2 } }",
+      "driven": true,
+      "probes": [
+        {
+          "Restool": [
+            "dprc",
+            "show",
+            "dprc.1"
+          ]
+        }
+      ],
+      "created": null,
+      "expected": {
+        "object": {
+          "fam": "Dprc",
+          "num": 2
         },
         "present": false,
         "plugged": null,

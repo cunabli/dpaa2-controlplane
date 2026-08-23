@@ -1,18 +1,29 @@
 // Scenario module for board suite V-DPRC-1 (task 5.2; traffic-inventory
 // §1): the scratch-container lifecycle sweep's positive faces — two
 // scratch containers under the Linux root, a dpni created in the first,
-// assigned across to the second, plugged, unplugged, and destroyed;
-// then both containers destroyed (a dprc destroy requires an empty
-// container, which the trace proves by ordering). The refusal faces the
-// inventory row also names (non-empty destroy, DPRC-I3 plugged-move)
-// are not traceable — a refused action is a disabled action, not a
-// step — and stay with the online driver (models/board/README.md).
+// moved to the second the only way the board allows (ADR-0007 §1: one
+// hop up via `dprc unassign`, one hop down via `dprc assign --child`),
+// plugged and unplugged there, then repatriated the same two-hop way and
+// destroyed at home. Rev 1 tried the sibling move as a single assign and
+// the board refused it (exit 255); rev 2 anchored the two-hop route and
+// the unassign rendering, but its standalone `dpni destroy` after the
+// move hit MC "No privilege" — destroy authority is creator-bound
+// (ADR-0007 §2), so this revision repatriates before destroying, which
+// is the positive anchor for authority restored. The refusal faces stay
+// with the online driver (models/board/README.md).
+//
+// The plug/unplug round trip leaves no monotone state to phase-key on,
+// so step 7 creates a scratch dpbp in A as the phase marker separating
+// the outbound trip from the return. It earns its keep at step 13:
+// destroying A while it still holds the unplugged dpbp it created is the
+// second board anchor for owned-resident release (rev 1 proved it with a
+// dpni).
 //
 // Guards leave exactly one action enabled per state, so any seed
-// freezes the same nine-step trace:
+// freezes the same thirteen-step trace:
 //
 //   pnpm exec quint run models/board/vdprc1.qnt --main=vdprc1 \
-//     --mbt --max-steps=9 --n-traces=1 --max-samples=1 \
+//     --mbt --max-steps=13 --n-traces=1 --max-samples=1 \
 //     --out-itf=models/traces/vdprc1.itf.json
 //
 // Named invariants: none — the machine's guards carry the model gate.
@@ -29,11 +40,12 @@ module vdprc1 {
   ) as m from "../core/machine"
 
   // Model ids the run creates, deterministic from the per-family
-  // counters (dprc numbering starts at 2, dpni at 0 — the model dpni.0
-  // is symbolic; the board names creates itself).
+  // counters (dprc numbering starts at 2, dpni/dpbp at 0 — the model
+  // ids are symbolic; the board names creates itself).
   pure val scratchA: ObjId = { fam: Dprc, num: 2 }
   pure val scratchB: ObjId = { fam: Dprc, num: 3 }
   pure val theDpni: ObjId = { fam: Dpni, num: 0 }
+  pure val marker: ObjId = { fam: Dpbp, num: 0 }
 
   action init = m::init
 
@@ -48,65 +60,85 @@ module vdprc1 {
   }
 
   // 3. One dpni in scratch A, only once both containers exist.
+  // 7. The dpbp phase marker in A, only once the dpni is plugged in B —
+  //    which is what separates the outbound trip from the return.
   action createObject = {
-    nondet fam = Set(Dpni).oneOf()
+    nondet fam = Set(Dpni, Dpbp).oneOf()
     nondet c = Set(scratchA).oneOf()
     all {
       m::s.dprcs.keys().contains(scratchB),
-      m::s.nextNum.get(Dpni) == 0,
+      if (fam == Dpni) m::s.nextNum.get(Dpni) == 0
+      else and {
+        m::s.nextNum.get(Dpbp) == 0,
+        m::s.objs.keys().contains(theDpni),
+        m::s.objs.get(theDpni).plugged,
+      },
       m::createObjectAt(fam, c),
     }
   }
 
-  // 4. Assign the (unplugged) dpni across, A → B; disabled thereafter
-  //    because the parent no longer matches.
+  // 4–5 outbound (A → dprc.1 → B, marker absent) and 8–9 return
+  // (B → dprc.1 → A, marker present). Each hop is pinned to the dpni's
+  // pre-state parent and the trip its marker key selects, so exactly one
+  // fires per state.
   action assignChild = {
     nondet o = Set(theDpni).oneOf()
-    nondet dst = Set(scratchB).oneOf()
+    nondet dst = Set(m::dprc1, scratchA, scratchB).oneOf()
     all {
       m::s.objs.keys().contains(theDpni),
-      m::s.objs.get(theDpni).parent == Some(scratchA),
+      if (m::s.objs.keys().contains(marker))
+        // return trip
+        if (dst == m::dprc1) m::s.objs.get(theDpni).parent == Some(scratchB)
+        else if (dst == scratchA) m::s.objs.get(theDpni).parent == Some(m::dprc1)
+        else false
+      else
+        // outbound trip
+        if (dst == m::dprc1) m::s.objs.get(theDpni).parent == Some(scratchA)
+        else if (dst == scratchB) m::s.objs.get(theDpni).parent == Some(m::dprc1)
+        else false,
       m::assignChildAt(o, dst),
     }
   }
 
-  // 5. Plug it in B — only while A still exists, so the unplug phase
-  //    below cannot re-enter here.
+  // 6. Plug in B, only before the marker exists — the marker is created
+  //    next, and its presence keeps this from re-firing after unplug.
   action plug = {
     nondet o = Set(theDpni).oneOf()
     all {
       m::s.objs.keys().contains(theDpni),
       m::s.objs.get(theDpni).parent == Some(scratchB),
-      m::s.dprcs.keys().contains(scratchA),
+      not(m::s.objs.keys().contains(marker)),
       m::plugAt(o),
     }
   }
 
-  // 7. Unplug — enabled only once A is gone (step 6 below), which is
-  //    what serializes the teardown phase.
+  // 8. Unplug, only once the marker exists.
   action unplug = {
     nondet o = Set(theDpni).oneOf()
     all {
-      not(m::s.dprcs.keys().contains(scratchA)),
+      m::s.objs.keys().contains(marker),
       m::unplugAt(o),
     }
   }
 
-  // 6/8/9. Destroys, phase-keyed: the now-empty A while the dpni is
-  //        plugged in B; the dpni once unplugged; B once empty.
+  // 10/12/13. Destroys, phase-keyed: the repatriated dpni at home in A
+  //           (owner == parent, ADR-0007 §2); the empty B; then A still
+  //           holding the dpbp it created — owned-resident release.
   action destroy = {
     nondet o = Set(scratchA, scratchB, theDpni).oneOf()
     all {
-      if (o == scratchA) and {
+      if (o == theDpni) and {
         m::s.objs.keys().contains(theDpni),
-        m::s.objs.get(theDpni).plugged,
-      } else if (o == theDpni) and {
-        not(m::s.dprcs.keys().contains(scratchA)),
-        m::s.objs.keys().contains(theDpni),
-        not(m::s.objs.get(theDpni).plugged),
-      } else and {
-        not(m::s.dprcs.keys().contains(scratchA)),
+        m::s.objs.keys().contains(marker),
+        m::s.objs.get(theDpni).parent == Some(scratchA),
+      } else if (o == scratchB) and {
+        m::s.objs.keys().contains(marker),
         not(m::s.objs.keys().contains(theDpni)),
+      } else and {
+        // A goes last: only after the marker exists (the run reached its
+        // second half) and B is already gone.
+        m::s.objs.keys().contains(marker),
+        not(m::s.dprcs.keys().contains(scratchB)),
       },
       m::destroyAt(o),
     }

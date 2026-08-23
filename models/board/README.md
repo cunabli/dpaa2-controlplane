@@ -20,9 +20,9 @@ generator emit mutating suites.
 | Suite | Module | Status |
 |---|---|---|
 | V-RECOVERY-1 | `recovery.qnt` | **passed** 2026-08-23 — recovery diff clean, all steps conform |
-| V-DPRC-1 | `vdprc1.qnt` | generated, awaiting sitting |
-| V-DPNI-1 | `vdpni1.qnt` | generated, awaiting sitting |
-| V-LIFE-DPNI-1 | `vlife_dpni1.qnt` | generated, awaiting sitting |
+| V-DPRC-1 | `vdprc1.qnt` | **diverged twice**, model amended each time (ADR-0007). Rev 1 2026-08-23: sibling move refused → single-hop law. Rev 2 2026-08-23: anchored the two-hop route and the `dprc unassign` rendering, but standalone destroy of the moved dpni hit MC "No privilege" (restool exited 0 — read-back caught it) and the container destroy *evicted* its foreign resident instead of cascading → creator-bound destroy authority + release/evict by ownership; rev 2 left an ownerless dpni in dprc.1 that only a reboot clears. Rev 3 (repatriation route) **passed** 2026-08-23, 13/13: both unassign/assign directions exercised twice, repatriation restored destroy authority (ADR-0007 §2's positive anchor), and owned-resident release re-anchored with a dpbp |
+| V-DPNI-1 | `vdpni1.qnt` | **passed** 2026-08-23 — destroy-while-plugged of a child-container dpni succeeded, confirming the in_use-blindness law; bare-create defaults captured for DPNI-I7 |
+| V-LIFE-DPNI-1 | `vlife_dpni1.qnt` | **passed** 2026-08-23 — kernel bound the dpni through the §5 canonical order; census draw satisfied (positive face of DPBP-I4) |
 
 V-LIFE-DPNI-1 carries the "per-family lifecycle scenarios" of design
 D7 step 2 for the dpni family: the §5 canonical order through the
