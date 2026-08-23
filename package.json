@@ -1,6 +1,6 @@
 {
 	"scripts": {
-		"model:typecheck": "quint typecheck models/main.qnt && quint typecheck models/retro/reconciler.qnt",
+		"model:typecheck": "quint typecheck models/main.qnt && quint typecheck models/retro/reconciler.qnt && quint typecheck models/board/recovery.qnt",
 		"model:test": "quint test models/main.qnt --main=main && quint test models/retro/reconciler.qnt --main=retro",
 		"model:simulate": "quint run models/main.qnt --main=main --invariant=stateInvariants --max-steps=40 --max-samples=200",
 		"model:replay": "cargo test -p dpaa2-verify",

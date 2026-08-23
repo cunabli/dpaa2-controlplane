@@ -109,6 +109,10 @@ models/
 ├── retro/                reconciler dpni↔dpmac retro-model: directed
 │                         runs mirroring the RestoolMc recipe, epoched
 │                         by the reconciler's observation points
+├── board/                phase-5 scenario modules (restricted step sets
+│                         the board suites are generated from) and the
+│                         generated suites themselves; RECOVERY-VERIFIED
+│                         marker lands here when task 5.1 passes
 ├── traces/               committed frozen ITF traces (retro now,
 │                         board divergences in phase 5)
 ├── main.qnt              instantiation of machine with all 16 families;

@@ -1,0 +1,89 @@
+{
+  "id": "V-RECOVERY-1",
+  "class": "object-lifecycle-only",
+  "flagged": false,
+  "trace_file": "models/traces/recovery.itf.json",
+  "steps": [
+    {
+      "index": 0,
+      "title": "CreateContainer { parent: ObjRef { fam: Dprc, num: 1 } }",
+      "driven": true,
+      "probes": [
+        {
+          "Restool": [
+            "dprc",
+            "show",
+            "dprc.1"
+          ]
+        }
+      ],
+      "created": {
+        "fam": "Dprc",
+        "num": 2
+      },
+      "expected": {
+        "object": {
+          "fam": "Dprc",
+          "num": 2
+        },
+        "present": true,
+        "plugged": false,
+        "endpoint": null,
+        "driver_bound": null
+      }
+    },
+    {
+      "index": 1,
+      "title": "CreateObject { fam: Dpbp, container: ObjRef { fam: Dprc, num: 2 } }",
+      "driven": true,
+      "probes": [
+        {
+          "Restool": [
+            "dprc",
+            "show",
+            "dprc.2"
+          ]
+        }
+      ],
+      "created": {
+        "fam": "Dpbp",
+        "num": 0
+      },
+      "expected": {
+        "object": {
+          "fam": "Dpbp",
+          "num": 0
+        },
+        "present": true,
+        "plugged": false,
+        "endpoint": null,
+        "driver_bound": null
+      }
+    },
+    {
+      "index": 2,
+      "title": "Plug { obj: ObjRef { fam: Dpbp, num: 0 } }",
+      "driven": true,
+      "probes": [
+        {
+          "Restool": [
+            "dprc",
+            "show",
+            "dprc.2"
+          ]
+        }
+      ],
+      "created": null,
+      "expected": {
+        "object": {
+          "fam": "Dpbp",
+          "num": 0
+        },
+        "present": true,
+        "plugged": true,
+        "endpoint": null,
+        "driver_bound": null
+      }
+    }
+  ]
+}
