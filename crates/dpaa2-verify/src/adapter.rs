@@ -225,6 +225,39 @@ pub enum ModelAction {
     Destroy { obj: ObjRef },
 }
 
+impl ModelAction {
+    /// Every object the action references through its parameters — the
+    /// surface the safety envelope screens at generation time
+    /// ([`crate::safety::check_trace`]). Objects the action *creates*
+    /// have no id yet and are covered by the execution-side scan once
+    /// the board names them.
+    #[must_use]
+    pub fn refs(&self) -> Vec<ObjRef> {
+        match self {
+            Self::CreateContainer { parent } => vec![*parent],
+            Self::CreateObject { container, .. }
+            | Self::Rescan { container }
+            | Self::ChildIrqRefresh { container }
+            | Self::SetLocked { container, .. } => vec![*container],
+            Self::PreplugMutate { obj }
+            | Self::Plug { obj }
+            | Self::Unplug { obj }
+            | Self::KernelBind { obj }
+            | Self::VfioBind { obj }
+            | Self::Unbind { obj }
+            | Self::Enable { obj }
+            | Self::Disable { obj }
+            | Self::LinkChange { obj }
+            | Self::Destroy { obj } => vec![*obj],
+            Self::AssignChild { obj, dst } => vec![*obj, *dst],
+            Self::ConnectEdge { a, b } => vec![a.obj, b.obj],
+            Self::DisconnectEdge { e } => vec![e.obj],
+            Self::Allocate { consumer, pool } => vec![*consumer, *pool],
+            Self::Free { pool } => vec![*pool],
+        }
+    }
+}
+
 /// One step of an MBT trace: the action taken and the state it produced.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MbtStep {

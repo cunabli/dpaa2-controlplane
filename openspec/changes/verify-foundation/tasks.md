@@ -58,7 +58,7 @@ board task is an operator sitting sync point.
 
 - [x] 4.1 Implement the shared adapter: model action ↔ restool command
       ↔ read-back observation (never exit status)
-- [ ] 4.2 Encode the port safety matrix and traffic classes as data;
+- [x] 4.2 Encode the port safety matrix and traffic classes as data;
       enforce at generation and in the execution wrapper (dpmac.3,
       dpmac.17, dpni.0 unreferenceable)
 - [ ] 4.3 Build the batch-suite generator: simulator traces →

@@ -9,3 +9,4 @@
 pub mod adapter;
 pub mod itf;
 pub mod replay;
+pub mod safety;
