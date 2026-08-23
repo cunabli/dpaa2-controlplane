@@ -88,6 +88,26 @@ ITF replay against the Rust core → Apalache on invariants explicitly marked
 for symbolic checking. Board replay is not CI; it is an operator-run
 milestone (ADR-0003).
 
+### 7. Deferred: volume replay against the Rust core (added 2026-08-23)
+
+The ITF replay rung runs only *frozen* traces — few, curated, each one a
+past divergence or a hand-directed scenario. Cedar's differential random
+testing shows what the same rung looks like at volume: two computable
+artifacts diffed on millions of generated inputs nightly. Our board rungs
+can never scale that way (steps mutate hardware under the ADR-0003
+envelope), but the replay rung is board-free on both sides and could:
+generate fresh traces with `quint run --mbt` over the same
+scenario-constrained modules the board suites use — constrained, not raw
+`main.qnt`, so generation stays inside meaningful state space — and replay
+them against the Rust core in bulk.
+
+Deferred, not adopted: today every discovered divergence is covered by a
+frozen trace, so volume would answer no open question. Revisit if either
+occurs: (a) a board divergence that simulation over the frozen scenarios
+*would* have reached but the frozen set missed, or (b) a reconciler bug
+that escapes the replay rung. Either is evidence that curation is
+under-covering and volume has a question to answer.
+
 ## Consequences
 
 **Positive**
@@ -113,3 +133,5 @@ milestone (ADR-0003).
 - ADR-0003 — board interaction protocol the batch/online modes run under.
 - `docs/ROADMAP.md` — `verify-foundation` (change #2) builds the adapter,
   the CI ladder, and retro-models of the already-validated reconciler.
+- [How we built Cedar with automated reasoning and differential testing](https://www.amazon.science/blog/how-we-built-cedar-with-automated-reasoning-and-differential-testing)
+  — the volume-scale differential testing §7 defers to.
