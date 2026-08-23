@@ -70,7 +70,7 @@ board task is an operator sitting sync point.
 
 ## 5. Board program (operator-run, serial; design D7)
 
-- [ ] 5.1 Generate the recovery-guarantee suite (scratch mutation set,
+- [x] 5.1 Generate the recovery-guarantee suite (scratch mutation set,
       reboot, diff vs DPL baseline); operator runs it; guarantee
       verified or the program stops (board milestone)
 - [ ] 5.2 Generate the full object-lifecycle sweep (scratch DPRCs,

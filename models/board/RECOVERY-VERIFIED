@@ -1,0 +1,14 @@
+Recovery guarantee verified 2026-08-23 (task 5.1, board milestone).
+
+Suite V-RECOVERY-1 applied the scratch mutation set (scratch container
+under the Linux root, one dpbp created inside it, plugged), the operator
+rebooted, and the post-boot diff against the pre-mutation capture came
+back clean on all three views (generate-dpl reconstruction, dprc list,
+root-container show). All three mutation steps also passed offline
+read-back conformance. Evidence taken against the pinned reference pair
+(MC 10.39.0, kernel 6.6.52); result files are operator material and are
+not committed.
+
+ADR-0003 §7's assumption — a reboot restores the DPL baseline — is now
+verified. The presence of this file is what unblocks the generation of
+mutating suites (dpaa2-verify's recovery gate).
