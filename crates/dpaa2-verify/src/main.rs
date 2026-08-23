@@ -75,6 +75,84 @@ enum Command {
         #[arg(long)]
         results: PathBuf,
     },
+    /// Drive a trace online against the live board (operator-supervised;
+    /// ADR-0003 §3). Run this on the board, as the operator.
+    Drive {
+        /// The `--mbt` ITF trace to walk.
+        #[arg(long)]
+        trace: PathBuf,
+        /// Declared traffic class.
+        #[arg(long, value_enum, default_value = "lifecycle")]
+        class: ClassArg,
+        /// Explicit per-run flag for link/traffic runs on the wired pair.
+        #[arg(long)]
+        flagged: bool,
+        /// Skip per-step confirmation — only for a family the owning
+        /// change has promoted after it survived a full batch suite.
+        /// Root-container scenarios ignore this and always confirm.
+        #[arg(long)]
+        promoted: bool,
+        /// Transcript file (JSON lines, appended as steps complete).
+        #[arg(long)]
+        transcript: PathBuf,
+    },
+}
+
+/// Stdin confirmation: enter = step, `p` = pause (ask again), `a` = abort.
+struct StdinPrompt;
+
+impl dpaa2_verify::driver::Prompt for StdinPrompt {
+    fn confirm(&mut self, question: &str) -> dpaa2_verify::driver::Decision {
+        loop {
+            eprint!("{question}  [enter=step, p=pause, a=abort] ");
+            let mut line = String::new();
+            if std::io::stdin().read_line(&mut line).is_err() {
+                return dpaa2_verify::driver::Decision::Abort;
+            }
+            match line.trim() {
+                "a" => return dpaa2_verify::driver::Decision::Abort,
+                "p" => {
+                    eprintln!("paused — press enter to be asked again");
+                    let mut resume = String::new();
+                    let _ = std::io::stdin().read_line(&mut resume);
+                }
+                _ => return dpaa2_verify::driver::Decision::Step,
+            }
+        }
+    }
+}
+
+/// The live board: restool via `dpaa2_mc`'s runner, sysfs via `std::fs`.
+struct LiveBoard {
+    runner: dpaa2_mc::RestoolRunner,
+}
+
+impl dpaa2_verify::driver::BoardIo for LiveBoard {
+    fn restool(&mut self, argv: &[String]) -> (bool, String) {
+        let borrowed: Vec<&str> = argv.iter().map(String::as_str).collect();
+        match dpaa2_mc::Runner::run(&self.runner, &borrowed) {
+            Ok(out) => (true, out),
+            Err(e) => {
+                eprintln!("  (exit nonzero, auxiliary: {e})");
+                (false, String::new())
+            }
+        }
+    }
+
+    fn sysfs_write(&mut self, path: &str, value: &str) -> bool {
+        std::fs::write(path, value).is_ok()
+    }
+
+    fn sysfs_read(&mut self, path: &str) -> Option<String> {
+        std::fs::read_link(path)
+            .ok()
+            .map(|p| p.display().to_string())
+            .or_else(|| std::fs::read_to_string(path).ok())
+    }
+
+    fn settle(&mut self) {
+        std::thread::sleep(std::time::Duration::from_secs(1));
+    }
 }
 
 fn main() -> ExitCode {
@@ -87,6 +165,7 @@ fn main() -> ExitCode {
     }
 }
 
+#[allow(clippy::too_many_lines)] // one arm per subcommand, by design
 fn run(cli: Cli) -> Result<ExitCode, String> {
     match cli.command {
         Command::Generate {
@@ -181,6 +260,43 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
                 ExitCode::SUCCESS
             } else {
                 ExitCode::FAILURE
+            })
+        }
+        Command::Drive {
+            trace,
+            class,
+            flagged,
+            promoted,
+            transcript,
+        } => {
+            let json = std::fs::read_to_string(&trace)
+                .map_err(|e| format!("reading {}: {e}", trace.display()))?;
+            let parsed = dpaa2_verify::adapter::parse_mbt_trace(&json)?;
+            let cfg = dpaa2_verify::driver::DriveConfig {
+                run: RunClass {
+                    class: class.into(),
+                    flagged,
+                },
+                learning: !promoted,
+            };
+            let mut out = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&transcript)
+                .map_err(|e| format!("opening {}: {e}", transcript.display()))?;
+            let outcome = dpaa2_verify::driver::drive_trace(
+                &parsed,
+                cfg,
+                &mut LiveBoard {
+                    runner: dpaa2_mc::RestoolRunner::new(),
+                },
+                &mut StdinPrompt,
+                &mut out,
+            )?;
+            println!("outcome: {outcome:?}; transcript: {}", transcript.display());
+            Ok(match outcome {
+                dpaa2_verify::driver::Outcome::Completed => ExitCode::SUCCESS,
+                _ => ExitCode::FAILURE,
             })
         }
     }

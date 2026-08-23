@@ -65,7 +65,7 @@ board task is an operator sitting sync point.
       reviewable scripts with inline expectations, reference-pair
       assertion, result files for offline diff; mutating-suite gate on
       the recovery guarantee
-- [ ] 4.4 Build the online driver: operator-launched, step/pause/abort,
+- [x] 4.4 Build the online driver: operator-launched, step/pause/abort,
       transcript, per-step confirmation in learning mode
 
 ## 5. Board program (operator-run, serial; design D7)

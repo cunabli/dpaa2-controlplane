@@ -916,7 +916,7 @@ pub fn expect(
 // --- observation and judgement ---------------------------------------
 
 /// What the read-back probes actually reported. `None` = not observed.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq, Eq, Default)]
 pub struct Observed {
     /// Listed in `dprc show`.
     pub present: Option<bool>,
@@ -989,14 +989,14 @@ fn parse_endpoint_line(info_output: &str) -> Option<String> {
 /// The driving command's exit status — auxiliary evidence only, never an
 /// observation (DPNI-I6, DPMAC-I8: restool exits 0 on dead options and
 /// partial failures).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ExitEvidence {
     /// Whether the process reported success.
     pub ok: bool,
 }
 
 /// The verdict on one executed step.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct StepVerdict {
     /// Read-back conformance: every expected field matched.
     pub pass: bool,
