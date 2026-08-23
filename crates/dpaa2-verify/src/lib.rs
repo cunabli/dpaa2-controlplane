@@ -6,5 +6,6 @@
 //! driver, the ITF trace replayer, and the coded port safety envelope.
 //! See `openspec/changes/verify-foundation` for the requirements.
 
+pub mod adapter;
 pub mod itf;
 pub mod replay;

@@ -13,6 +13,7 @@ path = "src/lib.rs"
 
 [dependencies]
 dpaa2-api.workspace = true
+dpaa2-mc.workspace = true
 serde_json.workspace = true
 
 [lints]

@@ -159,6 +159,7 @@ name = "dpaa2-verify"
 version = "0.1.0"
 dependencies = [
  "dpaa2-api",
+ "dpaa2-mc",
  "serde_json",
 ]
 

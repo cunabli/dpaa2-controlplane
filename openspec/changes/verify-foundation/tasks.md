@@ -56,7 +56,7 @@ board task is an operator sitting sync point.
 
 ## 4. MBT harness
 
-- [ ] 4.1 Implement the shared adapter: model action ↔ restool command
+- [x] 4.1 Implement the shared adapter: model action ↔ restool command
       ↔ read-back observation (never exit status)
 - [ ] 4.2 Encode the port safety matrix and traffic classes as data;
       enforce at generation and in the execution wrapper (dpmac.3,
