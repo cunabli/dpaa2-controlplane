@@ -24,11 +24,11 @@ generator emit mutating suites.
 | V-DPRC-1 | `vdprc1.qnt` | **diverged twice**, model amended each time (ADR-0007). Rev 1 2026-08-23: sibling move refused → single-hop law. Rev 2 2026-08-23: anchored the two-hop route and the `dprc unassign` rendering, but standalone destroy of the moved dpni hit MC "No privilege" (restool exited 0 — read-back caught it) and the container destroy *evicted* its foreign resident instead of cascading → creator-bound destroy authority + release/evict by ownership; rev 2 left an ownerless dpni in dprc.1 that only a reboot clears. Rev 3 (repatriation route) **passed** 2026-08-23, 13/13: both unassign/assign directions exercised twice, repatriation restored destroy authority (ADR-0007 §2's positive anchor), and owned-resident release re-anchored with a dpbp |
 | V-DPNI-1 | `vdpni1.qnt` | **passed** 2026-08-23 — destroy-while-plugged of a child-container dpni succeeded, confirming the in_use-blindness law; bare-create defaults captured for DPNI-I7 |
 | V-LIFE-DPNI-1 | `vlife_dpni1.qnt` | **passed** 2026-08-23 — kernel bound the dpni through the §5 canonical order; census draw satisfied (positive face of DPBP-I4) |
-| V-LIFE-DPIO-1 | `vlife_dpio1.qnt` | sat 2026-08-23 (batch 2), ran clean end to end on the transcript — dpio canonical order in the root, bind judged on the driver link (DPIO-I3 positive face); verdict pending the offline diff of the captured results. Teardown left the plugged dpmcp companion behind — restool refused the unplug on a driver-bound object and the suppressed stderr hid it; root-caused, cleaned by hand, teardown fixed |
-| V-LIFE-DPSECI-1 | `vlife_dpseci1.qnt` | sat 2026-08-23 (batch 2), diverged at the restool layer: `dpseci create` mandates `--num-queues` and `--priorities` together, so the bare create was refused. Regenerated with restool's own example pair — 2 queues at priorities 2,4 — awaiting re-sitting |
-| V-LIFE-DPDMAI-1 | `vlife_dpdmai1.qnt` | sat 2026-08-23 (batch 2), ran clean end to end on the transcript — bare-create dpdmai; the bind step is Read evidence (DPDMAI-I3/I5): a missing driver link is a finding about kernel handling of MC defaults, not automatically a model error; verdict pending the offline diff of the captured results. Teardown left the plugged dpmcp companion behind for the same reason as V-LIFE-DPIO-1 — driver-bound unplug refused, stderr suppressed; root-caused, cleaned by hand, teardown fixed |
-| V-LIFE-DPDCEI-1 | `vlife_dpdcei1.qnt` | sat 2026-08-23 (batch 2), failed at the restool layer, not the MC: there is no bare `dpdcei create` — restool mandates `--engine` and `--priority`, so it refused, the object never existed, and the later steps rendered against an empty name. Regenerated with an explicit DPDCEI_ENGINE_DECOMPRESSION at priority 1; awaiting re-sitting, no reboot needed because nothing was created and the scratch container was destroyed cleanly |
-| V-DPCI-1 | `vdpci1.qnt` | sat 2026-08-23 (batch 2), diverged: both creates landed, but the connect — issued on the scratch container the pair lives in — was refused by the MC with No privilege. A container restool creates without explicit options has no topology-change permission, and `dprc connect` runs on whichever container it is named with. The connect now renders against the root ancestor instead. The destroy-while-connected probe (dpci.md unknown #2) went unanswered, since the pair never got connected; awaiting re-sitting |
+| V-LIFE-DPIO-1 | `vlife_dpio1.qnt` | **passed** 2026-08-23 (rev 2), 6/6 under ADR-0008 — the kernel binds one dpio per CPU and the boot layout fills every seat, so a dpio created at runtime never binds; the probe fails inside the kernel and leaves nothing drawn. Rev 1 diverged only in the harness: the model expected a bind, and the teardown leaked the plugged dpmcp companion because restool refuses to unplug a driver-bound object and the refusal went to /dev/null. Both fixed; rev 2 left no residue and the companion was reclaimed cleanly |
+| V-LIFE-DPSECI-1 | `vlife_dpseci1.qnt` | **passed** 2026-08-23 (rev 2), 6/6 under ADR-0008 — the crypto-API algorithm names are one global namespace and the boot-time dpseci claims them, so every later dpseci is refused its registrations and stays unbound for the rest of that boot. Rev 1 never got that far: `dpseci create` mandates `--num-queues` and `--priorities` together, so the bare create was refused. Regenerated with restool's own example pair, 2 queues at priorities 2,4. Teardown residue fixed with V-LIFE-DPIO-1's; rev 2 clean |
+| V-LIFE-DPDMAI-1 | `vlife_dpdmai1.qnt` | **passed** 2026-08-23 (rev 2), 6/6 under ADR-0008 — the reference kernel registers no qdma driver at all, so nothing ever claims a dpdmai; the unbound read-back is the conforming answer, not a gap in how the kernel handles MC defaults (DPDMAI-I3/I5). Rev 1 diverged only on the model's bind expectation and leaked its dpmcp companion through the same teardown hole; both fixed, rev 2 clean |
+| V-LIFE-DPDCEI-1 | `vlife_dpdcei1.qnt` | **passed** 2026-08-23 (rev 2), 5/5 — create, plug and destroy of a dpdcei in a scratch container, no driver to await. Rev 1 failed at the restool layer, not the MC: there is no bare `dpdcei create`, since restool mandates `--engine` and `--priority`. Regenerated with an explicit DPDCEI_ENGINE_DECOMPRESSION at priority 1 |
+| V-DPCI-1 | `vdpci1.qnt` | **passed** 2026-08-23 (rev 2), 7/7 — answers dpci.md unknown #2: the MC destroys a connected dpci without demanding a disconnect first, the edge dying with the object as the model assumed, and the connect itself is legal while both endpoints are unplugged. Rev 1 diverged twice over: the connect was issued on the scratch container the pair lives in and the MC refused it with No privilege, which anchored the topology-changes option-bit finding (connects now render against the root ancestor); and the conforming rev-2 connect was then scored wrong by a read-back parser that knew only one family's wording for the peer line |
 
 V-LIFE-DPNI-1 carries the "per-family lifecycle scenarios" of design
 D7 step 2 for the dpni family: the §5 canonical order through the
@@ -67,11 +67,20 @@ design D9):
 | V-DPRTC-1..2, V-DPDBG-1 | root-container residents with fixed disposition (traffic-inventory §4, design D7 step 4): online driver, per-step operator confirmation — task 5.4, not 5.2 | online driver (5.4) |
 | V-GENDPL-1 | needs a `generate-dpl` emit-and-diff probe no crate code has | online driver or adapter extension |
 
-Batch 2 (authored, ledger above) covers the remaining positive
+Batch 2 (all five passed, ledger above) covers the remaining positive
 lifecycle faces that render with the adapter as-is: dpio/dpseci/dpdmai
 canonical orders in the root, dpdcei in a scratch container, and the
 dpci pair connect. dpsw/dpdmux positive faces are batch 3, gated on the
 adapter `create_args` work.
+
+The three root-container suites all read back an unbound object where
+the model expected a bind, each for its own reason: the dpio seats are
+filled at boot, the crypto algorithm names are claimed by the first
+dpseci of the boot, and no qdma driver exists for a dpdmai to bind to.
+A loaded driver is not the same claim as a driver that takes an object
+created after boot, so that became its own per-family property
+(ADR-0008) and the suites now assert the negative face. The board never
+diverged; the model's expectation did.
 
 dpdcei and dpseci turned out to need `create_args` rows of their own —
 the same gap that gates batch 3, found a batch early. The two refuse
@@ -90,7 +99,16 @@ read-back lesson the step layer already learned, one layer down: an
 unchecked command is not a completed one. Teardown now unbinds a
 root-resident object through sysfs before unplugging it, and its stderr
 goes to `teardown.log` in the results directory. Child-container
-objects never bind (DPRC-I6), so they skip the unbind.
+objects never bind (DPRC-I6), so they skip the unbind. The fix held on
+the re-sitting: no residue anywhere, and every dpmcp companion was
+reclaimed cleanly.
+
+One sitting risk carries over from that work and is not fixable here
+(ADR-0008 §4–§6): destroying objects in the Linux root races the bus's
+own rescan, and a bystander in that container can be silently detached
+from its driver — no log entry, device directory still in place. Read
+the boot dpseci's driver link as a post-sitting health check, and reboot
+before the next sitting if it has moved.
 
 ## Regenerating
 

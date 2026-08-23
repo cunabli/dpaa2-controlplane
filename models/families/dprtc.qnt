@@ -16,6 +16,7 @@ module dprtc {
     pooled: false,
     resetOnBind: false,
     hasKernelDriver: true,        // fsl-dpaa2-ptp (§3)
+    hotBindAvailable: true,       // driver present; boot-born
     endpointPorts: 0,             // no endpoint surface (§2)
     createTriggersRescan: false,
     draw: { dpmcp: 1, dpbp: 0, dpcon: 0 },  // §3 census

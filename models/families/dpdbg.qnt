@@ -15,6 +15,7 @@ module dpdbg {
     pooled: false,
     resetOnBind: false,
     hasKernelDriver: false,       // driver-less by design (§3)
+    hotBindAvailable: false,      // driver-less
     endpointPorts: 0,             // no endpoint surface (§2)
     createTriggersRescan: false,
     draw: { dpmcp: 0, dpbp: 0, dpcon: 0 },

@@ -12,6 +12,7 @@ module dpni {
     pooled: false,
     resetOnBind: true,            // bind resets the object (DPNI-I2, breaking)
     hasKernelDriver: true,        // fsl_dpaa2_eth binds on plug
+    hotBindAvailable: true,       // board-anchored (V-LIFE-DPNI-1)
     endpointPorts: 1,             // dpni↔dpmac/dpni/dpsw/dpdmux edges (§2)
     createTriggersRescan: false,  // most creates trigger no rescan (DPCI-I3)
     // fsl_dpaa2_eth probe census (§3): 1 dpmcp, 1 dpbp,

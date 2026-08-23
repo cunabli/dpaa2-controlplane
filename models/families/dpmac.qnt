@@ -13,6 +13,7 @@ module dpmac {
     pooled: false,
     resetOnBind: false,
     hasKernelDriver: true,        // standalone driver binds the leftovers (§3)
+    hotBindAvailable: true,       // boot-born; never hot-created
     endpointPorts: 1,             // faces dpni / dpsw uplink / dpdmux.N.0 (§2)
     createTriggersRescan: false,
     draw: { dpmcp: 1, dpbp: 0, dpcon: 0 },  // standalone dpmac: 1 dpmcp (§3 census)

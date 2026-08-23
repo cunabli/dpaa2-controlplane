@@ -14,6 +14,7 @@ module dpsw {
     pooled: false,
     resetOnBind: true,            // DPSW-I4, breaking
     hasKernelDriver: true,        // dpaa2-switch (kernel-only, DPSW-I6)
+    hotBindAvailable: true,       // driver present; unsat (batch 3)
     // Switch ports address as dpsw.N.M (§2); the port count is
     // create-config — fixed to 2 at model scope, refine per-scenario.
     endpointPorts: 2,

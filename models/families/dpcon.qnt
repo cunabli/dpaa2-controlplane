@@ -14,6 +14,7 @@ module dpcon {
     pooled: true,
     resetOnBind: false,
     hasKernelDriver: false,       // allocator custody = pool membership in the model
+    hotBindAvailable: false,      // allocator custody, not a bind
     endpointPorts: 0,             // no endpoint surface (§2)
     createTriggersRescan: false,
     draw: { dpmcp: 0, dpbp: 0, dpcon: 0 },

@@ -105,6 +105,12 @@ module types {
     resetOnBind: bool,
     // a kernel driver binds on plug (dpci/dpdbg/dpdcei have none)
     hasKernelDriver: bool,
+    // reference-pair property (ADR-0008): does that driver actually bind
+    // an object of this family created, plugged and rescanned at
+    // *runtime*? A driver can exist and still never take a hot-created
+    // object — the seats may be filled at boot, or the registration it
+    // needs already claimed. False for every driver-less family.
+    hotBindAvailable: bool,
     // number of connect endpoint ports; 0 = no endpoint surface (§2)
     endpointPorts: int,
     // dprc create triggers a bus rescan; most creates do not (DPCI-I3)

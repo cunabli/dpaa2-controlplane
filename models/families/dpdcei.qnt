@@ -13,6 +13,7 @@ module dpdcei {
     pooled: false,
     resetOnBind: false,
     hasKernelDriver: false,       // no consumer in the corpus (§3)
+    hotBindAvailable: false,      // driver-less
     endpointPorts: 0,             // no endpoint surface (§2)
     createTriggersRescan: false,
     draw: { dpmcp: 0, dpbp: 0, dpcon: 0 },

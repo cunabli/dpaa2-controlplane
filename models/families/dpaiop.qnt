@@ -15,6 +15,7 @@ module dpaiop {
     pooled: false,
     resetOnBind: false,
     hasKernelDriver: false,
+    hotBindAvailable: false,      // driver-less
     endpointPorts: 0,             // no endpoint surface (DPAIOP-I4)
     createTriggersRescan: false,
     draw: { dpmcp: 0, dpbp: 0, dpcon: 0 },

@@ -15,6 +15,7 @@ module dpbp {
     pooled: true,
     resetOnBind: false,
     hasKernelDriver: false,
+    hotBindAvailable: false,      // allocator custody, not a bind
     endpointPorts: 0,             // no endpoint surface (§2)
     createTriggersRescan: false,
     draw: { dpmcp: 0, dpbp: 0, dpcon: 0 },

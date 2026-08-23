@@ -13,6 +13,7 @@ module dprc {
     pooled: false,
     resetOnBind: false,
     hasKernelDriver: true,        // fsl_mc_dprc binds automatically (§3)
+    hotBindAvailable: true,       // fsl_mc_dprc takes new children
     endpointPorts: 0,             // dprc owns connections but has no endpoints (§2)
     createTriggersRescan: true,   // dprc create does trigger a rescan (§5 step 6)
     // Probe draws nothing; the /dev/dprc.N-opener dpmcp holds are the

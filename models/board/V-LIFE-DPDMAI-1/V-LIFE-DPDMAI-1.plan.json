@@ -138,7 +138,7 @@
         "present": null,
         "plugged": null,
         "endpoint": null,
-        "driver_bound": true
+        "driver_bound": false
       }
     }
   ]

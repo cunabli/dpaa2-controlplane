@@ -92,8 +92,11 @@ module main {
   pure val mac9: ObjId = { fam: Dpmac, num: 9 }
 
   // §5 canonical forward order in the root container, then the teardown
-  // mirror back to the boot state. Two dpmcps: one is the dpio driver's
-  // forgotten draw (DPIO-I1), one is the dpni's.
+  // mirror back to the boot state. Two dpmcps: one offered to the dpio
+  // driver as its forgotten draw (DPIO-I1), one the dpni's. The dpio
+  // probe is attempted and does not take on the reference pair
+  // (ADR-0008), so only the dpni's portal is actually drawn — the order
+  // under test is the operator's, not the outcome.
   run canonicalLifecycleTest =
     init
       // 1. pool companions first (and the unpooled dpio)
@@ -403,10 +406,31 @@ module main {
       .then(createObjectAt(Dpcon, dprc1))
       .then(check(s.objs.get(dpcon0).hwId == 100 and dpcon0.num == 0))
 
-  // DPMCP-I1 / DPIO-I1's arrow: the dpio kernel probe itself draws a
-  // dpmcp — the dependency bottoms out at dpmcp, and the draw dirties
-  // (membership never implies clean state).
+  // DPMCP-I1's arrow: a consumer's own kernel probe draws a dpmcp — the
+  // dependency bottoms out at dpmcp, and the draw dirties (membership
+  // never implies clean state). Carried by a dpdmux, which has the same
+  // one-portal census row as the dpio that first exhibited this: a dpio
+  // created at runtime cannot bind on the reference pair (ADR-0008),
+  // and only a bound consumer holds pool objects.
   run DPMCP_I1Test =
+    init
+      .then(createObjectAt(Dpmcp, dprc1))          // dpmcp.0
+      .then(createObjectAt(Dpdmux, dprc1))         // dpdmux.0
+      .then(plugAt(dpmcp0))
+      .then(plugAt(dpdmux0))
+      .then(rescanAt(dprc1))
+      .then(kernelBindAt(dpdmux0, Set(dpmcp0), Set(), Set()))
+      .then(check(and {
+        s.objs.get(dpmcp0).allocatedBy == Some(dpdmux0),
+        not(s.objs.get(dpmcp0).pristine),
+      }))
+
+  // ADR-0008, dpio face: the kernel binds one dpio per CPU and the boot
+  // set fills every seat, so a dpio created at runtime never binds. Its
+  // probe still runs — and fails inside the kernel, releasing what it
+  // took: nothing bound, nothing drawn, the companion still free and
+  // untouched.
+  run DPIO_hotBindUnavailableTest =
     init
       .then(createObjectAt(Dpmcp, dprc1))          // dpmcp.0
       .then(createObjectAt(Dpio, dprc1))           // dpio.0
@@ -415,8 +439,26 @@ module main {
       .then(rescanAt(dprc1))
       .then(kernelBindAt(dpio0, Set(dpmcp0), Set(), Set()))
       .then(check(and {
-        s.objs.get(dpmcp0).allocatedBy == Some(dpio0),
-        not(s.objs.get(dpmcp0).pristine),
+        s.objs.get(dpio0).bind == Unbound,
+        s.objs.get(dpmcp0).allocatedBy == None,
+        s.objs.get(dpmcp0).pristine,
+      }))
+
+  // ADR-0008, dpseci face: same outcome, different mechanism — the
+  // first dpseci to probe in a boot claims the crypto-API algorithm
+  // names system-wide, and every later one is refused them.
+  run DPSECI_hotBindUnavailableTest =
+    init
+      .then(createObjectAt(Dpmcp, dprc1))          // dpmcp.0
+      .then(createObjectAt(Dpseci, dprc1))         // dpseci.0
+      .then(plugAt(dpmcp0))
+      .then(plugAt(dpseci0))
+      .then(rescanAt(dprc1))
+      .then(kernelBindAt(dpseci0, Set(dpmcp0), Set(), Set()))
+      .then(check(and {
+        s.objs.get(dpseci0).bind == Unbound,
+        s.objs.get(dpmcp0).allocatedBy == None,
+        s.objs.get(dpmcp0).pristine,
       }))
 
   // DPMCP-I2: concurrent openers each hold a pool dpmcp; a drawn portal
@@ -425,16 +467,16 @@ module main {
     DPMCP_I1Test
       .then(createObjectAt(Dpmcp, dprc1))          // dpmcp.1
       .then(plugAt(dpmcp1))
-      .then(allocateAt(dpio0, dpmcp1))
+      .then(allocateAt(dpdmux0, dpmcp1))
 
   run DPMCP_I2Test =
     allocatedPortalPrefix
-      .then(allocateAt(dpio0, dpmcp1).fail())      // exhausted
+      .then(allocateAt(dpdmux0, dpmcp1).fail())      // exhausted
 
   run DPMCP_I2ReturnTest =
     allocatedPortalPrefix
       .then(freeAt(dpmcp1))                        // close returns it
-      .then(allocateAt(dpio0, dpmcp1))
+      .then(allocateAt(dpdmux0, dpmcp1))
 
   // DPMCP-I3 (Breaking): no reset anywhere in the lifecycle — a freed
   // portal returns to the pool dirty.
@@ -449,15 +491,15 @@ module main {
   // DPBP-I2: pool entry ⟺ plugged — an unplugged dpbp is dprc-visible
   // but allocator-invisible (the refusal run); plugging admits it.
   run DPBP_I2Test =
-    DPMCP_I1Test                                   // dpio.0 kernel-bound
+    DPMCP_I1Test                                   // dpdmux.0 kernel-bound
       .then(createObjectAt(Dpbp, dprc1))           // dpbp.0, unplugged
-      .then(allocateAt(dpio0, dpbp0).fail())
+      .then(allocateAt(dpdmux0, dpbp0).fail())
 
   run DPBP_I2PlugTest =
     DPMCP_I1Test
       .then(createObjectAt(Dpbp, dprc1))
       .then(plugAt(dpbp0))
-      .then(allocateAt(dpio0, dpbp0))
+      .then(allocateAt(dpdmux0, dpbp0))
 
   // DPBP-I3 (Breaking): free does no MC reset — the pool returns the
   // object dirty; cleanliness is the next allocator's job, or nobody's.
@@ -474,7 +516,7 @@ module main {
     DPMCP_I1Test
       .then(createObjectAt(Dpcon, dprc1))          // dpcon.0
       .then(plugAt(dpcon0))
-      .then(allocateAt(dpio0, dpcon0))
+      .then(allocateAt(dpdmux0, dpcon0))
       .then(freeAt(dpcon0))
       .then(check(and {
         s.objs.get(dpcon0).allocatedBy == None,

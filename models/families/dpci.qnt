@@ -15,6 +15,7 @@ module dpci {
     pooled: false,
     resetOnBind: false,
     hasKernelDriver: false,       // no kernel driver (§3)
+    hotBindAvailable: false,      // driver-less
     endpointPorts: 1,             // dpci↔dpci, the only same-family-only edge (§2)
     createTriggersRescan: false,  // dpci creates trigger no rescan (DPCI-I3)
     draw: { dpmcp: 0, dpbp: 0, dpcon: 0 },

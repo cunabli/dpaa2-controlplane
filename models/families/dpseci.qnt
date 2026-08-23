@@ -15,6 +15,7 @@ module dpseci {
     pooled: false,
     resetOnBind: false,
     hasKernelDriver: true,        // dpaa2_caam (§3)
+    hotBindAvailable: false,      // crypto names claimed for the boot
     endpointPorts: 0,             // no endpoint surface (§2)
     createTriggersRescan: false,
     draw: { dpmcp: 1, dpbp: 0, dpcon: 0 },  // §3 census; dpio borrowed

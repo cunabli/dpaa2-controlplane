@@ -15,6 +15,7 @@ module dpio {
     pooled: false,                // regime-typed, never pooled (DPIO-I1/I2)
     resetOnBind: false,
     hasKernelDriver: true,
+    hotBindAvailable: false,      // every per-CPU seat taken at boot
     endpointPorts: 0,             // no endpoint surface (§2)
     createTriggersRescan: false,
     draw: { dpmcp: 1, dpbp: 0, dpcon: 0 },  // the forgotten draw (§3 census)

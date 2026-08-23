@@ -945,7 +945,18 @@ pub fn expect(
             ..Expected::about(e.obj)
         }),
         ModelAction::KernelBind { obj } | ModelAction::VfioBind { obj } => Some(Expected {
-            driver_bound: Some(true),
+            // Not always true: some families never bind an object
+            // created at runtime on the reference pair (ADR-0008), and
+            // the probe leaves them unbound. The trace's post-state is
+            // where that verdict lives, so read it rather than restate
+            // the table here.
+            driver_bound: Some(
+                post.objs
+                    .get(obj)
+                    .ok_or_else(|| format!("{obj} not in post-state"))?
+                    .bind
+                    != BindView::Unbound,
+            ),
             ..Expected::about(*obj)
         }),
         ModelAction::Unbind { obj } => Some(Expected {
@@ -1618,5 +1629,23 @@ mod tests {
         assert_eq!(expected.object, created);
         assert_eq!(expected.present, Some(true));
         assert_eq!(expected.plugged, Some(false));
+    }
+
+    /// A bind step expects whatever the model's post-state says: a
+    /// family the reference pair cannot hot-bind (ADR-0008) must be
+    /// expected *unbound*, or the suite scores a conforming board wrong.
+    #[test]
+    fn bind_expectation_follows_the_model_not_the_action() {
+        let bind = ModelAction::KernelBind { obj: dpni(100) };
+        let pre = state(Some((100, true)));
+
+        let mut post = pre.clone();
+        post.objs.get_mut(&dpni(100)).unwrap().bind = BindView::Kernel;
+        let e = expect(&bind, &pre, &post).unwrap().unwrap();
+        assert_eq!(e.driver_bound, Some(true));
+
+        // The probe ran and did not take: state unchanged.
+        let e = expect(&bind, &pre, &pre).unwrap().unwrap();
+        assert_eq!(e.driver_bound, Some(false));
     }
 }

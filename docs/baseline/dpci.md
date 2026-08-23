@@ -153,8 +153,13 @@ must also name the userspace consumer, or be refused.
 
 1. Does link state go up on connect alone, or only after both ends issue
    `DPCI_ENABLE`? (Decides DPCI-I5; restool never enables.)
-2. Does destroy of a still-connected dpci succeed, or does MC demand a
-   disconnect first? (restool doesn't guard it.)
+2. ~~Does destroy of a still-connected dpci succeed, or does MC demand a
+   disconnect first? (restool doesn't guard it.)~~ **Answered** — board
+   suite V-DPCI-1, 2026-08-23: the MC destroys a connected dpci without
+   asking for a disconnect first, and the surviving peer reports no
+   endpoint afterwards. The edge dies with the object, as the model
+   already assumed. The same sitting showed the connect itself is legal
+   while both endpoints are still unplugged.
 3. Same-container connect in the *root* dprc — all corpus examples pair
    in children or across containers.
 4. Per-container/global dpci ceiling (no resource cap is expressed in the

@@ -15,6 +15,7 @@ module dpdmai {
     pooled: false,
     resetOnBind: false,
     hasKernelDriver: true,        // fsl-dpaa2-qdma (§3)
+    hotBindAvailable: false,      // no qdma driver on this kernel
     endpointPorts: 0,             // no endpoint surface (§2)
     createTriggersRescan: false,
     draw: { dpmcp: 1, dpbp: 0, dpcon: 0 },  // §3 census; needs dpios present

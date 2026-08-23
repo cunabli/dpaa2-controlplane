@@ -78,7 +78,7 @@ run 4 restool dprc sync
 # step 5: KernelBind { obj: ObjRef { fam: Dpio, num: 0 } }
 # awaited: the kernel probes plugged bus-visible objects on its own; observe the driver link
 sleep 1
-# expect: dpio_0 driver_bound=true
+# expect: dpio_0 driver_bound=false
 probe_link 5 0 /sys/bus/fsl-mc/devices/${OBJ_dpio_0}/driver
 
 echo "suite V-LIFE-DPIO-1 complete"

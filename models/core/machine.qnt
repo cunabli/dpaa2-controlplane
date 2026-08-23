@@ -202,7 +202,14 @@ module machine {
     mcps.size() == PARAMS.get(o.fam).draw.dpmcp,
     bps.size() == PARAMS.get(o.fam).draw.dpbp,
     cons.size() == PARAMS.get(o.fam).draw.dpcon,
-    s' = kernelBindT(s, PARAMS, o, mcps.union(bps).union(cons)),
+    // The probe runs either way — the guards above are what the driver
+    // needs to *attempt* it. Where the reference pair cannot hot-bind
+    // this family (ADR-0008) the attempt fails inside the kernel and
+    // the driver releases everything it took: no bind, no draw, no
+    // trace of it in MC state.
+    s' = if (PARAMS.get(o.fam).hotBindAvailable)
+           kernelBindT(s, PARAMS, o, mcps.union(bps).union(cons))
+         else s,
   }
 
   // Draw sets are built from single picks, not powersets: every family
