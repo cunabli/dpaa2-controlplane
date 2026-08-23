@@ -1,0 +1,22 @@
+// dpio family parameters (dpio.md). NOT pooled — there is no
+// FSL_MC_POOL_DPIO (DPIO-I1); the kernel binds each dpio to the dpio
+// driver as a per-CPU shared service, and DPDK claims them exclusively
+// per thread. The dpio driver itself draws a dpmcp at probe — the
+// dpio→dpmcp ordering edge inside the pool-companion phase (§4).
+//
+// Named invariants: none yet (phase 2). Apalache-marked subset: none.
+module dpio {
+  import types.* from "../core/types"
+
+  pure val dpioParams: FamilyParams = {
+    creatable: true,
+    placement: AnyContainer,
+    singleton: false,
+    pooled: false,                // regime-typed, never pooled (DPIO-I1/I2)
+    resetOnBind: false,
+    hasKernelDriver: true,
+    endpointPorts: 0,             // no endpoint surface (§2)
+    createTriggersRescan: false,
+    draw: { dpmcp: 1, dpbp: 0, dpcon: 0 },  // the forgotten draw (§3 census)
+  }
+}

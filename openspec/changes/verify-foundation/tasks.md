@@ -21,15 +21,15 @@ board task is an operator sitting sync point.
 
 ## 1. Core lifecycle model
 
-- [ ] 1.1 Encode the shared object machine: state, containment tree,
+- [x] 1.1 Encode the shared object machine: state, containment tree,
       create-vs-allocate, pools, connect edges, lifecycle ordering
       (object-model.md §§1–5), with per-transition evidence status
       (design D2)
-- [ ] 1.2 Add per-family parameter modules for the touched families
+- [x] 1.2 Add per-family parameter modules for the touched families
       (dprc, dpni, dpmac, dpbp, dpio, dpcon, dpmcp, dpseci)
-- [ ] 1.3 Add Tier B (dpsw, dpdmux) and Tier C (dpaiop, dpci, dpdcei,
+- [x] 1.3 Add Tier B (dpsw, dpdmux) and Tier C (dpaiop, dpci, dpdcei,
       dpdmai, dprtc, dpdbg) parameter modules
-- [ ] 1.4 Typecheck + simulator green on canonical forward-order and
+- [x] 1.4 Typecheck + simulator green on canonical forward-order and
       teardown traces; forbidden transitions refused
 
 ## 2. Invariant encoding and coverage ledger
