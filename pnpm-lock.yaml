@@ -13,7 +13,7 @@ importers:
         version: 1.5.0(@types/node@26.2.0)
     devDependencies:
       '@informalsystems/quint':
-        specifier: ^0.32.0
+        specifier: 0.32.0
         version: 0.32.0
 
 packages:
