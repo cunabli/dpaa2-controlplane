@@ -198,7 +198,7 @@ pub fn drive_trace(
         let outputs: Vec<String> = probes
             .iter()
             .map(|p| match p {
-                Probe::Restool(argv) => io.restool(argv).1,
+                Probe::Restool(argv) | Probe::RestoolIface { argv, .. } => io.restool(argv).1,
                 Probe::SysfsRead { path } => io.sysfs_read(path).unwrap_or_default(),
             })
             .collect();

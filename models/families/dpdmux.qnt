@@ -15,7 +15,10 @@ module dpdmux {
     pooled: false,
     resetOnBind: true,            // DPDMUX-I3, breaking
     hasKernelDriver: true,        // staging dpaa2-evb (§3)
-    hotBindAvailable: true,       // driver present; unsat (batch 3)
+    // The evb driver is compiled into the reference kernel and gates
+    // its probe on the object's API version alone — no configuration to
+    // get right, unlike dpsw. V-DPDMUX-1 is the board anchor.
+    hotBindAvailable: true,
     // dpdmux.N.M (§2): port 0 is the uplink (dpmac-only since MC 10.37,
     // enforced in core connect.legalPorts); 1 downlink at model scope.
     endpointPorts: 2,

@@ -1,0 +1,232 @@
+{
+  "id": "V-DPSW-1",
+  "class": "object-lifecycle-only",
+  "flagged": false,
+  "trace_file": "models/board/V-DPSW-1/vdpsw1.itf.json",
+  "steps": [
+    {
+      "index": 0,
+      "title": "CreateObject { fam: Dpmcp, container: ObjRef { fam: Dprc, num: 1 } }",
+      "driven": true,
+      "probes": [
+        {
+          "Restool": [
+            "dprc",
+            "show",
+            "dprc.1"
+          ]
+        }
+      ],
+      "created": {
+        "fam": "Dpmcp",
+        "num": 0
+      },
+      "expected": {
+        "object": {
+          "fam": "Dpmcp",
+          "num": 0
+        },
+        "present": true,
+        "plugged": false,
+        "endpoint": null,
+        "driver_bound": null
+      }
+    },
+    {
+      "index": 1,
+      "title": "CreateObject { fam: Dpbp, container: ObjRef { fam: Dprc, num: 1 } }",
+      "driven": true,
+      "probes": [
+        {
+          "Restool": [
+            "dprc",
+            "show",
+            "dprc.1"
+          ]
+        }
+      ],
+      "created": {
+        "fam": "Dpbp",
+        "num": 0
+      },
+      "expected": {
+        "object": {
+          "fam": "Dpbp",
+          "num": 0
+        },
+        "present": true,
+        "plugged": false,
+        "endpoint": null,
+        "driver_bound": null
+      }
+    },
+    {
+      "index": 2,
+      "title": "CreateObject { fam: Dpsw, container: ObjRef { fam: Dprc, num: 1 } }",
+      "driven": true,
+      "probes": [
+        {
+          "Restool": [
+            "dprc",
+            "show",
+            "dprc.1"
+          ]
+        }
+      ],
+      "created": {
+        "fam": "Dpsw",
+        "num": 0
+      },
+      "expected": {
+        "object": {
+          "fam": "Dpsw",
+          "num": 0
+        },
+        "present": true,
+        "plugged": false,
+        "endpoint": null,
+        "driver_bound": null
+      }
+    },
+    {
+      "index": 3,
+      "title": "ConnectEdge { a: EndpointRef { obj: ObjRef { fam: Dpsw, num: 0 }, port: 0 }, b: EndpointRef { obj: ObjRef { fam: Dpmac, num: 5 }, port: 0 } }",
+      "driven": true,
+      "probes": [
+        {
+          "RestoolIface": {
+            "argv": [
+              "dpsw",
+              "info",
+              "dpsw.0"
+            ],
+            "port": 0
+          }
+        }
+      ],
+      "created": null,
+      "expected": {
+        "object": {
+          "fam": "Dpsw",
+          "num": 0
+        },
+        "present": null,
+        "plugged": null,
+        "endpoint": {
+          "obj": {
+            "fam": "Dpmac",
+            "num": 5
+          },
+          "port": 0
+        },
+        "driver_bound": null
+      }
+    },
+    {
+      "index": 4,
+      "title": "Plug { obj: ObjRef { fam: Dpmcp, num: 0 } }",
+      "driven": true,
+      "probes": [
+        {
+          "Restool": [
+            "dprc",
+            "show",
+            "dprc.1"
+          ]
+        }
+      ],
+      "created": null,
+      "expected": {
+        "object": {
+          "fam": "Dpmcp",
+          "num": 0
+        },
+        "present": true,
+        "plugged": true,
+        "endpoint": null,
+        "driver_bound": null
+      }
+    },
+    {
+      "index": 5,
+      "title": "Plug { obj: ObjRef { fam: Dpbp, num: 0 } }",
+      "driven": true,
+      "probes": [
+        {
+          "Restool": [
+            "dprc",
+            "show",
+            "dprc.1"
+          ]
+        }
+      ],
+      "created": null,
+      "expected": {
+        "object": {
+          "fam": "Dpbp",
+          "num": 0
+        },
+        "present": true,
+        "plugged": true,
+        "endpoint": null,
+        "driver_bound": null
+      }
+    },
+    {
+      "index": 6,
+      "title": "Plug { obj: ObjRef { fam: Dpsw, num: 0 } }",
+      "driven": true,
+      "probes": [
+        {
+          "Restool": [
+            "dprc",
+            "show",
+            "dprc.1"
+          ]
+        }
+      ],
+      "created": null,
+      "expected": {
+        "object": {
+          "fam": "Dpsw",
+          "num": 0
+        },
+        "present": true,
+        "plugged": true,
+        "endpoint": null,
+        "driver_bound": null
+      }
+    },
+    {
+      "index": 7,
+      "title": "Rescan { container: ObjRef { fam: Dprc, num: 1 } }",
+      "driven": true,
+      "probes": [],
+      "created": null,
+      "expected": null
+    },
+    {
+      "index": 8,
+      "title": "KernelBind { obj: ObjRef { fam: Dpsw, num: 0 } }",
+      "driven": false,
+      "probes": [
+        {
+          "SysfsRead": {
+            "path": "/sys/bus/fsl-mc/devices/dpsw.0/driver"
+          }
+        }
+      ],
+      "created": null,
+      "expected": {
+        "object": {
+          "fam": "Dpsw",
+          "num": 0
+        },
+        "present": null,
+        "plugged": null,
+        "endpoint": null,
+        "driver_bound": true
+      }
+    }
+  ]
+}

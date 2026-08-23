@@ -617,6 +617,23 @@ fn create_args(fam: Family) -> &'static [&'static str] {
         // create that omits either flag, so these are mandatory, not a
         // recipe. Engine and priority are ours; the rest stays MC default.
         Family::Dpdcei => &["--engine=DPDCEI_ENGINE_DECOMPRESSION", "--priority=1"],
+        // restool accepts a bare dpsw create, but the kernel then refuses
+        // the object: dpaa2_switch_supports_cpu_traffic (dpaa2-switch.h)
+        // demands the control interface enabled and both the flooding and
+        // broadcast domains scoped per FDB, and restool's silent defaults
+        // are the other value in each case (dpsw_commands.c leaves both
+        // configs 0 = PER_VLAN / PER_OBJECT). num-ifs is pinned to the
+        // model's endpointPorts rather than restool's undefaulted 4.
+        Family::Dpsw => &[
+            "--num-ifs=2",
+            "--flooding-cfg=DPSW_FLOODING_PER_FDB",
+            "--broadcast-cfg=DPSW_BROADCAST_PER_FDB",
+        ],
+        // restool mandates --num-ifs for a dpdmux (dpdmux_commands.c),
+        // and the count excludes the uplink: 1 downlink plus interface 0
+        // is the model's 2 endpoint ports. Demux method is left to
+        // restool's C_VLAN_MAC default, which the evb driver accepts.
+        Family::Dpdmux => &["--num-ifs=1"],
         _ => &[],
     }
 }
@@ -812,6 +829,16 @@ pub fn drive(action: &ModelAction, pre: &MachineView, names: &Binding) -> Result
 pub enum Probe {
     /// A read-only `restool` invocation.
     Restool(Vec<String>),
+    /// A read-only `restool` invocation whose answer is one block per
+    /// interface (dpsw, dpdmux). Same command as [`Probe::Restool`] —
+    /// only the parse differs, and it needs to know which interface the
+    /// step asked about.
+    RestoolIface {
+        /// The invocation (argv after the binary name).
+        argv: Vec<String>,
+        /// Endpoint port whose block carries the answer.
+        port: u32,
+    },
     /// A sysfs read (symlink or attribute).
     SysfsRead {
         /// Absolute sysfs path.
@@ -867,12 +894,16 @@ pub fn readback(
             names.name(c)?,
         ]))])
     };
-    let info = |o: ObjRef| -> Result<Vec<Probe>, String> {
-        Ok(vec![Probe::Restool(argv(&[
-            o.fam.as_str(),
-            "info",
-            names.name(o)?,
-        ]))])
+    let info = |e: EndpointRef| -> Result<Vec<Probe>, String> {
+        let v = argv(&[e.obj.fam.as_str(), "info", names.name(e.obj)?]);
+        Ok(vec![if speaks_per_interface(e.obj.fam) {
+            Probe::RestoolIface {
+                argv: v,
+                port: e.port,
+            }
+        } else {
+            Probe::Restool(v)
+        }])
     };
     let driver = |o: ObjRef| -> Result<Vec<Probe>, String> {
         Ok(vec![Probe::SysfsRead {
@@ -885,8 +916,8 @@ pub fn readback(
         ModelAction::AssignChild { dst, .. } => show(*dst),
         ModelAction::Plug { obj } | ModelAction::Unplug { obj } => show(parent_of(post, *obj)?),
         ModelAction::Destroy { obj } => show(parent_of(pre, *obj)?),
-        ModelAction::ConnectEdge { a, .. } => info(a.obj),
-        ModelAction::DisconnectEdge { e } => info(e.obj),
+        ModelAction::ConnectEdge { a, .. } => info(*a),
+        ModelAction::DisconnectEdge { e } => info(*e),
         ModelAction::KernelBind { obj }
         | ModelAction::VfioBind { obj }
         | ModelAction::Unbind { obj } => driver(*obj),
@@ -1023,6 +1054,9 @@ pub fn observe(
             Probe::Restool(v) => {
                 return Err(format!("unrecognized read-back probe: {v:?}"));
             }
+            Probe::RestoolIface { port, .. } => {
+                obs.endpoint = Some(parse_interface_block(*port, out));
+            }
             Probe::SysfsRead { .. } => {
                 obs.driver_bound = Some(!out.trim().is_empty());
             }
@@ -1036,10 +1070,10 @@ pub fn observe(
 ///
 /// restool words this per family rather than uniformly — the same trap
 /// the dpdcei and dpseci create flags sprang. dpci prints `connected
-/// peer: dpci.1`, or `no peer` when it has none (dpci_commands.c:236).
+/// peer: dpci.1`, or `no peer` when it has none (`dpci_commands.c:236`).
 /// dpni and dpmac print `endpoint: <type>.<id>` (a dpsw or dpdmux peer
 /// adds its interface id), or `No object associated`
-/// (dpni_commands.c:507, dpmac_commands.c:177). Either unconnected
+/// (`dpni_commands.c:507`, `dpmac_commands.c:177`). Either unconnected
 /// wording, and an absent line, mean no peer.
 fn parse_endpoint_line(fam: &str, info_output: &str) -> Option<String> {
     let prefix = if fam == Family::Dpci.as_str() {
@@ -1052,6 +1086,49 @@ fn parse_endpoint_line(fam: &str, info_output: &str) -> Option<String> {
         .find_map(|l| l.trim().strip_prefix(prefix))?;
     let token = line.split(',').next()?.trim();
     let (kind, _idx) = token.split_once('.')?;
+    kind.starts_with("dp").then(|| token.to_owned())
+}
+
+/// Whether `<fam> info` reports peers as one block per interface rather
+/// than a single line — the multi-port families (§2: `dpsw.N.M`,
+/// `dpdmux.N.M`).
+fn speaks_per_interface(fam: Family) -> bool {
+    matches!(fam, Family::Dpsw | Family::Dpdmux)
+}
+
+/// The peer reported for one interface of a multi-port object. dpsw and
+/// dpdmux print an `endpoints:` section of per-interface blocks
+/// (`dpsw_commands.c:388`, `dpdmux_commands.c:260`):
+///
+/// ```text
+/// endpoints:
+/// interface 0:
+///     connection: dpmac.4
+///     link state: down
+/// interface 1:
+///     connection: none
+///     link state: n/a
+/// ```
+///
+/// so the answer depends on *which* interface was asked about — hence
+/// the port. `none` is the unconnected wording here, where dpni says
+/// "No object associated" and dpci says "no peer". A switch-family peer
+/// always prints three-part (`dpsw.0.1`), any other peer two-part; both
+/// are returned verbatim, since that is what the board calls the peer.
+/// dpdmux prints one block more than its `--num-ifs`, interface 0 being
+/// the uplink.
+fn parse_interface_block(port: u32, info_output: &str) -> Option<String> {
+    let mut lines = info_output
+        .lines()
+        .skip_while(|l| l.trim() != format!("interface {port}:"));
+    lines.next()?;
+    // Stop at the next block: a `connection:` further down belongs to
+    // another interface, not this one.
+    let line = lines
+        .take_while(|l| !l.trim().starts_with("interface "))
+        .find_map(|l| l.trim().strip_prefix("connection:"))?;
+    let token = line.trim();
+    let (kind, _rest) = token.split_once('.')?;
     kind.starts_with("dp").then(|| token.to_owned())
 }
 
@@ -1629,6 +1706,69 @@ mod tests {
         assert_eq!(expected.object, created);
         assert_eq!(expected.present, Some(true));
         assert_eq!(expected.plugged, Some(false));
+    }
+
+    /// dpsw and dpdmux answer per interface, so the same output means
+    /// different things depending on which port was asked about.
+    #[test]
+    fn observe_reads_the_queried_interface_block() {
+        // Two switch ports, one connected: a dpmac on interface 0 (a
+        // non-switch peer, so two-part) and nothing on interface 1.
+        let sw = "dpsw version: 8.9\n\
+                  dpsw id: 0\n\
+                  plugged state: plugged\n\
+                  endpoints:\n\
+                  interface 0:\n\
+                  \tconnection: dpmac.5\n\
+                  \tlink state: down\n\
+                  interface 1:\n\
+                  \tconnection: none\n\
+                  \tlink state: n/a\n"
+            .to_owned();
+        let at = |port| Probe::RestoolIface {
+            argv: argv(&["dpsw", "info", "dpsw.0"]),
+            port,
+        };
+        let obs = observe(&[at(0)], std::slice::from_ref(&sw), "dpsw.0").unwrap();
+        assert_eq!(obs.endpoint, Some(Some("dpmac.5".to_owned())));
+        // Port 1 must read its own block, not interface 0's line.
+        let obs = observe(&[at(1)], &[sw], "dpsw.0").unwrap();
+        assert_eq!(obs.endpoint, Some(None));
+
+        // A switch-family peer always prints three-part, port included.
+        let sw = "endpoints:\n\
+                  interface 0:\n\
+                  \tconnection: none\n\
+                  \tlink state: n/a\n\
+                  interface 1:\n\
+                  \tconnection: dpsw.0.1\n\
+                  \tlink state: up\n"
+            .to_owned();
+        let obs = observe(&[at(1)], &[sw], "dpsw.0").unwrap();
+        assert_eq!(obs.endpoint, Some(Some("dpsw.0.1".to_owned())));
+
+        // dpdmux prints one block more than its --num-ifs; interface 0
+        // is the uplink, which is the one a suite connects to a dpmac.
+        let mux = "dpdmux version: 6.9\n\
+                   endpoints:\n\
+                   interface 0:\n\
+                   \tconnection: dpmac.4\n\
+                   \tlink state: down\n\
+                   interface 1:\n\
+                   \tconnection: none\n\
+                   \tlink state: n/a\n\
+                   num_ifs: 1\n"
+            .to_owned();
+        let obs = observe(
+            &[Probe::RestoolIface {
+                argv: argv(&["dpdmux", "info", "dpdmux.0"]),
+                port: 0,
+            }],
+            &[mux],
+            "dpdmux.0",
+        )
+        .unwrap();
+        assert_eq!(obs.endpoint, Some(Some("dpmac.4".to_owned())));
     }
 
     /// A bind step expects whatever the model's post-state says: a

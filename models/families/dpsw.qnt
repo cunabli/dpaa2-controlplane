@@ -14,7 +14,12 @@ module dpsw {
     pooled: false,
     resetOnBind: true,            // DPSW-I4, breaking
     hasKernelDriver: true,        // dpaa2-switch (kernel-only, DPSW-I6)
-    hotBindAvailable: true,       // driver present; unsat (batch 3)
+    // Only for a create in the configuration the driver accepts: it
+    // refuses a dpsw whose control interface is off or whose flooding
+    // or broadcast domain is not per FDB, which is what restool's
+    // defaults produce (dpaa2-switch.h, supports_cpu_traffic). The
+    // refusal is logged, not silent. V-DPSW-1 is the board anchor.
+    hotBindAvailable: true,
     // Switch ports address as dpsw.N.M (§2); the port count is
     // create-config — fixed to 2 at model scope, refine per-scenario.
     endpointPorts: 2,

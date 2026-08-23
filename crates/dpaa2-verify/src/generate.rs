@@ -448,7 +448,7 @@ pub fn generate(
             readback(&step.action, &pre, &step.post, &sym).map_err(|e| format!("step {i}: {e}"))?;
         for (m, probe) in sym_probes.iter().enumerate() {
             match probe {
-                Probe::Restool(argv) => {
+                Probe::Restool(argv) | Probe::RestoolIface { argv, .. } => {
                     let _ = writeln!(body, "probe {i} {m} restool {}", argv.join(" "));
                 }
                 Probe::SysfsRead { path } => {
@@ -522,6 +522,15 @@ pub fn generate(
                 "  [ -n \"${{{var}:-}}\" ] && restool {} destroy \"${{{var}}}\" {log} || true",
                 obj.fam.as_str()
             );
+            // Settle after every destroy, and only after a destroy. A
+            // destroy is what makes the firmware raise an object event,
+            // and the bus answers that by re-walking the container in
+            // its interrupt thread. A second destroy arriving mid-walk
+            // makes the walk read a stale descriptor and silently detach
+            // an unrelated resident's driver (ADR-0008 §4) — observed on
+            // the board, three bystanders at once. Waiting lets each
+            // walk finish over a container nobody is still changing.
+            trap.push_str("  sleep 2\n");
         }
         trap.push_str("}\ntrap teardown EXIT\n");
         let footer = format!("\necho \"suite {} complete\"\n", spec.id);
@@ -811,6 +820,26 @@ mod tests {
         assert!(unbind < unplug, "unbind must precede the unplug");
         assert!(!s.contains("--plugged=0 2>/dev/null"));
         assert!(s.contains("2>>\"$RESULTS/teardown.log\""));
+
+        // Every destroy is followed by a settle, and nothing else is:
+        // the wait exists to keep the bus's own rescan from overlapping
+        // the next destroy (ADR-0008 §4).
+        let teardown = s.split("teardown() {").nth(1).unwrap();
+        let teardown = teardown.split("}\ntrap").next().unwrap();
+        let settled: Vec<_> = teardown
+            .lines()
+            .zip(teardown.lines().skip(1))
+            .filter(|(_, next)| next.trim() == "sleep 2")
+            .map(|(line, _)| line)
+            .collect();
+        let destroys: Vec<_> = teardown
+            .lines()
+            .filter(|l| l.contains(" destroy "))
+            .collect();
+        assert!(!destroys.is_empty());
+        assert_eq!(settled, destroys, "settle follows destroys, and only those");
+        assert_eq!(teardown.matches("sleep 2").count(), destroys.len());
+
         sh_parses(&s);
     }
 
