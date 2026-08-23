@@ -639,7 +639,9 @@ pub fn drive(action: &ModelAction, pre: &MachineView, names: &Binding) -> Result
         ModelAction::CreateContainer { parent } => {
             // dprc.md: identity (id, icid, portal) is pool-assigned;
             // restool cannot pin it — the create output names the child.
-            cmd(argv(&["dprc", "create", names.name(*parent)?]))
+            // `--script` keeps that output a bare object name; batch
+            // scripts reuse it verbatim as the container reference.
+            cmd(argv(&["--script", "dprc", "create", names.name(*parent)?]))
         }
         ModelAction::CreateObject { fam, container } => {
             let mut v = argv(&["--script", fam.as_str(), "create"]);

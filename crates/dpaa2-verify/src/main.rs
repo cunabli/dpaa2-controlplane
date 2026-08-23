@@ -2,6 +2,7 @@
 //! (design D6). The board never runs this tool's generation side; it runs
 //! the emitted, operator-reviewed scripts (ADR-0003 §1–2).
 
+use std::fmt::Write as _;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
@@ -212,12 +213,24 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
             let plan_path = out.join(format!("{id}.plan.json"));
             let plan = serde_json::to_string_pretty(&suite.plan).map_err(|e| e.to_string())?;
             std::fs::write(&plan_path, plan).map_err(|e| e.to_string())?;
-            println!(
+            let mut wrote = format!(
                 "wrote {} ({} steps) and {}",
                 script_path.display(),
                 suite.plan.steps.len(),
                 plan_path.display()
             );
+            if let Some(ref postboot) = suite.postboot {
+                let post_path = out.join(format!("{id}-postboot.sh"));
+                std::fs::write(&post_path, postboot).map_err(|e| e.to_string())?;
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::PermissionsExt;
+                    std::fs::set_permissions(&post_path, std::fs::Permissions::from_mode(0o755))
+                        .map_err(|e| e.to_string())?;
+                }
+                let _ = write!(wrote, " and {}", post_path.display());
+            }
+            println!("{wrote}");
             Ok(ExitCode::SUCCESS)
         }
         Command::Diff { plan, results } => {

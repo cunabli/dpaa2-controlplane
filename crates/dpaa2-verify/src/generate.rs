@@ -103,6 +103,10 @@ pub struct Suite {
     pub script: String,
     /// The plan the harness diffs offline against the result files.
     pub plan: SuitePlan,
+    /// Recovery-verification suites only: the post-boot companion
+    /// script that re-captures state after the operator's reboot and
+    /// diffs it against the pre-state capture.
+    pub postboot: Option<String>,
 }
 
 /// Shell variable holding a created object's board name.
@@ -180,13 +184,7 @@ probe() {{ n="$1"; m="$2"; shift 2; echo "+ (probe) $*"; "$@" > "$RESULTS/step-$
 # probe_link N M path: capture a sysfs driver link (empty = unbound).
 probe_link() {{ n="$1"; m="$2"; readlink "$3" > "$RESULTS/step-$n-probe-$m.txt" 2>/dev/null || true; }}
 
-# --- reference pair assertion (ADR-0003 §2) ---
-# Evidence is only valid against the stamped pair; refuse anything else.
-mc="$(restool -m 2>/dev/null || true)"
-case "$mc" in *10.39.0*) ;; *) echo "refusing: MC firmware is not 10.39.0: $mc" >&2; exit 1 ;; esac
-kernel="$(uname -r)"
-case "$kernel" in 6.6.52*) ;; *) echo "refusing: kernel is not 6.6.52: $kernel" >&2; exit 1 ;; esac
-"#,
+{ref_pair}"#,
         id = spec.id,
         class = spec.run.class,
         flag = if spec.run.flagged {
@@ -195,6 +193,86 @@ case "$kernel" in 6.6.52*) ;; *) echo "refusing: kernel is not 6.6.52: $kernel" 
             ""
         },
         trace = spec.trace_file,
+        ref_pair = REF_PAIR_ASSERT,
+    )
+}
+
+/// The reference-pair assertion (ADR-0003 §2): evidence is only valid
+/// against the stamped pair; refuse anything else. Shared by every
+/// emitted script, asserted before any action.
+const REF_PAIR_ASSERT: &str = r#"# --- reference pair assertion (ADR-0003 §2) ---
+# Evidence is only valid against the stamped pair; refuse anything else.
+mc="$(restool -m 2>/dev/null || true)"
+case "$mc" in *10.39.0*) ;; *) echo "refusing: MC firmware is not 10.39.0: $mc" >&2; exit 1 ;; esac
+kernel="$(uname -r)"
+case "$kernel" in 6.6.52*) ;; *) echo "refusing: kernel is not 6.6.52: $kernel" >&2; exit 1 ;; esac
+"#;
+
+/// The pre-state capture a recovery-verification suite takes before any
+/// mutation (mbt-harness spec, "Recovery check runs first"): the state
+/// the reboot must restore. `generate-dpl` is a read-only query walk of
+/// live MC state (the same probe the reference capture uses); its output
+/// stays in the results directory — operator material, never committed.
+const PRE_STATE_CAPTURE: &str = r#"
+# --- pre-state capture (recovery check runs first) ---
+# Take this suite from a fresh boot with no MC-mutating services
+# started: the pre-state is the recovery-diff reference, so it must
+# itself be the boot state.
+restool dprc list                > "$RESULTS/pre-dprc-list.txt"
+restool dprc show dprc.1         > "$RESULTS/pre-dprc1-show.txt"
+restool dprc generate-dpl dprc.1 > "$RESULTS/pre-dpl.dts"
+"#;
+
+/// The no-teardown footer of a recovery-verification suite: the reboot
+/// is the teardown (ADR-0003 §7) — destroying the scratch set here
+/// would leave the reboot nothing to erase and the diff vacuous.
+fn recovery_footer(id: &str) -> String {
+    format!(
+        "\n# --- no teardown: the reboot is the teardown (ADR-0003 \u{a7}7) ---\n\
+         # The scratch set above is deliberately left in place. Now:\n\
+         #   1. reboot the board\n\
+         #   2. run {id}-postboot.sh with the same results directory\n\
+         echo \"suite {id} mutations complete - scratch set left in place; reboot now\"\n"
+    )
+}
+
+/// The post-boot companion of a recovery-verification suite: re-capture
+/// the same views after the operator's reboot and diff against the
+/// pre-state capture. A clean diff is what marks the recovery guarantee
+/// verified (the operator then commits the marker file); any difference
+/// stops the board program (design D7 step 1).
+fn postboot_script(id: &str) -> String {
+    let ref_pair = REF_PAIR_ASSERT;
+    format!(
+        r#"#!/bin/sh
+# suite: {id} post-boot diff
+# Run AFTER the reboot that follows {id}.sh, with the same results
+# directory. Diffs post-boot state against the pre-mutation capture: the
+# reboot must have erased the scratch set and restored the DPL boot
+# state. Whether the change-#1 DPL baseline capture also matches
+# pre-dpl.dts settles the design's open question on the diff reference;
+# if that capture is at hand, compare it too.
+set -u
+RESULTS="${{1:?usage: $0 <results-dir>}}"
+[ -r "$RESULTS/pre-dpl.dts" ] || {{ echo "refusing: no pre-state capture in $RESULTS" >&2; exit 1; }}
+
+{ref_pair}
+restool dprc list                > "$RESULTS/post-dprc-list.txt"
+restool dprc show dprc.1         > "$RESULTS/post-dprc1-show.txt"
+restool dprc generate-dpl dprc.1 > "$RESULTS/post-dpl.dts"
+
+status=0
+diff -u "$RESULTS/pre-dpl.dts" "$RESULTS/post-dpl.dts"               > "$RESULTS/recovery-diff.txt" || status=1
+diff -u "$RESULTS/pre-dprc-list.txt" "$RESULTS/post-dprc-list.txt"  >> "$RESULTS/recovery-diff.txt" || status=1
+diff -u "$RESULTS/pre-dprc1-show.txt" "$RESULTS/post-dprc1-show.txt" >> "$RESULTS/recovery-diff.txt" || status=1
+if [ "$status" = 0 ]; then
+  echo "recovery diff clean: the reboot restored the pre-mutation state"
+  echo "guarantee verified - commit models/board/RECOVERY-VERIFIED to unblock mutating suites"
+else
+  echo "RECOVERY DIFF NOT CLEAN - board program stops here (design D7); see $RESULTS/recovery-diff.txt" >&2
+fi
+exit "$status"
+"#
     )
 }
 
@@ -360,31 +438,44 @@ pub fn generate(
         pre = step.post.clone();
     }
 
-    // Unconditional teardown (ADR-0003 §6): destroy everything this run
-    // created, newest first, best-effort — pass, fail, or abort alike.
-    let mut trap = String::from("\n# --- unconditional teardown (ADR-0003 §6) ---\nteardown() {\n");
-    for (obj, var) in teardown.iter().rev() {
-        // `:-` defaults keep the trap alive under `set -u` when the run
-        // aborted before this object was ever created.
-        let _ = writeln!(
-            trap,
-            "  [ -n \"${{{var}:-}}\" ] && restool {} destroy \"${{{var}}}\" 2>/dev/null || true",
-            obj.fam.as_str()
-        );
-    }
-    trap.push_str("}\ntrap teardown EXIT\n");
+    // The recovery-verification suite keeps its scratch set: the reboot
+    // is the teardown, and the pre-state capture is the diff reference.
+    // Every other suite tears down unconditionally (ADR-0003 §6):
+    // destroy everything this run created, newest first, best-effort —
+    // pass, fail, or abort alike.
+    let (capture, trap, footer, postboot) = if spec.kind == SuiteKind::RecoveryVerification {
+        (
+            PRE_STATE_CAPTURE.to_owned(),
+            String::new(),
+            recovery_footer(&spec.id),
+            Some(postboot_script(&spec.id)),
+        )
+    } else {
+        let mut trap =
+            String::from("\n# --- unconditional teardown (ADR-0003 §6) ---\nteardown() {\n");
+        for (obj, var) in teardown.iter().rev() {
+            // `:-` defaults keep the trap alive under `set -u` when the
+            // run aborted before this object was ever created.
+            let _ = writeln!(
+                trap,
+                "  [ -n \"${{{var}:-}}\" ] && restool {} destroy \"${{{var}}}\" 2>/dev/null || true",
+                obj.fam.as_str()
+            );
+        }
+        trap.push_str("}\ntrap teardown EXIT\n");
+        let footer = format!("\necho \"suite {} complete\"\n", spec.id);
+        (String::new(), trap, footer, None)
+    };
 
-    let script = format!(
-        "{}{}{}\necho \"suite {} complete\"\n",
-        preamble(spec),
-        trap,
-        body,
-        spec.id
-    );
+    let script = format!("{}{}{}{}{}", preamble(spec), capture, trap, body, footer);
     safety::check_text(spec.run, &script).map_err(|v| v.to_string())?;
+    if let Some(ref p) = postboot {
+        safety::check_text(spec.run, p).map_err(|v| v.to_string())?;
+    }
 
     Ok(Suite {
         script,
+        postboot,
         plan: SuitePlan {
             id: spec.id.clone(),
             class: spec.run.class.to_string(),
@@ -631,7 +722,7 @@ mod tests {
         assert!(assert_pos < first_step);
         assert!(s.contains("6.6.52"));
         // Every command visible; expectations beside steps.
-        assert!(s.contains("run_create 0 restool dprc create dprc.1"));
+        assert!(s.contains("run_create 0 restool --script dprc create dprc.1"));
         assert!(s.contains("--plugged=1"));
         assert!(s.contains("# expect: dpbp.101 present=true plugged=true"));
         // Created objects recorded for the offline diff, then torn down
@@ -643,10 +734,19 @@ mod tests {
         assert!(s.contains("trap teardown EXIT"));
         // The independent total-deny self-check is present.
         assert!(s.contains("dpmac[.]3"));
+        // Standard suites have no post-boot companion.
+        assert!(suite.postboot.is_none());
 
-        // The emitted script is valid shell (`sh -n` parses, no exec).
-        let path = std::env::temp_dir().join("dpaa2-verify-test-suite.sh");
-        std::fs::write(&path, s).unwrap();
+        sh_parses(s);
+    }
+
+    /// Asserts a script is valid shell (`sh -n` parses, no exec).
+    fn sh_parses(script: &str) {
+        let path = std::env::temp_dir().join(format!(
+            "dpaa2-verify-test-{:x}.sh",
+            std::hash::BuildHasher::hash_one(&std::hash::RandomState::new(), script)
+        ));
+        std::fs::write(&path, script).unwrap();
         let ok = std::process::Command::new("sh")
             .arg("-n")
             .arg(&path)
@@ -655,6 +755,39 @@ mod tests {
             .success();
         std::fs::remove_file(&path).ok();
         assert!(ok, "emitted script does not parse as sh");
+    }
+
+    #[test]
+    fn recovery_suite_keeps_its_scratch_set_for_the_reboot() {
+        // The real recovery scenario mutates without destroying: the
+        // reboot erases the scratch set. Drop the fixture's destroy.
+        let mut trace = scratch_trace();
+        trace.steps.pop();
+        let suite = generate(
+            &spec(SuiteKind::RecoveryVerification),
+            &trace,
+            RecoveryGuarantee::Unverified,
+        )
+        .unwrap();
+        let s = &suite.script;
+        // Pre-state capture comes before any mutation.
+        let capture = s.find("pre-dpl.dts").unwrap();
+        let first_step = s.find("# step 0").unwrap();
+        assert!(capture < first_step);
+        // No teardown: the reboot is the teardown; the operator is told so.
+        assert!(!s.contains("trap teardown"));
+        assert!(!s.contains("destroy"));
+        assert!(s.contains("reboot"));
+
+        // The post-boot companion re-captures, diffs against the
+        // pre-state, and still asserts the reference pair.
+        let post = suite.postboot.as_deref().unwrap();
+        assert!(post.contains("10.39.0"));
+        assert!(post.contains("post-dpl.dts"));
+        assert!(post.contains("recovery-diff.txt"));
+
+        sh_parses(s);
+        sh_parses(post);
     }
 
     #[test]

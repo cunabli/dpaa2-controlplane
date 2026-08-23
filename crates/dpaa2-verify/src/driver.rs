@@ -368,7 +368,7 @@ mod tests {
                 .unwrap(),
         )
         .unwrap();
-        assert_eq!(line.commands, vec!["restool dprc create dprc.1"]);
+        assert_eq!(line.commands, vec!["restool --script dprc create dprc.1"]);
         assert_eq!(line.created.as_deref(), Some("dprc.2"));
         assert!(line.verdict.unwrap().pass);
     }

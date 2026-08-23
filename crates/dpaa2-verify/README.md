@@ -37,7 +37,10 @@ The **MBT harness** (phase 4), four components over one seam:
   harness diffs offline against the results. Mutating suites are
   refused until the recovery guarantee is verified (marker file
   committed by task 5.1); the recovery-verification suite itself must
-  mutate only the scratch set it creates.
+  mutate only the scratch set it creates, and takes a different shape:
+  pre-state capture (`dprc show` + `generate-dpl`) before any mutation,
+  no teardown trap — the reboot is the teardown — and a post-boot
+  companion script that re-captures and diffs against the pre-state.
 - `driver` — the operator-launched online walk: step/pause/abort,
   per-step confirmation in learning mode (always, for root-container
   scenarios), free-run with stop-on-divergence once promoted, and a
