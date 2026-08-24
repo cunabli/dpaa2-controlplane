@@ -86,12 +86,64 @@ board task is an operator sitting sync point.
       diff and fold back
 - [x] 5.6 Ledger pass: fold all board results into COVERAGE.md;
       board-pending rows settled or re-anchored
+- [ ] 5.7 Read-back sweep (board sitting): one scratch-container suite
+      creating a bare dpni, bare dpdmai, NO_CHANNEL dpio, dpbp and
+      dpdcei with a hook reading each back via `info`; settles the
+      defaults the lifecycle suites never read (DPNI-I7, DPDMAI-I5,
+      DPIO-I3, DPBP-I5, DPDCEI-I1's version half); inventory row added
+- [ ] 5.8 Harness: every step's stderr and MC status land beside its
+      exit file, the teardown trap saves the sitting's kernel-log
+      window, and the operator instruction archives results outside
+      the checkout — refusal evidence and ADR-0008 markers become files,
+      not prose, before the refusal sitting
+- [ ] 5.9 Refusal probes (board sitting): default-built dpsw at kernel
+      probe, dpdmux uplink→dpni connect, move of a plugged object,
+      dpaiop create, dpseci and dpni create-validation and dead-option
+      exit shapes — hooks where an object must stand, probe plans
+      otherwise; settles DPSW-I1/I2, DPDMUX-I8, DPRC-I3, DPAIOP-I1/I2,
+      DPSECI-I2, DPNI-I6
+- [ ] 5.10 Read-only observations (board sitting): `dpmac info` on the
+      unwired ports, `mc.global`/`dump-mem`, child-container rescan
+      visibility through sysfs, lock/unlock round-trips, the option-bit
+      permission matrix, `generate-dpl` emit-and-diff, and the stray
+      unknowns no invariant row carries (dpci 3–5, dprtc 6, dprc 2/6/11);
+      settles DPMAC-I7, DPRC-I6/I11, DPCI-I3, DPAIOP-I3/DPDCEI-I2/DPDMAI-I4
+- [ ] 5.11 Riskier set, one design note each before generation (board
+      sitting, sequenced last): pool exhaustion in a scratch container
+      without starving boot residents (V-POOL-1..3), netdev runtime
+      state across unbind/rebind (V-DPNI-3), the peer-request channel
+      through the dpmac.7 netdev (V-LINK-4), the dpdmai reboot cycle
+      (V-DPDMAI-2); each settled or re-anchored with its reason
 
-## 6. Close-out
+## 6. Evidence automation (self-standing; gates close-out)
 
-- [ ] 6.1 Verify every spec scenario of `formal-models` and
+- [ ] 6.1 Ledger lint: a cargo test cross-checks COVERAGE.md against
+      the baseline invariant tables, the suite ledger and the roadmap
+      (ids both ways, tally, cited suites exist, owning changes named,
+      baseline status cells level); legend carries the restool-rendering
+      and single-board caveats
+- [ ] 6.2 Machine-readable verdicts: `diff`/`drive` write verdict.json
+      per run and append to a committed VERDICTS.json index; existing
+      results back-filled; the lint resolves every "verified" cell to a
+      passed verdict
+- [ ] 6.3 Board snapshot and diff: full tree, per-object info, driver
+      links and API versions as redacted JSON; one clean-boot reference
+      committed; replaces the head-count census, structures the
+      recovery diff, and is the #10 differential gate's format
+- [ ] 6.4 MC status register: refusal codes as a lint-checked table
+      seeded with the five seen so far; plans carry expected refusals
+      that `diff` scores from captured stderr
+- [ ] 6.5 Ioctl command-policy coverage: the reference kernel's fsl-mc
+      uapi whitelist as a committed table; a test checks every command
+      the models and adapter emit against it — rows outside it are the
+      exact scope of a kernel patch or of a VFIO userspace transport
+
+## 7. Close-out
+
+- [ ] 7.1 Verify every spec scenario of `formal-models` and
       `mbt-harness` against the produced artifacts
-- [ ] 6.2 Cross-link models ↔ baseline docs ↔ ledger ↔ ADRs; append
+- [ ] 7.2 Cross-link models ↔ baseline docs ↔ ledger ↔ ADRs (baseline
+      status cells brought level with the ledger); append
       upstream findings from divergences; quality floor green (cargo
       build/fmt/clippy/doc/test + model ladder)
-- [ ] 6.3 Close beads, validate the change, ready for archive
+- [ ] 7.3 Close beads, validate the change, ready for archive
