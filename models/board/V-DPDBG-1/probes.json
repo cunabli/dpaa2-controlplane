@@ -1,0 +1,69 @@
+{
+  "suite": "V-DPDBG-1",
+  "class": "lifecycle",
+  "steps": [
+    {
+      "label": "create the dpdbg singleton",
+      "cmd": ["restool", "dpdbg", "create"],
+      "expect": "zero exit, id 0. The verb takes no arguments: restool hardcodes the root container and pins dpdbg_id=0, which also means the non-root half of DPDBG-I1 is restool-unreachable — a raw-command probe for a later change, recorded as such, not silently dropped. Runs after the driven vdpdbg1 trace has destroyed its object, so this is a fresh create for the probe half",
+      "exit": "zero",
+      "readback": { "container": "dprc.1", "object": "dpdbg.0", "presence": "present" }
+    },
+    {
+      "label": "second create refused (singleton half of DPDBG-I1)",
+      "cmd": ["restool", "dpdbg", "create"],
+      "expect": "firmware should refuse a second dpdbg — capture the exact MC status the error path prints (DPDBG-I1 is board-pending on status codes)",
+      "exit": "nonzero",
+      "readback": { "container": "dprc.1", "object": "dpdbg.1", "presence": "absent" }
+    },
+    {
+      "label": "enable the MC console",
+      "cmd": ["restool", "dpdbg", "set", "--console=1"],
+      "expect": "zero exit and nothing else observable — SET has no GET (DPDBG-I2). restool's set takes exactly one module option per invocation (rev-1 finding: an if/else-if chain rejects combined options), so the three visibility knobs are three steps. Residue is cleared by V-DPRTC-3's closing reboot",
+      "exit": "zero"
+    },
+    {
+      "label": "enable log printing",
+      "cmd": ["restool", "dpdbg", "set", "--log=1"],
+      "expect": "zero exit, write-only like every set",
+      "exit": "zero"
+    },
+    {
+      "label": "raise the logging level for dump visibility",
+      "cmd": ["restool", "dpdbg", "set", "--level=4"],
+      "expect": "zero exit; must precede the dumps — their output goes to the MC log gated by exactly these knobs (dpdbg.md silent-failure trap)",
+      "exit": "zero"
+    },
+    {
+      "label": "out-of-range set level",
+      "cmd": ["restool", "dpdbg", "set", "--level=99"],
+      "expect": "dpdbg.md unknown 2: rejected or silently clamped? restool does no range validation, so 99 reaches firmware — capture exit and stderr; a clamp is unobservable by design, which is itself the finding",
+      "exit": "any"
+    },
+    {
+      "label": "dump memory",
+      "cmd": ["restool", "dpdbg", "dump", "--memory"],
+      "expect": "exit status proves nothing (DPDBG-I3): the artifact is an MC-log line, visible only if the MC console is reachable. Record the exit shape; check the MC console if one is attached, otherwise note the artifact as unobserved",
+      "exit": "any"
+    },
+    {
+      "label": "dump an unhandled object type",
+      "cmd": ["restool", "dpdbg", "dump", "--object=dprtc.0"],
+      "expect": "dpdbg.md unknown 1: does DPDBG_DUMP of a type the firmware does not handle return a nonzero MC status, or 0 with only an MC-log line? Capture the exit shape either way",
+      "exit": "any"
+    },
+    {
+      "label": "destroy the probe dpdbg",
+      "cmd": ["restool", "dpdbg", "destroy"],
+      "expect": "the verb takes no object argument (id pinned to 0) and prints 'is destroyed' unconditionally even on its error branch — the read-back is the only trustworthy face",
+      "exit": "any",
+      "readback": { "container": "dprc.1", "object": "dpdbg.0", "presence": "absent" }
+    },
+    {
+      "label": "root container census after the probe half",
+      "cmd": ["restool", "dprc", "show", "dprc.1"],
+      "expect": "zero exit; back at the boot population — no dpdbg, no scratch container residue",
+      "exit": "zero"
+    }
+  ]
+}

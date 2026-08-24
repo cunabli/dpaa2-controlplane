@@ -122,12 +122,12 @@ Tally: 52 modeled, 45 deferred, 8 board-pending — 105 candidates.
 | DPDMAI-I3 | board-pending | V-DPDMAI-1 | — | pending |
 | DPDMAI-I4 | deferred | this change ph.4 generator | — | pending V-GENDPL-1 |
 | DPDMAI-I5 | board-pending | V-DPDMAI-1 | — | pending |
-| DPRTC-I1 | modeled | `families/dprtc.qnt` singleton + `main.qnt` `DPRTC_I1Test` | simulate | pending V-DPRTC-1 (status + blast radius) |
+| DPRTC-I1 | modeled | `families/dprtc.qnt` singleton + `main.qnt` `DPRTC_I1Test` | simulate | verified 2026-08-24 (V-DPRTC-1): refused No resources (0x8), `dprc show` byte-identical before/after |
 | DPRTC-I2 | modeled | structural — LAW 5: both-stacks-configured is unrepresentable (single bind field) | typecheck | — |
 | DPRTC-I3 | deferred | this change ph.4 adapter: no clock state readable via restool | — | — |
 | DPRTC-I4 | deferred | `dpmac-typestate` (#7): timestamping path outside object lifecycle | — | verified (reference DPC + 10.36 changelog) |
 | DPRTC-I5 | modeled | structural — no create-config state carried (dpbp class) | typecheck | — |
-| DPDBG-I1 | modeled | `families/dpdbg.qnt` RootOnly+singleton + `main.qnt` `DPDBG_I1Test`/`DPDBG_I1SingletonTest` | simulate | pending V-DPDBG-1 |
+| DPDBG-I1 | modeled | `families/dpdbg.qnt` RootOnly+singleton + `main.qnt` `DPDBG_I1Test`/`DPDBG_I1SingletonTest` | simulate | singleton half verified 2026-08-24 (V-DPDBG-1): No resources (0x8); non-root half restool-unreachable (create hardcodes the root), raw-command probe deferred |
 | DPDBG-I2 | modeled | structural — no debug-state observable exists in the model (formal-models spec scenario) | typecheck | — |
-| DPDBG-I3 | deferred | this change ph.4 adapter (LAW 2: dump verified by artifact, never exit) | — | pending V-DPDBG-1 |
-| DPDBG-I4 | modeled | `main.qnt` `DPDBG_I4Test` (bus-visible, driver-less, never kernel-bindable) | simulate | pending V-DPDBG-1 |
+| DPDBG-I3 | deferred | this change ph.4 adapter (LAW 2: dump verified by artifact, never exit) | — | anchored 2026-08-24 (V-DPDBG-1): both dumps exit 0 with the artifact only in the MC log |
+| DPDBG-I4 | modeled | `main.qnt` `DPDBG_I4Test` (bus-visible, driver-less, never kernel-bindable) | simulate | `dprc show` face verified 2026-08-24 (V-DPDBG-1 trace 4/4); sysfs face unprobed — no bus-visibility observation in the adapter yet (V-DPRC-5's gap) |

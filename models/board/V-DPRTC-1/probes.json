@@ -1,0 +1,32 @@
+{
+  "suite": "V-DPRTC-1",
+  "class": "lifecycle",
+  "steps": [
+    {
+      "label": "capture root container pre-probe",
+      "cmd": ["restool", "dprc", "show", "dprc.1"],
+      "expect": "zero exit; full listing captured as the blast-radius reference for the final step (dprtc.md unknown 2)",
+      "exit": "zero"
+    },
+    {
+      "label": "second dprtc create refused",
+      "cmd": ["restool", "dprtc", "create", "--container=dprc.1"],
+      "expect": "the MC enforces a single dprtc system-wide since 10.31 and dprtc.0 is DPL-born, so this create should be refused loudly — capture the exact status string (dprtc.md unknown 1). If it unexpectedly succeeds, the next step removes the extra object",
+      "exit": "nonzero",
+      "readback": { "container": "dprc.1", "object": "dprtc.1", "presence": "absent" }
+    },
+    {
+      "label": "contingency: remove an unexpectedly created second dprtc",
+      "cmd": ["restool", "dprtc", "destroy", "dprtc.1"],
+      "expect": "skip (s) if the previous step was refused as expected; run only if a second dprtc was actually created",
+      "exit": "any"
+    },
+    {
+      "label": "capture root container post-probe",
+      "cmd": ["restool", "dprc", "show", "dprc.1"],
+      "expect": "zero exit; must be identical to the pre-probe capture — a refused create leaves dprc show unchanged (the 10.37 blast-radius fix, dprtc.md unknown 2)",
+      "exit": "zero",
+      "readback": { "container": "dprc.1", "object": "dprtc.0", "presence": "present" }
+    }
+  ]
+}

@@ -1,0 +1,25 @@
+{
+  "suite": "V-DPRTC-3-postboot",
+  "class": "lifecycle",
+  "steps": [
+    {
+      "label": "dprtc.0 restored by the DPL",
+      "cmd": ["restool", "dprc", "show", "dprc.1"],
+      "expect": "zero exit; dprtc.0 is listed again — the recovery guarantee's restore direction verified for a deleted DPL-born root resident",
+      "exit": "zero",
+      "readback": { "container": "dprc.1", "object": "dprtc.0", "presence": "present" }
+    },
+    {
+      "label": "kernel PTP restored",
+      "cmd": ["sh", "-c", "ls -l /sys/bus/fsl-mc/devices/dprtc.0/driver && ls -l /dev/ptp* && cat /sys/class/ptp/ptp*/clock_name"],
+      "expect": "zero exit; fsl-dpaa2-ptp rebound and the /dev/ptpN chardev back — kernel PTP survives the round trip through destroy+reboot",
+      "exit": "zero"
+    },
+    {
+      "label": "dprtc info sanity",
+      "cmd": ["restool", "dprtc", "info", "dprtc.0"],
+      "expect": "zero exit; same surface as V-DPRTC-2's capture — nothing about the object changed across its death and rebirth (DPRTC-I5: identity is placement)",
+      "exit": "zero"
+    }
+  ]
+}

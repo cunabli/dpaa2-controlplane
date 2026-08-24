@@ -12,6 +12,16 @@ holding its scenario module, frozen trace and generated
 `.sh`/`.plan.json`, committed together with this ledger; result files
 stay under `results/` (gitignored — operator material).
 
+Online-driver suites (task 5.4 onward) come in a second shape: a
+hand-authored **probe plan** (`probes.json`) beside — or instead of — a
+driven trace, for the steps a trace cannot express (refusals are
+disabled actions, write-only state has no expected observation). Probe
+plans run under `dpaa2-verify drive --probes` with mandatory per-step
+confirmation and the same safety envelope; their expectations are
+human-written oracles, so the standing `board_artifacts` test only
+guarantees they parse and clear the envelope, and the verdicts below
+carry the judgment.
+
 `RECOVERY-VERIFIED` is the recovery-guarantee marker (ADR-0003 §7):
 committed when suite V-RECOVERY-1 passed, its presence is what lets the
 generator emit mutating suites.
@@ -33,6 +43,10 @@ generator emit mutating suites.
 | V-DPDMUX-1 | `vdpdmux1.qnt` | **passed** 2026-08-23 (rev 2, batch 3), 7/7 — the evb driver takes a runtime dpdmux and gates only on the object's API version, so no create-time configuration is at stake; the uplink-to-dpmac connect was clean. Rev 1's own face passed too, but its unspaced teardown reproducibly tripped the ADR-0008 rescan race: three boot residents silently unbound in one scan window — the boot dpni among them, which took the management interface down — plus a boot dpmcp fully removed and re-added. A settle after each destroy removed every marker and every casualty in rev 2 |
 | V-LINK-1 | `vlink1.qnt` | **passed** 2026-08-23 (batch 4), 4/4 — answers dpci.md unknown #1 and settles DPCI-I5: a restool-created dpci pair reads `link status: 0 - down` right after the connect, with the peer named and the peer's priorities visible. The edge is up and the link is not; the connect carries no link state and restool, which has no enable verb for this family, can never raise it — link-up is the consumer's to grant |
 | V-LINK-2 | `vlink2.qnt` | **passed** 2026-08-24 (rev 3, batch 4), 16/16 — the first suite to flap a wired dpmac. With a real cable pull, `dpni info`'s `link status:` tracked PHY reality down and back up, and since every kernel link push carries `state_valid=0`, that answers dpmac.md unknown #2 on the kernel path: the `up` bit does take effect, with propagation lag. Revs 1 and 2 both read a stale `up` at the flap-down step, for two causes the bench work separated: an admin-down of the peer's interface never drops the light it transmits, so only pulling the cable is a link-down stimulus on this wiring; and the MC-visible link state lags the local carrier flag, so a probe fired the moment the operator acknowledges reads the old answer. Rev 3's acknowledgments require the carrier flag and the restool read-back to agree before continuing; the post-sitting census was clean at the 97-object baseline, so the teardown reclaimed the full scratch set. Evidence probes also caught both endpoint lines' `, link is up/down` text co-varying with the flap while the connection edge itself persisted — DPMAC-I5's law stands, its assumed independence from link state does not |
+| V-DPDBG-1 | `vdpdbg1.qnt` + `probes.json` | **passed** 2026-08-24 (rev 2, batch 5): trace 4/4, probes 10/10 — the online driver's first outing and the first probe plan. The lifecycle face conforms once the verbs are rendered bare: restool's `dpdbg create`/`destroy` take no arguments (root container hardcoded, id pinned to 0), which also makes the non-root half of DPDBG-I1 restool-unreachable — recorded, not dropped. The singleton refusal is MC No resources (0x8). `set` takes exactly one module option per invocation (rev 1 tripped on the combined form) and `--level=99` is refused by firmware with Configuration error (0x6), not clamped. Both dumps exit 0 with the artifact only in the MC log — DPDBG-I3's law held on the board |
+| V-DPRTC-1 | `probes.json` | **passed** 2026-08-24 (batch 5), 4/4 — the dprtc singleton refuses a second create with the same No resources (0x8) as dpdbg's, hinting at a shared firmware path, and `dprc show` is byte-identical before and after: the 10.37 blast-radius fix observed |
+| V-DPRTC-2 | `probes.json` | **passed** 2026-08-24 (batch 5), 3/3 — API version 2.3 (the flib's, not restool's 2.0 header), a verbose surface with no time or frequency anywhere (DPRTC-I3 anchored), kernel ownership confirmed through the registered driver name `fsl_dpaa2_ptp` and its PTP chardev, and the DT ptp-timer window recorded for unknown 5's observable half. Unknown 6 (two-step vs one-step 1588) was not probed and stays open |
+| V-DPRTC-3 | `probes.json` + `postboot.probes.json` | **passed** 2026-08-24 (rev 2, batch 5), 8/8 + postboot 3/3 — answers dprtc.md unknown 3: the DPL-born dprtc.0 *can* be destroyed by GPP software, but only unbound; while the driver holds it, restool's own client guard refuses before the MC is asked. The sysfs unbind takes kernel PTP down with it (chardev gone with the driver link), the destroy reads back absent at a 96-object census, and the closing reboot restores object, driver and chardev at the 97 baseline — the recovery guarantee's restore direction verified for the first time on a deleted DPL-born resident. Rev 1 failed only in the harness: the unbind named the hyphenated module spelling where sysfs carries the registered underscore name |
 | V-LINK-5 | `vlink5.qnt` | **ran once** 2026-08-23 (batch 4) and **retired with its answer** — answers dprc.md unknown #9: `dprc assign --plugged=0` on a kernel-bound, link-up, netdev-backed dpni exited 240 (8-bit −EBUSY) with the object still plugged and the driver still bound. A refusal, not a race and not a silent drop, and the second anchor after V-LIFE-DPIO-1 rev 1's teardown refusal on a driver-bound dpmcp. Every other step passed. The model's `unplugAt` now requires an unbound object, which makes the probing step untraceable — the retirement is the finding, and the module header carries the do-not-regenerate note |
 
 V-LIFE-DPNI-1 carries the "per-family lifecycle scenarios" of design
@@ -71,7 +85,6 @@ design D9):
 | V-LINK-4 | the peer-request channel (`dpni_set_link_cfg`, reachable as `ethtool -A`) has no restool verb, and the flagged wiring carries no kernel netdev to drive it from | online driver |
 | V-DPDCEI-1 probes | GET_API_VERSION / dce_version reads; the create face is V-LIFE-DPDCEI-1 | online driver |
 | V-DPDMAI-2 | shutdown/reboot-cycle shaped — the V-RECOVERY-1 two-script pattern, not a plain batch suite | later, recovery-shaped suite |
-| V-DPRTC-1..2, V-DPDBG-1 | root-container residents with fixed disposition (traffic-inventory §4, design D7 step 4): online driver, per-step operator confirmation — task 5.4, not 5.2 | online driver (5.4) |
 | V-GENDPL-1 | needs a `generate-dpl` emit-and-diff probe no crate code has | online driver or adapter extension |
 
 Batch 2 (all five passed, ledger above) covers the remaining positive

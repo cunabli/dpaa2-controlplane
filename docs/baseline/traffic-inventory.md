@@ -74,6 +74,7 @@ No link semantics; any dpmac named is from the unwired set.
 | V-DPDMAI-2 | Shutdown wrong-token destroy: does a created dpdmai survive a kernel shutdown cycle? | dpdmai.md unknown 4 | none |
 | V-DPRTC-1 | Second `dprtc create` refusal: status code, and `dprc show` unchanged after (10.37 blast-radius fix observable) | DPRTC-I1; dprtc.md unknowns 1, 2 | none |
 | V-DPRTC-2 | Read-only observations: reported API version, paddr/little_endian vs DT, two-step-only manual claim vs one-step kernel path | dprtc.md unknowns 4, 5, 6 | none |
+| V-DPRTC-3 | Destroy of the DPL-born dprtc.0: bound attempt, unbind, unbound destroy, reboot-restore check — gated on the recovery guarantee (see §4), sequenced last in its sitting | dprtc.md unknown 3 | none |
 | V-DPDBG-1 | Singleton probes: create in root, second create, create in non-root; set/dump with out-of-range values; unhandled dump type | DPDBG-I1, I4; dpdbg.md unknowns 1, 2, 5 | none |
 | V-GENDPL-1 | generate-dpl round-trip audit against created objects (lossy/wrong emitters across dpni/dpdcei/dpaiop/dpdmai) | dpni.md silent-failure notes; DPDCEI-I2; DPAIOP-I3; DPDMAI-I4 | none |
 
@@ -116,9 +117,10 @@ Named so their absence from §§1–3 is a decision, not an oversight:
   the Mellanox decision point (ADR-0003 §8).
 - **`dprtc destroy` of the DPL-born dprtc.0** (dprtc.md unknown 3) — a
   root-container mutation of a kernel-owned singleton that kills kernel
-  PTP; violates the scratch-container rule (ADR-0003 §6). Deferred until a
-  re-DPL-able recovery path exists (`verify-foundation`'s recovery
-  guarantee, ADR-0003 §7).
+  PTP; violates the scratch-container rule (ADR-0003 §6). Was deferred
+  until a re-DPL-able recovery path existed; V-RECOVERY-1's green marker
+  (ADR-0003 §7) unlocked it, and it now runs as §1's V-DPRTC-3 — last in
+  its sitting, ending in the reboot that restores the DPL baseline.
 - **dpdbg `set --uart` reroute** (dpdbg.md unknown 3) — potentially
   unrecoverable console loss; explicitly an ADR-0003 safety question
   before any ls-debug parity testing.

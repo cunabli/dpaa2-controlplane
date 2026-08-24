@@ -1,0 +1,54 @@
+{
+  "suite": "V-DPRTC-3",
+  "class": "lifecycle",
+  "steps": [
+    {
+      "label": "capture root container pre-destroy",
+      "cmd": ["restool", "dprc", "show", "dprc.1"],
+      "expect": "zero exit; reference capture for the offline diff of everything below",
+      "exit": "zero"
+    },
+    {
+      "label": "destroy attempt while fsl-dpaa2-ptp is bound",
+      "cmd": ["restool", "dprtc", "destroy", "dprtc.0"],
+      "expect": "unknown outcome and that is the probe (dprtc.md unknown 3, bound half): the creator is the MC itself and the kernel holds the object. restool prints 'is destroyed' unconditionally on its error branch, so trust ONLY the read-back on the next step, never this output",
+      "exit": "any"
+    },
+    {
+      "label": "read back: did the bound destroy take effect?",
+      "cmd": ["restool", "dprc", "show", "dprc.1"],
+      "expect": "zero exit. If dprtc.0 is still listed, the bound destroy was refused or ineffective — that is the finding; continue to the unbind. If it is gone, skip (s) the unbind and unbound-destroy steps below",
+      "exit": "zero"
+    },
+    {
+      "label": "unbind fsl_dpaa2_ptp from dprtc.0",
+      "cmd": ["sh", "-c", "echo dprtc.0 > /sys/bus/fsl-mc/drivers/fsl_dpaa2_ptp/unbind"],
+      "expect": "zero exit; releases the kernel's hold. The sysfs directory carries the driver's registered name fsl_dpaa2_ptp — underscores, not the hyphenated module spelling (rev-1 finding: the hyphenated path does not exist). Skip (s) if dprtc.0 was already destroyed by the bound attempt",
+      "exit": "zero"
+    },
+    {
+      "label": "kernel PTP death evidence",
+      "cmd": ["sh", "-c", "ls -l /sys/bus/fsl-mc/devices/dprtc.0/driver 2>&1; ls -l /dev/ptp* 2>&1; true"],
+      "expect": "the driver symlink must be gone; record whether the /dev/ptpN chardev disappears with the unbind — the one-way-trip-for-PTP claim made observable",
+      "exit": "zero"
+    },
+    {
+      "label": "destroy the unbound DPL-born dprtc.0",
+      "cmd": ["restool", "dprtc", "destroy", "dprtc.0"],
+      "expect": "the real answer to dprtc.md unknown 3: whether GPP software may destroy the MC-created singleton at all. Judge by the read-back, not the unconditional 'is destroyed' print",
+      "exit": "any",
+      "readback": { "container": "dprc.1", "object": "dprtc.0", "presence": "absent" }
+    },
+    {
+      "label": "capture root container post-destroy",
+      "cmd": ["restool", "dprc", "show", "dprc.1"],
+      "expect": "zero exit; capture for the offline diff — the only expected delta vs the pre-destroy capture is dprtc.0's absence",
+      "exit": "zero"
+    },
+    {
+      "label": "reboot for the restore check",
+      "instruction": "Reboot the board now. This is the first test of the recovery guarantee's restore direction (V-RECOVERY-1 proved a reboot erases additions; this proves it re-creates a deleted DPL-born resident) and it also clears any dpdbg set residue (console/log/level) left by V-DPDBG-1. After boot, run the driver again with V-DPRTC-3/postboot.probes.json",
+      "expect": "operator reboots after acking; the transcript for this run ends here"
+    }
+  ]
+}

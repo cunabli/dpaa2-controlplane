@@ -1,0 +1,24 @@
+{
+  "suite": "V-DPRTC-2",
+  "class": "lifecycle",
+  "steps": [
+    {
+      "label": "dprtc info surface and reported API version",
+      "cmd": ["restool", "dprtc", "info", "dprtc.0", "--verbose"],
+      "expect": "zero exit; capture the full readable surface — version line answers dprtc.md unknown 4 (flib 2.3 vs restool 2.0-compatible header). No time or frequency should appear anywhere (DPRTC-I3: info success is not clock health)",
+      "exit": "zero"
+    },
+    {
+      "label": "kernel PTP binding: fsl-dpaa2-ptp holds dprtc.0",
+      "cmd": ["sh", "-c", "ls -l /sys/bus/fsl-mc/devices/dprtc.0/driver && ls -l /dev/ptp* && cat /sys/class/ptp/ptp*/clock_name"],
+      "expect": "zero exit; the driver symlink names fsl-dpaa2-ptp and a /dev/ptpN chardev exists — confirming the [read] kernel-ownership claim the reference environment never captured (DPRTC-I2's kernel side)",
+      "exit": "zero"
+    },
+    {
+      "label": "device-tree ptp-timer node vs MC paddr",
+      "cmd": ["sh", "-c", "for d in /proc/device-tree/soc/*ptp*; do echo \"$d\"; hexdump -C \"$d/reg\" 2>/dev/null | head -3; done"],
+      "expect": "capture the DT ptp-timer reg window (dprtc.md unknown 5). Only the DT half is observable — restool reads the MC attr's paddr/little_endian and silently discards both, so this records the DT side for the ledger and the unknown stays half-answered by design",
+      "exit": "any"
+    }
+  ]
+}

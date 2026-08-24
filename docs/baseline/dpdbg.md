@@ -134,22 +134,36 @@ DPDBG-I1), the same lazy pattern ls-debug uses today.
 
 | Id | Proposition | Observables | Status |
 |---|---|---|---|
-| DPDBG-I1 | Singleton, root-only: at most one dpdbg exists, only in the root container; create elsewhere or a second create is refused by firmware | MC status of second create / non-root create; firmware refusal string | candidate (corpus-attested, board-pending for status codes) |
+| DPDBG-I1 | Singleton, root-only: at most one dpdbg exists, only in the root container; create elsewhere or a second create is refused by firmware | MC status of second create / non-root create; firmware refusal string | singleton half verified 2026-08-24 (V-DPDBG-1): second create refused, MC No resources (status 0x8), restool exit 137. Non-root half is restool-unreachable — `cmd_dpdbg_create` hardcodes the root container and takes no arguments — so it stays corpus-attested pending a raw-command probe |
 | DPDBG-I2 | **Breaking:** the model must NOT treat debug state as readable — SET has no GET counterpart; the model can only track what it has itself written (and must tolerate unknown initial state) | absence of any get verb in flib 10.20–10.40 | candidate |
-| DPDBG-I3 | **Breaking:** the model must NOT infer dump success from restool/ls-debug exit status — output goes to the MC log gated by console+level state set by a *different* command | dump with console off: exit 0, no output anywhere | candidate |
-| DPDBG-I4 | Object-family membership: a created dpdbg is visible in `dprc show` and enumerates on the fsl-mc bus driver-less — indistinguishable in listing mechanics from any other family | `dprc show`; /sys/bus/fsl-mc/devices | board-pending |
+| DPDBG-I3 | **Breaking:** the model must NOT infer dump success from restool/ls-debug exit status — output goes to the MC log gated by console+level state set by a *different* command | dump with console off: exit 0, no output anywhere | board-anchored 2026-08-24 (V-DPDBG-1): both dumps exit 0 with nothing on stdout even after console/log/level were enabled — the artifact lives only in the MC log, unobserved with no console attached |
+| DPDBG-I4 | Object-family membership: a created dpdbg is visible in `dprc show` and enumerates on the fsl-mc bus driver-less — indistinguishable in listing mechanics from any other family | `dprc show`; /sys/bus/fsl-mc/devices | `dprc show` face verified 2026-08-24 (V-DPDBG-1 driven trace: create/plug/destroy all read back); the sysfs enumeration face is unprobed — the adapter takes no bus-visibility observation yet (same gap as V-DPRC-5) |
 
 ## Unknown / unverified register
 
-1. `DPDBG_DUMP` with an unhandled type (dpaiop/dprtc): nonzero MC status,
-   or 0 with only an MC-log line? Decides how loud the Rust wrapper must
-   be.
-2. `DPDBG_SET` with out-of-range level/uart — rejected or silently
-   clamped?
+1. ~~`DPDBG_DUMP` with an unhandled type (dpaiop/dprtc): nonzero MC
+   status, or 0 with only an MC-log line?~~ **Answered** — board suite
+   V-DPDBG-1, 2026-08-24: `dump --object=dprtc.0` exits 0 in silence —
+   the wrapper gets no error channel for an unhandled type and must be
+   loud on its own.
+2. ~~`DPDBG_SET` with out-of-range level/uart — rejected or silently
+   clamped?~~ **Answered for level** — board suite V-DPDBG-1,
+   2026-08-24: `set --level=99` is refused by firmware with
+   Configuration error (status 0x6), restool exit 250 — rejected, not
+   clamped. uart untested (excluded, unknown 3).
 3. Whether `--uart` rerouting is recoverable without reboot on a board
    where the MC UART is shared with the boot console (safety-envelope
    question before ls-debug parity testing, ADR-0003).
 4. Persistence across fsl-mc rescan and warm reset (nothing in the DPC
    recreates it).
 5. Confirm dump/set truly work unprivileged through the uapi (allowlist
-   says yes; ls-debug needs root anyway for autorescan writes).
+   says yes; ls-debug needs root anyway for autorescan writes). Half
+   answered 2026-08-24 (V-DPDBG-1): every set and dump verb works as
+   root; the unprivileged half remains untested — the sitting ran under
+   sudo throughout.
+6. Two restool-surface laws the board run added (V-DPDBG-1, 2026-08-24):
+   `dpdbg create` and `dpdbg destroy` take no arguments at all (container
+   hardcoded to the root, id pinned to 0), and `dpdbg set` accepts
+   exactly one module option per invocation — the option parser is an
+   if/else-if chain, and a combined invocation is rejected client-side
+   with "Invalid options".

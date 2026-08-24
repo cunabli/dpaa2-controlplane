@@ -137,26 +137,46 @@ never shared.
 
 | Id | Proposition | Observables | Status |
 |---|---|---|---|
-| DPRTC-I1 | Singleton: at most one dprtc exists system-wide; a second create is refused loudly (MC ≥ 10.31) | MC status of `dprtc create` with dprtc.0 present | board-pending (exact status unknown) |
+| DPRTC-I1 | Singleton: at most one dprtc exists system-wide; a second create is refused loudly (MC ≥ 10.31) | MC status of `dprtc create` with dprtc.0 present | verified 2026-08-24 (V-DPRTC-1): refused with MC No resources (status 0x8), restool exit 137 — the same status dpdbg's singleton refusal returns |
 | DPRTC-I2 | Ownership exclusivity: the dprtc belongs to exactly one stack (kernel via MMIO+IRQ, or a DPDK IEEE1588 build via MC) — the model must treat "both configured" as an invalid state, since hardware allows the silent fight | /dev/ptpN presence vs DPDK build flags | candidate |
-| DPRTC-I3 | **Breaking:** the model must NOT treat restool `info` success as clock health — the readable surface carries no time/frequency state | `info` on a stopped vs running clock | candidate |
+| DPRTC-I3 | **Breaking:** the model must NOT treat restool `info` success as clock health — the readable surface carries no time/frequency state | `info` on a stopped vs running clock | board-anchored 2026-08-24 (V-DPRTC-2): the full `--verbose` surface is version/id/plugged/regions/interrupts — no time, no frequency, anywhere |
 | DPRTC-I4 | Datapath independence: packet timestamping needs no dprtc in the consumer container — stamps originate at WRIOP/dpmac and ride frame annotations | VPP child has no dprtc; timestamps still present kernel-side | verified (reference DPC + 10.36 changelog) |
-| DPRTC-I5 | Create-config emptiness: like dpbp, two dprtcs would be interchangeable at create (options discarded) — identity is placement, not configuration | flib `(void)(cfg)` | candidate (unfalsifiable beyond one object) |
+| DPRTC-I5 | Create-config emptiness: like dpbp, two dprtcs would be interchangeable at create (options discarded) — identity is placement, not configuration | flib `(void)(cfg)` | candidate, anchored 2026-08-24 (V-DPRTC-3): the reboot-restored dprtc.0 reads back identical to the destroyed one — nothing about the object survived or needed to |
 
 ## Unknown / unverified register
 
-1. Exact MC status string/byte for a second `dprtc create` (manual
-   truncates mid-sentence; likely No-resources or Invalid-state).
-2. Whether the refused create is clean post-10.37 — `dprc show` unchanged
-   before/after (the 10.37 fix's observable).
-3. Whether `dprtc destroy` on the DPL-created dprtc.0 is permitted at all
-   (creator is the MC itself) — test only if the container can be
-   re-DPL'd; it kills kernel PTP either way.
-4. Reported API version on the board (flib says 2.3; restool's header
-   says 2.0-compatible).
+1. ~~Exact MC status string/byte for a second `dprtc create` (manual
+   truncates mid-sentence; likely No-resources or Invalid-state).~~
+   **Answered** — board suite V-DPRTC-1, 2026-08-24: No resources
+   (status 0x8), restool exit 137. The No-resources guess was right.
+2. ~~Whether the refused create is clean post-10.37 — `dprc show`
+   unchanged before/after (the 10.37 fix's observable).~~ **Answered** —
+   board suite V-DPRTC-1, 2026-08-24: the pre- and post-refusal
+   `dprc show` captures are byte-identical at the 97-object baseline.
+3. ~~Whether `dprtc destroy` on the DPL-created dprtc.0 is permitted at
+   all (creator is the MC itself) — test only if the container can be
+   re-DPL'd; it kills kernel PTP either way.~~ **Answered** — board
+   suite V-DPRTC-3 rev 2, 2026-08-24: permitted, but only unbound. While
+   fsl_dpaa2_ptp holds the object, restool refuses client-side ("bound
+   to driver … unbind it first", exit 240) before the MC is asked; after
+   a sysfs unbind — which takes kernel PTP down with it, the /dev/ptpN
+   chardev disappearing with the driver link — the destroy succeeds
+   (exit 0, read back absent, 96-object census). The creating-context
+   token concern does not bar GPP software: the root handle suffices.
+   The closing reboot restored object, driver binding and chardev at the
+   97-object baseline — the recovery guarantee's restore direction,
+   verified for the first time on a deleted DPL-born resident.
+4. ~~Reported API version on the board (flib says 2.3; restool's header
+   says 2.0-compatible).~~ **Answered** — board suite V-DPRTC-2,
+   2026-08-24: `dprtc version: 2.3` — the flib's number, not restool's
+   header.
 5. `paddr`/`little_endian` from MC vs the DT `ptp-timer` node — the
    kernel ioremaps from DT while MC reports its own view; agreement is
-   assumed, unverified.
+   assumed, unverified. Half answered — board suite V-DPRTC-2,
+   2026-08-24: the DT node (a 0x100 register window) is recorded, and
+   `info --verbose` reports zero mappable regions; the MC's paddr view
+   stays unobservable through restool, which reads and discards it, so
+   the comparison needs a raw GET_ATTR probe.
 6. Manual Table 2-1 marks the DPRTC row "Two-step 1588 only", yet the
    changelog adds one-step/single-step APIs from 10.22.0 and the kernel
    carries a one-step SYNC path — stale manual comment or a real

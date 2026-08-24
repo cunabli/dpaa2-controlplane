@@ -12,3 +12,9 @@ not committed.
 ADR-0003 §7's assumption — a reboot restores the DPL baseline — is now
 verified. The presence of this file is what unblocks the generation of
 mutating suites (dpaa2-verify's recovery gate).
+
+Restore direction verified 2026-08-24 (task 5.4, suite V-DPRTC-3):
+V-RECOVERY-1 proved a reboot erases additions; V-DPRTC-3 destroyed the
+DPL-born dprtc.0 (after a driver unbind) and the reboot re-created it —
+object, kernel driver binding and PTP chardev all back at the baseline
+census. The guarantee holds in both directions.
