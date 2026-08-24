@@ -327,7 +327,12 @@ false belief.
 Board-validation candidates (all runnable as scratch-DPRC,
 object-lifecycle-only scenarios except where noted):
 
-1. `destroy` on a non-empty child: recursive, or refused? What error?
+1. ~~`destroy` on a non-empty child: recursive, or refused? What error?~~
+   **Answered** — board suite V-DPRC-1 rev 1 and rev 2, 2026-08-23:
+   neither refused nor an error; restool exited 0 both times and only
+   the read-back told the two cases apart. A resident the container
+   created dies with it; a resident merely assigned in survives,
+   evicted unplugged into the parent (ADR-0007 §3).
 2. Are DPRC `options` mutable post-create by any MC command (restool has
    none)?
 3. Which option bit gates which operation (`SPAWN` vs `OBJ_CREATE` vs

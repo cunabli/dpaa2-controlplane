@@ -84,7 +84,7 @@ board task is an operator sitting sync point.
 - [x] 5.5 Generate traffic-bearing reachability scenarios (V-TRAF
       patterns, dpmac.7/9 flagged, no rate targets); operator runs;
       diff and fold back
-- [ ] 5.6 Ledger pass: fold all board results into COVERAGE.md;
+- [x] 5.6 Ledger pass: fold all board results into COVERAGE.md;
       board-pending rows settled or re-anchored
 
 ## 6. Close-out
