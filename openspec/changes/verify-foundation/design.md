@@ -215,5 +215,7 @@ dependencies.
   its own pre-state each run — settled by the first recovery run.
 - What, if anything, the cn10k side needs scripted for reachability
   checks (likely only reading counters on the two existing interfaces)
-  — settled when the V-TRAF scripts are drafted; the peer stays
-  operator-configured either way.
+  — settled by V-TRAF-0 (2026-08-24): nothing new on the peer beyond a
+  frame-count knob on its existing generator for the inbound burst, and
+  two counter reads for the outbound one; the peer stays
+  operator-configured.

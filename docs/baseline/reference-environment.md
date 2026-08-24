@@ -76,8 +76,12 @@ CUSTOM_CG.
   found... */` above the VPP DPNIs' options — restool does not fully parse
   option sets current firmware accepts. Upstream-findings candidate
   (task 6.4).
-- dpmcp id hole (14) in an otherwise contiguous root pool — creation
-  ordering or a consumed/destroyed companion? Revisit in the dpmcp baseline.
+- dpmcp id hole (14) in an otherwise contiguous root pool — a
+  provisioned-moment artifact, not a boot fact: on a bare boot the root
+  holds dpmcp.1–52 contiguous (the 52 of the 97-object baseline), and a
+  runtime-created dpmcp is minted 53 [board-observed 2026-08-24, V-TRAF-0].
+  The capture's 53-with-14-absent is what a consumer's create and a
+  destroy left behind.
 - Boot-DPL provenance: no readable blob; if the true boot DPL is ever
   needed (change #14 tape-out), it must come from the firmware build
   artifacts, not from the running system.

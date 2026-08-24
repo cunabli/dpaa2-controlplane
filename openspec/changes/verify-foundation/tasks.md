@@ -81,7 +81,7 @@ board task is an operator sitting sync point.
 - [x] 5.4 Root-container dpdbg/dprtc probes under the online driver,
       per-step confirmation; dprtc.0 destroy only after 5.1; UART
       reroute excluded; freeze findings
-- [ ] 5.5 Generate traffic-bearing reachability scenarios (V-TRAF
+- [x] 5.5 Generate traffic-bearing reachability scenarios (V-TRAF
       patterns, dpmac.7/9 flagged, no rate targets); operator runs;
       diff and fold back
 - [ ] 5.6 Ledger pass: fold all board results into COVERAGE.md;

@@ -64,7 +64,7 @@ fn committed_probe_plans_parse_and_clear_the_envelope() {
 fn committed_board_traces_parse() {
     let traces = board_files(".itf.json");
     assert!(
-        traces.len() >= 15,
+        traces.len() >= 16,
         "expected the committed board traces under models/board, found {traces:?}"
     );
     for path in traces {

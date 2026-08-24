@@ -94,14 +94,20 @@ port.
 
 ## 3. Traffic-bearing scenarios
 
-Frames emitted. None are needed by this change or by `verify-foundation`;
-they arrive with the later changes and are listed here as placeholders so
-the classification exists before the first frame does. All physical-port
-instances: dpmac.7/9 only, explicitly flagged; the Mellanox device-tree
-decision (ADR-0003 §8) is re-evaluated before the first of these runs.
+Frames emitted. V-TRAF-0 is the pattern — the smallest configured object
+group that can carry a frame, run by `verify-foundation` (design D7 step
+5) to prove the class end to end: setup by a driven trace, frames judged
+on the dpni's own counters, the peer read-only — **passed 2026-08-24**
+(`models/board/README.md`). V-TRAF-1..4 arrive with
+the later changes and are listed as placeholders so the classification
+exists before their first frame does. All physical-port instances:
+dpmac.7/9 only, explicitly flagged; the Mellanox device-tree decision
+(ADR-0003 §8) fired at V-TRAF-0 (option a, reachability only) and is
+re-decided at #9.
 
 | Id | Scenario | Owning change | Ports |
 |---|---|---|---|
+| V-TRAF-0 | Reachability pattern: one kernel-bound dpni with its census companions on a flagged port; a limited broadcast burst in from the peer and a minimal broadcast burst out of the netdev, each asserted as a delta on the dpni's `ingress_all_frames` / `egress_all_frames`, the peer's rx counter read only | verify-foundation (#2) | dpmac.7, flagged |
 | V-TRAF-1 | Cross-dprc dpni↔dpni pseudo-wire carrying frames (kernel↔VPP) | cross-dprc-links (#9) | none (internal pair, no wire) |
 | V-TRAF-2 | Kernel-owned dpsw switching between a dpmac uplink and member dpnis | dpsw sharing (#11) | dpmac.7/9, flagged |
 | V-TRAF-3 | dpdmux shared uplink: one dpmac feeding kernel + VPP dpnis | dpdmux sharing (#12) | dpmac.7/9, flagged |

@@ -47,6 +47,7 @@ generator emit mutating suites.
 | V-DPRTC-1 | `probes.json` | **passed** 2026-08-24 (batch 5), 4/4 — the dprtc singleton refuses a second create with the same No resources (0x8) as dpdbg's, hinting at a shared firmware path, and `dprc show` is byte-identical before and after: the 10.37 blast-radius fix observed |
 | V-DPRTC-2 | `probes.json` | **passed** 2026-08-24 (batch 5), 3/3 — API version 2.3 (the flib's, not restool's 2.0 header), a verbose surface with no time or frequency anywhere (DPRTC-I3 anchored), kernel ownership confirmed through the registered driver name `fsl_dpaa2_ptp` and its PTP chardev, and the DT ptp-timer window recorded for unknown 5's observable half. Unknown 6 (two-step vs one-step 1588) was not probed and stays open |
 | V-DPRTC-3 | `probes.json` + `postboot.probes.json` | **passed** 2026-08-24 (rev 2, batch 5), 8/8 + postboot 3/3 — answers dprtc.md unknown 3: the DPL-born dprtc.0 *can* be destroyed by GPP software, but only unbound; while the driver holds it, restool's own client guard refuses before the MC is asked. The sysfs unbind takes kernel PTP down with it (chardev gone with the driver link), the destroy reads back absent at a 96-object census, and the closing reboot restores object, driver and chardev at the 97 baseline — the recovery guarantee's restore direction verified for the first time on a deleted DPL-born resident. Rev 1 failed only in the harness: the unbind named the hyphenated module spelling where sysfs carries the registered underscore name |
+| V-TRAF-0 | `vtraf0.qnt` + `traffic.sh` (suite hook) | **passed** 2026-08-24 (rev 3, batch 6), 14/14 and both legs: the peer's 16-frame broadcast burst counted 16 on the dpni (`ingress_all_frames` 0 → 16) and 16 on the kernel netdev; 8 pings unicast to the peer port's MAC counted 8 out (`egress_all_frames` +8) and 8 in on the peer, as `ip4` and `drops` — that port's `rx packets` line never ticks, which read as "no rx" in rev 1 until the other two counters were read. The dpni's own statistics pages are an exact frame oracle, so reachability needs no capture on either side. Revs 1 and 2 ran under the online driver and settled the same numbers, but the shape was wrong: a probe plan cannot name what the trace created, so its by-hand teardown left the companions behind twice (six residue objects, removed by hand), and its per-step prose was unreadable at the prompt — hence the suite hook, and the closing `No privilege` in teardown.log is the vacuous boot-edge restore on a bare boot, as in V-LINK-2 |
 | V-LINK-5 | `vlink5.qnt` | **ran once** 2026-08-23 (batch 4) and **retired with its answer** — answers dprc.md unknown #9: `dprc assign --plugged=0` on a kernel-bound, link-up, netdev-backed dpni exited 240 (8-bit −EBUSY) with the object still plugged and the driver still bound. A refusal, not a race and not a silent drop, and the second anchor after V-LIFE-DPIO-1 rev 1's teardown refusal on a driver-bound dpmcp. Every other step passed. The model's `unplugAt` now requires an unbound object, which makes the probing step untraceable — the retirement is the finding, and the module header carries the do-not-regenerate note |
 
 V-LIFE-DPNI-1 carries the "per-family lifecycle scenarios" of design
@@ -174,3 +175,10 @@ sitting:
 ```sh
 cargo run -p dpaa2-verify -- diff --plan models/board/<ID>/<ID>.plan.json --results results/<dir>
 ```
+
+A suite whose face needs the created objects standing (V-TRAF-0's
+frames) adds `--hook <file>`: the generated script sources the file
+after its last step and before its teardown trap, so the hook sees the
+script's variables (`$OBJ_…`, `$RESULTS`) and never has to name or
+reclaim anything itself. Hooks are screened by the safety envelope at
+generation and by the script's own self-check at run time.

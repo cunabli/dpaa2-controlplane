@@ -368,7 +368,11 @@ restool and scripts:
   core count) [read].
 - `restool dpni info` prints unsupported statistics pages as all-zero
   counters (error assigned, never checked, `dpni_commands.c:731-735`)
-  [read].
+  [read]. The supported pages are exact: `ingress_all_frames` and
+  `egress_all_frames` moved by precisely the frames sent through a
+  kernel-bound dpni in both directions, so they are the board-side
+  reachability oracle and no capture is needed [verified 2026-08-24,
+  V-TRAF-0].
 
 kernel driver — the ones that matter for a reconciler's observation
 model:
