@@ -596,9 +596,19 @@ pub fn generate(
                     "  [ -n \"${{{var}:-}}\" ] && restool dprc assign {parent} --object=\"${{{var}}}\" --plugged=0 {log} || true"
                 );
             }
+            // The trap renders its own destroys rather than going
+            // through `drive`, so restool's dpdbg exception lands here
+            // too: `dpdbg destroy` names no object (restool destroys id
+            // 0 by definition and rejects an argument). The guard still
+            // keys off the create having happened.
+            let target = if obj.fam == crate::adapter::Family::Dpdbg {
+                String::new()
+            } else {
+                format!(" \"${{{var}}}\"")
+            };
             let _ = writeln!(
                 trap,
-                "  [ -n \"${{{var}:-}}\" ] && restool {} destroy \"${{{var}}}\" {log} || true",
+                "  [ -n \"${{{var}:-}}\" ] && restool {} destroy{target} {log} || true",
                 obj.fam.as_str()
             );
             // Settle after every destroy, and only after a destroy. A
@@ -872,6 +882,48 @@ mod tests {
         )
         .unwrap_err();
         assert!(err.contains("outside the scratch set"), "{err}");
+    }
+
+    #[test]
+    fn teardown_destroys_a_dpdbg_without_naming_it() {
+        // The trap renders its own destroys rather than going through
+        // `drive`, so restool's dpdbg law — no object name, ever — has
+        // to hold here too or the teardown leaks the object.
+        let dpdbg = ObjRef {
+            fam: Family::Dpdbg,
+            num: 0,
+        };
+        let mut init = MachineView::default();
+        init.objs.insert(dprc(1), obj(None, true));
+        let mut post = init.clone();
+        post.objs.insert(dpdbg, obj(Some(dprc(1)), false));
+        let trace = MbtTrace {
+            init,
+            steps: vec![MbtStep {
+                action: ModelAction::CreateObject {
+                    fam: Family::Dpdbg,
+                    container: dprc(1),
+                },
+                post,
+            }],
+        };
+        let s = generate(
+            &spec(SuiteKind::Standard),
+            &trace,
+            RecoveryGuarantee::Verified,
+        )
+        .unwrap()
+        .script;
+
+        // Nothing between the verb and the end of the command: no
+        // --container, no object name.
+        assert!(
+            s.contains("run_create 0 restool --script dpdbg create)"),
+            "{s}"
+        );
+        let teardown = s.split("teardown() {").nth(1).unwrap();
+        assert!(teardown.contains("restool dpdbg destroy 2>>"), "{teardown}");
+        sh_parses(&s);
     }
 
     /// A root-resident object may be driver-bound when the trap runs, and

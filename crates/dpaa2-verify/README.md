@@ -41,16 +41,83 @@ The **MBT harness** (phase 4), four components over one seam:
   pre-state capture (`dprc show` + `generate-dpl`) before any mutation,
   no teardown trap — the reboot is the teardown — and a post-boot
   companion script that re-captures and diffs against the pre-state.
-- `driver` — the operator-launched online walk: step/pause/abort,
-  per-step confirmation in learning mode (always, for root-container
-  scenarios), free-run with stop-on-divergence once promoted, and a
-  JSONL transcript of every action, expectation, and observation.
+- `driver` — the operator-launched online walk, of a model trace or a
+  hand-authored probe plan: step/pause/abort, per-step confirmation in
+  learning mode (always, for root-container scenarios and probe plans),
+  free-run with stop-on-divergence once promoted, and a JSONL
+  transcript of every action, expectation, and observation.
 
 ```sh
 cargo run -p dpaa2-verify -- generate --trace t.itf.json --id V-X-1 --out suites/
 cargo run -p dpaa2-verify -- diff --plan suites/V-X-1.plan.json --results results/
 cargo run -p dpaa2-verify -- drive --trace t.itf.json --transcript run.jsonl   # on the board
+cargo run -p dpaa2-verify -- drive --probes V-DPRTC-1.probes.json --transcript run.jsonl
 ```
+
+## Probe plans
+
+A trace can only ask what the model can predict. The questions left
+over — *does the MC refuse a second dprtc?*, *what does a write-only
+attribute do?*, *what survives a reboot?* — are hand-authored as a
+**probe plan** and walked by the same driver. `drive` takes exactly one
+of `--trace` and `--probes`.
+
+```json
+{
+  "suite": "V-DPRTC-1",
+  "class": "lifecycle",
+  "steps": [
+    {
+      "label": "second dprtc create refused",
+      "cmd": ["restool", "dprtc", "create", "--container=dprc.1"],
+      "expect": "nonzero exit; capture the exact MC status string (dprtc.md unknown 1)",
+      "exit": "nonzero",
+      "readback": { "container": "dprc.1", "object": "dprtc.1", "presence": "absent" }
+    },
+    {
+      "label": "reboot the board",
+      "instruction": "Reboot now; after boot run the postboot plan.",
+      "expect": "operator reboots after acking"
+    }
+  ]
+}
+```
+
+- `suite`, `class` — the scenario id and its declared traffic class
+  (`lifecycle` / `link-signaling` / `traffic-bearing`). The run must
+  declare the same class: a plan is walked under the class it was
+  written for, or refused.
+- `label`, `expect` — required. `expect` is prose: shown to the
+  operator before the step and kept beside the finding in the
+  transcript.
+- `cmd` (argv, binary first) **or** `instruction` (operator-only step —
+  a reboot, a cable pull; nothing is executed, the text is acked).
+  Exactly one.
+- `exit` — `zero` / `nonzero` / `any`, with `cmd` only; omitted is
+  `any`. stdout and stderr are always captured whole into the
+  transcript, because a refusal's message is the finding and the exit
+  status alone never is.
+- `readback` — with `cmd` only: whether `object` is in `container`'s
+  `dprc show` afterwards, judged by the same observation the trace path
+  uses.
+
+Probe runs are always per-step, whatever `--promoted` says: the model
+cannot predict these answers, which is the reason the plan exists.
+Beside enter/`p`/`a` they add `s` = **skip** — probe outcomes branch, so
+an earlier refusal can make a later step moot; the skip is recorded and
+the run goes on. A divergence never aborts by itself: the operator is
+asked whether to keep probing, exactly as on a trace run.
+
+Every command of the plan passes the safety envelope before step 1 runs
+— a forbidden command refuses the plan rather than the step that
+carries it — and again immediately before it executes. `dpdbg set
+--uart` is a total-deny option there (traffic-inventory.md §4:
+potentially unrecoverable console loss), like dpmac.3 / dpmac.17 /
+dpni.0 are total-deny objects.
+
+Probe lines in the transcript carry `"kind": "probe"` and the plan's
+label, expectation, captured output, exit code, verdicts and skip flag,
+so one file can hold both kinds of run.
 
 ## How the replay works
 

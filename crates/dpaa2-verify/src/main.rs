@@ -76,12 +76,18 @@ enum Command {
         #[arg(long)]
         results: PathBuf,
     },
-    /// Drive a trace online against the live board (operator-supervised;
-    /// ADR-0003 §3). Run this on the board, as the operator.
+    /// Drive a trace or a hand-authored probe plan online against the
+    /// live board (operator-supervised; ADR-0003 §3). Run this on the
+    /// board, as the operator.
+    #[command(group = clap::ArgGroup::new("walked").required(true).args(["trace", "probes"]))]
     Drive {
         /// The `--mbt` ITF trace to walk.
         #[arg(long)]
-        trace: PathBuf,
+        trace: Option<PathBuf>,
+        /// A hand-authored probe plan to walk instead of a trace, for
+        /// the questions no model trace can ask. Always per-step.
+        #[arg(long)]
+        probes: Option<PathBuf>,
         /// Declared traffic class.
         #[arg(long, value_enum, default_value = "lifecycle")]
         class: ClassArg,
@@ -90,7 +96,8 @@ enum Command {
         flagged: bool,
         /// Skip per-step confirmation — only for a family the owning
         /// change has promoted after it survived a full batch suite.
-        /// Root-container scenarios ignore this and always confirm.
+        /// Root-container scenarios and probe plans ignore this and
+        /// always confirm.
         #[arg(long)]
         promoted: bool,
         /// Transcript file (JSON lines, appended as steps complete).
@@ -99,19 +106,26 @@ enum Command {
     },
 }
 
-/// Stdin confirmation: enter = step, `p` = pause (ask again), `a` = abort.
+/// Stdin confirmation: enter = step, `p` = pause (ask again), `a` =
+/// abort, and on probe steps `s` = skip.
 struct StdinPrompt;
 
 impl dpaa2_verify::driver::Prompt for StdinPrompt {
-    fn confirm(&mut self, question: &str) -> dpaa2_verify::driver::Decision {
+    fn confirm(&mut self, question: &str, skippable: bool) -> dpaa2_verify::driver::Decision {
+        let keys = if skippable {
+            "[enter=step, s=skip, p=pause, a=abort]"
+        } else {
+            "[enter=step, p=pause, a=abort]"
+        };
         loop {
-            eprint!("{question}  [enter=step, p=pause, a=abort] ");
+            eprint!("{question}  {keys} ");
             let mut line = String::new();
             if std::io::stdin().read_line(&mut line).is_err() {
                 return dpaa2_verify::driver::Decision::Abort;
             }
             match line.trim() {
                 "a" => return dpaa2_verify::driver::Decision::Abort,
+                "s" if skippable => return dpaa2_verify::driver::Decision::Skip,
                 "p" => {
                     eprintln!("paused — press enter to be asked again");
                     let mut resume = String::new();
@@ -120,6 +134,10 @@ impl dpaa2_verify::driver::Prompt for StdinPrompt {
                 _ => return dpaa2_verify::driver::Decision::Step,
             }
         }
+    }
+
+    fn note(&mut self, text: &str) {
+        eprintln!("{text}");
     }
 }
 
@@ -137,6 +155,22 @@ impl dpaa2_verify::driver::BoardIo for LiveBoard {
                 eprintln!("  (exit nonzero, auxiliary: {e})");
                 (false, String::new())
             }
+        }
+    }
+
+    fn exec(&mut self, argv: &[String]) -> (Option<i32>, String) {
+        let Some((binary, rest)) = argv.split_first() else {
+            return (None, "empty command".to_owned());
+        };
+        match std::process::Command::new(binary).args(rest).output() {
+            // Whole output, stdout then stderr: a probe's finding is the
+            // message the board printed, not the status it exited with.
+            Ok(out) => {
+                let mut text = String::from_utf8_lossy(&out.stdout).into_owned();
+                text.push_str(&String::from_utf8_lossy(&out.stderr));
+                (out.status.code(), text)
+            }
+            Err(e) => (None, format!("failed to spawn {binary}: {e}")),
         }
     }
 
@@ -277,14 +311,12 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
         }
         Command::Drive {
             trace,
+            probes,
             class,
             flagged,
             promoted,
             transcript,
         } => {
-            let json = std::fs::read_to_string(&trace)
-                .map_err(|e| format!("reading {}: {e}", trace.display()))?;
-            let parsed = dpaa2_verify::adapter::parse_mbt_trace(&json)?;
             let cfg = dpaa2_verify::driver::DriveConfig {
                 run: RunClass {
                     class: class.into(),
@@ -297,20 +329,70 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
                 .append(true)
                 .open(&transcript)
                 .map_err(|e| format!("opening {}: {e}", transcript.display()))?;
-            let outcome = dpaa2_verify::driver::drive_trace(
-                &parsed,
-                cfg,
-                &mut LiveBoard {
-                    runner: dpaa2_mc::RestoolRunner::new(),
-                },
-                &mut StdinPrompt,
-                &mut out,
-            )?;
+            let mut board = LiveBoard {
+                runner: dpaa2_mc::RestoolRunner::new(),
+            };
+            let outcome = if let Some(probes) = probes {
+                let json = std::fs::read_to_string(&probes)
+                    .map_err(|e| format!("reading {}: {e}", probes.display()))?;
+                let plan = dpaa2_verify::driver::parse_probe_plan(&json)?;
+                dpaa2_verify::driver::drive_probes(
+                    &plan,
+                    cfg,
+                    &mut board,
+                    &mut StdinPrompt,
+                    &mut out,
+                )?
+            } else {
+                // clap guarantees one of the two inputs is present.
+                let trace = trace.ok_or("--trace or --probes is required")?;
+                let json = std::fs::read_to_string(&trace)
+                    .map_err(|e| format!("reading {}: {e}", trace.display()))?;
+                let parsed = dpaa2_verify::adapter::parse_mbt_trace(&json)?;
+                dpaa2_verify::driver::drive_trace(
+                    &parsed,
+                    cfg,
+                    &mut board,
+                    &mut StdinPrompt,
+                    &mut out,
+                )?
+            };
             println!("outcome: {outcome:?}; transcript: {}", transcript.display());
             Ok(match outcome {
                 dpaa2_verify::driver::Outcome::Completed => ExitCode::SUCCESS,
                 _ => ExitCode::FAILURE,
             })
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A drive run walks exactly one input: a model trace or a probe
+    /// plan, never both and never neither.
+    #[test]
+    fn drive_takes_a_trace_or_a_probe_plan_not_both() {
+        assert!(
+            Cli::try_parse_from(["v", "drive", "--trace", "t.json", "--transcript", "r"]).is_ok()
+        );
+        assert!(
+            Cli::try_parse_from(["v", "drive", "--probes", "p.json", "--transcript", "r"]).is_ok()
+        );
+        assert!(
+            Cli::try_parse_from([
+                "v",
+                "drive",
+                "--trace",
+                "t.json",
+                "--probes",
+                "p.json",
+                "--transcript",
+                "r",
+            ])
+            .is_err()
+        );
+        assert!(Cli::try_parse_from(["v", "drive", "--transcript", "r"]).is_err());
     }
 }

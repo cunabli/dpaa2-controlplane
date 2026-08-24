@@ -21,9 +21,14 @@ use std::fmt;
 use crate::adapter::{Cmd, MbtTrace, ObjRef};
 
 /// ADR-0003 §5: every scenario declares exactly one traffic class.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+///
+/// Deserialized with the CLI's `--class` spellings, so a hand-authored
+/// probe plan declares its class the same way an operator does.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "kebab-case")]
 pub enum TrafficClass {
     /// MC-bus mutations and queries only, no link semantics.
+    #[serde(rename = "lifecycle")]
     ObjectLifecycleOnly,
     /// Asserts or observes link state, no frames.
     LinkSignaling,
@@ -70,6 +75,12 @@ impl std::error::Error for Violation {}
 /// in any scenario class, including read-only probes.
 const TOTAL_DENY: [&str; 3] = ["dpmac.3", "dpmac.17", "dpni.0"];
 
+/// The total-deny option: `dpdbg set --uart <n>` moves the MC console to
+/// another UART, and getting it wrong loses the console with no way back
+/// (traffic-inventory.md §4, dpdbg.md unknown 3). Denied as a flag rather
+/// than as an object reference, since that is how it is spelled.
+const TOTAL_DENY_FLAG: &str = "--uart";
+
 /// The wired 10G pair: link-signaling and traffic-bearing run here only,
 /// each run explicitly flagged. Every other dpmac is lifecycle-only —
 /// the named unwired set (4–6, 8, 10) and any id outside the matrix
@@ -103,12 +114,21 @@ fn dpmac_id(token: &str) -> Option<u32> {
 }
 
 /// Scans free text for total-deny references (spec: dpmac.3, dpmac.17,
-/// dpni.0 are unreferenceable in any scenario class).
+/// dpni.0 are unreferenceable in any scenario class) and for the
+/// total-deny UART reroute option.
 ///
 /// # Errors
 ///
 /// Returns the named violation on the first forbidden reference.
 pub fn scan_text(text: &str) -> Result<(), Violation> {
+    for arg in text.split_whitespace() {
+        if arg.starts_with(TOTAL_DENY_FLAG) {
+            return Err(Violation(format!(
+                "`{TOTAL_DENY_FLAG}` reroutes the MC console (dpdbg set --uart) and is total-deny \
+                 (traffic-inventory.md §4): console loss is potentially unrecoverable"
+            )));
+        }
+    }
     for token in tokens(text) {
         for deny in TOTAL_DENY {
             if references(token, deny) {
@@ -362,6 +382,22 @@ mod tests {
         assert!(check_trace(LINK_FLAGGED, &unwired).is_err());
         // The identical actions are fine as lifecycle churn.
         assert!(check_trace(LIFECYCLE, &unwired).is_ok());
+    }
+
+    #[test]
+    fn uart_reroute_is_total_deny() {
+        // traffic-inventory.md §4: the dpdbg console reroute is out of
+        // the envelope in every class, valued or bare.
+        let cmd = Cmd::Restool(
+            ["dpdbg", "set", "dpdbg.0", "--uart=1"]
+                .map(str::to_owned)
+                .to_vec(),
+        );
+        let err = check_cmd(LIFECYCLE, &cmd).unwrap_err();
+        assert!(err.to_string().contains("--uart"), "{err}");
+        assert!(scan_text("dpdbg set dpdbg.0 --uart 1").is_err());
+        // The word alone is not the option.
+        assert!(scan_text("capture the uart output").is_ok());
     }
 
     #[test]

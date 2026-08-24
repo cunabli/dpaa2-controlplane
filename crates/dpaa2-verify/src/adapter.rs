@@ -675,6 +675,15 @@ pub fn drive(action: &ModelAction, pre: &MachineView, names: &Binding) -> Result
             // scripts reuse it verbatim as the container reference.
             cmd(argv(&["--script", "dprc", "create", names.name(*parent)?]))
         }
+        // restool's dpdbg create takes no arguments at all: it pins the
+        // container to the root and the id to 0 itself
+        // (dpdbg_commands.c, cmd_dpdbg_create) and rejects --container
+        // as an unrecognized option. `--script` still applies — it is a
+        // restool-global flag, and print_new_obj honors it — so the
+        // create output stays the bare name the driver binds from.
+        ModelAction::CreateObject {
+            fam: Family::Dpdbg, ..
+        } => cmd(argv(&["--script", "dpdbg", "create"])),
         ModelAction::CreateObject { fam, container } => {
             let mut v = argv(&["--script", fam.as_str(), "create"]);
             v.extend(create_args(*fam).iter().map(|s| (*s).to_owned()));
@@ -820,6 +829,12 @@ pub fn drive(action: &ModelAction, pre: &MachineView, names: &Binding) -> Result
         ModelAction::LinkChange { .. } => Ok(Drive::Await(
             "PHY reality; link-signaling scenarios observe it, nothing drives it",
         )),
+        // Same restool law on the way out: dpdbg destroy names no
+        // object, because restool destroys id 0 by definition and
+        // refuses an argument (dpdbg_commands.c, cmd_dpdbg_destroy).
+        ModelAction::Destroy { obj } if obj.fam == Family::Dpdbg => {
+            cmd(argv(&["dpdbg", "destroy"]))
+        }
         ModelAction::Destroy { obj } => {
             cmd(argv(&[obj.fam.as_str(), "destroy", names.name(*obj)?]))
         }
@@ -1506,6 +1521,75 @@ mod tests {
                 "--priority=1",
                 "--container=dprc.1",
             ]))])
+        );
+    }
+
+    #[test]
+    fn drive_renders_dpdbg_create_and_destroy_bare() {
+        // restool's dpdbg verbs take no arguments: create pins the
+        // container to the root and the id to 0 itself (--container is
+        // an unrecognized option), and destroy refuses an object name
+        // outright ("Unexpected argument") because it always destroys
+        // id 0. dpdbg needs no binding here for the same reason.
+        let mut pre = state(None);
+        let rtc = ObjRef {
+            fam: Family::Dprtc,
+            num: 0,
+        };
+        pre.objs
+            .insert(rtc, obj(Some(dprc1()), true, BindView::Unbound));
+        let names = Binding::seed(&pre);
+
+        assert_eq!(
+            drive(
+                &ModelAction::CreateObject {
+                    fam: Family::Dpdbg,
+                    container: dprc1(),
+                },
+                &pre,
+                &names
+            )
+            .unwrap(),
+            Drive::Cmds(vec![Cmd::Restool(argv(&["--script", "dpdbg", "create"]))])
+        );
+        assert_eq!(
+            drive(
+                &ModelAction::Destroy {
+                    obj: ObjRef {
+                        fam: Family::Dpdbg,
+                        num: 0,
+                    },
+                },
+                &pre,
+                &names
+            )
+            .unwrap(),
+            Drive::Cmds(vec![Cmd::Restool(argv(&["dpdbg", "destroy"]))])
+        );
+
+        // The exception is dpdbg's alone: the other root-container
+        // singleton keeps both arguments (`dprtc create --container`,
+        // `dprtc destroy <object>`).
+        assert_eq!(
+            drive(
+                &ModelAction::CreateObject {
+                    fam: Family::Dprtc,
+                    container: dprc1(),
+                },
+                &pre,
+                &names
+            )
+            .unwrap(),
+            Drive::Cmds(vec![Cmd::Restool(argv(&[
+                "--script",
+                "dprtc",
+                "create",
+                "--container=dprc.1",
+            ]))])
+        );
+        assert_eq!(
+            drive(&ModelAction::Destroy { obj: rtc }, &pre, &names).unwrap(),
+            Drive::Cmds(vec![Cmd::Restool(argv(&["dprtc", "destroy", "dprtc.0"]))])
         );
     }
 
