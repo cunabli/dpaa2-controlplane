@@ -50,6 +50,21 @@ pub enum SuiteKind {
     RecoveryVerification,
 }
 
+/// A hand-written shell file the suite sources after its last trace
+/// step: the steps a trace cannot express — frames over a scratch group
+/// that has to be standing — run with the script's own variables
+/// (`$RESULTS`, the `OBJ_<fam>_<n>` names of created objects, the
+/// helpers) and under the same teardown trap.
+#[derive(Debug, Clone)]
+pub struct Hook {
+    /// The path the script sources, spelled as the operator runs it from
+    /// the repository root.
+    pub path: String,
+    /// The file's text, read at generation so the safety envelope
+    /// screens it like any other board-touching step.
+    pub contents: String,
+}
+
 /// One suite to generate.
 #[derive(Debug, Clone)]
 pub struct SuiteSpec {
@@ -61,6 +76,8 @@ pub struct SuiteSpec {
     pub kind: SuiteKind,
     /// Where the trace came from, recorded in both artifacts.
     pub trace_file: String,
+    /// Hand-written steps to source after the last trace step, if any.
+    pub hook: Option<Hook>,
 }
 
 /// One step of the offline-diffable plan.
@@ -94,6 +111,11 @@ pub struct SuitePlan {
     pub trace_file: String,
     /// The steps, in execution order.
     pub steps: Vec<PlanStep>,
+    /// The hand-written file the script sources after its last step, if
+    /// any. Absent from plans generated without one, so plan files
+    /// written before hooks existed still parse.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hook: Option<String>,
 }
 
 /// A generated suite: the reviewable script and its plan.
@@ -172,10 +194,10 @@ fn expect_comment(e: &Expected) -> String {
 ///
 /// Enable, disable and link change are the ones nothing on the board can
 /// take: restool enables nothing (§5 step 7) and no command moves a PHY.
-/// The script stops there and says exactly what to do, so the read-back
-/// that follows observes the state the trace asked for rather than
-/// whatever the port happened to be doing.
-fn operator_instruction(
+/// Batch script and online driver both stop there and say exactly what to
+/// do, so the read-back that follows observes the state the trace asked
+/// for rather than whatever the port happened to be doing.
+pub(crate) fn operator_instruction(
     action: &ModelAction,
     post: &MachineView,
     names: &Binding,
@@ -240,7 +262,7 @@ mkdir -p "$RESULTS"
 # --- independent safety self-check (ADR-0003 §4) ---
 # The execution side refuses total-deny references even if a script was
 # hand-edited after generation.
-if grep -nE 'dpmac[.]3([^0-9]|$)|dpmac[.]17([^0-9]|$)|dpni[.]0([^0-9]|$)' "$0" | grep -v safety-self-check; then
+if grep -nE '{deny}' "$0" | grep -v safety-self-check; then
   echo "refusing: total-deny object referenced in this script" >&2  # safety-self-check
   exit 1
 fi
@@ -268,7 +290,35 @@ probe_link() {{ n="$1"; m="$2"; readlink "$3" > "$RESULTS/step-$n-probe-$m.txt" 
             ""
         },
         trace = spec.trace_file,
+        deny = TOTAL_DENY_GREP,
         ref_pair = REF_PAIR_ASSERT,
+    )
+}
+
+/// The total-deny pattern the emitted self-checks grep for, shared by
+/// the preamble (which scans the script itself) and the suite hook's
+/// gate (which scans the file it is about to source). The bracketed
+/// classes keep a self-check from matching its own pattern.
+const TOTAL_DENY_GREP: &str = "dpmac[.]3([^0-9]|$)|dpmac[.]17([^0-9]|$)|dpni[.]0([^0-9]|$)";
+
+/// The suite hook block: a total-deny gate over the file, then the
+/// source. Emitted after the last trace step and before the footer, so
+/// the hook sees every object the run created and still runs under the
+/// teardown trap.
+fn hook_block(hook: &Hook) -> String {
+    format!(
+        r#"
+# --- suite hook: {path} ---
+# Hand-written steps that need the created objects standing; sourced so
+# they see this script's variables and run under the teardown trap.
+if grep -nE '{deny}' "{path}" | grep -v safety-self-check; then
+  echo "refusing: total-deny object referenced in the hook" >&2  # safety-self-check
+  exit 1
+fi
+. "{path}"
+"#,
+        path = hook.path,
+        deny = TOTAL_DENY_GREP,
     )
 }
 
@@ -402,11 +452,12 @@ fn check_scratch_only(trace: &MbtTrace) -> Result<(), String> {
 ///
 /// # Errors
 ///
-/// Refuses (with the reason named) on a safety-envelope violation, on a
-/// mutating suite while the recovery guarantee is unverified, on a
-/// recovery-verification trace that mutates outside its scratch set,
-/// and on traces the adapter cannot map (e.g. actions in containers
-/// restool cannot reach).
+/// Refuses (with the reason named) on a safety-envelope violation in
+/// the trace or in a suite hook's text, on a hook asked of a
+/// recovery-verification suite, on a mutating suite while the recovery
+/// guarantee is unverified, on a recovery-verification trace that
+/// mutates outside its scratch set, and on traces the adapter cannot
+/// map (e.g. actions in containers restool cannot reach).
 #[allow(clippy::too_many_lines)] // one linear emission walk, by design
 pub fn generate(
     spec: &SuiteSpec,
@@ -414,6 +465,20 @@ pub fn generate(
     recovery: RecoveryGuarantee,
 ) -> Result<Suite, String> {
     safety::check_trace(spec.run, trace).map_err(|v| v.to_string())?;
+    if spec.kind == SuiteKind::RecoveryVerification && spec.hook.is_some() {
+        return Err(
+            "refusing: a recovery-verification suite takes no hook — the reboot is its \
+             teardown, so hook steps would land in the recovery diff as state nothing \
+             explains"
+                .to_owned(),
+        );
+    }
+    // The hook is board-touching text like any step, so it is screened
+    // before it can be sourced.
+    if let Some(ref hook) = spec.hook {
+        safety::check_text(spec.run, &hook.contents)
+            .map_err(|v| format!("suite hook {}: {v}", hook.path))?;
+    }
 
     let mutating = trace.steps.iter().any(|s| {
         !matches!(
@@ -641,7 +706,16 @@ pub fn generate(
         (String::new(), trap, footer, None)
     };
 
-    let script = format!("{}{}{}{}{}", preamble(spec), capture, trap, body, footer);
+    let hook = spec.hook.as_ref().map_or_else(String::new, hook_block);
+    let script = format!(
+        "{}{}{}{}{}{}",
+        preamble(spec),
+        capture,
+        trap,
+        body,
+        hook,
+        footer
+    );
     safety::check_text(spec.run, &script).map_err(|v| v.to_string())?;
     if let Some(ref p) = postboot {
         safety::check_text(spec.run, p).map_err(|v| v.to_string())?;
@@ -656,6 +730,7 @@ pub fn generate(
             flagged: spec.run.flagged,
             trace_file: spec.trace_file.clone(),
             steps,
+            hook: spec.hook.as_ref().map(|h| h.path.clone()),
         },
     })
 }
@@ -763,6 +838,7 @@ mod tests {
             run: LIFECYCLE,
             kind,
             trace_file: "test.itf.json".to_owned(),
+            hook: None,
         }
     }
 
@@ -1100,6 +1176,62 @@ mod tests {
         assert!(suite.postboot.is_none());
 
         sh_parses(s);
+    }
+
+    /// A hook carries the steps a trace cannot express (V-TRAF-0's
+    /// frames), so it must run where the created objects are still
+    /// standing and the trap still owns their destruction: after the
+    /// last step, before the footer, inside the trap's reach.
+    #[test]
+    fn a_hook_is_sourced_after_the_last_step_and_under_the_trap() {
+        const FACE: &str = "models/board/V-TEST-1/face.sh";
+        let mut hooked = spec(SuiteKind::Standard);
+        hooked.hook = Some(Hook {
+            path: FACE.to_owned(),
+            contents: "echo \"face over ${OBJ_dpbp_101}\" > \"$RESULTS/face.txt\"\n".to_owned(),
+        });
+        let suite = generate(&hooked, &scratch_trace(), RecoveryGuarantee::Verified).unwrap();
+        let s = &suite.script;
+
+        let trap = s.find("trap teardown EXIT").unwrap();
+        let last_step = s.find("# step 3").unwrap();
+        let source = s.find(&format!(". \"{FACE}\"")).unwrap();
+        let footer = s.find("suite V-TEST-1 complete").unwrap();
+        assert!(trap < source, "the hook runs under the teardown trap");
+        assert!(last_step < source, "the hook runs after the last step");
+        assert!(source < footer, "the hook runs before the footer");
+        // The sourced file is gated the same way the script gates itself.
+        assert!(s.contains("refusing: total-deny object referenced in the hook"));
+        assert_eq!(suite.plan.hook.as_deref(), Some(FACE));
+        sh_parses(s);
+
+        // Without a hook the script is what it always was.
+        let plain = generate(
+            &spec(SuiteKind::Standard),
+            &scratch_trace(),
+            RecoveryGuarantee::Verified,
+        )
+        .unwrap();
+        assert!(!plain.script.contains("suite hook"));
+        assert!(plain.plan.hook.is_none());
+    }
+
+    /// The hook is board-touching text like any step, so the envelope
+    /// screens it at generation — and the recovery-verification suite,
+    /// whose teardown is the reboot, takes none at all.
+    #[test]
+    fn a_hook_is_screened_and_refused_on_a_recovery_suite() {
+        let mut hooked = spec(SuiteKind::Standard);
+        hooked.hook = Some(Hook {
+            path: "models/board/V-TEST-1/face.sh".to_owned(),
+            contents: "restool dpni info dpni.5 # peer of dpmac.3\n".to_owned(),
+        });
+        let err = generate(&hooked, &scratch_trace(), RecoveryGuarantee::Verified).unwrap_err();
+        assert!(err.contains("dpmac.3"), "{err}");
+
+        hooked.kind = SuiteKind::RecoveryVerification;
+        let err = generate(&hooked, &scratch_trace(), RecoveryGuarantee::Unverified).unwrap_err();
+        assert!(err.contains("takes no hook"), "{err}");
     }
 
     /// Asserts a script is valid shell (`sh -n` parses, no exec).

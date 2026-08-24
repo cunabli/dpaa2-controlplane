@@ -45,7 +45,24 @@ The **MBT harness** (phase 4), four components over one seam:
   hand-authored probe plan: step/pause/abort, per-step confirmation in
   learning mode (always, for root-container scenarios and probe plans),
   free-run with stop-on-divergence once promoted, and a JSONL
-  transcript of every action, expectation, and observation.
+  transcript of every action, expectation, and observation. An awaited
+  step the board cannot take by itself — enable, disable, link change —
+  shows the operator the same instruction the batch script prints and
+  waits for the ack, promoted or not, because the instruction *is* the
+  step; kernel-internal awaits (a probe, a pool draw) only settle. What
+  the operator was told is kept on the transcript line.
+
+A suite may also carry a **hook**: `--hook <path>` names a hand-written
+shell file the generated script sources after its last trace step and
+before the footer. The hook therefore runs with the script's own
+variables (`$RESULTS`, the `OBJ_<fam>_<n>` name of every created object,
+the helpers) while those objects are still standing, and under the same
+teardown trap — the shape a traffic face needs, since a trace cannot
+express frames. Its text is read at generation and screened by the
+safety envelope like any other board-touching step, the script re-greps
+the file for total-deny references before sourcing it, and the plan
+records the path. Recovery-verification suites take no hook: the reboot
+is their teardown.
 
 ```sh
 cargo run -p dpaa2-verify -- generate --trace t.itf.json --id V-X-1 --out suites/

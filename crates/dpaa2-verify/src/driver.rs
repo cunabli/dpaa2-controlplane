@@ -93,6 +93,9 @@ pub struct StepRecord {
     pub commands: Vec<String>,
     /// Reason the step was awaited rather than driven, if so.
     pub awaited: Option<String>,
+    /// The instruction the operator was shown and acked, when the await
+    /// was one only a human can take (enable, disable, link change).
+    pub instruction: Option<String>,
     /// Board name bound for a created object, if any.
     pub created: Option<String>,
     /// The model's expectation for this step's probes.
@@ -115,6 +118,16 @@ pub enum Outcome {
     Diverged(usize),
 }
 
+/// Appends one trace step's record to the transcript as JSON.
+fn transcribe_step(transcript: &mut dyn std::io::Write, record: &StepRecord) -> Result<(), String> {
+    writeln!(
+        transcript,
+        "{}",
+        serde_json::to_string(record).map_err(|e| e.to_string())?
+    )
+    .map_err(|e| e.to_string())
+}
+
 /// Renders a command for the transcript.
 fn render(cmd: &Cmd) -> String {
     match cmd {
@@ -127,7 +140,10 @@ fn render(cmd: &Cmd) -> String {
 ///
 /// Every command passes the safety envelope immediately before it runs;
 /// each step's record is appended to `transcript` (JSON lines) as it
-/// completes, so an abort still leaves the full history on disk.
+/// completes, so an abort still leaves the full history on disk. An
+/// awaited step nothing on the board takes — enable, disable, link
+/// change — stops for the operator with the same instruction the batch
+/// suite prints, and goes on once it is acked.
 ///
 /// # Errors
 ///
@@ -163,6 +179,7 @@ pub fn drive_trace(
             title: title.clone(),
             commands: Vec::new(),
             awaited: None,
+            instruction: None,
             created: None,
             expected: None,
             observed: None,
@@ -170,12 +187,7 @@ pub fn drive_trace(
         };
 
         if per_step && prompt.confirm(&format!("step {i}: {title}"), false) == Decision::Abort {
-            writeln!(
-                transcript,
-                "{}",
-                serde_json::to_string(&record).map_err(|e| e.to_string())?
-            )
-            .map_err(|e| e.to_string())?;
+            transcribe_step(transcript, &record)?;
             return Ok(Outcome::Aborted(i));
         }
 
@@ -184,6 +196,21 @@ pub fn drive_trace(
         match drive(&step.action, &pre, &names).map_err(|e| format!("step {i}: {e}"))? {
             Drive::Await(why) => {
                 record.awaited = Some(why.to_owned());
+                // A consumer-side await is nobody's work but the
+                // operator's: the driver shows the same instruction the
+                // batch script prints and waits for the ack, whatever
+                // `per_step` says — the instruction is the step, not a
+                // confirmation of it. Kernel-internal awaits only settle.
+                if let Some(text) =
+                    crate::generate::operator_instruction(&step.action, &step.post, &names)
+                        .map_err(|e| format!("step {i}: {e}"))?
+                {
+                    record.instruction = Some(text.clone());
+                    if prompt.confirm(&text, false) == Decision::Abort {
+                        transcribe_step(transcript, &record)?;
+                        return Ok(Outcome::Aborted(i));
+                    }
+                }
                 io.settle();
             }
             Drive::Cmds(cmds) => {
@@ -236,12 +263,7 @@ pub fn drive_trace(
             record.verdict = Some(verdict);
         }
         record.expected = expected;
-        writeln!(
-            transcript,
-            "{}",
-            serde_json::to_string(&record).map_err(|e| e.to_string())?
-        )
-        .map_err(|e| e.to_string())?;
+        transcribe_step(transcript, &record)?;
 
         if diverged {
             // A divergence is a discovery, not necessarily the end: in
@@ -583,7 +605,7 @@ pub fn drive_probes(
             "step {i}: {}\n  expect: {}\n  {doing}",
             step.label, step.expect
         ));
-        match prompt.confirm(&format!("step {i}: {}", step.label), true) {
+        match prompt.confirm(&format!("step {i}"), true) {
             Decision::Abort => {
                 transcribe(transcript, &record)?;
                 return Ok(Outcome::Aborted(i));
@@ -639,7 +661,7 @@ pub fn drive_probes(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::adapter::{BindView, MachineView, MbtStep, ObjRef, ObjView};
+    use crate::adapter::{BindView, MachineView, MbtStep, ModelAction, ObjRef, ObjView, ROOT_DPRC};
     use crate::safety::TrafficClass;
 
     const LIFECYCLE: DriveConfig = DriveConfig {
@@ -650,11 +672,12 @@ mod tests {
         learning: true,
     };
 
-    /// Prompt double: scripted decisions, counts questions, keeps what
-    /// the operator was shown.
+    /// Prompt double: scripted decisions, keeps every question asked and
+    /// everything the operator was shown.
     struct Scripted {
         decisions: Vec<Decision>,
         asked: usize,
+        questions: Vec<String>,
         notes: Vec<String>,
     }
 
@@ -663,19 +686,21 @@ mod tests {
             Self {
                 decisions,
                 asked: 0,
+                questions: Vec::new(),
                 notes: Vec::new(),
             }
         }
     }
 
     impl Prompt for Scripted {
-        fn confirm(&mut self, _q: &str, _skippable: bool) -> Decision {
+        fn confirm(&mut self, q: &str, _skippable: bool) -> Decision {
             let d = self
                 .decisions
                 .get(self.asked)
                 .copied()
                 .unwrap_or(Decision::Step);
             self.asked += 1;
+            self.questions.push(q.to_owned());
             d
         }
 
@@ -730,6 +755,13 @@ mod tests {
         }
     }
 
+    fn dpni(num: u32) -> ObjRef {
+        ObjRef {
+            fam: Family::Dpni,
+            num,
+        }
+    }
+
     fn obj(parent: Option<ObjRef>, plugged: bool) -> ObjView {
         ObjView {
             parent,
@@ -755,6 +787,34 @@ mod tests {
         }
     }
 
+    /// init: the root container holding a plugged dpni.100 in `bind`; one
+    /// awaited step on it. An await drives nothing, so the post-state is
+    /// the init state.
+    fn one_await(action: ModelAction, bind: BindView) -> MbtTrace {
+        let mut init = MachineView::default();
+        init.objs.insert(ROOT_DPRC, obj(None, true));
+        let mut consumer = obj(Some(ROOT_DPRC), true);
+        consumer.bind = bind;
+        init.objs.insert(dpni(100), consumer);
+        let post = init.clone();
+        MbtTrace {
+            init,
+            steps: vec![MbtStep { action, post }],
+        }
+    }
+
+    /// The first transcript line of a trace run.
+    fn first_record(transcript: &[u8]) -> StepRecord {
+        serde_json::from_str(
+            std::str::from_utf8(transcript)
+                .unwrap()
+                .lines()
+                .next()
+                .unwrap(),
+        )
+        .unwrap()
+    }
+
     #[test]
     fn learning_mode_confirms_every_step_and_transcribes() {
         let mut prompt = Scripted::new(vec![Decision::Step]);
@@ -774,14 +834,7 @@ mod tests {
         assert_eq!(outcome, Outcome::Completed);
         assert_eq!(prompt.asked, 1);
 
-        let line: StepRecord = serde_json::from_str(
-            std::str::from_utf8(&transcript)
-                .unwrap()
-                .lines()
-                .next()
-                .unwrap(),
-        )
-        .unwrap();
+        let line = first_record(&transcript);
         assert_eq!(line.commands, vec!["restool --script dprc create dprc.1"]);
         assert_eq!(line.created.as_deref(), Some("dprc.2"));
         assert!(line.verdict.unwrap().pass);
@@ -805,15 +858,7 @@ mod tests {
         .unwrap();
         assert_eq!(outcome, Outcome::Aborted(0));
         // The aborted step is still on record, with nothing executed.
-        let line: StepRecord = serde_json::from_str(
-            std::str::from_utf8(&transcript)
-                .unwrap()
-                .lines()
-                .next()
-                .unwrap(),
-        )
-        .unwrap();
-        assert!(line.commands.is_empty());
+        assert!(first_record(&transcript).commands.is_empty());
     }
 
     #[test]
@@ -892,6 +937,90 @@ mod tests {
             drive_trace(&trace, promoted, &mut board, &mut prompt, &mut transcript).unwrap();
         assert_eq!(outcome, Outcome::Aborted(0));
         assert_eq!(prompt.asked, 1);
+    }
+
+    #[test]
+    fn a_consumer_side_await_instructs_the_operator_and_records_it() {
+        // Nothing on the board enables a consumer, so the driver stops
+        // and says what to do — otherwise the read-back that follows
+        // judges a state nobody was asked to produce.
+        let trace = one_await(ModelAction::Enable { obj: dpni(100) }, BindView::Kernel);
+        let mut prompt = Scripted::new(vec![Decision::Step, Decision::Step]);
+        let mut board = FakeBoard {
+            next_id: 2,
+            show: String::new(),
+        };
+        let mut transcript = Vec::new();
+        let outcome =
+            drive_trace(&trace, LIFECYCLE, &mut board, &mut prompt, &mut transcript).unwrap();
+        assert_eq!(outcome, Outcome::Completed);
+        assert_eq!(prompt.asked, 2, "step confirmation, then the instruction");
+        assert!(
+            prompt.questions[1].contains("ip link set") && prompt.questions[1].contains("dpni.100"),
+            "{}",
+            prompt.questions[1]
+        );
+
+        let line = first_record(&transcript);
+        assert!(line.commands.is_empty(), "an await drives nothing");
+        assert_eq!(
+            line.instruction.as_deref(),
+            Some(prompt.questions[1].as_str())
+        );
+
+        // A promoted run asks nothing per step, but the instruction is
+        // the step itself and is still shown.
+        let promoted = DriveConfig {
+            learning: false,
+            ..LIFECYCLE
+        };
+        let mut prompt = Scripted::new(vec![Decision::Step]);
+        let mut transcript = Vec::new();
+        let outcome =
+            drive_trace(&trace, promoted, &mut board, &mut prompt, &mut transcript).unwrap();
+        assert_eq!(outcome, Outcome::Completed);
+        assert_eq!(prompt.asked, 1);
+        assert!(prompt.questions[0].contains("ip link set"));
+    }
+
+    #[test]
+    fn declining_an_operator_instruction_ends_the_run() {
+        let trace = one_await(ModelAction::Enable { obj: dpni(100) }, BindView::Kernel);
+        let mut prompt = Scripted::new(vec![Decision::Step, Decision::Abort]);
+        let mut board = FakeBoard {
+            next_id: 2,
+            show: String::new(),
+        };
+        let mut transcript = Vec::new();
+        let outcome =
+            drive_trace(&trace, LIFECYCLE, &mut board, &mut prompt, &mut transcript).unwrap();
+        assert_eq!(outcome, Outcome::Aborted(0));
+        // What the operator was told is on record even when they stop.
+        assert!(first_record(&transcript).instruction.is_some());
+    }
+
+    #[test]
+    fn a_kernel_internal_await_only_settles() {
+        // The kernel probes on its own: there is nothing to ask a human
+        // for, so the step carries the ordinary confirmation and no more.
+        let trace = one_await(
+            ModelAction::KernelBind { obj: dpni(100) },
+            BindView::Unbound,
+        );
+        let mut prompt = Scripted::new(vec![Decision::Step]);
+        let mut board = FakeBoard {
+            next_id: 2,
+            show: String::new(),
+        };
+        let mut transcript = Vec::new();
+        let outcome =
+            drive_trace(&trace, LIFECYCLE, &mut board, &mut prompt, &mut transcript).unwrap();
+        assert_eq!(outcome, Outcome::Completed);
+        assert_eq!(prompt.asked, 1, "the per-step confirmation, nothing else");
+
+        let line = first_record(&transcript);
+        assert!(line.awaited.is_some());
+        assert!(line.instruction.is_none());
     }
 
     // --- probe plans -------------------------------------------------

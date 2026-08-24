@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use clap::{Parser, Subcommand, ValueEnum};
-use dpaa2_verify::generate::{self, RecoveryGuarantee, SuiteKind, SuiteSpec};
+use dpaa2_verify::generate::{self, Hook, RecoveryGuarantee, SuiteKind, SuiteSpec};
 use dpaa2_verify::safety::{RunClass, TrafficClass};
 
 /// Model-based-testing harness for the DPAA2 control plane.
@@ -63,6 +63,11 @@ enum Command {
         /// verification (committed by task 5.1).
         #[arg(long, default_value = "models/board/RECOVERY-VERIFIED")]
         recovery_marker: PathBuf,
+        /// Hand-written shell file the suite sources after its last
+        /// step, before teardown (e.g. a traffic face). Path as run from
+        /// the repo root.
+        #[arg(long)]
+        hook: Option<PathBuf>,
         /// Directory to write `<id>.sh` and `<id>.plan.json` into.
         #[arg(long)]
         out: PathBuf,
@@ -210,11 +215,24 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
             flagged,
             recovery_verification,
             recovery_marker,
+            hook,
             out,
         } => {
             let json = std::fs::read_to_string(&trace)
                 .map_err(|e| format!("reading {}: {e}", trace.display()))?;
             let parsed = dpaa2_verify::adapter::parse_mbt_trace(&json)?;
+            // The hook's text is read here, not on the board: the
+            // envelope screens it before the suite can source it.
+            let hook = hook
+                .map(|path| {
+                    std::fs::read_to_string(&path)
+                        .map_err(|e| format!("reading {}: {e}", path.display()))
+                        .map(|contents| Hook {
+                            path: path.display().to_string(),
+                            contents,
+                        })
+                })
+                .transpose()?;
             let spec = SuiteSpec {
                 id: id.clone(),
                 run: RunClass {
@@ -227,6 +245,7 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
                     SuiteKind::Standard
                 },
                 trace_file: trace.display().to_string(),
+                hook,
             };
             let recovery = if recovery_marker.exists() {
                 RecoveryGuarantee::Verified
