@@ -92,9 +92,10 @@ board-pending — never silently dropped. A cargo test lints it
 (`crates/dpaa2-verify/tests/ledger_lint.rs`): its ids match the
 baseline tables both ways, its tally matches the recount, every suite
 it cites is a committed `board/` directory with a suite-ledger row,
-every owning change is a roadmap row, and each baseline status cell
-agrees with its ledger row — a cell edited past its evidence fails
-`cargo test`, not a re-read.
+every owning change is a roadmap row, each baseline status cell
+agrees with its ledger row, and every dated "verified (V-…)" cell
+resolves to a passing run in `board/VERDICTS.json` — a cell edited past
+its evidence fails `cargo test`, not a re-read.
 
 ## Layout
 

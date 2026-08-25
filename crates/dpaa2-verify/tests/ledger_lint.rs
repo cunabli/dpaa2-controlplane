@@ -13,6 +13,7 @@ use dpaa2_verify::ledger::{
     Coverage, LintInput, lint, parse_baseline_table, parse_coverage, parse_roadmap,
     parse_scenario_ids, parse_suite_ledger,
 };
+use dpaa2_verify::verdict::{Index, parse_index};
 
 /// The repository root, two levels above this crate's manifest.
 fn repo_root() -> PathBuf {
@@ -59,6 +60,8 @@ fn the_four_ledgers_agree() {
     let scenarios = parse_scenario_ids(&read(&root, "docs/baseline/traffic-inventory.md"));
 
     let board = root.join("models/board");
+    let index: Index =
+        parse_index(&read(&root, "models/board/VERDICTS.json")).expect("parse VERDICTS.json");
     let dir_exists = move |id: &str| board.join(id).is_dir();
 
     let input = LintInput {
@@ -67,6 +70,7 @@ fn the_four_ledgers_agree() {
         suites: &suites,
         roadmap: &roadmap,
         scenarios: &scenarios,
+        index: &index,
         dir_exists: &dir_exists,
     };
 

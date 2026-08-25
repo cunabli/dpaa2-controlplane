@@ -122,7 +122,7 @@ board task is an operator sitting sync point.
       (ids both ways, tally, cited suites exist, owning changes named,
       baseline status cells level); legend carries the restool-rendering
       and single-board caveats
-- [ ] 6.2 Machine-readable verdicts: `diff`/`drive` write verdict.json
+- [x] 6.2 Machine-readable verdicts: `diff`/`drive` write verdict.json
       per run and append to a committed VERDICTS.json index; existing
       results back-filled; the lint resolves every "verified" cell to a
       passed verdict

@@ -52,7 +52,11 @@ directory and a suite-ledger row, every `→ change (#N)` names roadmap
 row N, every `open:` cell names an owning change, and each baseline
 status cell agrees with its row here (a baseline `board-pending`
 against a verified or board-settled row, or the reverse, is a red
-test).
+test). Since task 6.2 it also resolves evidence: every dated
+`verified YYYY-MM-DD (V-… rev N …)` cell must match a passing entry of
+that suite, revision and date in `models/board/VERDICTS.json`, and
+every suite-ledger row that says passed must have one — a verdict
+written past its evidence is a red test, not a reading exercise.
 
 Tally: 52 modeled, 49 deferred, 4 board-settled, 0 board-pending — 105 candidates.
 
@@ -75,7 +79,7 @@ Tally: 52 modeled, 49 deferred, 4 board-settled, 0 board-pending — 105 candida
 | DPNI-I4 | modeled | `machine.qnt` kernelBind census guard + `main.qnt` `DPNI_I4Test` | simulate | verified (ADR-0001 C1) |
 | DPNI-I5 | deferred | `dpni-typestate` (#5) + `pool-objects` (#6): queue/channel counts abstracted to draw=1 at core scope | — | — |
 | DPNI-I6 | deferred | this change ph.4 adapter — LAW 2: observation = read-back, never exit status | — | open: V-DPNI-2 → `dpni-typestate` (#5); the class law itself is board-anchored twice (ADR-0007 §2: restool exited 0 on an MC No privilege, the read-back caught it; V-LIFE-DPIO-1 rev 1: a refused teardown unplug went unseen while its stderr was discarded) |
-| DPNI-I7 | board-settled | V-READBACK-1 (`dpni info` of a bare create, from the suite hook) | — | verified 2026-08-25 (V-READBACK-1): the MC defaults are 1 queue, 1 TC, 1 CG, 64 FS entries, VLAN filtering off, 16 MAC entries and 0 QoS entries — the 80/64 the baseline table carried were restool's maxima, and the clean-boot reference's DPL-born dpni reads the same 16/0 |
+| DPNI-I7 | board-settled | V-READBACK-1 (`dpni info` of a bare create, from the suite hook) | — | observed 2026-08-25 (V-READBACK-1 rev 1, steps 6/6; the hook oracle was wrong on two rows and is corrected, so the harness verdict waits on rev 2 at the next sitting): the MC defaults are 1 queue, 1 TC, 1 CG, 64 FS entries, VLAN filtering off, 16 MAC entries and 0 QoS entries — the 80/64 the baseline table carried were restool's maxima, and the clean-boot reference's DPL-born dpni reads the same 16/0 |
 | DPNI-I8 | modeled | `main.qnt` `DPNI_I8Test` (unbind grants no reset — the no-guarantee form) | simulate | open: V-DPNI-3 (post-bind runtime state is not restool-drivable) → `dpni-typestate` (#5) |
 | DPNI-I9 | modeled | `core/invariants.qnt` `DPNI_I9` + `main.qnt` `DPNI_I9Test` | apalache | verified (kdpni pairs in production) |
 | DPNI-I10 | deferred | `dpni-typestate` (#5): tx-ring/thread coupling below core-model scope | — | verified (ADR-0012) |
@@ -153,7 +157,7 @@ Tally: 52 modeled, 49 deferred, 4 board-settled, 0 board-pending — 105 candida
 | DPDMAI-I2 | deferred | this change ph.4 adapter (LAW 6) | — | — |
 | DPDMAI-I3 | deferred | `tier-c-families` (#13): V-DPDMAI-1 — the reference kernel registers no qdma driver (ADR-0008), so the consumer-shape coupling is unfalsifiable on this pair | — | unfalsifiable on the reference pair (V-LIFE-DPDMAI-1 rev 2: a bare dpdmai stays unbound with nothing to claim it); re-anchored to #13 with a qdma-capable kernel as its precondition |
 | DPDMAI-I4 | deferred | this change ph.4 generator | — | open: V-GENDPL-1 → `dpl-tape-out` (#14) |
-| DPDMAI-I5 | board-settled | V-READBACK-1 (`dpdmai info` of a bare create, from the suite hook) | — | verified 2026-08-25 (V-READBACK-1): `num_queues` omitted yields 1 queue and 2 priorities on MC 10.39.0 (API 3.4); the model keeps the count unspecified, the number is now on record |
+| DPDMAI-I5 | board-settled | V-READBACK-1 (`dpdmai info` of a bare create, from the suite hook) | — | observed 2026-08-25 (V-READBACK-1 rev 1, steps 6/6; harness verdict waits on the rev 2 re-run with the corrected hook): `num_queues` omitted yields 1 queue and 2 priorities on MC 10.39.0 (API 3.4); the model keeps the count unspecified, the number is now on record |
 | DPRTC-I1 | modeled | `families/dprtc.qnt` singleton + `main.qnt` `DPRTC_I1Test` | simulate | verified 2026-08-24 (V-DPRTC-1): refused No resources (0x8), `dprc show` byte-identical before/after |
 | DPRTC-I2 | modeled | structural — LAW 5: both-stacks-configured is unrepresentable (single bind field) | typecheck | — |
 | DPRTC-I3 | deferred | this change ph.4 adapter: no clock state readable via restool | — | — |

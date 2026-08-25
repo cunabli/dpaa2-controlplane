@@ -27,6 +27,11 @@ committed when suite V-RECOVERY-1 passed, its presence is what lets the
 generator emit mutating suites. `baselines/` holds the read-only board
 snapshot script (`snapshot.sh`) and the committed clean-boot reference
 (`reference.json`) a sitting's residue is diffed against.
+`VERDICTS.json` is the machine-readable side of the suite ledger below:
+one entry per run (suite → run label → pass/fail, steps judged, hook
+lines, date, revision, plan hash, archive), written by `dpaa2-verify
+diff` and read by the ledger lint, so a status cell here or a "verified
+(V-…)" cell in `models/COVERAGE.md` has to match a recorded verdict.
 
 ## Suite ledger
 
@@ -50,7 +55,7 @@ snapshot script (`snapshot.sh`) and the committed clean-boot reference
 | V-DPRTC-2 | `probes.json` | **passed** 2026-08-24 (batch 5), 3/3 — API version 2.3 (the flib's, not restool's 2.0 header), a verbose surface with no time or frequency anywhere (DPRTC-I3 anchored), kernel ownership confirmed through the registered driver name `fsl_dpaa2_ptp` and its PTP chardev, and the DT ptp-timer window recorded for unknown 5's observable half. Unknown 6 (two-step vs one-step 1588) was not probed and stays open |
 | V-DPRTC-3 | `probes.json` + `postboot.probes.json` | **passed** 2026-08-24 (rev 2, batch 5), 8/8 + postboot 3/3 — answers dprtc.md unknown 3: the DPL-born dprtc.0 *can* be destroyed by GPP software, but only unbound; while the driver holds it, restool's own client guard refuses before the MC is asked. The sysfs unbind takes kernel PTP down with it (chardev gone with the driver link), the destroy reads back absent at a 96-object census, and the closing reboot restores object, driver and chardev at the 97 baseline — the recovery guarantee's restore direction verified for the first time on a deleted DPL-born resident. Rev 1 failed only in the harness: the unbind named the hyphenated module spelling where sysfs carries the registered underscore name |
 | V-TRAF-0 | `vtraf0.qnt` + `traffic.sh` (suite hook) | **passed** 2026-08-24 (rev 3, batch 6), 14/14 and both legs: the peer's 16-frame broadcast burst counted 16 on the dpni (`ingress_all_frames` 0 → 16) and 16 on the kernel netdev; 8 pings unicast to the peer port's MAC counted 8 out (`egress_all_frames` +8) and 8 in on the peer, as `ip4` and `drops` — that port's `rx packets` line never ticks, which read as "no rx" in rev 1 until the other two counters were read. The dpni's own statistics pages are an exact frame oracle, so reachability needs no capture on either side. Revs 1 and 2 ran under the online driver and settled the same numbers, but the shape was wrong: a probe plan cannot name what the trace created, so its by-hand teardown left the companions behind twice (six residue objects, removed by hand), and its per-step prose was unreadable at the prompt — hence the suite hook, and the closing `No privilege` in teardown.log is the vacuous boot-edge restore on a bare boot, as in V-LINK-2 |
-| V-READBACK-1 | `vreadback1.qnt` + `readback.sh` (suite hook) | **passed** 2026-08-25, 6/6 — five bare creates in one scratch container (dpni, dpdmai, a dpio on DPIO_NO_CHANNEL, dpbp, dpdcei), each read back with `info` from the hook while the set stood. The hook's read-back corrected the prediction rather than the board: a bare dpni carries 16 MAC entries and 0 QoS entries, not the 80/64 the baseline table had taken from restool's maxima (DPNI-I7 settled; the hook now asserts the observed defaults). Recorded: a bare dpdmai is 1 queue × 2 priorities (DPDMAI-I5), a NO_CHANNEL dpio keeps its requested 8 priorities (DPIO-I3's reported half), a runtime dpbp's bpid equals its object id (DPBP-I5 stays unfalsified), dpdcei reports API 2.3 (its version half). First sitting judged clean by the structured snapshot: zero deltas against the clean-boot reference. The dpio is the first suite to render a family with `--create-args` |
+| V-READBACK-1 | `vreadback1.qnt` + `readback.sh` (suite hook) | **steps 6/6, hook 8/10** 2026-08-25 (rev 1) — rev 2 with the corrected hook runs at the next sitting and is what turns this row to passed; the verdict index records rev 1 as failed on the two hook lines. Five bare creates in one scratch container (dpni, dpdmai, a dpio on DPIO_NO_CHANNEL, dpbp, dpdcei), each read back with `info` from the hook while the set stood. The hook's read-back corrected the prediction rather than the board: a bare dpni carries 16 MAC entries and 0 QoS entries, not the 80/64 the baseline table had taken from restool's maxima (DPNI-I7 settled; the hook now asserts the observed defaults). Recorded: a bare dpdmai is 1 queue × 2 priorities (DPDMAI-I5), a NO_CHANNEL dpio keeps its requested 8 priorities (DPIO-I3's reported half), a runtime dpbp's bpid equals its object id (DPBP-I5 stays unfalsified), dpdcei reports API 2.3 (its version half). First sitting judged clean by the structured snapshot: zero deltas against the clean-boot reference. The dpio is the first suite to render a family with `--create-args` |
 | V-LINK-5 | `vlink5.qnt` | **ran once** 2026-08-23 (batch 4) and **retired with its answer** — answers dprc.md unknown #9: `dprc assign --plugged=0` on a kernel-bound, link-up, netdev-backed dpni exited 240 (8-bit −EBUSY) with the object still plugged and the driver still bound. A refusal, not a race and not a silent drop, and the second anchor after V-LIFE-DPIO-1 rev 1's teardown refusal on a driver-bound dpmcp. Every other step passed. The model's `unplugAt` now requires an unbound object, which makes the probing step untraceable — the retirement is the finding, and the module header carries the do-not-regenerate note |
 
 V-LIFE-DPNI-1 carries the "per-family lifecycle scenarios" of design
@@ -184,6 +189,43 @@ sitting:
 cargo run -p dpaa2-verify -- diff --plan models/board/<ID>/<ID>.plan.json --results results/<dir>
 ```
 
+Besides the printed report, `diff` writes `results/<dir>/verdict.json`
+— suite, revision, plan hash, the pinned reference pair, pass/fail,
+every step's conformance with its exit codes, observed read-back and
+any MC status text from `step-N-err.txt`, the created ids, and the
+hook's `PASS`/`FAIL` lines — and records a one-line summary in
+`models/board/VERDICTS.json` under the run label (the results directory
+name, e.g. `V-DPRC-1-rev3`). A run passes only when every judged step
+conforms **and** its hook printed no `FAIL` line; the process exit
+follows that verdict. The revision comes from the `-revN` suffix of the
+results directory and the date from its newest file; both take
+overrides (`--revision`, `--date`), as does the label (`--label`, used
+for `results/results-recovery` → `V-RECOVERY-1`). `--archive <path>`
+records where the sitting's tarball went; `--no-index` writes the
+verdict file only.
+
+Online runs get the same treatment. `drive` writes
+`<transcript stem>.verdict.json` beside its transcript on the board
+(one transcript per run, `probes-rev2.jsonl` style), and back on the
+workstation
+
+```sh
+cargo run -p dpaa2-verify -- diff --transcript results/<ID>/probes-rev2.jsonl
+```
+
+re-derives that verdict and indexes it under `<ID>/probes-rev2`; a
+trace transcript carries no suite id, so it takes `--id <ID>`. The
+postboot halves index under their own suite id (`V-DPRTC-3-postboot`).
+
+The index was back-filled once from every results directory on disk
+(task 6.2). Two caveats travel with those entries: a revision that
+predates a plan regeneration is judged against the *current* plan, so
+an early V-LIFE revision whose divergence was the model's bind
+expectation now conforms — the entry's plan hash is the tell, and the
+suite-ledger prose stays the authority on why a revision was re-run;
+and revisions overwritten in place before the archive rule (V-DPSW-1
+rev 1, V-LINK-2 revs 1–2) have no entry at all.
+
 A suite whose face needs the created objects standing (V-TRAF-0's
 frames) adds `--hook <file>`: the generated script sources the file
 after its last step and before its teardown trap, so the hook sees the
@@ -214,12 +256,19 @@ count, so a swapped driver or a changed attribute shows up too. A
 zero-delta diff is the "no residue" verdict; any line is a leaked or
 mutated object to explain before the next sitting.
 
-Then archive the sitting's results outside the checkout:
+Then archive the sitting's results outside the checkout and point the
+verdict at the archive:
 
 ```sh
 mkdir -p ~/dpaa2-board-evidence
 tar czf ~/dpaa2-board-evidence/<ID>-$(date +%F).tar.gz -C results <ID> <ID>-snapshot
+cargo run -p dpaa2-verify -- diff --plan models/board/<ID>/<ID>.plan.json --results results/<ID> --archive ~/dpaa2-board-evidence/<ID>-$(date +%F).tar.gz
 ```
+
+The second `diff` is idempotent — it rewrites the same index entry with
+the archive path filled in. Commit `VERDICTS.json` with the ledger
+edits of the sitting; `cargo test` refuses a ledger cell that claims
+more than the index holds.
 
 `results/` is gitignored operator material and a revision was lost once
 by being overwritten in place (V-DPSW-1 rev 1), so every sitting's

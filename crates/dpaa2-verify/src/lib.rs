@@ -15,3 +15,5 @@ pub mod ledger;
 pub mod replay;
 pub mod safety;
 pub mod snapshot;
+/// Machine-readable verdicts and their per-suite index (task 6.2).
+pub mod verdict;

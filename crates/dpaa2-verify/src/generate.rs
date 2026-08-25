@@ -775,17 +775,24 @@ pub struct StepReport {
     pub title: String,
     /// The judgement, or `None` for steps with nothing to observe.
     pub verdict: Option<crate::adapter::StepVerdict>,
+    /// What the read-back probes observed, when the step had an
+    /// expectation to observe against (task 6.2's verdict builder reads
+    /// it from here rather than re-running [`crate::adapter::observe`]).
+    pub observed: Option<crate::adapter::Observed>,
 }
 
 /// Diffs a suite's result files against its plan. `read` maps a result
 /// file name (e.g. `step-3-probe-0.txt`, `created.txt`) to its content,
 /// or `None` when the file does not exist.
 ///
+/// A `created.txt` line that is not a binding (a refused create's refusal
+/// text) records no binding; the step's own read-back judges it
+/// ([`crate::verdict::parse_created`]).
+///
 /// # Errors
 ///
-/// Fails on a malformed `created.txt` or an expectation whose object
-/// cannot be resolved — result files from a different suite or a
-/// truncated run.
+/// Fails on an expectation whose object cannot be resolved — result files
+/// from a different suite or a truncated run.
 pub fn diff(
     plan: &SuitePlan,
     read: impl Fn(&str) -> Option<String>,
@@ -793,15 +800,12 @@ pub fn diff(
     // Board names of created objects, recorded by the run.
     let mut names = Binding::default();
     if let Some(created) = read("created.txt") {
-        for line in created.lines().filter(|l| !l.trim().is_empty()) {
-            let (model, board) = line
-                .trim()
-                .split_once(' ')
-                .ok_or_else(|| format!("malformed created.txt line: `{line}`"))?;
+        for (model, board) in crate::verdict::parse_created(&created) {
             // Model ids appear in scripts in their model-space spelling
-            // (`dpni_0`, [`model_key`]); family names carry no
-            // underscore, so the first one is the separator.
-            names.bind_symbolic(model.replacen('_', ".", 1).parse::<ObjRef>()?, board.trim());
+            // (`dpni_0`, [`model_key`]); family names carry no underscore,
+            // so the first one is the separator. `parse_created` already
+            // enforced the `<fam>_<n>` shape, so the parse cannot fail.
+            names.bind_symbolic(model.replacen('_', ".", 1).parse::<ObjRef>()?, &board);
         }
     }
 
@@ -812,6 +816,7 @@ pub fn diff(
                 index: step.index,
                 title: step.title.clone(),
                 verdict: None,
+                observed: None,
             });
             continue;
         };
@@ -847,6 +852,7 @@ pub fn diff(
             index: step.index,
             title: step.title.clone(),
             verdict: Some(verdict),
+            observed: Some(observed),
         });
     }
     Ok(reports)
@@ -1468,6 +1474,37 @@ mod tests {
         let v = reports[3].verdict.as_ref().unwrap();
         assert!(!v.pass);
         assert!(v.exit.ok, "exit stays auxiliary evidence");
+    }
+
+    /// A refused create prints an empty board name (`dpdcei_0 `). The
+    /// diff must record no binding and let the step's read-back judge it,
+    /// rather than rejecting the whole run as malformed: the step then
+    /// fails on the object's absence, which is the truth.
+    #[test]
+    fn an_empty_created_name_judges_the_step_rather_than_erroring() {
+        let suite = generate(
+            &spec(SuiteKind::Standard),
+            &scratch_trace(),
+            RecoveryGuarantee::Verified,
+        )
+        .unwrap();
+        // The dprc create was refused: its name column is blank, and its
+        // read-back shows the object absent.
+        let results = |name: &str| -> Option<String> {
+            match name {
+                "created.txt" => Some("dprc_100 \n".to_owned()),
+                n if n.ends_with("-exit.txt") => Some("0\n".to_owned()),
+                _ => None,
+            }
+        };
+        let reports = diff(&suite.plan, results).expect("empty name is judged, not an error");
+        let v = reports[0].verdict.as_ref().expect("step 0 has a verdict");
+        assert!(!v.pass, "an absent object fails its presence check");
+        assert!(
+            v.mismatches.iter().any(|m| m.contains("present")),
+            "{:?}",
+            v.mismatches
+        );
     }
 
     /// A create-argument override reaches both artifacts — the rendered

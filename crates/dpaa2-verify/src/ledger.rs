@@ -65,6 +65,10 @@ pub struct LintInput<'a> {
     pub roadmap: &'a [(u32, String)],
     /// Canonical scenario ids from `traffic-inventory.md`.
     pub scenarios: &'a [String],
+    /// The committed verdict index (`models/board/VERDICTS.json`), so a
+    /// cited board verdict and a ledger `**passed**` can be checked
+    /// against the machine-readable fact.
+    pub index: &'a crate::verdict::Index,
     /// Reports whether `models/board/<id>/` exists.
     pub dir_exists: &'a dyn Fn(&str) -> bool,
 }
@@ -586,6 +590,121 @@ fn r6_levels(input: &LintInput<'_>, out: &mut Vec<String>) {
     }
 }
 
+/// Parses a board cell that opens `verified YYYY-MM-DD (V-<ID>` — the
+/// shape a suite writes when it is the board evidence — into `(date,
+/// suite id, optional revision)`. Returns `None` for any other cell (a
+/// face-qualified `... face verified`, an undated reference, prose that
+/// does not lead with a suite citation), which carries no index
+/// obligation.
+fn parse_verdict_citation(board: &str) -> Option<(String, String, Option<u32>)> {
+    if !dated_board_evidence(board) {
+        return None;
+    }
+    let rest = board.strip_prefix("verified ")?;
+    let date = rest.get(..10)?.to_owned();
+    let after = rest.get(10..)?.trim_start().strip_prefix('(')?;
+    let b = after.as_bytes();
+    let mut j = 0;
+    while j < b.len() && (b[j].is_ascii_uppercase() || b[j].is_ascii_digit() || b[j] == b'-') {
+        j += 1;
+    }
+    while j > 0 && b[j - 1] == b'-' {
+        j -= 1;
+    }
+    let suite = &after[..j];
+    if !is_scenario_id(suite) {
+        return None;
+    }
+    let rev = after[j..].trim_start().strip_prefix("rev ").and_then(|t| {
+        let digits: String = t
+            .trim_start()
+            .chars()
+            .take_while(char::is_ascii_digit)
+            .collect();
+        digits.parse::<u32>().ok()
+    });
+    Some((date, suite.to_owned(), rev))
+}
+
+/// R7: a `verified YYYY-MM-DD (V-<ID>[ rev N])` board cell must resolve to
+/// an index entry for that suite with `pass`, the same date, and — when a
+/// revision is cited — the same revision.
+fn r7_verdicts(input: &LintInput<'_>, out: &mut Vec<String>) {
+    for row in &input.coverage.rows {
+        let Some((date, suite, rev)) = parse_verdict_citation(&row.board) else {
+            continue;
+        };
+        let cite = match rev {
+            Some(n) => format!("{suite} rev {n} @ {date}"),
+            None => format!("{suite} @ {date}"),
+        };
+        match input.index.get(&suite) {
+            None => out.push(format!(
+                "R7 verdict: {} cites {cite} but the index holds no entry",
+                row.id
+            )),
+            Some(entries) => {
+                let matched = entries
+                    .values()
+                    .any(|s| s.pass && s.date == date && rev.is_none_or(|n| s.revision == n));
+                if !matched {
+                    let held = entries
+                        .values()
+                        .map(|s| format!("(pass={} date={} rev={})", s.pass, s.date, s.revision))
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    out.push(format!(
+                        "R7 verdict: {} cites {cite} but the index holds {held}",
+                        row.id
+                    ));
+                }
+            }
+        }
+    }
+}
+
+/// R8: a suite-ledger `**passed**` status matches a passing index entry
+/// for that suite (both ways), and every top-level index key is a
+/// suite-ledger id or a `<id>-<suffix>` half of one (e.g. the
+/// `V-DPRTC-3-postboot` reboot half).
+fn r8_ledger(input: &LintInput<'_>, out: &mut Vec<String>) {
+    for (id, status) in input.suites {
+        let claims_passed = status.contains("**passed**");
+        let has_pass = input
+            .index
+            .get(id)
+            .is_some_and(|m| m.values().any(|s| s.pass));
+        if claims_passed != has_pass {
+            out.push(format!(
+                "R8 ledger: suite {id} ledger status {} but the index {}",
+                if claims_passed {
+                    "says **passed**"
+                } else {
+                    "does not say **passed**"
+                },
+                if has_pass {
+                    "has a passing entry"
+                } else {
+                    "has no passing entry"
+                },
+            ));
+        }
+    }
+    for key in input.index.keys() {
+        let resolves = input.suites.iter().any(|(id, _)| {
+            key == id
+                || key
+                    .strip_prefix(id.as_str())
+                    .is_some_and(|s| s.starts_with('-'))
+        });
+        if !resolves {
+            out.push(format!(
+                "R8 ledger: index key {key} is neither a suite-ledger id nor a `<id>-<suffix>` half of one"
+            ));
+        }
+    }
+}
+
 /// Runs every rule and returns one human-readable finding per violation;
 /// an empty vector is the green verdict.
 #[must_use]
@@ -597,6 +716,8 @@ pub fn lint(input: &LintInput<'_>) -> Vec<String> {
     r4_changes(input, &mut out);
     r5_open(input, &mut out);
     r6_levels(input, &mut out);
+    r7_verdicts(input, &mut out);
+    r8_ledger(input, &mut out);
     out
 }
 
@@ -614,12 +735,19 @@ mod tests {
         }
     }
 
+    /// An empty index for the rules (R1–R6) that never consult it.
+    fn empty_index() -> crate::verdict::Index {
+        crate::verdict::Index::new()
+    }
+
+    #[allow(clippy::too_many_arguments)]
     fn base_input<'a>(
         coverage: &'a Coverage,
         baseline: &'a [(String, String)],
         suites: &'a [(String, String)],
         roadmap: &'a [(u32, String)],
         scenarios: &'a [String],
+        index: &'a crate::verdict::Index,
         dir_exists: &'a dyn Fn(&str) -> bool,
     ) -> LintInput<'a> {
         LintInput {
@@ -628,6 +756,7 @@ mod tests {
             suites,
             roadmap,
             scenarios,
+            index,
             dir_exists,
         }
     }
@@ -688,16 +817,20 @@ Tally: 1 modeled, 1 deferred, 0 board-settled, 0 board-pending — 2 candidates.
             rows: vec![cov_row("DPRC-I1", "modeled", "`core`", "—")],
         };
         let dir = |_: &str| true;
+        let index = empty_index();
         // Baseline carries an id COVERAGE lacks, and vice versa.
         let baseline = vec![("DPRC-I2".to_owned(), "candidate".to_owned())];
         let mut out = Vec::new();
-        r1_ids(&base_input(&cov, &baseline, &[], &[], &[], &dir), &mut out);
+        r1_ids(
+            &base_input(&cov, &baseline, &[], &[], &[], &index, &dir),
+            &mut out,
+        );
         assert_eq!(out.len(), 2, "{out:?}");
 
         let baseline_ok = vec![("DPRC-I1".to_owned(), "candidate".to_owned())];
         let mut ok = Vec::new();
         r1_ids(
-            &base_input(&cov, &baseline_ok, &[], &[], &[], &dir),
+            &base_input(&cov, &baseline_ok, &[], &[], &[], &index, &dir),
             &mut ok,
         );
         assert!(ok.is_empty(), "{ok:?}");
@@ -717,8 +850,12 @@ Tally: 1 modeled, 1 deferred, 0 board-settled, 0 board-pending — 2 candidates.
             rows: rows.clone(),
         };
         let dir = |_: &str| true;
+        let index = empty_index();
         let mut out = Vec::new();
-        r2_tally(&base_input(&bad, &[], &[], &[], &[], &dir), &mut out);
+        r2_tally(
+            &base_input(&bad, &[], &[], &[], &[], &index, &dir),
+            &mut out,
+        );
         assert_eq!(out.len(), 1, "{out:?}");
 
         let good = Coverage {
@@ -732,7 +869,10 @@ Tally: 1 modeled, 1 deferred, 0 board-settled, 0 board-pending — 2 candidates.
             rows,
         };
         let mut ok = Vec::new();
-        r2_tally(&base_input(&good, &[], &[], &[], &[], &dir), &mut ok);
+        r2_tally(
+            &base_input(&good, &[], &[], &[], &[], &index, &dir),
+            &mut ok,
+        );
         assert!(ok.is_empty(), "{ok:?}");
     }
 
@@ -748,9 +888,10 @@ Tally: 1 modeled, 1 deferred, 0 board-settled, 0 board-pending — 2 candidates.
             rows: vec![row],
         };
         let dir = |_: &str| true;
+        let index = empty_index();
         let mut out = Vec::new();
         r3_suites(
-            &base_input(&cov, &[], suites, &[], scenarios, &dir),
+            &base_input(&cov, &[], suites, &[], scenarios, &index, &dir),
             &mut out,
         );
         out
@@ -833,8 +974,12 @@ Tally: 1 modeled, 1 deferred, 0 board-settled, 0 board-pending — 2 candidates.
         };
         let roadmap = vec![(6, "pool-objects".to_owned())];
         let dir = |_: &str| true;
+        let index = empty_index();
         let mut out = Vec::new();
-        r4_changes(&base_input(&cov, &[], &[], &roadmap, &[], &dir), &mut out);
+        r4_changes(
+            &base_input(&cov, &[], &[], &roadmap, &[], &index, &dir),
+            &mut out,
+        );
         assert_eq!(out.len(), 1, "{out:?}");
 
         let cov_ok = Coverage {
@@ -842,7 +987,10 @@ Tally: 1 modeled, 1 deferred, 0 board-settled, 0 board-pending — 2 candidates.
             ..cov
         };
         let mut ok = Vec::new();
-        r4_changes(&base_input(&cov_ok, &[], &[], &roadmap, &[], &dir), &mut ok);
+        r4_changes(
+            &base_input(&cov_ok, &[], &[], &roadmap, &[], &index, &dir),
+            &mut ok,
+        );
         assert!(ok.is_empty(), "{ok:?}");
     }
 
@@ -864,8 +1012,12 @@ Tally: 1 modeled, 1 deferred, 0 board-settled, 0 board-pending — 2 candidates.
             )],
         };
         let dir = |_: &str| true;
+        let index = empty_index();
         let mut out = Vec::new();
-        r5_open(&base_input(&cov, &[], &[], &[], &[], &dir), &mut out);
+        r5_open(
+            &base_input(&cov, &[], &[], &[], &[], &index, &dir),
+            &mut out,
+        );
         assert_eq!(out.len(), 1, "{out:?}");
 
         let cov_ok = Coverage {
@@ -878,7 +1030,10 @@ Tally: 1 modeled, 1 deferred, 0 board-settled, 0 board-pending — 2 candidates.
             ..cov
         };
         let mut ok = Vec::new();
-        r5_open(&base_input(&cov_ok, &[], &[], &[], &[], &dir), &mut ok);
+        r5_open(
+            &base_input(&cov_ok, &[], &[], &[], &[], &index, &dir),
+            &mut ok,
+        );
         assert!(ok.is_empty(), "{ok:?}");
     }
 
@@ -902,14 +1057,138 @@ Tally: 1 modeled, 1 deferred, 0 board-settled, 0 board-pending — 2 candidates.
         };
         let baseline = vec![("DPRC-I9".to_owned(), "board-pending (unknown 1)".to_owned())];
         let dir = |_: &str| true;
+        let index = empty_index();
         let mut out = Vec::new();
-        r6_levels(&base_input(&cov, &baseline, &[], &[], &[], &dir), &mut out);
+        r6_levels(
+            &base_input(&cov, &baseline, &[], &[], &[], &index, &dir),
+            &mut out,
+        );
         assert!(!out.is_empty(), "{out:?}");
 
         let baseline_ok = vec![("DPRC-I9".to_owned(), "verified 2026".to_owned())];
         let mut ok = Vec::new();
         r6_levels(
-            &base_input(&cov, &baseline_ok, &[], &[], &[], &dir),
+            &base_input(&cov, &baseline_ok, &[], &[], &[], &index, &dir),
+            &mut ok,
+        );
+        assert!(ok.is_empty(), "{ok:?}");
+    }
+
+    /// A one-entry summary for the index-backed rules.
+    fn summ(pass: bool, date: &str, revision: u32) -> crate::verdict::Summary {
+        crate::verdict::Summary {
+            pass,
+            date: date.to_owned(),
+            kind: crate::verdict::Kind::Batch,
+            revision,
+            steps: "1/1".to_owned(),
+            source_hash: "fnv1a64:0".to_owned(),
+            hook: None,
+            archive: None,
+        }
+    }
+
+    fn one_entry(suite: &str, label: &str, s: crate::verdict::Summary) -> crate::verdict::Index {
+        let mut idx = crate::verdict::Index::new();
+        idx.entry(suite.to_owned())
+            .or_default()
+            .insert(label.to_owned(), s);
+        idx
+    }
+
+    #[test]
+    fn parse_verdict_citation_reads_date_suite_and_rev() {
+        assert_eq!(
+            parse_verdict_citation("verified 2026-08-23 (V-DPRC-1 rev 3, 13/13): x"),
+            Some(("2026-08-23".to_owned(), "V-DPRC-1".to_owned(), Some(3)))
+        );
+        assert_eq!(
+            parse_verdict_citation("verified 2026-08-25 (V-READBACK-1): y"),
+            Some(("2026-08-25".to_owned(), "V-READBACK-1".to_owned(), None))
+        );
+        // A face-qualified verdict does not lead with `verified` → no
+        // obligation.
+        assert_eq!(
+            parse_verdict_citation("positive face verified 2026-08-23 (V-DPSW-1)"),
+            None
+        );
+        // Undated reference → no obligation.
+        assert_eq!(parse_verdict_citation("verified (ADR-0007 §3)"), None);
+    }
+
+    #[test]
+    fn r7_flags_a_stale_verdict_and_passes_a_matching_one() {
+        let cov = Coverage {
+            tally: Tally {
+                modeled: 0,
+                deferred: 0,
+                board_settled: 1,
+                board_pending: 0,
+                candidates: 1,
+            },
+            rows: vec![cov_row(
+                "DPRC-I9",
+                "board-settled",
+                "V-DPRC-1",
+                "verified 2026-08-23 (V-DPRC-1 rev 3, 13/13): ok",
+            )],
+        };
+        let dir = |_: &str| true;
+
+        // The index holds the suite, but that revision did not pass.
+        let bad = one_entry("V-DPRC-1", "V-DPRC-1", summ(false, "2026-08-23", 3));
+        let mut out = Vec::new();
+        r7_verdicts(&base_input(&cov, &[], &[], &[], &[], &bad, &dir), &mut out);
+        assert_eq!(out.len(), 1, "{out:?}");
+
+        // A passing entry with the cited date and revision clears it.
+        let ok_idx = one_entry("V-DPRC-1", "V-DPRC-1", summ(true, "2026-08-23", 3));
+        let mut ok = Vec::new();
+        r7_verdicts(
+            &base_input(&cov, &[], &[], &[], &[], &ok_idx, &dir),
+            &mut ok,
+        );
+        assert!(ok.is_empty(), "{ok:?}");
+    }
+
+    #[test]
+    fn r8_flags_ledger_index_disagreement_and_orphan_keys() {
+        let cov = Coverage {
+            tally: Tally {
+                modeled: 0,
+                deferred: 0,
+                board_settled: 0,
+                board_pending: 0,
+                candidates: 0,
+            },
+            rows: vec![],
+        };
+        let dir = |_: &str| true;
+        let suites = vec![("V-DPRC-1".to_owned(), "**passed** (13/13)".to_owned())];
+
+        // Ledger claims passed but the index has no passing entry, and a
+        // stray key belongs to no ledger suite → two findings.
+        let mut bad = one_entry("V-DPRC-1", "V-DPRC-1", summ(false, "2026-08-23", 1));
+        bad.entry("V-ORPHAN-9".to_owned())
+            .or_default()
+            .insert("x".to_owned(), summ(true, "2026-08-23", 1));
+        let mut out = Vec::new();
+        r8_ledger(
+            &base_input(&cov, &[], &suites, &[], &[], &bad, &dir),
+            &mut out,
+        );
+        assert_eq!(out.len(), 2, "{out:?}");
+
+        // Passing entry present, and a `-postboot` half resolves to its
+        // ledger id → clean.
+        let mut ok_idx = one_entry("V-DPRC-1", "V-DPRC-1", summ(true, "2026-08-23", 1));
+        ok_idx
+            .entry("V-DPRC-1-postboot".to_owned())
+            .or_default()
+            .insert("p".to_owned(), summ(true, "2026-08-23", 1));
+        let mut ok = Vec::new();
+        r8_ledger(
+            &base_input(&cov, &[], &suites, &[], &[], &ok_idx, &dir),
             &mut ok,
         );
         assert!(ok.is_empty(), "{ok:?}");
