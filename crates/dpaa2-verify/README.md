@@ -34,7 +34,11 @@ The **MBT harness** (phase 4), four components over one seam:
   (every command visible, expected post-state beside each step,
   reference-pair assertion first, results to files, unconditional
   teardown trap, embedded total-deny self-check) plus a plan file the
-  harness diffs offline against the results. Mutating suites are
+  harness diffs offline against the results. Each step keeps its
+  stderr in `step-N-err.txt` (a refusal's MC status text included), and
+  the teardown trap saves the kernel log from the script's start marker
+  to `dmesg.txt`, so ADR-0008 rescan markers and probe refusals are
+  files, not operator memory. Mutating suites are
   refused until the recovery guarantee is verified (marker file
   committed by task 5.1); the recovery-verification suite itself must
   mutate only the scratch set it creates, and takes a different shape:
@@ -50,7 +54,10 @@ The **MBT harness** (phase 4), four components over one seam:
   shows the operator the same instruction the batch script prints and
   waits for the ack, promoted or not, because the instruction *is* the
   step; kernel-internal awaits (a probe, a pool draw) only settle. What
-  the operator was told is kept on the transcript line.
+  the operator was told is kept on the transcript line, as is the
+  `stderr` of every command the step ran, driven and probe alike; and
+  `drive` saves `dmesg.txt` — the kernel log from a start marker — beside
+  the transcript.
 
 A suite may also carry a **hook**: `--hook <path>` names a hand-written
 shell file the generated script sources after its last trace step and

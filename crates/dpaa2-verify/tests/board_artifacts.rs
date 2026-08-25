@@ -7,8 +7,9 @@
 
 use std::path::PathBuf;
 
-use dpaa2_verify::adapter::parse_mbt_trace;
+use dpaa2_verify::adapter::{CreateArgs, parse_mbt_trace};
 use dpaa2_verify::driver::{check_plan, parse_probe_plan};
+use dpaa2_verify::generate::{RecoveryGuarantee, SuiteKind, SuiteSpec, generate};
 use dpaa2_verify::safety::{RunClass, TrafficClass};
 
 /// Every committed artifact whose name ends in `suffix`, one per
@@ -58,6 +59,35 @@ fn committed_probe_plans_parse_and_clear_the_envelope() {
         };
         check_plan(run, &plan).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
     }
+}
+
+/// Committed passed scripts predate the per-step stderr and kernel-log
+/// capture and are deliberately not rewritten (the README's regenerate
+/// rule), so the guarantee is checked on a fresh regeneration of a
+/// committed trace: the emitter names both the per-step `step-N-err.txt`
+/// and the teardown's `dmesg.txt`.
+#[test]
+fn a_committed_trace_regenerates_with_stderr_and_kernel_log_capture() {
+    let path = format!(
+        "{}/../../models/board/V-READBACK-1/vreadback1.itf.json",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let json = std::fs::read_to_string(&path).expect("read committed trace");
+    let trace = parse_mbt_trace(&json).expect("parse trace");
+    let spec = SuiteSpec {
+        id: "V-READBACK-1".to_owned(),
+        run: RunClass {
+            class: TrafficClass::ObjectLifecycleOnly,
+            flagged: false,
+        },
+        kind: SuiteKind::Standard,
+        trace_file: path.clone(),
+        hook: None,
+        create_args: CreateArgs::default(),
+    };
+    let suite = generate(&spec, &trace, RecoveryGuarantee::Verified).expect("generate");
+    assert!(suite.script.contains("step-$1-err.txt"), "{}", suite.script);
+    assert!(suite.script.contains("dmesg.txt"), "{}", suite.script);
 }
 
 #[test]

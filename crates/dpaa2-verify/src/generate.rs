@@ -269,6 +269,17 @@ set -u
 RESULTS="${{1:?usage: $0 <results-dir>}}"
 mkdir -p "$RESULTS"
 
+# --- kernel-log window ---
+# A marker stamps the sitting's start in the kernel log; the teardown
+# saves everything after it to dmesg.txt, so rescan markers (ADR-0008)
+# and probe refusals are files, not operator memory.
+KMSG="dpaa2-verify {id} pid $$"
+echo "$KMSG start" > /dev/kmsg 2>/dev/null || true
+save_dmesg() {{
+  dmesg 2>/dev/null | awk -v m="$KMSG start" 'w || index($0, m) {{ w = 1 }} w' > "$RESULTS/dmesg.txt"
+  [ -s "$RESULTS/dmesg.txt" ] || dmesg > "$RESULTS/dmesg.txt" 2>&1 || true
+}}
+
 # --- independent safety self-check (ADR-0003 §4) ---
 # The execution side refuses total-deny references even if a script was
 # hand-edited after generation.
@@ -278,16 +289,20 @@ if grep -nE '{deny}' "$0" | grep -v safety-self-check; then
 fi
 
 # --- helpers ---
+# Exit status stays auxiliary evidence only; conformance is judged on
+# read-back (DPNI-I6, DPMAC-I8). stderr is where restool prints the MC
+# status text (e.g. `No privilege (status 0x4)`), which until now lived
+# only in ADR prose, so it is kept per step in step-N-err.txt.
+# keep_err N: append the last command's stderr to step-N-err.txt and still show it
+keep_err() {{ tee -a "$RESULTS/step-$1-err.txt" < "$RESULTS/.err" >&2; }}
 # run N cmd...: echo, execute, append the exit code to step-N-exit.txt.
-# Exit status is recorded as auxiliary evidence only; conformance is
-# judged on read-back (DPNI-I6, DPMAC-I8).
-run() {{ n="$1"; shift; echo "+ $*"; "$@"; echo $? >> "$RESULTS/step-$n-exit.txt"; }}
+run() {{ n="$1"; shift; echo "+ $*"; "$@" 2>"$RESULTS/.err"; rc=$?; keep_err "$n"; echo $rc >> "$RESULTS/step-$n-exit.txt"; }}
 # run_create N cmd...: like run, but prints the created object's name.
-run_create() {{ n="$1"; shift; echo "+ $*" >&2; out="$("$@")"; echo $? >> "$RESULTS/step-$n-exit.txt"; echo "$out"; }}
+run_create() {{ n="$1"; shift; echo "+ $*" >&2; out="$("$@" 2>"$RESULTS/.err")"; rc=$?; keep_err "$n"; echo $rc >> "$RESULTS/step-$n-exit.txt"; echo "$out"; }}
 # sysfs_write N path value
-sysfs_write() {{ n="$1"; echo "+ echo $3 > $2"; sh -c "echo $3 > $2"; echo $? >> "$RESULTS/step-$n-exit.txt"; }}
+sysfs_write() {{ n="$1"; echo "+ echo $3 > $2"; sh -c "echo $3 > $2" 2>"$RESULTS/.err"; rc=$?; keep_err "$n"; echo $rc >> "$RESULTS/step-$n-exit.txt"; }}
 # probe N M cmd...: capture read-back output, never fail the script.
-probe() {{ n="$1"; m="$2"; shift 2; echo "+ (probe) $*"; "$@" > "$RESULTS/step-$n-probe-$m.txt" 2>/dev/null || true; }}
+probe() {{ n="$1"; m="$2"; shift 2; echo "+ (probe) $*"; "$@" > "$RESULTS/step-$n-probe-$m.txt" 2>"$RESULTS/.err" || true; keep_err "$n"; }}
 # probe_link N M path: capture a sysfs driver link (empty = unbound).
 probe_link() {{ n="$1"; m="$2"; readlink "$3" > "$RESULTS/step-$n-probe-$m.txt" 2>/dev/null || true; }}
 
@@ -368,6 +383,7 @@ fn recovery_footer(id: &str) -> String {
          # The scratch set above is deliberately left in place. Now:\n\
          #   1. reboot the board\n\
          #   2. run {id}-postboot.sh with the same results directory\n\
+         save_dmesg\n\
          echo \"suite {id} mutations complete - scratch set left in place; reboot now\"\n"
     )
 }
@@ -713,7 +729,9 @@ pub fn generate(
                  restool dprc connect {root} --endpoint1={a} --endpoint2={b} {log}\n  sleep 2"
             );
         }
-        trap.push_str("}\ntrap teardown EXIT\n");
+        // The rescans the destroys and the severed-edge restore trigger
+        // are the window's point, so the kernel log is saved last.
+        trap.push_str("  save_dmesg\n}\ntrap teardown EXIT\n");
         let footer = format!("\necho \"suite {} complete\"\n", spec.id);
         (String::new(), trap, footer, None)
     };
@@ -1190,6 +1208,45 @@ mod tests {
         assert!(suite.postboot.is_none());
 
         sh_parses(s);
+    }
+
+    /// Every step keeps its stderr in a per-step file and the teardown
+    /// saves the kernel-log window: the MC status text of a refusal and
+    /// the ADR-0008 rescan markers become files, not operator memory.
+    /// The recovery suite has no trap, so its footer saves the log.
+    #[test]
+    fn steps_keep_stderr_and_the_trap_saves_the_kernel_log() {
+        let s = generate(
+            &spec(SuiteKind::Standard),
+            &scratch_trace(),
+            RecoveryGuarantee::Verified,
+        )
+        .unwrap()
+        .script;
+        assert!(s.contains("step-$1-err.txt"), "{s}");
+        assert!(s.contains("/dev/kmsg"), "{s}");
+        let trap = s.find("teardown() {").unwrap();
+        let trap_end = s.find("}\ntrap teardown EXIT").unwrap();
+        let save = s.find("save_dmesg\n}").unwrap();
+        assert!(
+            trap < save && save < trap_end,
+            "save_dmesg is the trap's last line"
+        );
+        sh_parses(&s);
+
+        // The recovery-verification suite has no trap; its footer saves
+        // the kernel log before the reboot that is its teardown.
+        let mut scratch = scratch_trace();
+        scratch.steps.pop();
+        let rec = generate(
+            &spec(SuiteKind::RecoveryVerification),
+            &scratch,
+            RecoveryGuarantee::Unverified,
+        )
+        .unwrap()
+        .script;
+        assert!(rec.contains("save_dmesg"), "{rec}");
+        sh_parses(&rec);
     }
 
     /// A hook carries the steps a trace cannot express (V-TRAF-0's

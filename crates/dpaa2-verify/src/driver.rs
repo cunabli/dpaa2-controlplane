@@ -52,11 +52,24 @@ pub trait Prompt {
     fn note(&mut self, text: &str);
 }
 
+/// One restool invocation's outcome. The exit flag is auxiliary
+/// evidence only; stderr is where the MC status text lands.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct RestoolRun {
+    /// Whether the command exited zero. Auxiliary evidence, never an
+    /// observation.
+    pub ok: bool,
+    /// Captured standard output (the created name, the `dprc show` text).
+    pub stdout: String,
+    /// Captured standard error — the MC status text of a refusal.
+    pub stderr: String,
+}
+
 /// The board side: command execution and sysfs access.
 pub trait BoardIo {
-    /// Runs `restool` with `argv`; returns (exit-ok, stdout). The exit
+    /// Runs `restool` with `argv`; returns its [`RestoolRun`]. The exit
     /// flag is auxiliary evidence only — never an observation.
-    fn restool(&mut self, argv: &[String]) -> (bool, String);
+    fn restool(&mut self, argv: &[String]) -> RestoolRun;
     /// Runs a probe step's command — `argv[0]` is the binary — and
     /// returns its exit code (`None` when it never exited: signal or
     /// failed spawn) with stdout and stderr captured whole. Probes ask
@@ -98,6 +111,10 @@ pub struct StepRecord {
     pub instruction: Option<String>,
     /// Board name bound for a created object, if any.
     pub created: Option<String>,
+    /// stderr of every command this step ran, driven and probe, in
+    /// order — the MC status text of a refusal.
+    #[serde(default)]
+    pub stderr: String,
     /// The model's expectation for this step's probes.
     pub expected: Option<Expected>,
     /// What the probes read back.
@@ -181,6 +198,7 @@ pub fn drive_trace(
             awaited: None,
             instruction: None,
             created: None,
+            stderr: String::new(),
             expected: None,
             observed: None,
             verdict: None,
@@ -219,13 +237,14 @@ pub fn drive_trace(
                     record.commands.push(render(cmd));
                     match cmd {
                         Cmd::Restool(argv) => {
-                            let (ok, out) = io.restool(argv);
-                            exit_ok &= ok;
+                            let r = io.restool(argv);
+                            exit_ok &= r.ok;
+                            record.stderr.push_str(&r.stderr);
                             if n == 0
                                 && let Some(c) = created
                             {
                                 let name = names
-                                    .bind_created(c, &out)
+                                    .bind_created(c, &r.stdout)
                                     .map_err(|e| format!("step {i}: {e}"))?;
                                 record.created = Some(name);
                             }
@@ -245,7 +264,11 @@ pub fn drive_trace(
         let outputs: Vec<String> = probes
             .iter()
             .map(|p| match p {
-                Probe::Restool(argv) | Probe::RestoolIface { argv, .. } => io.restool(argv).1,
+                Probe::Restool(argv) | Probe::RestoolIface { argv, .. } => {
+                    let r = io.restool(argv);
+                    record.stderr.push_str(&r.stderr);
+                    r.stdout
+                }
                 Probe::SysfsRead { path } => io.sysfs_read(path).unwrap_or_default(),
             })
             .collect();
@@ -635,7 +658,7 @@ pub fn drive_probes(
 
             if let Some(rb) = &step.readback {
                 let probes = [Probe::Restool(show_argv(&rb.container))];
-                let outputs = [io.restool(&show_argv(&rb.container)).1];
+                let outputs = [io.restool(&show_argv(&rb.container)).stdout];
                 let observed = crate::adapter::observe(&probes, &outputs, &rb.object)?;
                 let verdict = judge_presence(rb, observed.present);
                 prompt.note(&verdict.detail);
@@ -717,19 +740,58 @@ mod tests {
     }
 
     impl BoardIo for FakeBoard {
-        fn restool(&mut self, argv: &[String]) -> (bool, String) {
-            if argv.first().map(String::as_str) == Some("--script") {
+        fn restool(&mut self, argv: &[String]) -> RestoolRun {
+            let stdout = if argv.first().map(String::as_str) == Some("--script") {
                 let name = format!("{}.{}", argv[1], self.next_id);
                 self.next_id += 1;
-                (true, name)
+                name
             } else if argv.get(1).map(String::as_str) == Some("create") {
                 let name = format!("dprc.{}", self.next_id);
                 self.next_id += 1;
-                (true, name)
+                name
             } else if argv.get(1).map(String::as_str) == Some("show") {
-                (true, self.show.clone())
+                self.show.clone()
             } else {
-                (true, String::new())
+                String::new()
+            };
+            RestoolRun {
+                ok: true,
+                stdout,
+                stderr: String::new(),
+            }
+        }
+
+        fn exec(&mut self, _argv: &[String]) -> (Option<i32>, String) {
+            unreachable!("a trace-driven run executes no hand-authored command")
+        }
+
+        fn sysfs_write(&mut self, _path: &str, _value: &str) -> bool {
+            true
+        }
+
+        fn sysfs_read(&mut self, _path: &str) -> Option<String> {
+            None
+        }
+
+        fn settle(&mut self) {}
+    }
+
+    /// Board double that refuses every restool call: a create still names
+    /// the object on stdout so the run can bind it, but the MC status
+    /// text of the refusal rides stderr and the exit flag is false.
+    struct RefusalBoard;
+
+    impl BoardIo for RefusalBoard {
+        fn restool(&mut self, argv: &[String]) -> RestoolRun {
+            let stdout = if argv.first().map(String::as_str) == Some("--script") {
+                format!("{}.2", argv[1])
+            } else {
+                String::new()
+            };
+            RestoolRun {
+                ok: false,
+                stdout,
+                stderr: "MC error: No privilege (status 0x4)\n".to_owned(),
             }
         }
 
@@ -838,6 +900,32 @@ mod tests {
         assert_eq!(line.commands, vec!["restool --script dprc create dprc.1"]);
         assert_eq!(line.created.as_deref(), Some("dprc.2"));
         assert!(line.verdict.unwrap().pass);
+    }
+
+    /// A refusal's MC status text is the finding, and the exit flag is
+    /// only auxiliary — so the driver copies every command's stderr onto
+    /// the transcript line, driven creates and read-back probes alike.
+    #[test]
+    fn a_refusal_message_lands_in_the_transcript() {
+        let promoted = DriveConfig {
+            learning: false,
+            ..LIFECYCLE
+        };
+        let mut prompt = Scripted::new(vec![]);
+        let mut board = RefusalBoard;
+        let mut transcript = Vec::new();
+        // Promoted runs stop on the divergence a refused create causes,
+        // but the record is transcribed before the run stops.
+        let _ = drive_trace(
+            &one_create(),
+            promoted,
+            &mut board,
+            &mut prompt,
+            &mut transcript,
+        )
+        .unwrap();
+        let rec = first_record(&transcript);
+        assert!(rec.stderr.contains("status 0x4"), "{}", rec.stderr);
     }
 
     #[test]
@@ -1044,8 +1132,12 @@ mod tests {
     }
 
     impl BoardIo for ProbeBoard {
-        fn restool(&mut self, _argv: &[String]) -> (bool, String) {
-            (true, self.show.clone())
+        fn restool(&mut self, _argv: &[String]) -> RestoolRun {
+            RestoolRun {
+                ok: true,
+                stdout: self.show.clone(),
+                stderr: String::new(),
+            }
         }
 
         fn exec(&mut self, argv: &[String]) -> (Option<i32>, String) {

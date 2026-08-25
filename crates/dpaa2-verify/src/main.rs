@@ -184,20 +184,31 @@ impl dpaa2_verify::driver::Prompt for StdinPrompt {
     }
 }
 
-/// The live board: restool via `dpaa2_mc`'s runner, sysfs via `std::fs`.
-struct LiveBoard {
-    runner: dpaa2_mc::RestoolRunner,
-}
+/// The live board: restool via `std::process::Command`, sysfs via
+/// `std::fs`. The command is run directly rather than through the
+/// `dpaa2_mc` runner because that runner discards stderr on success, and
+/// stderr is where a refusal's MC status text lands.
+struct LiveBoard;
 
 impl dpaa2_verify::driver::BoardIo for LiveBoard {
-    fn restool(&mut self, argv: &[String]) -> (bool, String) {
-        let borrowed: Vec<&str> = argv.iter().map(String::as_str).collect();
-        match dpaa2_mc::Runner::run(&self.runner, &borrowed) {
-            Ok(out) => (true, out),
-            Err(e) => {
-                eprintln!("  (exit nonzero, auxiliary: {e})");
-                (false, String::new())
+    fn restool(&mut self, argv: &[String]) -> dpaa2_verify::driver::RestoolRun {
+        match std::process::Command::new("restool").args(argv).output() {
+            Ok(out) => {
+                let ok = out.status.success();
+                if !ok {
+                    eprintln!("  (exit nonzero, auxiliary: {})", out.status);
+                }
+                dpaa2_verify::driver::RestoolRun {
+                    ok,
+                    stdout: String::from_utf8_lossy(&out.stdout).into_owned(),
+                    stderr: String::from_utf8_lossy(&out.stderr).into_owned(),
+                }
             }
+            Err(e) => dpaa2_verify::driver::RestoolRun {
+                ok: false,
+                stdout: String::new(),
+                stderr: format!("failed to spawn restool: {e}"),
+            },
         }
     }
 
@@ -231,6 +242,30 @@ impl dpaa2_verify::driver::BoardIo for LiveBoard {
     fn settle(&mut self) {
         std::thread::sleep(std::time::Duration::from_secs(1));
     }
+}
+
+/// Everything the kernel log holds from the first line containing
+/// `marker` onward; the whole log when the marker is absent.
+fn lines_from_marker(log: &str, marker: &str) -> String {
+    match log.lines().position(|l| l.contains(marker)) {
+        Some(i) => {
+            let mut out = log.lines().skip(i).collect::<Vec<_>>().join("\n");
+            out.push('\n');
+            out
+        }
+        None => log.to_owned(),
+    }
+}
+
+/// Runs `dmesg` and keeps the window from `marker` on. Empty when dmesg
+/// cannot be run (off the board, or no privilege): the marker write and
+/// this capture are both best-effort.
+fn kernel_log_window(marker: &str) -> String {
+    let log = std::process::Command::new("dmesg")
+        .output()
+        .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
+        .unwrap_or_default();
+    lines_from_marker(&log, marker)
 }
 
 fn main() -> ExitCode {
@@ -391,9 +426,11 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
                 .append(true)
                 .open(&transcript)
                 .map_err(|e| format!("opening {}: {e}", transcript.display()))?;
-            let mut board = LiveBoard {
-                runner: dpaa2_mc::RestoolRunner::new(),
-            };
+            let mut board = LiveBoard;
+            // Stamp the kernel log so the window saved after the run
+            // starts here (best-effort, like the generated suites do).
+            let marker = format!("dpaa2-verify drive pid {} start", std::process::id());
+            let _ = std::fs::write("/dev/kmsg", &marker);
             let outcome = if let Some(probes) = probes {
                 let json = std::fs::read_to_string(&probes)
                     .map_err(|e| format!("reading {}: {e}", probes.display()))?;
@@ -419,7 +456,20 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
                     &mut out,
                 )?
             };
-            println!("outcome: {outcome:?}; transcript: {}", transcript.display());
+            // Whatever the outcome, keep the kernel log from the marker
+            // on beside the transcript: the driver's rescan markers and
+            // refusals become a file, not operator memory.
+            let dmesg_path = transcript
+                .parent()
+                .filter(|p| !p.as_os_str().is_empty())
+                .map_or_else(|| PathBuf::from("dmesg.txt"), |d| d.join("dmesg.txt"));
+            std::fs::write(&dmesg_path, kernel_log_window(&marker))
+                .map_err(|e| format!("writing {}: {e}", dmesg_path.display()))?;
+            println!(
+                "outcome: {outcome:?}; transcript: {}; kernel log: {}",
+                transcript.display(),
+                dmesg_path.display()
+            );
             Ok(match outcome {
                 dpaa2_verify::driver::Outcome::Completed => ExitCode::SUCCESS,
                 _ => ExitCode::FAILURE,
@@ -500,6 +550,16 @@ mod tests {
             .is_err()
         );
         assert!(Cli::try_parse_from(["v", "drive", "--transcript", "r"]).is_err());
+    }
+
+    /// The kernel-log window keeps everything from the marker on when it
+    /// is present, and the whole log when it is absent.
+    #[test]
+    fn kernel_log_window_keeps_the_suffix_from_the_marker() {
+        let log = "a\nb MARK here\nc\n";
+        assert_eq!(lines_from_marker(log, "MARK"), "b MARK here\nc\n");
+        // Marker absent → whole log unchanged.
+        assert_eq!(lines_from_marker("x\ny\n", "MARK"), "x\ny\n");
     }
 
     /// The snapshot subcommand parses its three forms: `render --out`,

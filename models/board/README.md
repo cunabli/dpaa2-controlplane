@@ -213,3 +213,18 @@ census: it reads every container and object back, not just the root
 count, so a swapped driver or a changed attribute shows up too. A
 zero-delta diff is the "no residue" verdict; any line is a leaked or
 mutated object to explain before the next sitting.
+
+Then archive the sitting's results outside the checkout:
+
+```sh
+mkdir -p ~/dpaa2-board-evidence
+tar czf ~/dpaa2-board-evidence/<ID>-$(date +%F).tar.gz -C results <ID> <ID>-snapshot
+```
+
+`results/` is gitignored operator material and a revision was lost once
+by being overwritten in place (V-DPSW-1 rev 1), so every sitting's
+results are archived at `~/dpaa2-board-evidence/` before the next
+revision runs. Scripts generated from now on also leave `step-N-err.txt`
+per step and `dmesg.txt` from the teardown — committed passed scripts
+predate that and are not rewritten, so regenerate before re-running one
+(as the rule above already says).

@@ -91,7 +91,7 @@ board task is an operator sitting sync point.
       dpdcei with a hook reading each back via `info`; settles the
       defaults the lifecycle suites never read (DPNI-I7, DPDMAI-I5,
       DPIO-I3, DPBP-I5, DPDCEI-I1's version half); inventory row added
-- [ ] 5.8 Harness: every step's stderr and MC status land beside its
+- [x] 5.8 Harness: every step's stderr and MC status land beside its
       exit file, the teardown trap saves the sitting's kernel-log
       window, and the operator instruction archives results outside
       the checkout — refusal evidence and ADR-0008 markers become files,
