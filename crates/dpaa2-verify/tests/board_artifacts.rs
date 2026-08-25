@@ -84,10 +84,53 @@ fn a_committed_trace_regenerates_with_stderr_and_kernel_log_capture() {
         trace_file: path.clone(),
         hook: None,
         create_args: CreateArgs::default(),
+        expected_refusals: std::collections::BTreeMap::new(),
     };
     let suite = generate(&spec, &trace, RecoveryGuarantee::Verified).expect("generate");
     assert!(suite.script.contains("step-$1-err.txt"), "{}", suite.script);
     assert!(suite.script.contains("dmesg.txt"), "{}", suite.script);
+}
+
+/// An expected-refusal probe step parses, carries the status name,
+/// clears the envelope, and the parser rejects a refusal on an
+/// instruction step or with an unknown status name.
+#[test]
+fn expected_refusal_probe_steps_parse_and_are_validated() {
+    let ok = r#"{
+      "suite": "V-DPRTC-1",
+      "class": "lifecycle",
+      "steps": [
+        {
+          "label": "second dprtc create refused",
+          "expect": "refused with No privilege",
+          "cmd": ["restool", "dprtc", "create", "--container=dprc.1"],
+          "refusal": "No privilege"
+        }
+      ]
+    }"#;
+    let plan = parse_probe_plan(ok).expect("parses");
+    assert_eq!(plan.steps[0].refusal.as_deref(), Some("No privilege"));
+    let run = RunClass {
+        class: plan.class,
+        flagged: false,
+    };
+    check_plan(run, &plan).expect("clears the envelope");
+
+    // A refusal on an instruction step runs no command to refuse.
+    let on_instruction = r#"{"suite":"S","class":"lifecycle","steps":[{"label":"l","expect":"e","instruction":"reboot","refusal":"No privilege"}]}"#;
+    assert!(
+        parse_probe_plan(on_instruction)
+            .unwrap_err()
+            .contains("instruction")
+    );
+
+    // An unknown MC status name is rejected.
+    let unknown = r#"{"suite":"S","class":"lifecycle","steps":[{"label":"l","expect":"e","cmd":["restool","x"],"refusal":"Nope"}]}"#;
+    assert!(
+        parse_probe_plan(unknown)
+            .unwrap_err()
+            .contains("MC status name")
+    );
 }
 
 #[test]

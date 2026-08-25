@@ -389,6 +389,12 @@ pub struct ProbeStep {
     pub exit: Option<ExitShape>,
     /// The presence read-back the command must produce, if any.
     pub readback: Option<ReadbackSpec>,
+    /// The MC status name the command must be refused with (e.g. `No
+    /// privilege`). A refusal is nonzero by construction, so it may not
+    /// sit beside `exit: zero`, and an instruction step runs no command
+    /// to refuse. Validated against [`crate::mcstatus`] by the parser.
+    #[serde(default)]
+    pub refusal: Option<String>,
 }
 
 /// A hand-authored probe plan: the questions a model trace cannot ask.
@@ -444,6 +450,14 @@ pub struct ProbeRecord {
     pub observed: Option<Observed>,
     /// Judgement of the read-back.
     pub readback_verdict: Option<ProbeVerdict>,
+    /// The MC status name the step declared the command must be refused
+    /// with, copied from the plan so a verdict built from the transcript
+    /// alone still knows what was expected.
+    #[serde(default)]
+    pub refusal: Option<String>,
+    /// Judgement of the declared refusal, if the step declared one.
+    #[serde(default)]
+    pub refusal_verdict: Option<ProbeVerdict>,
 }
 
 impl ProbeRecord {
@@ -464,6 +478,8 @@ impl ProbeRecord {
             exit_verdict: None,
             observed: None,
             readback_verdict: None,
+            refusal: step.refusal.clone(),
+            refusal_verdict: None,
         }
     }
 }
@@ -494,7 +510,22 @@ pub fn parse_probe_plan(json: &str) -> Result<ProbePlan, String> {
                     "{at}: `exit` and `readback` judge a command, and an instruction step runs none"
                 ));
             }
+            (None, Some(_)) if step.refusal.is_some() => {
+                return Err(format!(
+                    "{at}: `refusal` judges a command, and an instruction step runs none"
+                ));
+            }
             _ => {}
+        }
+        if let Some(name) = &step.refusal {
+            if crate::mcstatus::by_name(name).is_none() {
+                return Err(format!("{at}: refusal {name:?} is not an MC status name"));
+            }
+            if step.exit == Some(ExitShape::Zero) {
+                return Err(format!(
+                    "{at}: `refusal` implies a nonzero exit, so it cannot sit beside `exit: zero`"
+                ));
+            }
         }
     }
     Ok(plan)
@@ -553,6 +584,33 @@ fn judge_presence(rb: &ReadbackSpec, observed: Option<bool>) -> ProbeVerdict {
             rb.container
         ),
     }
+}
+
+/// Judges a refusal against the MC status the command actually printed:
+/// pass iff the output carries an MC status whose name is the one the
+/// step declared. The captured message is the finding, so the detail
+/// quotes both the expected name and what was found.
+fn judge_refusal(expected: &str, output: &str) -> ProbeVerdict {
+    match crate::verdict::mc_status(output) {
+        Some(status) => {
+            let name = status_name(&status);
+            ProbeVerdict {
+                pass: name == expected,
+                detail: format!("expected refusal {expected:?}, found {status:?}"),
+            }
+        }
+        None => ProbeVerdict {
+            pass: false,
+            detail: format!("expected refusal {expected:?}, no MC status in output"),
+        },
+    }
+}
+
+/// The name half of a `<name> (status 0x<hex>)` MC status string.
+pub(crate) fn status_name(status: &str) -> &str {
+    status
+        .split_once(" (status")
+        .map_or(status, |(name, _)| name)
 }
 
 /// Screens every command a plan would run — the steps' own and the
@@ -654,6 +712,13 @@ pub fn drive_probes(
                 let verdict = judge_exit(shape, code);
                 diverged |= !verdict.pass;
                 record.exit_verdict = Some(verdict);
+            }
+
+            if let Some(name) = &step.refusal {
+                let verdict = judge_refusal(name, record.output.as_deref().unwrap_or_default());
+                prompt.note(&verdict.detail);
+                diverged |= !verdict.pass;
+                record.refusal_verdict = Some(verdict);
             }
 
             if let Some(rb) = &step.readback {

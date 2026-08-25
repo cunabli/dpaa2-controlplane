@@ -56,7 +56,10 @@ test). Since task 6.2 it also resolves evidence: every dated
 `verified YYYY-MM-DD (V-… rev N …)` cell must match a passing entry of
 that suite, revision and date in `models/board/VERDICTS.json`, and
 every suite-ledger row that says passed must have one — a verdict
-written past its evidence is a red test, not a reading exercise.
+written past its evidence is a red test, not a reading exercise. Task
+6.4 adds the refusal side: every row of the MC status register
+(`docs/baseline/mc-status.md`) that cites a suite resolves to its
+verdict, and every status a verdict scored has a register row.
 
 Tally: 52 modeled, 49 deferred, 4 board-settled, 0 board-pending — 105 candidates.
 

@@ -74,6 +74,10 @@ pub struct StepOutcome {
     pub mismatches: Vec<String>,
     /// The MC status text of a refusal, when the step recorded one.
     pub refusal: Option<String>,
+    /// The MC status name the step declared it should be refused with, if
+    /// any (a batch plan's `refusal`, a probe step's `refusal`).
+    #[serde(default)]
+    pub expected_refusal: Option<String>,
     /// The operator skipped the step (probe runs only).
     pub skipped: bool,
 }
@@ -139,6 +143,12 @@ pub struct Summary {
     pub hook: Option<String>,
     /// The evidence archive path, when one was recorded.
     pub archive: Option<String>,
+    /// The MC status names any step was refused with (the observed
+    /// refusal text, expected or not), sorted and deduplicated. Empty for
+    /// a run that hit no refusal. `#[serde(default)]` so an index written
+    /// before this field parses.
+    #[serde(default)]
+    pub refusals: Vec<String>,
 }
 
 /// Suite id → run label (e.g. `V-READBACK-1`, `V-DPDBG-1/probes-rev2`) →
@@ -239,10 +249,14 @@ fn is_hook_scannable(name: &str) -> bool {
         && !json
 }
 
-/// Whether `s` is `<fam>_<n>` — ascii letters, `_`, ascii digits — the
-/// model-space spelling a script records (`dpni_0`).
+/// Whether `s` is a model id in either spelling: `<fam>_<n>` — the
+/// underscore form scripts record (`dpni_0`) — or `<fam>.<n>`, the dotted
+/// form the older recovery-suite emitter wrote to `created.txt`
+/// (`dprc.2`). Both are on disk, so `parse_created` accepts either and
+/// returns the id exactly as written; [`crate::generate::diff`]'s
+/// `replacen('_', ".", 1)` then normalises the separator before binding.
 fn is_model_id(s: &str) -> bool {
-    is_fam_sep(s, '_')
+    is_fam_sep(s, '_') || is_fam_sep(s, '.')
 }
 
 /// Whether `s` is `<fam>.<n>` — ascii letters, `.`, ascii digits — a board
@@ -316,6 +330,11 @@ pub fn from_batch(
             let refusal = read(&format!("step-{}-err.txt", r.index))
                 .as_deref()
                 .and_then(mc_status);
+            let expected_refusal = plan
+                .steps
+                .iter()
+                .find(|s| s.index == r.index)
+                .and_then(|s| s.refusal.clone());
             StepOutcome {
                 index: r.index,
                 title: r.title.clone(),
@@ -327,6 +346,7 @@ pub fn from_batch(
                     .as_ref()
                     .map_or_else(Vec::new, |v| v.mismatches.clone()),
                 refusal,
+                expected_refusal,
                 skipped: false,
             }
         })
@@ -368,21 +388,27 @@ pub fn from_batch(
 
 /// One probe record's outcome.
 fn probe_outcome(pr: &ProbeRecord) -> StepOutcome {
-    let has_verdict = pr.exit_verdict.is_some() || pr.readback_verdict.is_some();
+    let has_verdict =
+        pr.exit_verdict.is_some() || pr.readback_verdict.is_some() || pr.refusal_verdict.is_some();
     let conform = if pr.skipped || !has_verdict {
         None
     } else {
         Some(
             pr.exit_verdict.as_ref().is_none_or(|v| v.pass)
-                && pr.readback_verdict.as_ref().is_none_or(|v| v.pass),
+                && pr.readback_verdict.as_ref().is_none_or(|v| v.pass)
+                && pr.refusal_verdict.as_ref().is_none_or(|v| v.pass),
         )
     };
-    let mismatches = [pr.exit_verdict.as_ref(), pr.readback_verdict.as_ref()]
-        .into_iter()
-        .flatten()
-        .filter(|v| !v.pass)
-        .map(|v| v.detail.clone())
-        .collect();
+    let mismatches = [
+        pr.exit_verdict.as_ref(),
+        pr.readback_verdict.as_ref(),
+        pr.refusal_verdict.as_ref(),
+    ]
+    .into_iter()
+    .flatten()
+    .filter(|v| !v.pass)
+    .map(|v| v.detail.clone())
+    .collect();
     StepOutcome {
         index: pr.index,
         title: pr.label.clone(),
@@ -391,6 +417,7 @@ fn probe_outcome(pr: &ProbeRecord) -> StepOutcome {
         observed: pr.observed.clone(),
         mismatches,
         refusal: pr.output.as_deref().and_then(mc_status),
+        expected_refusal: pr.refusal.clone(),
         skipped: pr.skipped,
     }
 }
@@ -408,6 +435,7 @@ fn trace_outcome(sr: &StepRecord) -> StepOutcome {
             .as_ref()
             .map_or_else(Vec::new, |v| v.mismatches.clone()),
         refusal: mc_status(&sr.stderr),
+        expected_refusal: None,
         skipped: false,
     }
 }
@@ -483,6 +511,14 @@ pub fn summary(v: &Verdict, archive: Option<String>) -> Summary {
         let passing = v.hook.iter().filter(|h| h.pass).count();
         format!("{passing}/{}", v.hook.len())
     });
+    let mut refusals: Vec<String> = v
+        .steps
+        .iter()
+        .filter_map(|s| s.refusal.as_deref())
+        .map(|r| crate::driver::status_name(r).to_owned())
+        .collect();
+    refusals.sort();
+    refusals.dedup();
     Summary {
         pass: v.pass,
         date: v.date.clone(),
@@ -492,6 +528,7 @@ pub fn summary(v: &Verdict, archive: Option<String>) -> Summary {
         source_hash: v.source_hash.clone(),
         hook,
         archive,
+        refusals,
     }
 }
 
@@ -729,12 +766,16 @@ Usage: restool dpdcei create --engine=<engine> --priority=<number> [OPTIONS]
 --engine=<engine>
    compression or decompression engine to be selected.
 dpni_0 dpni.1
+dpbp.0 dpbp.1
 ";
+        // The dotted `dpbp.0` is the older recovery emitter's model-id
+        // spelling and must bind too, returned exactly as written.
         assert_eq!(
             parse_created(text),
             vec![
                 ("dprc_2".to_owned(), "dprc.2".to_owned()),
                 ("dpni_0".to_owned(), "dpni.1".to_owned()),
+                ("dpbp.0".to_owned(), "dpbp.1".to_owned()),
             ]
         );
     }

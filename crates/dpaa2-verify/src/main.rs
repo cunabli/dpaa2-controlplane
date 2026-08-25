@@ -76,6 +76,12 @@ enum Command {
         /// Recorded in the plan. Repeatable, once per family.
         #[arg(long, value_name = "FAM=ARGS")]
         create_args: Vec<String>,
+        /// A step the board is expected to refuse, `<N>=<STATUS NAME>`
+        /// (e.g. `1=No privilege`). That step drops its read-back
+        /// expectation and is judged by its nonzero exit and the captured
+        /// MC status instead. Repeatable.
+        #[arg(long, value_name = "N=STATUS")]
+        expect_refusal: Vec<String>,
         /// Directory to write `<id>.sh` and `<id>.plan.json` into.
         #[arg(long)]
         out: PathBuf,
@@ -321,6 +327,7 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
             recovery_marker,
             hook,
             create_args,
+            expect_refusal,
             out,
         } => {
             let json = std::fs::read_to_string(&trace)
@@ -354,6 +361,10 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
                 create_args: create_args
                     .iter()
                     .map(|f| dpaa2_verify::adapter::CreateArgs::parse_flag(f))
+                    .collect::<Result<_, String>>()?,
+                expected_refusals: expect_refusal
+                    .iter()
+                    .map(|s| parse_expect_refusal(s))
                     .collect::<Result<_, String>>()?,
             };
             let recovery = if recovery_marker.exists() {
@@ -493,6 +504,21 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
         }
         Command::Snapshot { what } => run_snapshot(what),
     }
+}
+
+/// Parses a `--expect-refusal <N>=<STATUS NAME>` flag into a step index
+/// and a status name. The name itself is validated against the MC status
+/// table by `generate`, which also knows the trace length to reject an
+/// out-of-range index.
+fn parse_expect_refusal(spec: &str) -> Result<(usize, String), String> {
+    let (n, name) = spec
+        .split_once('=')
+        .ok_or_else(|| format!("--expect-refusal expects `<N>=<STATUS NAME>`, got {spec:?}"))?;
+    let idx = n
+        .trim()
+        .parse::<usize>()
+        .map_err(|_| format!("--expect-refusal step index {n:?} is not a number"))?;
+    Ok((idx, name.to_owned()))
 }
 
 /// The parsed `diff` arguments, shared by its plan and transcript arms.

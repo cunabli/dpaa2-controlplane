@@ -130,7 +130,7 @@ board task is an operator sitting sync point.
       links and API versions as redacted JSON; one clean-boot reference
       committed; replaces the head-count census, structures the
       recovery diff, and is the #10 differential gate's format
-- [ ] 6.4 MC status register: refusal codes as a lint-checked table
+- [x] 6.4 MC status register: refusal codes as a lint-checked table
       seeded with the five seen so far; plans carry expected refusals
       that `diff` scores from captured stderr
 - [ ] 6.5 Ioctl command-policy coverage: the reference kernel's fsl-mc

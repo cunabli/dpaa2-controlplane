@@ -10,7 +10,7 @@
 use std::path::{Path, PathBuf};
 
 use dpaa2_verify::ledger::{
-    Coverage, LintInput, lint, parse_baseline_table, parse_coverage, parse_roadmap,
+    Coverage, LintInput, lint, parse_baseline_table, parse_coverage, parse_register, parse_roadmap,
     parse_scenario_ids, parse_suite_ledger,
 };
 use dpaa2_verify::verdict::{Index, parse_index};
@@ -62,6 +62,7 @@ fn the_four_ledgers_agree() {
     let board = root.join("models/board");
     let index: Index =
         parse_index(&read(&root, "models/board/VERDICTS.json")).expect("parse VERDICTS.json");
+    let register = parse_register(&read(&root, "docs/baseline/mc-status.md"));
     let dir_exists = move |id: &str| board.join(id).is_dir();
 
     let input = LintInput {
@@ -71,6 +72,7 @@ fn the_four_ledgers_agree() {
         roadmap: &roadmap,
         scenarios: &scenarios,
         index: &index,
+        register: &register,
         dir_exists: &dir_exists,
     };
 

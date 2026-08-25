@@ -239,6 +239,17 @@ A suite that must create an object with non-default `restool` arguments
 family and the plan records them, while the model stays free of the
 create detail.
 
+A step the board is expected to refuse names the status it must be
+refused with (`docs/baseline/mc-status.md`, task 6.4). In a probe plan
+that is `"refusal": "No privilege"` beside the step's `cmd`; for a
+generated suite it is `--expect-refusal <step>=<status>` at
+generation, which records the status on the plan step and drops that
+step's model read-back (the refused action never reaches the model's
+post-state). `diff` scores the step from its exit file and
+`step-N-err.txt`, the verdict keeps the status text observed, and the
+index lists every status a run scored, so a refusal without a register
+row — or a register row without a verdict — fails `cargo test`.
+
 ### After every sitting: snapshot and diff
 
 Run the read-only census on the board, then parse and diff it against

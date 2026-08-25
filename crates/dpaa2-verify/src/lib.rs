@@ -12,6 +12,8 @@ pub mod generate;
 pub mod itf;
 /// Cross-checks the hand-maintained coverage/baseline/suite/roadmap docs.
 pub mod ledger;
+/// The MC command status table as code (task 6.4).
+pub mod mcstatus;
 pub mod replay;
 pub mod safety;
 pub mod snapshot;

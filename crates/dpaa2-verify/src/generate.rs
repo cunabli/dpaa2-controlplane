@@ -20,6 +20,7 @@
 //! nothing but objects it creates — the scratch set the reboot must
 //! erase.
 
+use std::collections::BTreeMap;
 use std::fmt::Write as _;
 
 use crate::adapter::{
@@ -82,6 +83,12 @@ pub struct SuiteSpec {
     /// instead of the adapter's default table. Empty renders every
     /// create on the defaults, as every committed suite was generated.
     pub create_args: CreateArgs,
+    /// Steps the model drives but the board is expected to refuse, by
+    /// step index → MC status name (e.g. `No privilege`). Such a step
+    /// keeps its probes as evidence but drops its expected post-state —
+    /// once the action is refused the model's post-state is wrong by
+    /// construction. Validated against [`crate::mcstatus`].
+    pub expected_refusals: BTreeMap<usize, String>,
 }
 
 /// One step of the offline-diffable plan.
@@ -100,6 +107,14 @@ pub struct PlanStep {
     pub created: Option<ObjRef>,
     /// The model's expectation for the probes, if the step has one.
     pub expected: Option<Expected>,
+    /// The MC status name this step is expected to be refused with, if
+    /// any. A refusal step carries no `expected` (the model's post-state
+    /// is wrong once the action is refused); [`diff`] judges it by the
+    /// nonzero exit and the captured MC status instead. Absent from plans
+    /// generated without a refusal, so committed plans re-serialize
+    /// byte-identically.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub refusal: Option<String>,
 }
 
 /// The offline-diffable suite plan.
@@ -492,6 +507,19 @@ pub fn generate(
     recovery: RecoveryGuarantee,
 ) -> Result<Suite, String> {
     safety::check_trace(spec.run, trace).map_err(|v| v.to_string())?;
+    for (&idx, name) in &spec.expected_refusals {
+        if crate::mcstatus::by_name(name).is_none() {
+            return Err(format!(
+                "expected refusal {name:?} is not an MC status name"
+            ));
+        }
+        if idx >= trace.steps.len() {
+            return Err(format!(
+                "expected refusal on step {idx}, past the trace's {} steps",
+                trace.steps.len()
+            ));
+        }
+    }
     if spec.kind == SuiteKind::RecoveryVerification && spec.hook.is_some() {
         return Err(
             "refusing: a recovery-verification suite takes no hook — the reboot is its \
@@ -613,7 +641,14 @@ pub fn generate(
 
         let expected =
             expect(&step.action, &pre, &step.post).map_err(|e| format!("step {i}: {e}"))?;
-        if let Some(ref e) = expected {
+        // A step the board is expected to refuse drops its post-state
+        // expectation — refused, the model's post-state is wrong — but
+        // keeps its probes below as read-back evidence.
+        let refusal = spec.expected_refusals.get(&i).cloned();
+        let expected = if refusal.is_some() { None } else { expected };
+        if let Some(name) = &refusal {
+            let _ = writeln!(body, "# expect: refused with {name}");
+        } else if let Some(ref e) = expected {
             let _ = writeln!(body, "{}", expect_comment(e));
         }
         let sym_probes =
@@ -638,6 +673,7 @@ pub fn generate(
             probes: plan_probes,
             created,
             expected,
+            refusal,
         });
         pre = step.post.clone();
     }
@@ -781,6 +817,51 @@ pub struct StepReport {
     pub observed: Option<crate::adapter::Observed>,
 }
 
+/// Judges a refusal step from its result files: it passes iff every
+/// recorded exit was nonzero (the command was refused) and
+/// `step-N-err.txt` carries an MC status whose name is the one the step
+/// declared. The verdict is built directly — a refused step has no
+/// post-state to read back — with exit kept as auxiliary evidence.
+fn refusal_report(
+    step: &PlanStep,
+    name: &str,
+    read: &impl Fn(&str) -> Option<String>,
+) -> StepReport {
+    let exit_text = read(&format!("step-{}-exit.txt", step.index)).unwrap_or_default();
+    let codes: Vec<i32> = exit_text
+        .lines()
+        .filter_map(|l| l.trim().parse::<i32>().ok())
+        .collect();
+    let all_nonzero = !codes.is_empty() && codes.iter().all(|c| *c != 0);
+    let exit_ok = exit_text
+        .lines()
+        .all(|l| l.trim() == "0" || l.trim().is_empty());
+    let err_text = read(&format!("step-{}-err.txt", step.index)).unwrap_or_default();
+    let status = crate::verdict::mc_status(&err_text);
+    let name_matches = status.as_deref().map(crate::driver::status_name) == Some(name);
+
+    let mut mismatches = Vec::new();
+    if !all_nonzero {
+        mismatches.push(format!(
+            "expected the command to be refused (nonzero exit), exits were {codes:?}"
+        ));
+    }
+    if !name_matches {
+        let found = status.as_deref().unwrap_or("no MC status in output");
+        mismatches.push(format!("expected refusal {name:?}, found {found:?}"));
+    }
+    StepReport {
+        index: step.index,
+        title: step.title.clone(),
+        verdict: Some(crate::adapter::StepVerdict {
+            pass: mismatches.is_empty(),
+            mismatches,
+            exit: crate::adapter::ExitEvidence { ok: exit_ok },
+        }),
+        observed: None,
+    }
+}
+
 /// Diffs a suite's result files against its plan. `read` maps a result
 /// file name (e.g. `step-3-probe-0.txt`, `created.txt`) to its content,
 /// or `None` when the file does not exist.
@@ -811,6 +892,10 @@ pub fn diff(
 
     let mut reports = Vec::new();
     for step in &plan.steps {
+        if let Some(name) = &step.refusal {
+            reports.push(refusal_report(step, name, &read));
+            continue;
+        }
         let Some(ref expected) = step.expected else {
             reports.push(StepReport {
                 index: step.index,
@@ -877,6 +962,7 @@ mod tests {
             trace_file: "test.itf.json".to_owned(),
             hook: None,
             create_args: CreateArgs::default(),
+            expected_refusals: BTreeMap::new(),
         }
     }
 
@@ -1569,5 +1655,101 @@ mod tests {
         let json = serde_json::to_string(&plain.plan).unwrap();
         assert!(!json.contains("create_args"), "{json}");
         assert!(plain.plan.create_args.is_empty());
+    }
+
+    /// An expected refusal drops that step's read-back expectation (the
+    /// model's post-state is wrong once the action is refused) but keeps
+    /// its probes as evidence; `diff` then judges the step by its nonzero
+    /// exit and the captured MC status, not by a read-back.
+    #[test]
+    fn an_expected_refusal_drops_read_back_and_is_judged_by_exit_and_status() {
+        let mut over_spec = spec(SuiteKind::Standard);
+        over_spec.expected_refusals = [(1usize, "No privilege".to_owned())].into_iter().collect();
+        let suite = generate(&over_spec, &scratch_trace(), RecoveryGuarantee::Verified).unwrap();
+
+        let step1 = suite.plan.steps.iter().find(|s| s.index == 1).unwrap();
+        assert_eq!(step1.refusal.as_deref(), Some("No privilege"));
+        assert!(
+            step1.expected.is_none(),
+            "a refused step drops its expectation"
+        );
+        assert!(!step1.probes.is_empty(), "probes stay as evidence");
+        assert!(suite.script.contains("# expect: refused with No privilege"));
+        sh_parses(&suite.script);
+
+        // Common result files (self-contained per closure so each can be
+        // passed by value); only step 1's exit/err differ per case.
+        let common = |name: &str| -> Option<String> {
+            match name {
+                "created.txt" => Some("dprc_100 dprc.2\n".to_owned()),
+                "step-0-probe-0.txt" => Some("dprc.2    unplugged\n".to_owned()),
+                _ => None,
+            }
+        };
+        // A nonzero exit and a matching MC status pass the refusal step.
+        let pass = |name: &str| -> Option<String> {
+            match name {
+                "step-1-exit.txt" => Some("1\n".to_owned()),
+                "step-1-err.txt" => {
+                    Some("restool: MC error: No privilege (status 0x4)\n".to_owned())
+                }
+                n if n.ends_with("-exit.txt") => Some("0\n".to_owned()),
+                other => common(other),
+            }
+        };
+        let reports = diff(&suite.plan, pass).unwrap();
+        assert!(
+            reports[1].verdict.as_ref().unwrap().pass,
+            "{:?}",
+            reports[1]
+        );
+
+        // A clean exit fails — the command was not refused.
+        let clean = |name: &str| -> Option<String> {
+            match name {
+                "step-1-err.txt" => {
+                    Some("restool: MC error: No privilege (status 0x4)\n".to_owned())
+                }
+                n if n.ends_with("-exit.txt") => Some("0\n".to_owned()),
+                other => common(other),
+            }
+        };
+        let reports = diff(&suite.plan, clean).unwrap();
+        assert!(!reports[1].verdict.as_ref().unwrap().pass);
+
+        // A different MC status fails, naming the expected one.
+        let other = |name: &str| -> Option<String> {
+            match name {
+                "step-1-exit.txt" => Some("1\n".to_owned()),
+                "step-1-err.txt" => {
+                    Some("restool: MC error: Device is busy (status 0xa)\n".to_owned())
+                }
+                n if n.ends_with("-exit.txt") => Some("0\n".to_owned()),
+                other => common(other),
+            }
+        };
+        let reports = diff(&suite.plan, other).unwrap();
+        let v = reports[1].verdict.as_ref().unwrap();
+        assert!(!v.pass);
+        assert!(
+            v.mismatches.iter().any(|m| m.contains("No privilege")),
+            "{:?}",
+            v.mismatches
+        );
+    }
+
+    /// An unknown status name, or an index past the trace, is refused at
+    /// generation.
+    #[test]
+    fn generate_rejects_a_bad_expected_refusal() {
+        let mut bad_name = spec(SuiteKind::Standard);
+        bad_name.expected_refusals = [(1usize, "Nope".to_owned())].into_iter().collect();
+        let err = generate(&bad_name, &scratch_trace(), RecoveryGuarantee::Verified).unwrap_err();
+        assert!(err.contains("MC status name"), "{err}");
+
+        let mut past_end = spec(SuiteKind::Standard);
+        past_end.expected_refusals = [(99usize, "No privilege".to_owned())].into_iter().collect();
+        let err = generate(&past_end, &scratch_trace(), RecoveryGuarantee::Verified).unwrap_err();
+        assert!(err.contains("past the trace"), "{err}");
     }
 }

@@ -69,6 +69,10 @@ pub struct LintInput<'a> {
     /// cited board verdict and a ledger `**passed**` can be checked
     /// against the machine-readable fact.
     pub index: &'a crate::verdict::Index,
+    /// The parsed `docs/baseline/mc-status.md` refusal register, so a
+    /// register row's cited scenario and status name can be checked
+    /// against the index and the MC status table (R9, R10).
+    pub register: &'a [RegisterRow],
     /// Reports whether `models/board/<id>/` exists.
     pub dir_exists: &'a dyn Fn(&str) -> bool,
 }
@@ -263,6 +267,52 @@ pub fn parse_scenario_ids(md: &str) -> Vec<String> {
         .flat_map(|(_, rows)| rows)
         .filter_map(|r| r.into_iter().next())
         .filter(|c| is_scenario_id(c))
+        .collect()
+}
+
+/// One row of the `docs/baseline/mc-status.md` refusal register.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RegisterRow {
+    /// The MC status code, `None` for a `—` (non-MC refusal) cell.
+    pub code: Option<u8>,
+    /// The `Status` cell: a restool status name, `unknown`, or `—`.
+    pub status: String,
+    /// The `Evidence` cell verbatim (cites `V-<ID>[ rev N]` and/or ADRs).
+    pub evidence: String,
+}
+
+/// Parses a `0x4`-style hex code cell into a `u8`; `None` for `—` or any
+/// non-hex cell.
+fn parse_code_cell(s: &str) -> Option<u8> {
+    let hex = s
+        .trim()
+        .strip_prefix("0x")
+        .or_else(|| s.trim().strip_prefix("0X"))?;
+    u8::from_str_radix(hex, 16).ok()
+}
+
+/// Parses the refusal register — the SECOND table of
+/// `docs/baseline/mc-status.md`, keyed on its header (`Code`, `Status`,
+/// …, `Evidence`) so it is found by shape, not position (the first table
+/// is the twelve-code reference, whose third column is `errno`).
+#[must_use]
+pub fn parse_register(md: &str) -> Vec<RegisterRow> {
+    tables(md)
+        .into_iter()
+        .find(|(h, _)| h.first().is_some_and(|c| c == "Code") && h.iter().any(|c| c == "Evidence"))
+        .map(|(_, rows)| rows)
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|r| {
+            let code_cell = r.first()?;
+            let status = r.get(1)?.clone();
+            let evidence = r.last()?.clone();
+            Some(RegisterRow {
+                code: parse_code_cell(code_cell),
+                status,
+                evidence,
+            })
+        })
         .collect()
 }
 
@@ -705,6 +755,76 @@ fn r8_ledger(input: &LintInput<'_>, out: &mut Vec<String>) {
     }
 }
 
+/// The revision cited right after `id` in `text` (`V-DPCI-1 rev 2`), if
+/// any.
+fn cited_rev(text: &str, id: &str) -> Option<u32> {
+    let pos = text.find(id)?;
+    let after = text[pos + id.len()..].trim_start();
+    let digits: String = after
+        .strip_prefix("rev ")?
+        .trim_start()
+        .chars()
+        .take_while(char::is_ascii_digit)
+        .collect();
+    digits.parse().ok()
+}
+
+/// R9: a register row whose `Status` is a name must be a real MC status
+/// name whose code the row's `Code` matches; and a row citing a scenario
+/// id (optionally `rev N`) must resolve to an index entry for that suite
+/// (and revision when given). A row citing only ADRs is exempt.
+fn r9_register(input: &LintInput<'_>, out: &mut Vec<String>) {
+    for row in input.register {
+        let at = format!("row {:?} (code {:?})", row.status, row.code);
+        if row.status != "unknown" && row.status != "—" {
+            match crate::mcstatus::by_name(&row.status) {
+                None => out.push(format!(
+                    "R9 register: {at}: Status {:?} is not an MC status name",
+                    row.status
+                )),
+                Some(st) if row.code != Some(st.code) => out.push(format!(
+                    "R9 register: {at}: Status {:?} is code {:#x} but the row's Code is {:?}",
+                    row.status, st.code, row.code
+                )),
+                Some(_) => {}
+            }
+        }
+        for id in scenario_refs(&row.evidence) {
+            match input.index.get(&id) {
+                None => out.push(format!(
+                    "R9 register: {at}: cites {id} but the index holds no entry for it"
+                )),
+                Some(entries) => {
+                    if let Some(rev) = cited_rev(&row.evidence, &id)
+                        && !entries.values().any(|s| s.revision == rev)
+                    {
+                        out.push(format!(
+                            "R9 register: {at}: cites {id} rev {rev} but the index has no such revision"
+                        ));
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// R10: every status name in any index entry's `refusals` must appear as
+/// the `Status` of at least one register row.
+fn r10_register(input: &LintInput<'_>, out: &mut Vec<String>) {
+    let statuses: Vec<&str> = input.register.iter().map(|r| r.status.as_str()).collect();
+    for (suite, entries) in input.index {
+        for (label, s) in entries {
+            for name in &s.refusals {
+                if !statuses.contains(&name.as_str()) {
+                    out.push(format!(
+                        "R10 register: index entry {suite}/{label} observed refusal {name:?} but no register row has that Status"
+                    ));
+                }
+            }
+        }
+    }
+}
+
 /// Runs every rule and returns one human-readable finding per violation;
 /// an empty vector is the green verdict.
 #[must_use]
@@ -718,6 +838,8 @@ pub fn lint(input: &LintInput<'_>) -> Vec<String> {
     r6_levels(input, &mut out);
     r7_verdicts(input, &mut out);
     r8_ledger(input, &mut out);
+    r9_register(input, &mut out);
+    r10_register(input, &mut out);
     out
 }
 
@@ -757,6 +879,7 @@ mod tests {
             roadmap,
             scenarios,
             index,
+            register: &[],
             dir_exists,
         }
     }
@@ -1085,6 +1208,7 @@ Tally: 1 modeled, 1 deferred, 0 board-settled, 0 board-pending — 2 candidates.
             source_hash: "fnv1a64:0".to_owned(),
             hook: None,
             archive: None,
+            refusals: Vec::new(),
         }
     }
 
@@ -1191,6 +1315,128 @@ Tally: 1 modeled, 1 deferred, 0 board-settled, 0 board-pending — 2 candidates.
             &base_input(&cov, &[], &suites, &[], &[], &ok_idx, &dir),
             &mut ok,
         );
+        assert!(ok.is_empty(), "{ok:?}");
+    }
+
+    /// An empty coverage for the register rules (R9, R10) that never read
+    /// it.
+    fn empty_cov() -> Coverage {
+        Coverage {
+            tally: Tally {
+                modeled: 0,
+                deferred: 0,
+                board_settled: 0,
+                board_pending: 0,
+                candidates: 0,
+            },
+            rows: vec![],
+        }
+    }
+
+    fn reg(code: Option<u8>, status: &str, evidence: &str) -> RegisterRow {
+        RegisterRow {
+            code,
+            status: status.to_owned(),
+            evidence: evidence.to_owned(),
+        }
+    }
+
+    fn reg_input<'a>(
+        cov: &'a Coverage,
+        index: &'a crate::verdict::Index,
+        register: &'a [RegisterRow],
+        dir: &'a dyn Fn(&str) -> bool,
+    ) -> LintInput<'a> {
+        LintInput {
+            coverage: cov,
+            baseline: &[],
+            suites: &[],
+            roadmap: &[],
+            scenarios: &[],
+            index,
+            register,
+            dir_exists: dir,
+        }
+    }
+
+    #[test]
+    fn parse_register_reads_the_second_table_not_the_first() {
+        let md = "\
+| Code | Status | errno | restool exit |
+|------|--------|-------|--------------|
+| 0x4 | No privilege | EPERM | 255 |
+
+| Code | Status | Family · verb | Condition | Raised by | Evidence |
+|------|--------|---------------|-----------|-----------|----------|
+| 0x4 | No privilege | dprtc create | second instance | firmware | V-DPRTC-1 rev 2 |
+| — | — | dpni set | bad flag | restool | ADR-0009 |
+";
+        let register = parse_register(md);
+        assert_eq!(register.len(), 2);
+        assert_eq!(register[0].code, Some(0x4));
+        assert_eq!(register[0].status, "No privilege");
+        assert!(register[0].evidence.contains("V-DPRTC-1 rev 2"));
+        assert_eq!(register[1].code, None);
+        assert_eq!(register[1].status, "—");
+    }
+
+    #[test]
+    fn r9_flags_bad_name_wrong_code_and_missing_verdict_then_passes() {
+        let cov = empty_cov();
+        let dir = |_: &str| true;
+        let index = one_entry("V-DPCI-1", "V-DPCI-1-rev2", summ(true, "2026-08-23", 2));
+
+        // A non-status name, a right name with the wrong code, and a
+        // citation to a suite the index does not hold → three findings.
+        let bad = vec![
+            reg(Some(0x4), "Nope", "ADR-0009"),
+            reg(Some(0x5), "No privilege", "ADR-0009"),
+            reg(Some(0x4), "No privilege", "V-MISSING-9"),
+        ];
+        let mut out = Vec::new();
+        r9_register(&reg_input(&cov, &index, &bad, &dir), &mut out);
+        assert_eq!(out.len(), 3, "{out:?}");
+
+        // Right name+code, a resolving suite+revision, and an ADR-only
+        // non-MC row → clean.
+        let good = vec![
+            reg(Some(0x4), "No privilege", "V-DPCI-1 rev 2"),
+            reg(None, "—", "ADR-0009"),
+        ];
+        let mut ok = Vec::new();
+        r9_register(&reg_input(&cov, &index, &good, &dir), &mut ok);
+        assert!(ok.is_empty(), "{ok:?}");
+    }
+
+    #[test]
+    fn r9_flags_a_cited_revision_the_index_lacks() {
+        let cov = empty_cov();
+        let dir = |_: &str| true;
+        let index = one_entry("V-DPCI-1", "V-DPCI-1", summ(true, "2026-08-23", 1));
+        let register = vec![reg(Some(0x4), "No privilege", "V-DPCI-1 rev 2")];
+        let mut out = Vec::new();
+        r9_register(&reg_input(&cov, &index, &register, &dir), &mut out);
+        assert_eq!(out.len(), 1, "{out:?}");
+    }
+
+    #[test]
+    fn r10_flags_an_unregistered_refusal_then_passes() {
+        let cov = empty_cov();
+        let dir = |_: &str| true;
+        let mut s = summ(true, "2026-08-23", 1);
+        s.refusals = vec!["No privilege".to_owned()];
+        let index = one_entry("V-DPCI-1", "V-DPCI-1", s);
+
+        // The register does not carry the observed status → one finding.
+        let bad = vec![reg(Some(0xA), "Device is busy", "—")];
+        let mut out = Vec::new();
+        r10_register(&reg_input(&cov, &index, &bad, &dir), &mut out);
+        assert_eq!(out.len(), 1, "{out:?}");
+
+        // The register carries it → clean.
+        let good = vec![reg(Some(0x4), "No privilege", "—")];
+        let mut ok = Vec::new();
+        r10_register(&reg_input(&cov, &index, &good, &dir), &mut ok);
         assert!(ok.is_empty(), "{ok:?}");
     }
 }
