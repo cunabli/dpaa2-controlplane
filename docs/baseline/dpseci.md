@@ -216,7 +216,7 @@ runtime model.
 | Id | Proposition | Observables | Status |
 |---|---|---|---|
 | DPSECI-I1 | `options`, tx/rx queue counts, and per-queue tx priorities are immutable post-create; no setter exists (tx queues have no set path at all) | `get_attributes` + per-queue `get_tx_queue` before/after suites | candidate |
-| DPSECI-I2 | Create precondition (restool layer): priorities count = num-queues, each in 1–8; MC-layer validation is unknown and must not be assumed | restool exit on mismatch; MC status on out-of-range via DPL | verified (restool layer, in production use) |
+| DPSECI-I2 | Create precondition (restool layer): priorities count = num-queues, each in 1–8; MC-layer validation is unknown and must not be assumed | restool exit on mismatch; MC status on out-of-range via DPL | restool layer board-anchored 2026-08-23 (V-LIFE-DPSECI-1 rev 1: `--num-queues` and `--priorities` demanded as a pair; also in production use); MC-layer validation board-pending → V-DPSECI-1 under `dpseci-typestate` (#8) |
 | DPSECI-I3 | **Breaking:** the model must NOT treat restool `info` output as the convergence observable for this family — the options mask is not printed; only raw `GET_ATTR` observes it | info output vs GET_ATTR response | candidate |
 | DPSECI-I4 | Safety: consumer backpressure exists iff `HAS_CG` was set at create; absent it, enqueue is unbounded (kernel consumer) | congestion config presence; enqueue behavior at saturation | candidate |
 | DPSECI-I5 | **Breaking:** the model must NOT assume unbind ⇒ clean MC state: the kernel reset is gated on API > 5.3, and rx-queue steering + armed CG (with dangling iova) persist when skipped | `get_rx_queue`/`get_congestion_notification` after unbind | board-pending (board API is 5.4 → reset expected live) |

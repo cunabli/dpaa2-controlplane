@@ -146,8 +146,8 @@ must also name the userspace consumer, or be refused.
 | DPCI-I1 | Pair symmetry: connection is one peer exactly, set only via dprc connect; Rx capacity is own priority count, Tx capacity is the peer's — asymmetric pairs give asymmetric directions | `dpci info` both ends; Tx FQID validity per priority | candidate |
 | DPCI-I2 | **Breaking:** the model must NOT carry `options` as configurable state — the flag is discarded on the wire by every flib and unreadable back; model dpci as options-less until a fixed flib exists | flib marshalling; GET_ATTR shape | candidate (corpus-proven) |
 | DPCI-I3 | **Breaking:** the model must NOT equate object existence with bus visibility — dpci create performs no rescan; MC state and sysfs state diverge until an explicit rescan | sysfs before/after `--rescan` | candidate |
-| DPCI-I4 | Exercisability without AIOP: create + connect of a GPP↔GPP pair succeeds on this DPC (no platform gate exists for dpci, unlike dpaiop) | create/connect/`link status` on the board | board-pending |
-| DPCI-I5 | Consumer-required liveness: link state reflects consumer enable, not mere connection — a restool-only pair may never leave link-down | `dpci info` after connect, before any enable | board-pending (decides the intent-layer contract) |
+| DPCI-I4 | Exercisability without AIOP: create + connect of a GPP↔GPP pair succeeds on this DPC (no platform gate exists for dpci, unlike dpaiop) | create/connect/`link status` on the board | verified 2026-08-23 (V-DPCI-1 rev 2, 7/7): a bare GPP↔GPP pair in a scratch container was created and connected (the connect issued against the root ancestor) and read back peered at 1 priority each — no platform gate |
+| DPCI-I5 | Consumer-required liveness: link state reflects consumer enable, not mere connection — a restool-only pair may never leave link-down | `dpci info` after connect, before any enable | verified 2026-08-23 (V-LINK-1): the pair reads `link status: 0 - down` right after the connect and restool has no enable verb for the family, so link-up is the consumer's to grant — the intent-layer contract is decided |
 
 ## Unknown / unverified register
 

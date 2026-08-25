@@ -32,6 +32,28 @@ Dispositions:
   status of `open:` on any row names the scenario still to run and the
   change that owns it.
 
+Two caveats every Board status cell carries, so no cell repeats them:
+
+- **Observations are the MC as restool renders it.** Every read-back
+  in this ledger went through `restool … info` / `dprc show`, so a
+  "verified" cell settles what restool reports, not what the MC command
+  returned; a rendering gap (a counter restool hides, a field it
+  reformats) is invisible here until `mc-portal-backend` (#10) gives the
+  harness a raw command path.
+- **The evidence is one board on one stamped reference pair** (MC
+  firmware + kernel of `docs/baseline/reference-environment.md`). A
+  cell is a fact about that pair; a different firmware or kernel is a
+  re-run, not an inference.
+
+The ledger is lint-checked (`crates/dpaa2-verify/tests/ledger_lint.rs`,
+task 6.1): candidate ids match the baseline tables both ways, the tally
+line matches the recount, every cited suite has a `models/board/<id>/`
+directory and a suite-ledger row, every `→ change (#N)` names roadmap
+row N, every `open:` cell names an owning change, and each baseline
+status cell agrees with its row here (a baseline `board-pending`
+against a verified or board-settled row, or the reverse, is a red
+test).
+
 Tally: 52 modeled, 49 deferred, 4 board-settled, 0 board-pending — 105 candidates.
 
 | Candidate | Disposition | Location / owning change / settling scenario | CI rung | Board status |

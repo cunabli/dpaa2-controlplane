@@ -117,7 +117,7 @@ board task is an operator sitting sync point.
 
 ## 6. Evidence automation (self-standing; gates close-out)
 
-- [ ] 6.1 Ledger lint: a cargo test cross-checks COVERAGE.md against
+- [x] 6.1 Ledger lint: a cargo test cross-checks COVERAGE.md against
       the baseline invariant tables, the suite ledger and the roadmap
       (ids both ways, tally, cited suites exist, owning changes named,
       baseline status cells level); legend carries the restool-rendering

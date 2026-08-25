@@ -10,6 +10,8 @@ pub mod adapter;
 pub mod driver;
 pub mod generate;
 pub mod itf;
+/// Cross-checks the hand-maintained coverage/baseline/suite/roadmap docs.
+pub mod ledger;
 pub mod replay;
 pub mod safety;
 pub mod snapshot;
