@@ -136,6 +136,35 @@ Probe lines in the transcript carry `"kind": "probe"` and the plan's
 label, expectation, captured output, exit code, verdicts and skip flag,
 so one file can hold both kinds of run.
 
+## Board snapshot
+
+A sitting has to be shown to have left no residue. `snapshot` takes a
+full, read-only census of the MC container tree and reduces it to a
+deterministic JSON that two captures can diff.
+
+- `snapshot render --out <file>` emits the capture script: a `sh` walk
+  that lists every container (`dprc list --full-path`), reads every
+  object back with `restool <fam> info`, follows each object's sysfs
+  driver link, records the three reference versions and the
+  `generate-dpl` topology. It names no object literally — every name
+  comes from a loop over the live tree — and carries the same
+  total-deny self-check and reference-pair assertion a generated suite
+  does. Run it on the board: `sh snapshot.sh results/<id>-snapshot`.
+- `snapshot parse <dir> --out <json>` folds one capture directory into
+  the snapshot JSON.
+- `snapshot diff <a.json> <b.json>` prints one line per delta and exits
+  nonzero when they differ — a zero-delta diff against the reference is
+  the "no residue" verdict.
+
+The only board text that carries identifying information is a MAC
+address, so any `hh:hh:hh:hh:hh:hh` token in any captured value, label
+or `mc.global` dump is masked to `xx:xx:xx:xx:xx:xx`; nothing else is
+(the kernel string is `uname -r`, and `info` output carries no
+hostnames). Traffic counters (the dpni statistics keys and the dpmac
+`Counters:` block) are dropped so the diff stays blind to traffic. The
+committed clean-boot reference lives at
+`models/board/baselines/reference.json`.
+
 ## How the replay works
 
 A frozen trace is a sequence of MC-legal states produced by the core

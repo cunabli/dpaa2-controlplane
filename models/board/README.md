@@ -24,7 +24,9 @@ carry the judgment.
 
 `RECOVERY-VERIFIED` is the recovery-guarantee marker (ADR-0003 §7):
 committed when suite V-RECOVERY-1 passed, its presence is what lets the
-generator emit mutating suites.
+generator emit mutating suites. `baselines/` holds the read-only board
+snapshot script (`snapshot.sh`) and the committed clean-boot reference
+(`reference.json`) a sitting's residue is diffed against.
 
 ## Suite ledger
 
@@ -187,3 +189,20 @@ after its last step and before its teardown trap, so the hook sees the
 script's variables (`$OBJ_…`, `$RESULTS`) and never has to name or
 reclaim anything itself. Hooks are screened by the safety envelope at
 generation and by the script's own self-check at run time.
+
+### After every sitting: snapshot and diff
+
+Run the read-only census on the board, then parse and diff it against
+the committed clean-boot reference:
+
+```sh
+sh models/board/baselines/snapshot.sh results/<ID>-snapshot   # on the board
+cargo run -p dpaa2-verify -- snapshot parse results/<ID>-snapshot --out results/<ID>-snapshot/snapshot.json
+cargo run -p dpaa2-verify -- snapshot diff models/board/baselines/reference.json results/<ID>-snapshot/snapshot.json
+```
+
+This replaces the `restool dprc show dprc.1 | head -1` object-count
+census: it reads every container and object back, not just the root
+count, so a swapped driver or a changed attribute shows up too. A
+zero-delta diff is the "no residue" verdict; any line is a leaked or
+mutated object to explain before the next sitting.

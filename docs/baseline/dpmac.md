@@ -272,8 +272,11 @@ either, and reading it as evidence of *anything* stable is unsafe
 4. Which of DPC `mac_addr` vs bootloader programs the burned-in MAC on
    this board (outside the corpus; the inheritance chain itself is
    verified).
-5. Board's DPMAC API version as reported (expected 4.10; kernel never
-   logs it — one `dpmac info` line settles it and DPMAC-I7's count).
+5. ~~Board's DPMAC API version as reported (expected 4.10; kernel never
+   logs it — one `dpmac info` line settles it and DPMAC-I7's count).~~ —
+   resolved: 4.10 [board-observed 2026-08-25, clean-boot snapshot,
+   reference-environment.md]; DPMAC-I7's counter half stays with
+   unknown 7.
 6. Wire-format history of `GET_ATTR` v1→v3 and `GET_LINK_CFG`/
    `SET_LINK_STATE` v1→v2 (only the newest layout per snapshot).
 7. Whether counters ≥ 28 are refused cleanly by 10.39 firmware (feeds

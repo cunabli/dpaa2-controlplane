@@ -1,0 +1,1437 @@
+{
+  "versions": {
+    "restool": "restool v2.4 (commit lf-6.6.52-2.2.0) (MC 10.32.0 compatible)",
+    "mc_firmware": "10.39.0",
+    "kernel": "6.6.52-clearfog-cx"
+  },
+  "containers": {
+    "dprc.1": {
+      "parent": null,
+      "objects": [
+        "dpni.0",
+        "dpbp.0",
+        "dpmac.17",
+        "dpmac.10",
+        "dpmac.9",
+        "dpmac.8",
+        "dpmac.7",
+        "dpmac.6",
+        "dpmac.5",
+        "dpmac.4",
+        "dpmac.3",
+        "dpseci.0",
+        "dpmcp.52",
+        "dpmcp.51",
+        "dpmcp.50",
+        "dpmcp.49",
+        "dpmcp.48",
+        "dpmcp.47",
+        "dpmcp.46",
+        "dpmcp.45",
+        "dpmcp.44",
+        "dpmcp.43",
+        "dpmcp.42",
+        "dpmcp.41",
+        "dpmcp.40",
+        "dpmcp.39",
+        "dpmcp.38",
+        "dpmcp.37",
+        "dpmcp.36",
+        "dpmcp.35",
+        "dpmcp.34",
+        "dpmcp.33",
+        "dpmcp.32",
+        "dpmcp.31",
+        "dpmcp.30",
+        "dpmcp.29",
+        "dpmcp.28",
+        "dpmcp.27",
+        "dpmcp.26",
+        "dpmcp.25",
+        "dpmcp.24",
+        "dpmcp.23",
+        "dpmcp.22",
+        "dpmcp.21",
+        "dpmcp.20",
+        "dpmcp.19",
+        "dpmcp.18",
+        "dpmcp.17",
+        "dpmcp.16",
+        "dpmcp.15",
+        "dpmcp.14",
+        "dpmcp.13",
+        "dpmcp.12",
+        "dpmcp.11",
+        "dpmcp.10",
+        "dpmcp.9",
+        "dpmcp.8",
+        "dpmcp.7",
+        "dpmcp.6",
+        "dpmcp.5",
+        "dpmcp.4",
+        "dpmcp.3",
+        "dpmcp.2",
+        "dpmcp.1",
+        "dprtc.0",
+        "dpio.15",
+        "dpio.14",
+        "dpio.13",
+        "dpio.12",
+        "dpio.11",
+        "dpio.10",
+        "dpio.9",
+        "dpio.8",
+        "dpio.7",
+        "dpio.6",
+        "dpio.5",
+        "dpio.4",
+        "dpio.3",
+        "dpio.2",
+        "dpio.1",
+        "dpio.0",
+        "dpcon.15",
+        "dpcon.14",
+        "dpcon.13",
+        "dpcon.12",
+        "dpcon.11",
+        "dpcon.10",
+        "dpcon.9",
+        "dpcon.8",
+        "dpcon.7",
+        "dpcon.6",
+        "dpcon.5",
+        "dpcon.4",
+        "dpcon.3",
+        "dpcon.2",
+        "dpcon.1",
+        "dpcon.0"
+      ]
+    }
+  },
+  "mc_global": "dprc.0 contains 1 objects:\nobject\t\tlabel\t\tplugged-state\ndprc.1\t\t\t\tunplugged",
+  "objects": {
+    "dpbp.0": {
+      "container": "dprc.1",
+      "label": "",
+      "plugged": true,
+      "driver": "fsl_mc_allocator",
+      "info": {
+        "buffer pool id": "0",
+        "dpbp id": "0",
+        "dpbp version": "3.4",
+        "plugged state": "plugged"
+      }
+    },
+    "dpcon.0": {
+      "container": "dprc.1",
+      "label": "",
+      "plugged": true,
+      "driver": "fsl_mc_allocator",
+      "info": {
+        "dpcon id": "0",
+        "dpcon version": "3.3",
+        "num_priorities": "2",
+        "plugged state": "plugged",
+        "qbman channel id to be used by dequeue operation": "1"
+      }
+    },
+    "dpcon.1": {
+      "container": "dprc.1",
+      "label": "",
+      "plugged": true,
+      "driver": "fsl_mc_allocator",
+      "info": {
+        "dpcon id": "1",
+        "dpcon version": "3.3",
+        "num_priorities": "2",
+        "plugged state": "plugged",
+        "qbman channel id to be used by dequeue operation": "2"
+      }
+    },
+    "dpcon.10": {
+      "container": "dprc.1",
+      "label": "",
+      "plugged": true,
+      "driver": "fsl_mc_allocator",
+      "info": {
+        "dpcon id": "10",
+        "dpcon version": "3.3",
+        "num_priorities": "2",
+        "plugged state": "plugged",
+        "qbman channel id to be used by dequeue operation": "11"
+      }
+    },
+    "dpcon.11": {
+      "container": "dprc.1",
+      "label": "",
+      "plugged": true,
+      "driver": "fsl_mc_allocator",
+      "info": {
+        "dpcon id": "11",
+        "dpcon version": "3.3",
+        "num_priorities": "2",
+        "plugged state": "plugged",
+        "qbman channel id to be used by dequeue operation": "12"
+      }
+    },
+    "dpcon.12": {
+      "container": "dprc.1",
+      "label": "",
+      "plugged": true,
+      "driver": "fsl_mc_allocator",
+      "info": {
+        "dpcon id": "12",
+        "dpcon version": "3.3",
+        "num_priorities": "2",
+        "plugged state": "plugged",
+        "qbman channel id to be used by dequeue operation": "13"
+      }
+    },
+    "dpcon.13": {
+      "container": "dprc.1",
+      "label": "",
+      "plugged": true,
+      "driver": "fsl_mc_allocator",
+      "info": {
+        "dpcon id": "13",
+        "dpcon version": "3.3",
+        "num_priorities": "2",
+        "plugged state": "plugged",
+        "qbman channel id to be used by dequeue operation": "14"
+      }
+    },
+    "dpcon.14": {
+      "container": "dprc.1",
+      "label": "",
+      "plugged": true,
+      "driver": "fsl_mc_allocator",
+      "info": {
+        "dpcon id": "14",
+        "dpcon version": "3.3",
+        "num_priorities": "2",
+        "plugged state": "plugged",
+        "qbman channel id to be used by dequeue operation": "15"
+      }
+    },
+    "dpcon.15": {
+      "container": "dprc.1",
+      "label": "",
+      "plugged": true,
+      "driver": "fsl_mc_allocator",
+      "info": {
+        "dpcon id": "15",
+        "dpcon version": "3.3",
+        "num_priorities": "2",
+        "plugged state": "plugged",
+        "qbman channel id to be used by dequeue operation": "16"
+      }
+    },
+    "dpcon.2": {
+      "container": "dprc.1",
+      "label": "",
+      "plugged": true,
+      "driver": "fsl_mc_allocator",
+      "info": {
+        "dpcon id": "2",
+        "dpcon version": "3.3",
+        "num_priorities": "2",
+        "plugged state": "plugged",
+        "qbman channel id to be used by dequeue operation": "3"
+      }
+    },
+    "dpcon.3": {
+      "container": "dprc.1",
+      "label": "",
+      "plugged": true,
+      "driver": "fsl_mc_allocator",
+      "info": {
+        "dpcon id": "3",
+        "dpcon version": "3.3",
+        "num_priorities": "2",
+        "plugged state": "plugged",
+        "qbman channel id to be used by dequeue operation": "4"
+      }
+    },
+    "dpcon.4": {
+      "container": "dprc.1",
+      "label": "",
+      "plugged": true,
+      "driver": "fsl_mc_allocator",
+      "info": {
+        "dpcon id": "4",
+        "dpcon version": "3.3",
+        "num_priorities": "2",
+        "plugged state": "plugged",
+        "qbman channel id to be used by dequeue operation": "5"
+      }
+    },
+    "dpcon.5": {
+      "container": "dprc.1",
+      "label": "",
+      "plugged": true,
+      "driver": "fsl_mc_allocator",
+      "info": {
+        "dpcon id": "5",
+        "dpcon version": "3.3",
+        "num_priorities": "2",
+        "plugged state": "plugged",
+        "qbman channel id to be used by dequeue operation": "6"
+      }
+    },
+    "dpcon.6": {
+      "container": "dprc.1",
+      "label": "",
+      "plugged": true,
+      "driver": "fsl_mc_allocator",
+      "info": {
+        "dpcon id": "6",
+        "dpcon version": "3.3",
+        "num_priorities": "2",
+        "plugged state": "plugged",
+        "qbman channel id to be used by dequeue operation": "7"
+      }
+    },
+    "dpcon.7": {
+      "container": "dprc.1",
+      "label": "",
+      "plugged": true,
+      "driver": "fsl_mc_allocator",
+      "info": {
+        "dpcon id": "7",
+        "dpcon version": "3.3",
+        "num_priorities": "2",
+        "plugged state": "plugged",
+        "qbman channel id to be used by dequeue operation": "8"
+      }
+    },
+    "dpcon.8": {
+      "container": "dprc.1",
+      "label": "",
+      "plugged": true,
+      "driver": "fsl_mc_allocator",
+      "info": {
+        "dpcon id": "8",
+        "dpcon version": "3.3",
+        "num_priorities": "2",
+        "plugged state": "plugged",
+        "qbman channel id to be used by dequeue operation": "9"
+      }
+    },
+    "dpcon.9": {
+      "container": "dprc.1",
+      "label": "",
+      "plugged": true,
+      "driver": "fsl_mc_allocator",
+      "info": {
+        "dpcon id": "9",
+        "dpcon version": "3.3",
+        "num_priorities": "2",
+        "plugged state": "plugged",
+        "qbman channel id to be used by dequeue operation": "10"
+      }
+    },
+    "dpio.0": {
+      "container": "dprc.1",
+      "label": "",
+      "plugged": true,
+      "driver": "fsl_mc_dpio",
+      "info": {
+        "dpio channel mode is": "DPIO_LOCAL_CHANNEL",
+        "dpio id": "0",
+        "dpio version": "4.3",
+        "number of priorities is": "0x8",
+        "offset of qbman software portal cache-enabled area": "0x20000",
+        "offset of qbman software portal cache-inhibited area": "0x4020000",
+        "plugged state": "plugged",
+        "qbman software portal id": "0x2"
+      }
+    },
+    "dpio.1": {
+      "container": "dprc.1",
+      "label": "",
+      "plugged": true,
+      "driver": "fsl_mc_dpio",
+      "info": {
+        "dpio channel mode is": "DPIO_LOCAL_CHANNEL",
+        "dpio id": "1",
+        "dpio version": "4.3",
+        "number of priorities is": "0x8",
+        "offset of qbman software portal cache-enabled area": "0x30000",
+        "offset of qbman software portal cache-inhibited area": "0x4030000",
+        "plugged state": "plugged",
+        "qbman software portal id": "0x3"
+      }
+    },
+    "dpio.10": {
+      "container": "dprc.1",
+      "label": "",
+      "plugged": true,
+      "driver": "fsl_mc_dpio",
+      "info": {
+        "dpio channel mode is": "DPIO_LOCAL_CHANNEL",
+        "dpio id": "10",
+        "dpio version": "4.3",
+        "number of priorities is": "0x8",
+        "offset of qbman software portal cache-enabled area": "0xc0000",
+        "offset of qbman software portal cache-inhibited area": "0x40c0000",
+        "plugged state": "plugged",
+        "qbman software portal id": "0xc"
+      }
+    },
+    "dpio.11": {
+      "container": "dprc.1",
+      "label": "",
+      "plugged": true,
+      "driver": "fsl_mc_dpio",
+      "info": {
+        "dpio channel mode is": "DPIO_LOCAL_CHANNEL",
+        "dpio id": "11",
+        "dpio version": "4.3",
+        "number of priorities is": "0x8",
+        "offset of qbman software portal cache-enabled area": "0xd0000",
+        "offset of qbman software portal cache-inhibited area": "0x40d0000",
+        "plugged state": "plugged",
+        "qbman software portal id": "0xd"
+      }
+    },
+    "dpio.12": {
+      "container": "dprc.1",
+      "label": "",
+      "plugged": true,
+      "driver": "fsl_mc_dpio",
+      "info": {
+        "dpio channel mode is": "DPIO_LOCAL_CHANNEL",
+        "dpio id": "12",
+        "dpio version": "4.3",
+        "number of priorities is": "0x8",
+        "offset of qbman software portal cache-enabled area": "0xe0000",
+        "offset of qbman software portal cache-inhibited area": "0x40e0000",
+        "plugged state": "plugged",
+        "qbman software portal id": "0xe"
+      }
+    },
+    "dpio.13": {
+      "container": "dprc.1",
+      "label": "",
+      "plugged": true,
+      "driver": "fsl_mc_dpio",
+      "info": {
+        "dpio channel mode is": "DPIO_LOCAL_CHANNEL",
+        "dpio id": "13",
+        "dpio version": "4.3",
+        "number of priorities is": "0x8",
+        "offset of qbman software portal cache-enabled area": "0xf0000",
+        "offset of qbman software portal cache-inhibited area": "0x40f0000",
+        "plugged state": "plugged",
+        "qbman software portal id": "0xf"
+      }
+    },
+    "dpio.14": {
+      "container": "dprc.1",
+      "label": "",
+      "plugged": true,
+      "driver": "fsl_mc_dpio",
+      "info": {
+        "dpio channel mode is": "DPIO_LOCAL_CHANNEL",
+        "dpio id": "14",
+        "dpio version": "4.3",
+        "number of priorities is": "0x8",
+        "offset of qbman software portal cache-enabled area": "0x100000",
+        "offset of qbman software portal cache-inhibited area": "0x4100000",
+        "plugged state": "plugged",
+        "qbman software portal id": "0x10"
+      }
+    },
+    "dpio.15": {
+      "container": "dprc.1",
+      "label": "",
+      "plugged": true,
+      "driver": "fsl_mc_dpio",
+      "info": {
+        "dpio channel mode is": "DPIO_LOCAL_CHANNEL",
+        "dpio id": "15",
+        "dpio version": "4.3",
+        "number of priorities is": "0x8",
+        "offset of qbman software portal cache-enabled area": "0x110000",
+        "offset of qbman software portal cache-inhibited area": "0x4110000",
+        "plugged state": "plugged",
+        "qbman software portal id": "0x11"
+      }
+    },
+    "dpio.2": {
+      "container": "dprc.1",
+      "label": "",
+      "plugged": true,
+      "driver": "fsl_mc_dpio",
+      "info": {
+        "dpio channel mode is": "DPIO_LOCAL_CHANNEL",
+        "dpio id": "2",
+        "dpio version": "4.3",
+        "number of priorities is": "0x8",
+        "offset of qbman software portal cache-enabled area": "0x40000",
+        "offset of qbman software portal cache-inhibited area": "0x4040000",
+        "plugged state": "plugged",
+        "qbman software portal id": "0x4"
+      }
+    },
+    "dpio.3": {
+      "container": "dprc.1",
+      "label": "",
+      "plugged": true,
+      "driver": "fsl_mc_dpio",
+      "info": {
+        "dpio channel mode is": "DPIO_LOCAL_CHANNEL",
+        "dpio id": "3",
+        "dpio version": "4.3",
+        "number of priorities is": "0x8",
+        "offset of qbman software portal cache-enabled area": "0x50000",
+        "offset of qbman software portal cache-inhibited area": "0x4050000",
+        "plugged state": "plugged",
+        "qbman software portal id": "0x5"
+      }
+    },
+    "dpio.4": {
+      "container": "dprc.1",
+      "label": "",
+      "plugged": true,
+      "driver": "fsl_mc_dpio",
+      "info": {
+        "dpio channel mode is": "DPIO_LOCAL_CHANNEL",
+        "dpio id": "4",
+        "dpio version": "4.3",
+        "number of priorities is": "0x8",
+        "offset of qbman software portal cache-enabled area": "0x60000",
+        "offset of qbman software portal cache-inhibited area": "0x4060000",
+        "plugged state": "plugged",
+        "qbman software portal id": "0x6"
+      }
+    },
+    "dpio.5": {
+      "container": "dprc.1",
+      "label": "",
+      "plugged": true,
+      "driver": "fsl_mc_dpio",
+      "info": {
+        "dpio channel mode is": "DPIO_LOCAL_CHANNEL",
+        "dpio id": "5",
+        "dpio version": "4.3",
+        "number of priorities is": "0x8",
+        "offset of qbman software portal cache-enabled area": "0x70000",
+        "offset of qbman software portal cache-inhibited area": "0x4070000",
+        "plugged state": "plugged",
+        "qbman software portal id": "0x7"
+      }
+    },
+    "dpio.6": {
+      "container": "dprc.1",
+      "label": "",
+      "plugged": true,
+      "driver": "fsl_mc_dpio",
+      "info": {
+        "dpio channel mode is": "DPIO_LOCAL_CHANNEL",
+        "dpio id": "6",
+        "dpio version": "4.3",
+        "number of priorities is": "0x8",
+        "offset of qbman software portal cache-enabled area": "0x80000",
+        "offset of qbman software portal cache-inhibited area": "0x4080000",
+        "plugged state": "plugged",
+        "qbman software portal id": "0x8"
+      }
+    },
+    "dpio.7": {
+      "container": "dprc.1",
+      "label": "",
+      "plugged": true,
+      "driver": "fsl_mc_dpio",
+      "info": {
+        "dpio channel mode is": "DPIO_LOCAL_CHANNEL",
+        "dpio id": "7",
+        "dpio version": "4.3",
+        "number of priorities is": "0x8",
+        "offset of qbman software portal cache-enabled area": "0x90000",
+        "offset of qbman software portal cache-inhibited area": "0x4090000",
+        "plugged state": "plugged",
+        "qbman software portal id": "0x9"
+      }
+    },
+    "dpio.8": {
+      "container": "dprc.1",
+      "label": "",
+      "plugged": true,
+      "driver": "fsl_mc_dpio",
+      "info": {
+        "dpio channel mode is": "DPIO_LOCAL_CHANNEL",
+        "dpio id": "8",
+        "dpio version": "4.3",
+        "number of priorities is": "0x8",
+        "offset of qbman software portal cache-enabled area": "0xa0000",
+        "offset of qbman software portal cache-inhibited area": "0x40a0000",
+        "plugged state": "plugged",
+        "qbman software portal id": "0xa"
+      }
+    },
+    "dpio.9": {
+      "container": "dprc.1",
+      "label": "",
+      "plugged": true,
+      "driver": "fsl_mc_dpio",
+      "info": {
+        "dpio channel mode is": "DPIO_LOCAL_CHANNEL",
+        "dpio id": "9",
+        "dpio version": "4.3",
+        "number of priorities is": "0x8",
+        "offset of qbman software portal cache-enabled area": "0xb0000",
+        "offset of qbman software portal cache-inhibited area": "0x40b0000",
+        "plugged state": "plugged",
+        "qbman software portal id": "0xb"
+      }
+    },
+    "dpmac.10": {
+      "container": "dprc.1",
+      "label": "",
+      "plugged": true,
+      "driver": "fsl_dpaa2_mac",
+      "info": {
+        "DPMAC ethernet interface": "DPMAC_ETH_IF_XFI",
+        "DPMAC link type": "DPMAC_LINK_TYPE_PHY",
+        "MAC address": "xx:xx:xx:xx:xx:xx",
+        "dpmac object id/portal id": "10",
+        "dpmac version": "4.10",
+        "endpoint": "No object associated",
+        "endpoint state": "-1",
+        "maximum supported rate 10000 Mbps": "",
+        "plugged state": "plugged"
+      }
+    },
+    "dpmac.17": {
+      "container": "dprc.1",
+      "label": "",
+      "plugged": true,
+      "driver": null,
+      "info": {
+        "DPMAC ethernet interface": "DPMAC_ETH_IF_RGMII",
+        "DPMAC link type": "DPMAC_LINK_TYPE_PHY",
+        "MAC address": "xx:xx:xx:xx:xx:xx",
+        "dpmac object id/portal id": "17",
+        "dpmac version": "4.10",
+        "endpoint": "dpni.0, link is up",
+        "endpoint state": "1",
+        "maximum supported rate 1000 Mbps": "",
+        "plugged state": "plugged"
+      }
+    },
+    "dpmac.3": {
+      "container": "dprc.1",
+      "label": "",
+      "plugged": true,
+      "driver": "fsl_dpaa2_mac",
+      "info": {
+        "DPMAC ethernet interface": "DPMAC_ETH_IF_CAUI",
+        "DPMAC link type": "DPMAC_LINK_TYPE_PHY",
+        "MAC address": "xx:xx:xx:xx:xx:xx",
+        "dpmac object id/portal id": "3",
+        "dpmac version": "4.10",
+        "endpoint": "No object associated",
+        "endpoint state": "-1",
+        "maximum supported rate 25000 Mbps": "",
+        "plugged state": "plugged"
+      }
+    },
+    "dpmac.4": {
+      "container": "dprc.1",
+      "label": "",
+      "plugged": true,
+      "driver": "fsl_dpaa2_mac",
+      "info": {
+        "DPMAC ethernet interface": "DPMAC_ETH_IF_CAUI",
+        "DPMAC link type": "DPMAC_LINK_TYPE_PHY",
+        "MAC address": "xx:xx:xx:xx:xx:xx",
+        "dpmac object id/portal id": "4",
+        "dpmac version": "4.10",
+        "endpoint": "No object associated",
+        "endpoint state": "-1",
+        "maximum supported rate 25000 Mbps": "",
+        "plugged state": "plugged"
+      }
+    },
+    "dpmac.5": {
+      "container": "dprc.1",
+      "label": "",
+      "plugged": true,
+      "driver": "fsl_dpaa2_mac",
+      "info": {
+        "DPMAC ethernet interface": "DPMAC_ETH_IF_CAUI",
+        "DPMAC link type": "DPMAC_LINK_TYPE_PHY",
+        "MAC address": "xx:xx:xx:xx:xx:xx",
+        "dpmac object id/portal id": "5",
+        "dpmac version": "4.10",
+        "endpoint": "No object associated",
+        "endpoint state": "-1",
+        "maximum supported rate 25000 Mbps": "",
+        "plugged state": "plugged"
+      }
+    },
+    "dpmac.6": {
+      "container": "dprc.1",
+      "label": "",
+      "plugged": true,
+      "driver": "fsl_dpaa2_mac",
+      "info": {
+        "DPMAC ethernet interface": "DPMAC_ETH_IF_CAUI",
+        "DPMAC link type": "DPMAC_LINK_TYPE_PHY",
+        "MAC address": "xx:xx:xx:xx:xx:xx",
+        "dpmac object id/portal id": "6",
+        "dpmac version": "4.10",
+        "endpoint": "No object associated",
+        "endpoint state": "-1",
+        "maximum supported rate 25000 Mbps": "",
+        "plugged state": "plugged"
+      }
+    },
+    "dpmac.7": {
+      "container": "dprc.1",
+      "label": "",
+      "plugged": true,
+      "driver": "fsl_dpaa2_mac",
+      "info": {
+        "DPMAC ethernet interface": "DPMAC_ETH_IF_XFI",
+        "DPMAC link type": "DPMAC_LINK_TYPE_PHY",
+        "MAC address": "xx:xx:xx:xx:xx:xx",
+        "dpmac object id/portal id": "7",
+        "dpmac version": "4.10",
+        "endpoint": "No object associated",
+        "endpoint state": "-1",
+        "maximum supported rate 10000 Mbps": "",
+        "plugged state": "plugged"
+      }
+    },
+    "dpmac.8": {
+      "container": "dprc.1",
+      "label": "",
+      "plugged": true,
+      "driver": "fsl_dpaa2_mac",
+      "info": {
+        "DPMAC ethernet interface": "DPMAC_ETH_IF_XFI",
+        "DPMAC link type": "DPMAC_LINK_TYPE_PHY",
+        "MAC address": "xx:xx:xx:xx:xx:xx",
+        "dpmac object id/portal id": "8",
+        "dpmac version": "4.10",
+        "endpoint": "No object associated",
+        "endpoint state": "-1",
+        "maximum supported rate 10000 Mbps": "",
+        "plugged state": "plugged"
+      }
+    },
+    "dpmac.9": {
+      "container": "dprc.1",
+      "label": "",
+      "plugged": true,
+      "driver": "fsl_dpaa2_mac",
+      "info": {
+        "DPMAC ethernet interface": "DPMAC_ETH_IF_XFI",
+        "DPMAC link type": "DPMAC_LINK_TYPE_PHY",
+        "MAC address": "xx:xx:xx:xx:xx:xx",
+        "dpmac object id/portal id": "9",
+        "dpmac version": "4.10",
+        "endpoint": "No object associated",
+        "endpoint state": "-1",
+        "maximum supported rate 10000 Mbps": "",
+        "plugged state": "plugged"
+      }
+    },
+    "dpmcp.1": {
+      "container": "dprc.1",
+      "label": "",
+      "plugged": true,
+      "driver": "fsl_mc_allocator",
+      "info": {
+        "dpmcp object id/portal id": "1",
+        "dpmcp version": "4.1",
+        "dpmcp_attr.options value is": "0",
+        "plugged state": "plugged"
+      }
+    },
+    "dpmcp.10": {
+      "container": "dprc.1",
+      "label": "",
+      "plugged": true,
+      "driver": "fsl_mc_allocator",
+      "info": {
+        "dpmcp object id/portal id": "10",
+        "dpmcp version": "4.1",
+        "dpmcp_attr.options value is": "0",
+        "plugged state": "plugged"
+      }
+    },
+    "dpmcp.11": {
+      "container": "dprc.1",
+      "label": "",
+      "plugged": true,
+      "driver": "fsl_mc_allocator",
+      "info": {
+        "dpmcp object id/portal id": "11",
+        "dpmcp version": "4.1",
+        "dpmcp_attr.options value is": "0",
+        "plugged state": "plugged"
+      }
+    },
+    "dpmcp.12": {
+      "container": "dprc.1",
+      "label": "",
+      "plugged": true,
+      "driver": "fsl_mc_allocator",
+      "info": {
+        "dpmcp object id/portal id": "12",
+        "dpmcp version": "4.1",
+        "dpmcp_attr.options value is": "0",
+        "plugged state": "plugged"
+      }
+    },
+    "dpmcp.13": {
+      "container": "dprc.1",
+      "label": "",
+      "plugged": true,
+      "driver": "fsl_mc_allocator",
+      "info": {
+        "dpmcp object id/portal id": "13",
+        "dpmcp version": "4.1",
+        "dpmcp_attr.options value is": "0",
+        "plugged state": "plugged"
+      }
+    },
+    "dpmcp.14": {
+      "container": "dprc.1",
+      "label": "",
+      "plugged": true,
+      "driver": "fsl_mc_allocator",
+      "info": {
+        "dpmcp object id/portal id": "14",
+        "dpmcp version": "4.1",
+        "dpmcp_attr.options value is": "0",
+        "plugged state": "plugged"
+      }
+    },
+    "dpmcp.15": {
+      "container": "dprc.1",
+      "label": "",
+      "plugged": true,
+      "driver": "fsl_mc_allocator",
+      "info": {
+        "dpmcp object id/portal id": "15",
+        "dpmcp version": "4.1",
+        "dpmcp_attr.options value is": "0",
+        "plugged state": "plugged"
+      }
+    },
+    "dpmcp.16": {
+      "container": "dprc.1",
+      "label": "",
+      "plugged": true,
+      "driver": "fsl_mc_allocator",
+      "info": {
+        "dpmcp object id/portal id": "16",
+        "dpmcp version": "4.1",
+        "dpmcp_attr.options value is": "0",
+        "plugged state": "plugged"
+      }
+    },
+    "dpmcp.17": {
+      "container": "dprc.1",
+      "label": "",
+      "plugged": true,
+      "driver": "fsl_mc_allocator",
+      "info": {
+        "dpmcp object id/portal id": "17",
+        "dpmcp version": "4.1",
+        "dpmcp_attr.options value is": "0",
+        "plugged state": "plugged"
+      }
+    },
+    "dpmcp.18": {
+      "container": "dprc.1",
+      "label": "",
+      "plugged": true,
+      "driver": "fsl_mc_allocator",
+      "info": {
+        "dpmcp object id/portal id": "18",
+        "dpmcp version": "4.1",
+        "dpmcp_attr.options value is": "0",
+        "plugged state": "plugged"
+      }
+    },
+    "dpmcp.19": {
+      "container": "dprc.1",
+      "label": "",
+      "plugged": true,
+      "driver": "fsl_mc_allocator",
+      "info": {
+        "dpmcp object id/portal id": "19",
+        "dpmcp version": "4.1",
+        "dpmcp_attr.options value is": "0",
+        "plugged state": "plugged"
+      }
+    },
+    "dpmcp.2": {
+      "container": "dprc.1",
+      "label": "",
+      "plugged": true,
+      "driver": "fsl_mc_allocator",
+      "info": {
+        "dpmcp object id/portal id": "2",
+        "dpmcp version": "4.1",
+        "dpmcp_attr.options value is": "0",
+        "plugged state": "plugged"
+      }
+    },
+    "dpmcp.20": {
+      "container": "dprc.1",
+      "label": "",
+      "plugged": true,
+      "driver": "fsl_mc_allocator",
+      "info": {
+        "dpmcp object id/portal id": "20",
+        "dpmcp version": "4.1",
+        "dpmcp_attr.options value is": "0",
+        "plugged state": "plugged"
+      }
+    },
+    "dpmcp.21": {
+      "container": "dprc.1",
+      "label": "",
+      "plugged": true,
+      "driver": "fsl_mc_allocator",
+      "info": {
+        "dpmcp object id/portal id": "21",
+        "dpmcp version": "4.1",
+        "dpmcp_attr.options value is": "0",
+        "plugged state": "plugged"
+      }
+    },
+    "dpmcp.22": {
+      "container": "dprc.1",
+      "label": "",
+      "plugged": true,
+      "driver": "fsl_mc_allocator",
+      "info": {
+        "dpmcp object id/portal id": "22",
+        "dpmcp version": "4.1",
+        "dpmcp_attr.options value is": "0",
+        "plugged state": "plugged"
+      }
+    },
+    "dpmcp.23": {
+      "container": "dprc.1",
+      "label": "",
+      "plugged": true,
+      "driver": "fsl_mc_allocator",
+      "info": {
+        "dpmcp object id/portal id": "23",
+        "dpmcp version": "4.1",
+        "dpmcp_attr.options value is": "0",
+        "plugged state": "plugged"
+      }
+    },
+    "dpmcp.24": {
+      "container": "dprc.1",
+      "label": "",
+      "plugged": true,
+      "driver": "fsl_mc_allocator",
+      "info": {
+        "dpmcp object id/portal id": "24",
+        "dpmcp version": "4.1",
+        "dpmcp_attr.options value is": "0",
+        "plugged state": "plugged"
+      }
+    },
+    "dpmcp.25": {
+      "container": "dprc.1",
+      "label": "",
+      "plugged": true,
+      "driver": "fsl_mc_allocator",
+      "info": {
+        "dpmcp object id/portal id": "25",
+        "dpmcp version": "4.1",
+        "dpmcp_attr.options value is": "0",
+        "plugged state": "plugged"
+      }
+    },
+    "dpmcp.26": {
+      "container": "dprc.1",
+      "label": "",
+      "plugged": true,
+      "driver": "fsl_mc_allocator",
+      "info": {
+        "dpmcp object id/portal id": "26",
+        "dpmcp version": "4.1",
+        "dpmcp_attr.options value is": "0",
+        "plugged state": "plugged"
+      }
+    },
+    "dpmcp.27": {
+      "container": "dprc.1",
+      "label": "",
+      "plugged": true,
+      "driver": "fsl_mc_allocator",
+      "info": {
+        "dpmcp object id/portal id": "27",
+        "dpmcp version": "4.1",
+        "dpmcp_attr.options value is": "0",
+        "plugged state": "plugged"
+      }
+    },
+    "dpmcp.28": {
+      "container": "dprc.1",
+      "label": "",
+      "plugged": true,
+      "driver": "fsl_mc_allocator",
+      "info": {
+        "dpmcp object id/portal id": "28",
+        "dpmcp version": "4.1",
+        "dpmcp_attr.options value is": "0",
+        "plugged state": "plugged"
+      }
+    },
+    "dpmcp.29": {
+      "container": "dprc.1",
+      "label": "",
+      "plugged": true,
+      "driver": "fsl_mc_allocator",
+      "info": {
+        "dpmcp object id/portal id": "29",
+        "dpmcp version": "4.1",
+        "dpmcp_attr.options value is": "0",
+        "plugged state": "plugged"
+      }
+    },
+    "dpmcp.3": {
+      "container": "dprc.1",
+      "label": "",
+      "plugged": true,
+      "driver": "fsl_mc_allocator",
+      "info": {
+        "dpmcp object id/portal id": "3",
+        "dpmcp version": "4.1",
+        "dpmcp_attr.options value is": "0",
+        "plugged state": "plugged"
+      }
+    },
+    "dpmcp.30": {
+      "container": "dprc.1",
+      "label": "",
+      "plugged": true,
+      "driver": "fsl_mc_allocator",
+      "info": {
+        "dpmcp object id/portal id": "30",
+        "dpmcp version": "4.1",
+        "dpmcp_attr.options value is": "0",
+        "plugged state": "plugged"
+      }
+    },
+    "dpmcp.31": {
+      "container": "dprc.1",
+      "label": "",
+      "plugged": true,
+      "driver": "fsl_mc_allocator",
+      "info": {
+        "dpmcp object id/portal id": "31",
+        "dpmcp version": "4.1",
+        "dpmcp_attr.options value is": "0",
+        "plugged state": "plugged"
+      }
+    },
+    "dpmcp.32": {
+      "container": "dprc.1",
+      "label": "",
+      "plugged": true,
+      "driver": "fsl_mc_allocator",
+      "info": {
+        "dpmcp object id/portal id": "32",
+        "dpmcp version": "4.1",
+        "dpmcp_attr.options value is": "0",
+        "plugged state": "plugged"
+      }
+    },
+    "dpmcp.33": {
+      "container": "dprc.1",
+      "label": "",
+      "plugged": true,
+      "driver": "fsl_mc_allocator",
+      "info": {
+        "dpmcp object id/portal id": "33",
+        "dpmcp version": "4.1",
+        "dpmcp_attr.options value is": "0",
+        "plugged state": "plugged"
+      }
+    },
+    "dpmcp.34": {
+      "container": "dprc.1",
+      "label": "",
+      "plugged": true,
+      "driver": "fsl_mc_allocator",
+      "info": {
+        "dpmcp object id/portal id": "34",
+        "dpmcp version": "4.1",
+        "dpmcp_attr.options value is": "0",
+        "plugged state": "plugged"
+      }
+    },
+    "dpmcp.35": {
+      "container": "dprc.1",
+      "label": "",
+      "plugged": true,
+      "driver": "fsl_mc_allocator",
+      "info": {
+        "dpmcp object id/portal id": "35",
+        "dpmcp version": "4.1",
+        "dpmcp_attr.options value is": "0",
+        "plugged state": "plugged"
+      }
+    },
+    "dpmcp.36": {
+      "container": "dprc.1",
+      "label": "",
+      "plugged": true,
+      "driver": "fsl_mc_allocator",
+      "info": {
+        "dpmcp object id/portal id": "36",
+        "dpmcp version": "4.1",
+        "dpmcp_attr.options value is": "0",
+        "plugged state": "plugged"
+      }
+    },
+    "dpmcp.37": {
+      "container": "dprc.1",
+      "label": "",
+      "plugged": true,
+      "driver": "fsl_mc_allocator",
+      "info": {
+        "dpmcp object id/portal id": "37",
+        "dpmcp version": "4.1",
+        "dpmcp_attr.options value is": "0",
+        "plugged state": "plugged"
+      }
+    },
+    "dpmcp.38": {
+      "container": "dprc.1",
+      "label": "",
+      "plugged": true,
+      "driver": "fsl_mc_allocator",
+      "info": {
+        "dpmcp object id/portal id": "38",
+        "dpmcp version": "4.1",
+        "dpmcp_attr.options value is": "0",
+        "plugged state": "plugged"
+      }
+    },
+    "dpmcp.39": {
+      "container": "dprc.1",
+      "label": "",
+      "plugged": true,
+      "driver": "fsl_mc_allocator",
+      "info": {
+        "dpmcp object id/portal id": "39",
+        "dpmcp version": "4.1",
+        "dpmcp_attr.options value is": "0",
+        "plugged state": "plugged"
+      }
+    },
+    "dpmcp.4": {
+      "container": "dprc.1",
+      "label": "",
+      "plugged": true,
+      "driver": "fsl_mc_allocator",
+      "info": {
+        "dpmcp object id/portal id": "4",
+        "dpmcp version": "4.1",
+        "dpmcp_attr.options value is": "0",
+        "plugged state": "plugged"
+      }
+    },
+    "dpmcp.40": {
+      "container": "dprc.1",
+      "label": "",
+      "plugged": true,
+      "driver": "fsl_mc_allocator",
+      "info": {
+        "dpmcp object id/portal id": "40",
+        "dpmcp version": "4.1",
+        "dpmcp_attr.options value is": "0",
+        "plugged state": "plugged"
+      }
+    },
+    "dpmcp.41": {
+      "container": "dprc.1",
+      "label": "",
+      "plugged": true,
+      "driver": "fsl_mc_allocator",
+      "info": {
+        "dpmcp object id/portal id": "41",
+        "dpmcp version": "4.1",
+        "dpmcp_attr.options value is": "0",
+        "plugged state": "plugged"
+      }
+    },
+    "dpmcp.42": {
+      "container": "dprc.1",
+      "label": "",
+      "plugged": true,
+      "driver": "fsl_mc_allocator",
+      "info": {
+        "dpmcp object id/portal id": "42",
+        "dpmcp version": "4.1",
+        "dpmcp_attr.options value is": "0",
+        "plugged state": "plugged"
+      }
+    },
+    "dpmcp.43": {
+      "container": "dprc.1",
+      "label": "",
+      "plugged": true,
+      "driver": "fsl_mc_allocator",
+      "info": {
+        "dpmcp object id/portal id": "43",
+        "dpmcp version": "4.1",
+        "dpmcp_attr.options value is": "0",
+        "plugged state": "plugged"
+      }
+    },
+    "dpmcp.44": {
+      "container": "dprc.1",
+      "label": "",
+      "plugged": true,
+      "driver": "fsl_mc_allocator",
+      "info": {
+        "dpmcp object id/portal id": "44",
+        "dpmcp version": "4.1",
+        "dpmcp_attr.options value is": "0",
+        "plugged state": "plugged"
+      }
+    },
+    "dpmcp.45": {
+      "container": "dprc.1",
+      "label": "",
+      "plugged": true,
+      "driver": "fsl_mc_allocator",
+      "info": {
+        "dpmcp object id/portal id": "45",
+        "dpmcp version": "4.1",
+        "dpmcp_attr.options value is": "0",
+        "plugged state": "plugged"
+      }
+    },
+    "dpmcp.46": {
+      "container": "dprc.1",
+      "label": "",
+      "plugged": true,
+      "driver": "fsl_mc_allocator",
+      "info": {
+        "dpmcp object id/portal id": "46",
+        "dpmcp version": "4.1",
+        "dpmcp_attr.options value is": "0",
+        "plugged state": "plugged"
+      }
+    },
+    "dpmcp.47": {
+      "container": "dprc.1",
+      "label": "",
+      "plugged": true,
+      "driver": "fsl_mc_allocator",
+      "info": {
+        "dpmcp object id/portal id": "47",
+        "dpmcp version": "4.1",
+        "dpmcp_attr.options value is": "0",
+        "plugged state": "plugged"
+      }
+    },
+    "dpmcp.48": {
+      "container": "dprc.1",
+      "label": "",
+      "plugged": true,
+      "driver": "fsl_mc_allocator",
+      "info": {
+        "dpmcp object id/portal id": "48",
+        "dpmcp version": "4.1",
+        "dpmcp_attr.options value is": "0",
+        "plugged state": "plugged"
+      }
+    },
+    "dpmcp.49": {
+      "container": "dprc.1",
+      "label": "",
+      "plugged": true,
+      "driver": "fsl_mc_allocator",
+      "info": {
+        "dpmcp object id/portal id": "49",
+        "dpmcp version": "4.1",
+        "dpmcp_attr.options value is": "0",
+        "plugged state": "plugged"
+      }
+    },
+    "dpmcp.5": {
+      "container": "dprc.1",
+      "label": "",
+      "plugged": true,
+      "driver": "fsl_mc_allocator",
+      "info": {
+        "dpmcp object id/portal id": "5",
+        "dpmcp version": "4.1",
+        "dpmcp_attr.options value is": "0",
+        "plugged state": "plugged"
+      }
+    },
+    "dpmcp.50": {
+      "container": "dprc.1",
+      "label": "",
+      "plugged": true,
+      "driver": "fsl_mc_allocator",
+      "info": {
+        "dpmcp object id/portal id": "50",
+        "dpmcp version": "4.1",
+        "dpmcp_attr.options value is": "0",
+        "plugged state": "plugged"
+      }
+    },
+    "dpmcp.51": {
+      "container": "dprc.1",
+      "label": "",
+      "plugged": true,
+      "driver": "fsl_mc_allocator",
+      "info": {
+        "dpmcp object id/portal id": "51",
+        "dpmcp version": "4.1",
+        "dpmcp_attr.options value is": "0",
+        "plugged state": "plugged"
+      }
+    },
+    "dpmcp.52": {
+      "container": "dprc.1",
+      "label": "",
+      "plugged": true,
+      "driver": "fsl_mc_allocator",
+      "info": {
+        "dpmcp object id/portal id": "52",
+        "dpmcp version": "4.1",
+        "dpmcp_attr.options value is": "0",
+        "plugged state": "plugged"
+      }
+    },
+    "dpmcp.6": {
+      "container": "dprc.1",
+      "label": "",
+      "plugged": true,
+      "driver": "fsl_mc_allocator",
+      "info": {
+        "dpmcp object id/portal id": "6",
+        "dpmcp version": "4.1",
+        "dpmcp_attr.options value is": "0",
+        "plugged state": "plugged"
+      }
+    },
+    "dpmcp.7": {
+      "container": "dprc.1",
+      "label": "",
+      "plugged": true,
+      "driver": "fsl_mc_allocator",
+      "info": {
+        "dpmcp object id/portal id": "7",
+        "dpmcp version": "4.1",
+        "dpmcp_attr.options value is": "0",
+        "plugged state": "plugged"
+      }
+    },
+    "dpmcp.8": {
+      "container": "dprc.1",
+      "label": "",
+      "plugged": true,
+      "driver": "fsl_mc_allocator",
+      "info": {
+        "dpmcp object id/portal id": "8",
+        "dpmcp version": "4.1",
+        "dpmcp_attr.options value is": "0",
+        "plugged state": "plugged"
+      }
+    },
+    "dpmcp.9": {
+      "container": "dprc.1",
+      "label": "",
+      "plugged": true,
+      "driver": "fsl_mc_allocator",
+      "info": {
+        "dpmcp object id/portal id": "9",
+        "dpmcp version": "4.1",
+        "dpmcp_attr.options value is": "0",
+        "plugged state": "plugged"
+      }
+    },
+    "dpni.0": {
+      "container": "dprc.1",
+      "label": "",
+      "plugged": true,
+      "driver": "fsl_dpaa2_eth",
+      "info": {
+        "dpni id": "0",
+        "dpni version": "8.5",
+        "dpni_attr.options value is": "0",
+        "endpoint": "dpmac.17, link is up",
+        "endpoint state": "1",
+        "fs_entries": "64",
+        "fs_key_size": "56",
+        "link status": "1 - up",
+        "mac address": "xx:xx:xx:xx:xx:xx",
+        "mac_entries": "16",
+        "max frame length": "10240",
+        "num_cgs": "1",
+        "num_channels": "1",
+        "num_opr": "0",
+        "num_queues": "16",
+        "num_rx_tcs": "1",
+        "num_tx_tcs": "1",
+        "plugged state": "plugged",
+        "qos_entries": "0",
+        "qos_key_size": "0",
+        "vlan_entries": "0"
+      }
+    },
+    "dprtc.0": {
+      "container": "dprc.1",
+      "label": "",
+      "plugged": true,
+      "driver": "fsl_dpaa2_ptp",
+      "info": {
+        "dprtc id": "0",
+        "dprtc version": "2.3",
+        "plugged state": "plugged"
+      }
+    },
+    "dpseci.0": {
+      "container": "dprc.1",
+      "label": "",
+      "plugged": true,
+      "driver": "dpaa2_caam",
+      "info": {
+        "dpseci id": "0",
+        "dpseci version": "5.4",
+        "number of receive queues": "16",
+        "number of transmit queues": "16",
+        "plugged state": "plugged",
+        "tx priorities": "1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1"
+      }
+    }
+  },
+  "api_versions": {
+    "dpbp": "3.4",
+    "dpcon": "3.3",
+    "dpio": "4.3",
+    "dpmac": "4.10",
+    "dpmcp": "4.1",
+    "dpni": "8.5",
+    "dprtc": "2.3",
+    "dpseci": "5.4"
+  },
+  "connections": [
+    [
+      "dpni.0",
+      "dpmac.17"
+    ]
+  ]
+}

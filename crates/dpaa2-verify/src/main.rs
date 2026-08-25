@@ -109,6 +109,38 @@ enum Command {
         #[arg(long)]
         transcript: PathBuf,
     },
+    /// Board snapshot: render the read-only capture script, fold a
+    /// capture into diffable JSON, or diff two snapshots (task 6.3).
+    Snapshot {
+        #[command(subcommand)]
+        what: SnapshotCmd,
+    },
+}
+
+/// The three snapshot subcommands.
+#[derive(Subcommand)]
+enum SnapshotCmd {
+    /// Render the read-only capture script the operator runs on the board.
+    Render {
+        /// File to write the executable script to.
+        #[arg(long)]
+        out: PathBuf,
+    },
+    /// Parse a capture directory into a diffable snapshot JSON.
+    Parse {
+        /// The directory the capture script populated on the board.
+        dir: PathBuf,
+        /// File to write the snapshot JSON to.
+        #[arg(long)]
+        out: PathBuf,
+    },
+    /// Diff two snapshot JSON files; nonzero exit when they differ.
+    Diff {
+        /// The baseline snapshot (e.g. the committed reference).
+        a: PathBuf,
+        /// The snapshot to compare against it.
+        b: PathBuf,
+    },
 }
 
 /// Stdin confirmation: enter = step, `p` = pause (ask again), `a` =
@@ -382,6 +414,50 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
                 _ => ExitCode::FAILURE,
             })
         }
+        Command::Snapshot { what } => run_snapshot(what),
+    }
+}
+
+/// Runs one snapshot subcommand.
+fn run_snapshot(what: SnapshotCmd) -> Result<ExitCode, String> {
+    use dpaa2_verify::snapshot;
+    match what {
+        SnapshotCmd::Render { out } => {
+            let script = snapshot::render();
+            std::fs::write(&out, &script).map_err(|e| format!("writing {}: {e}", out.display()))?;
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                std::fs::set_permissions(&out, std::fs::Permissions::from_mode(0o755))
+                    .map_err(|e| e.to_string())?;
+            }
+            println!("wrote {}", out.display());
+            Ok(ExitCode::SUCCESS)
+        }
+        SnapshotCmd::Parse { dir, out } => {
+            let snap = snapshot::parse(|name| std::fs::read_to_string(dir.join(name)).ok())?;
+            let json = serde_json::to_string_pretty(&snap).map_err(|e| e.to_string())?;
+            std::fs::write(&out, json).map_err(|e| format!("writing {}: {e}", out.display()))?;
+            println!("wrote {}", out.display());
+            Ok(ExitCode::SUCCESS)
+        }
+        SnapshotCmd::Diff { a, b } => {
+            let read = |p: &PathBuf| -> Result<snapshot::Snapshot, String> {
+                let text = std::fs::read_to_string(p)
+                    .map_err(|e| format!("reading {}: {e}", p.display()))?;
+                serde_json::from_str(&text).map_err(|e| format!("parsing {}: {e}", p.display()))
+            };
+            let deltas = snapshot::diff(&read(&a)?, &read(&b)?);
+            for line in &deltas {
+                println!("{line}");
+            }
+            println!("{} deltas", deltas.len());
+            Ok(if deltas.is_empty() {
+                ExitCode::SUCCESS
+            } else {
+                ExitCode::FAILURE
+            })
+        }
     }
 }
 
@@ -413,5 +489,17 @@ mod tests {
             .is_err()
         );
         assert!(Cli::try_parse_from(["v", "drive", "--transcript", "r"]).is_err());
+    }
+
+    /// The snapshot subcommand parses its three forms: `render --out`,
+    /// `parse <dir> --out`, and `diff <a> <b>`.
+    #[test]
+    fn snapshot_parses_render_parse_and_diff() {
+        assert!(Cli::try_parse_from(["v", "snapshot", "render", "--out", "s.sh"]).is_ok());
+        assert!(Cli::try_parse_from(["v", "snapshot", "parse", "cap", "--out", "s.json"]).is_ok());
+        assert!(Cli::try_parse_from(["v", "snapshot", "diff", "a.json", "b.json"]).is_ok());
+        // --out is required for render; diff needs both files.
+        assert!(Cli::try_parse_from(["v", "snapshot", "render"]).is_err());
+        assert!(Cli::try_parse_from(["v", "snapshot", "diff", "a.json"]).is_err());
     }
 }

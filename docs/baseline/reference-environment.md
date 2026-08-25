@@ -66,6 +66,54 @@ DPNI shapes observed: the management dpni.0 is a plain NIC
 num_opr 8, and options HAS_KEY_MASKING, HAS_OPR, OPR_PER_TC, SINGLE_SENDER,
 CUSTOM_CG.
 
+## Clean-boot snapshot
+
+Captured 2026-08-25 by the operator with `models/board/baselines/snapshot.sh`
+on a fresh boot with no consumer started, parsed to
+**`models/board/baselines/reference.json`** — the committed clean-boot
+reference every sitting is diffed against (`dpaa2-verify snapshot diff`,
+task 6.3). Unlike the provisioned-moment capture above, this is the bare
+boot: one container, no child, the wired dpmacs unconnected. The head-count
+census ("97 objects") is now a property of this file, and a test pins it.
+
+What the bare boot looks like, beyond the count:
+
+- **dprc.1 is the only container**; `restool dprc show mc.global` does
+  answer — `dprc.0` holds exactly one object, `dprc.1`, listed
+  *unplugged* (dprc.md unknown 5, first half).
+- **Driver links**: 69 objects on `fsl_mc_allocator` (dpbp, dpcon, dpmcp),
+  16 dpio on `fsl_mc_dpio`, dprtc.0 on `fsl_dpaa2_ptp`, dpseci.0 on
+  `dpaa2_caam`, dpni.0 on `fsl_dpaa2_eth`, 8 of the 9 dpmacs on
+  `fsl_dpaa2_mac`. The one driverless object is the management dpmac
+  behind dpni.0: the eth driver owns it through phylink and the
+  standalone mac driver defers, exactly as dpmac.md's arbitration
+  paragraph predicts.
+- **One DPL connection**: the management pair. Nothing else is wired at
+  boot.
+- **API versions the firmware reports** per family, against the version
+  restool v2.4's headers were built for (the flib side lives in each
+  family document):
+
+  | family | firmware (`info`) | restool header |
+  |---|---|---|
+  | dpbp | 3.4 | 3.3 |
+  | dpcon | 3.3 | 3.3 |
+  | dpio | 4.3 | 4.2 |
+  | dpmac | 4.10 | 4.2 |
+  | dpmcp | 4.1 | 4.1 |
+  | dpni | 8.5 | 7.18 |
+  | dprtc | 2.3 | 2.0 |
+  | dpseci | 5.4 | 5.3 |
+
+  The firmware is ahead of restool on six of eight families — the same
+  skew the banner finding above records, now per family. Families with
+  no boot resident (dpsw, dpdmux, dpci, dpdcei, dpdmai, dpaiop) report
+  theirs when a suite creates one (V-READBACK-1 for dpdcei).
+
+The snapshot deliberately drops counters (`dpni` statistics, the dpmac
+`Counters:` block): they move with every management frame, and the diff
+must be blind to traffic to be a residue check.
+
 ## Open items
 
 - MC 10.32 → 10.39 API delta relevance for the driven families — per

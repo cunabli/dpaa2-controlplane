@@ -340,8 +340,10 @@ object-lifecycle-only scenarios except where noted):
    connect vs assign — the permission matrix is undocumented.
 4. `set-locked` semantics: who can unlock (parent only?), and what exactly
    the locked hierarchy still allows (info/show?).
-5. What `dprc.0`/`mc.global` reveals via `show`, and whether any operation
-   against it is accepted.
+5. What `dprc.0`/`mc.global` reveals via `show` — answered: `dprc.0`
+   holds exactly one object, `dprc.1`, listed unplugged [board-observed
+   2026-08-25, clean-boot snapshot] — and whether any operation against
+   it is accepted (still open, task 5.10).
 6. `AIOP` and `PL_ALLOWED` option semantics on a board with no AIOP.
 7. dpmcp id hole (14) in the root pool (reference-environment.md) —
    creation-order artifact or consumed companion?

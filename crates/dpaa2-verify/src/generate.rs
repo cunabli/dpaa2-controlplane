@@ -299,7 +299,8 @@ probe_link() {{ n="$1"; m="$2"; readlink "$3" > "$RESULTS/step-$n-probe-$m.txt" 
 /// the preamble (which scans the script itself) and the suite hook's
 /// gate (which scans the file it is about to source). The bracketed
 /// classes keep a self-check from matching its own pattern.
-const TOTAL_DENY_GREP: &str = "dpmac[.]3([^0-9]|$)|dpmac[.]17([^0-9]|$)|dpni[.]0([^0-9]|$)";
+pub(crate) const TOTAL_DENY_GREP: &str =
+    "dpmac[.]3([^0-9]|$)|dpmac[.]17([^0-9]|$)|dpni[.]0([^0-9]|$)";
 
 /// The suite hook block: a total-deny gate over the file, then the
 /// source. Emitted after the last trace step and before the footer, so
@@ -325,7 +326,7 @@ fi
 /// The reference-pair assertion (ADR-0003 §2): evidence is only valid
 /// against the stamped pair; refuse anything else. Shared by every
 /// emitted script, asserted before any action.
-const REF_PAIR_ASSERT: &str = r#"# --- reference pair assertion (ADR-0003 §2) ---
+pub(crate) const REF_PAIR_ASSERT: &str = r#"# --- reference pair assertion (ADR-0003 §2) ---
 # Evidence is only valid against the stamped pair; refuse anything else.
 mc="$(restool -m 2>/dev/null || true)"
 case "$mc" in *10.39.0*) ;; *) echo "refusing: MC firmware is not 10.39.0: $mc" >&2; exit 1 ;; esac

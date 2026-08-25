@@ -126,7 +126,7 @@ board task is an operator sitting sync point.
       per run and append to a committed VERDICTS.json index; existing
       results back-filled; the lint resolves every "verified" cell to a
       passed verdict
-- [ ] 6.3 Board snapshot and diff: full tree, per-object info, driver
+- [x] 6.3 Board snapshot and diff: full tree, per-object info, driver
       links and API versions as redacted JSON; one clean-boot reference
       committed; replaces the head-count census, structures the
       recovery diff, and is the #10 differential gate's format

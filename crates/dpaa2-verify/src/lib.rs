@@ -12,3 +12,4 @@ pub mod generate;
 pub mod itf;
 pub mod replay;
 pub mod safety;
+pub mod snapshot;
