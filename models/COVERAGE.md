@@ -32,7 +32,7 @@ Dispositions:
   status of `open:` on any row names the scenario still to run and the
   change that owns it.
 
-Tally: 52 modeled, 51 deferred, 2 board-settled, 0 board-pending — 105 candidates.
+Tally: 52 modeled, 49 deferred, 4 board-settled, 0 board-pending — 105 candidates.
 
 | Candidate | Disposition | Location / owning change / settling scenario | CI rung | Board status |
 |-----------|-------------|----------------------------------------------|---------|--------------|
@@ -53,7 +53,7 @@ Tally: 52 modeled, 51 deferred, 2 board-settled, 0 board-pending — 105 candida
 | DPNI-I4 | modeled | `machine.qnt` kernelBind census guard + `main.qnt` `DPNI_I4Test` | simulate | verified (ADR-0001 C1) |
 | DPNI-I5 | deferred | `dpni-typestate` (#5) + `pool-objects` (#6): queue/channel counts abstracted to draw=1 at core scope | — | — |
 | DPNI-I6 | deferred | this change ph.4 adapter — LAW 2: observation = read-back, never exit status | — | open: V-DPNI-2 → `dpni-typestate` (#5); the class law itself is board-anchored twice (ADR-0007 §2: restool exited 0 on an MC No privilege, the read-back caught it; V-LIFE-DPIO-1 rev 1: a refused teardown unplug went unseen while its stderr was discarded) |
-| DPNI-I7 | deferred | `dpni-typestate` (#5): V-DPNI-1 — attribute read-back after a bare create | — | open: V-DPNI-1 (2026-08-23) bare-created and destroyed its dpni but probed only `dprc show`, so no default was read back; the suite ledger's "defaults captured" wording was overstated and is corrected → `dpni info` after a bare create under #5 |
+| DPNI-I7 | board-settled | V-READBACK-1 (`dpni info` of a bare create, from the suite hook) | — | verified 2026-08-25 (V-READBACK-1): the MC defaults are 1 queue, 1 TC, 1 CG, 64 FS entries, VLAN filtering off, 16 MAC entries and 0 QoS entries — the 80/64 the baseline table carried were restool's maxima, and the clean-boot reference's DPL-born dpni reads the same 16/0 |
 | DPNI-I8 | modeled | `main.qnt` `DPNI_I8Test` (unbind grants no reset — the no-guarantee form) | simulate | open: V-DPNI-3 (post-bind runtime state is not restool-drivable) → `dpni-typestate` (#5) |
 | DPNI-I9 | modeled | `core/invariants.qnt` `DPNI_I9` + `main.qnt` `DPNI_I9Test` | apalache | verified (kdpni pairs in production) |
 | DPNI-I10 | deferred | `dpni-typestate` (#5): tx-ring/thread coupling below core-model scope | — | verified (ADR-0012) |
@@ -72,11 +72,11 @@ Tally: 52 modeled, 51 deferred, 2 board-settled, 0 board-pending — 105 candida
 | DPBP-I2 | modeled | `core/invariants.qnt` `DPBP_I2` + `main.qnt` `DPBP_I2Test`/`DPBP_I2PlugTest` | apalache | open: V-POOL-1 → `pool-objects` (#6); the plugged-vs-allocator half is board-anchored (V-LIFE-DPNI-1: the census drew plugged companions; V-LIFE-DPIO-1 rev 1: after `dprc sync` the allocator claimed a free plugged dpmcp) |
 | DPBP-I3 | modeled | `main.qnt` `DPBP_I3Test` (dirty return on free) | simulate | open: V-POOL-2 (`dpbp_reset` drain) → `pool-objects` (#6) |
 | DPBP-I4 | modeled | `main.qnt` `DPBP_I4Test`/`DPBP_I4TopUpTest` | simulate | verified (C1 class, ADR-0001) |
-| DPBP-I5 | modeled | `core/invariants.qnt` `LAW4_twoIdSpaces` + `main.qnt` `DPBP_I5Test` | apalache | open: no suite took a `dpbp info` read-back, so id-vs-bpid divergence is unobserved (dpbp.md unknown 2) → `pool-objects` (#6) |
+| DPBP-I5 | modeled | `core/invariants.qnt` `LAW4_twoIdSpaces` + `main.qnt` `DPBP_I5Test` | apalache | open: V-READBACK-1 (2026-08-25) read a runtime dpbp back with bpid equal to its object id, so divergence stays unobserved on this board — the law is kept as a prohibition, nothing relies on equality (dpbp.md unknown 2) → `pool-objects` (#6) |
 | DPBP-I6 | deferred | `pool-objects` (#6): per-consumer dpbp count below core scope | — | verified (ADR-0012) |
 | DPIO-I1 | modeled | `core/invariants.qnt` `DPIO_I1` + `main.qnt` `DPMCP_I1Test` (the dpio→dpmcp arrow) | apalache | — |
 | DPIO-I2 | deferred | `pool-objects` (#6): regime-typed dpio counts | — | verified (ADR-0012) |
-| DPIO-I3 | deferred | `pool-objects` (#6): V-DPIO-1 — NO_CHANNEL dpio, reported `num_priorities` | — | open: V-LIFE-DPIO-1 created a LOCAL_CHANNEL dpio at 8 priorities and read no `dpio info`; the NO_CHANNEL probe → #6 (a runtime dpio cannot bind on this pair anyway, ADR-0008) |
+| DPIO-I3 | deferred | `pool-objects` (#6): V-DPIO-1 — NO_CHANNEL dpio, reported `num_priorities` | — | open: the reported half is settled — V-READBACK-1 (2026-08-25) created a NO_CHANNEL dpio at 8 priorities and `dpio info` reports `0x8`, the mode does not fold them away; the kernel half (what the driver does with a NO_CHANNEL dpio's priorities) → #6, since a runtime dpio cannot bind on this pair (ADR-0008) |
 | DPIO-I4 | modeled | structural — the state carries no dpio↔CPU pairing to key on | typecheck | — |
 | DPIO-I5 | deferred | this change ph.4 adapter: probe success ≠ full function; per-target read-back | — | — |
 | DPCON-I1 | deferred | `pool-objects` (#6): min(CPUs, queues) coupling abstracted to draw=1 | — | verified (C1 + shortfall path) |
@@ -123,7 +123,7 @@ Tally: 52 modeled, 51 deferred, 2 board-settled, 0 board-pending — 105 candida
 | DPCI-I3 | modeled | `main.qnt` `DPCI_I3Test` + `families/dpci.qnt` createTriggersRescan=false | simulate | open: V-DPCI-1 took no sysfs read around a rescan (its module header parks that face) → `tier-c-families` (#13) |
 | DPCI-I4 | board-settled | V-DPCI-1 | — | verified 2026-08-23 (V-DPCI-1 rev 2, 7/7): a bare GPP↔GPP pair created in a scratch container connected (issued against the root ancestor) and read back peered at 1 priority each — no platform gate |
 | DPCI-I5 | modeled | `main.qnt` `DPCI_I5Test` (connect sets no link state) | simulate | verified (V-LINK-1: pair reads link-down after connect; consumer enable required) |
-| DPDCEI-I1 | deferred | `intent-layer` (#3): consumer-absence refusal is an intent-layer rule | — | open: V-DPDCEI-1 probes → `tier-c-families` (#13); the create face landed (V-LIFE-DPDCEI-1) |
+| DPDCEI-I1 | deferred | `intent-layer` (#3): consumer-absence refusal is an intent-layer rule | — | open: V-DPDCEI-1 probes → `tier-c-families` (#13); the create face landed (V-LIFE-DPDCEI-1) and the API-version half is read: dpdcei reports 2.3, the module is linked into this firmware (V-READBACK-1, 2026-08-25) |
 | DPDCEI-I2 | deferred | this change ph.4 generator | — | open: V-GENDPL-1 → `dpl-tape-out` (#14) |
 | DPDCEI-I3 | deferred | this change ph.4 adapter (LAW 2; `DPSECI_I8Test` is the class witness) | — | — |
 | DPDCEI-I4 | deferred | `tier-c-families` (#13) | — | — |
@@ -131,7 +131,7 @@ Tally: 52 modeled, 51 deferred, 2 board-settled, 0 board-pending — 105 candida
 | DPDMAI-I2 | deferred | this change ph.4 adapter (LAW 6) | — | — |
 | DPDMAI-I3 | deferred | `tier-c-families` (#13): V-DPDMAI-1 — the reference kernel registers no qdma driver (ADR-0008), so the consumer-shape coupling is unfalsifiable on this pair | — | unfalsifiable on the reference pair (V-LIFE-DPDMAI-1 rev 2: a bare dpdmai stays unbound with nothing to claim it); re-anchored to #13 with a qdma-capable kernel as its precondition |
 | DPDMAI-I4 | deferred | this change ph.4 generator | — | open: V-GENDPL-1 → `dpl-tape-out` (#14) |
-| DPDMAI-I5 | deferred | `tier-c-families` (#13): V-DPDMAI-1 — `info` after a bare create | — | open: V-LIFE-DPDMAI-1 bare-created (`num_queues` omitted) but probed only `dprc show`, so the MC-chosen count is unread; the suite ledger's I3/I5 wording is corrected → #13 |
+| DPDMAI-I5 | board-settled | V-READBACK-1 (`dpdmai info` of a bare create, from the suite hook) | — | verified 2026-08-25 (V-READBACK-1): `num_queues` omitted yields 1 queue and 2 priorities on MC 10.39.0 (API 3.4); the model keeps the count unspecified, the number is now on record |
 | DPRTC-I1 | modeled | `families/dprtc.qnt` singleton + `main.qnt` `DPRTC_I1Test` | simulate | verified 2026-08-24 (V-DPRTC-1): refused No resources (0x8), `dprc show` byte-identical before/after |
 | DPRTC-I2 | modeled | structural — LAW 5: both-stacks-configured is unrepresentable (single bind field) | typecheck | — |
 | DPRTC-I3 | deferred | this change ph.4 adapter: no clock state readable via restool | — | — |

@@ -68,6 +68,12 @@ enum Command {
         /// the repo root.
         #[arg(long)]
         hook: Option<PathBuf>,
+        /// Per-family `restool <fam> create` arguments this suite renders
+        /// instead of the adapter's default table, e.g.
+        /// `dpio=--channel-mode=DPIO_NO_CHANNEL --num-priorities=8`.
+        /// Recorded in the plan. Repeatable, once per family.
+        #[arg(long, value_name = "FAM=ARGS")]
+        create_args: Vec<String>,
         /// Directory to write `<id>.sh` and `<id>.plan.json` into.
         #[arg(long)]
         out: PathBuf,
@@ -248,6 +254,7 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
             recovery_verification,
             recovery_marker,
             hook,
+            create_args,
             out,
         } => {
             let json = std::fs::read_to_string(&trace)
@@ -278,6 +285,10 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
                 },
                 trace_file: trace.display().to_string(),
                 hook,
+                create_args: create_args
+                    .iter()
+                    .map(|f| dpaa2_verify::adapter::CreateArgs::parse_flag(f))
+                    .collect::<Result<_, String>>()?,
             };
             let recovery = if recovery_marker.exists() {
                 RecoveryGuarantee::Verified

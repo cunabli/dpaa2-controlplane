@@ -86,7 +86,7 @@ board task is an operator sitting sync point.
       diff and fold back
 - [x] 5.6 Ledger pass: fold all board results into COVERAGE.md;
       board-pending rows settled or re-anchored
-- [ ] 5.7 Read-back sweep (board sitting): one scratch-container suite
+- [x] 5.7 Read-back sweep (board sitting): one scratch-container suite
       creating a bare dpni, bare dpdmai, NO_CHANNEL dpio, dpbp and
       dpdcei with a hook reading each back via `info`; settles the
       defaults the lifecycle suites never read (DPNI-I7, DPDMAI-I5,

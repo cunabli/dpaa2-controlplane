@@ -138,8 +138,11 @@ and keep dpio creation *before* consumer dpnis in the plan order.
 
 ## Unknown / unverified register
 
-1. What MC reports as `num_priorities` for a `DPIO_NO_CHANNEL` dpio
-   (decides DPIO-I3's outcome).
+1. ~~What MC reports as `num_priorities` for a `DPIO_NO_CHANNEL` dpio
+   (decides DPIO-I3's outcome).~~ — resolved: the requested count, `0x8`
+   for a dpio created with `--num-priorities=8` [board-observed 2026-08-25, V-READBACK-1]; the mode does not
+   fold the priorities away, so DPIO-I3's kernel half (what the driver
+   does with them) is the part still open.
 2. Whether `dpio_reset` at probe clears stashing/portal state fully
    (same reset-coverage gap as every family).
 3. The DPDK-side portal-allocation algorithm's exact per-thread portal

@@ -147,5 +147,8 @@ objects.
 1. What `dpbp_reset` actually clears — config only, or does it drain
    buffers? (Flib says nothing; feeds DPBP-I3's board check.)
 2. Whether bpid can ever diverge from object id on this board (decides
-   DPBP-I5's observability here, and the dpaa2-switch bug's reach).
+   DPBP-I5's observability here, and the dpaa2-switch bug's reach) — a
+   runtime dpbp read back `buffer pool id` equal to its object id (1 = 1)
+   [board-observed 2026-08-25, V-READBACK-1]; no divergence observed, so the law stays a prohibition the
+   board cannot yet falsify.
 3. The placeholder `dpbp_cfg.options` — reserved by MC or truly dead?

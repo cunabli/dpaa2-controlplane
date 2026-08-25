@@ -103,6 +103,37 @@ impl Family {
     }
 }
 
+impl std::str::FromStr for Family {
+    type Err = String;
+
+    /// Parses the restool type name (`dpni`, `dprc`, …), the inverse of
+    /// [`Family::as_str`]. Shared by [`ObjRef`]'s parsing and the
+    /// `--create-args` flag parser ([`CreateArgs::parse_flag`]).
+    fn from_str(s: &str) -> Result<Self, String> {
+        [
+            Self::Dprc,
+            Self::Dpni,
+            Self::Dpmac,
+            Self::Dpbp,
+            Self::Dpio,
+            Self::Dpcon,
+            Self::Dpmcp,
+            Self::Dpseci,
+            Self::Dpsw,
+            Self::Dpdmux,
+            Self::Dpaiop,
+            Self::Dpci,
+            Self::Dpdcei,
+            Self::Dpdmai,
+            Self::Dprtc,
+            Self::Dpdbg,
+        ]
+        .into_iter()
+        .find(|f| f.as_str() == s)
+        .ok_or_else(|| format!("unknown family `{s}`"))
+    }
+}
+
 /// A model-space object id (`ObjId` in `core/types.qnt`): the restool id
 /// space, distinct from MC hardware ids (law §6.4).
 #[derive(
@@ -129,29 +160,8 @@ impl std::str::FromStr for ObjRef {
         let (kind, num) = s
             .split_once('.')
             .ok_or_else(|| format!("not an object ref: `{s}`"))?;
-        let fam = [
-            Family::Dprc,
-            Family::Dpni,
-            Family::Dpmac,
-            Family::Dpbp,
-            Family::Dpio,
-            Family::Dpcon,
-            Family::Dpmcp,
-            Family::Dpseci,
-            Family::Dpsw,
-            Family::Dpdmux,
-            Family::Dpaiop,
-            Family::Dpci,
-            Family::Dpdcei,
-            Family::Dpdmai,
-            Family::Dprtc,
-            Family::Dpdbg,
-        ]
-        .into_iter()
-        .find(|f| f.as_str() == kind)
-        .ok_or_else(|| format!("unknown family `{kind}`"))?;
         Ok(Self {
-            fam,
+            fam: kind.parse()?,
             num: num.parse().map_err(|e| format!("bad object number: {e}"))?,
         })
     }
@@ -638,6 +648,72 @@ fn create_args(fam: Family) -> &'static [&'static str] {
     }
 }
 
+/// Per-family overrides of the `restool <fam> create` arguments a suite
+/// renders, replacing the `create_args` default table for those
+/// families. Empty (the [`Default`]) means the table applies unchanged —
+/// every suite committed so far was generated this way, so a default
+/// `CreateArgs` reproduces them byte for byte. A suite states the
+/// arguments it renders (e.g. a dpio on `DPIO_NO_CHANNEL`) so the plan
+/// records them; the create arguments never enter the model, because
+/// channel mode is not a lifecycle attribute.
+///
+/// Keyed by [`Family`] directly rather than its `as_str()` string: the
+/// family already derives `Ord` (a `BTreeMap` key) and
+/// `Serialize`/`Deserialize` (`serde_json` renders a fieldless enum as a
+/// string map key, the same `"Dpio"` form the plan already uses for
+/// `created`), so keying by the value is the smaller of the two.
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(transparent)]
+pub struct CreateArgs(BTreeMap<Family, Vec<String>>);
+
+impl CreateArgs {
+    /// Whether no family carries an override, so the default table
+    /// `create_args` applies to every family.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    /// The create arguments a suite renders for `fam`: its stated
+    /// override if one exists, else the default table `create_args`.
+    #[must_use]
+    pub fn args_for(&self, fam: Family) -> Vec<String> {
+        self.0
+            .get(&fam)
+            .cloned()
+            .unwrap_or_else(|| create_args(fam).iter().map(|s| (*s).to_owned()).collect())
+    }
+
+    /// Parses one `--create-args` value, `<fam>=<args>`, into the family
+    /// and the whitespace-separated arguments it overrides the default
+    /// table with (`dpio=--channel-mode=DPIO_NO_CHANNEL --num-priorities=8`).
+    ///
+    /// # Errors
+    ///
+    /// Fails on a value with no `=`, an unknown family, or empty
+    /// arguments.
+    pub fn parse_flag(s: &str) -> Result<(Family, Vec<String>), String> {
+        let (fam, args) = s
+            .split_once('=')
+            .ok_or_else(|| format!("create-args `{s}` is not <fam>=<args>"))?;
+        let fam: Family = fam.trim().parse()?;
+        let args: Vec<String> = args.split_whitespace().map(str::to_owned).collect();
+        if args.is_empty() {
+            return Err(format!(
+                "create-args for {} names no arguments",
+                fam.as_str()
+            ));
+        }
+        Ok((fam, args))
+    }
+}
+
+impl FromIterator<(Family, Vec<String>)> for CreateArgs {
+    fn from_iter<I: IntoIterator<Item = (Family, Vec<String>)>>(it: I) -> Self {
+        Self(it.into_iter().collect())
+    }
+}
+
 /// The containing DPRC of `o` in `view`.
 fn parent_of(view: &MachineView, o: ObjRef) -> Result<ObjRef, String> {
     view.objs
@@ -655,7 +731,25 @@ fn argv(parts: &[&str]) -> Vec<String> {
     parts.iter().map(|s| (*s).to_owned()).collect()
 }
 
-/// Maps a model action to the command(s) that drive it on the board.
+/// Maps a model action to the command(s) that drive it on the board,
+/// with the default per-family create-argument table (`create_args`).
+/// The thin wrapper over [`drive_with`] keeps every call site that
+/// renders on the defaults unchanged.
+///
+/// `pre` is the machine state the action fires from (parent containers
+/// are resolved there); `names` must already bind every referenced id.
+///
+/// # Errors
+///
+/// Fails when the action references an object with no binding or not in
+/// `pre` — a malformed trace, never a board condition.
+pub fn drive(action: &ModelAction, pre: &MachineView, names: &Binding) -> Result<Drive, String> {
+    drive_with(action, pre, names, &CreateArgs::default())
+}
+
+/// Maps a model action to the command(s) that drive it on the board,
+/// rendering create steps with `create`'s per-family overrides where it
+/// has them and the default table `create_args` elsewhere.
 ///
 /// `pre` is the machine state the action fires from (parent containers
 /// are resolved there); `names` must already bind every referenced id.
@@ -665,7 +759,12 @@ fn argv(parts: &[&str]) -> Vec<String> {
 /// Fails when the action references an object with no binding or not in
 /// `pre` — a malformed trace, never a board condition.
 #[allow(clippy::too_many_lines)] // one arm per machine action, by design
-pub fn drive(action: &ModelAction, pre: &MachineView, names: &Binding) -> Result<Drive, String> {
+pub fn drive_with(
+    action: &ModelAction,
+    pre: &MachineView,
+    names: &Binding,
+    create: &CreateArgs,
+) -> Result<Drive, String> {
     let cmd = |parts: Vec<String>| Ok(Drive::Cmds(vec![Cmd::Restool(parts)]));
     match action {
         ModelAction::CreateContainer { parent } => {
@@ -686,7 +785,7 @@ pub fn drive(action: &ModelAction, pre: &MachineView, names: &Binding) -> Result
         } => cmd(argv(&["--script", "dpdbg", "create"])),
         ModelAction::CreateObject { fam, container } => {
             let mut v = argv(&["--script", fam.as_str(), "create"]);
-            v.extend(create_args(*fam).iter().map(|s| (*s).to_owned()));
+            v.extend(create.args_for(*fam));
             v.push(format!("--container={}", names.name(*container)?));
             cmd(v)
         }
@@ -1437,6 +1536,72 @@ mod tests {
                 "--container=dprc.1",
             ]))])
         );
+    }
+
+    /// A create-argument override renders in place of the default table
+    /// for that family only, and the default `drive` still renders the
+    /// table (byte-compatible with every committed suite).
+    #[test]
+    fn drive_with_renders_create_argument_overrides() {
+        let pre = state(None);
+        let names = Binding::seed(&pre);
+        let create = ModelAction::CreateObject {
+            fam: Family::Dpio,
+            container: dprc1(),
+        };
+
+        let overrides: CreateArgs = [(
+            Family::Dpio,
+            vec![
+                "--channel-mode=DPIO_NO_CHANNEL".to_owned(),
+                "--num-priorities=8".to_owned(),
+            ],
+        )]
+        .into_iter()
+        .collect();
+        assert_eq!(
+            drive_with(&create, &pre, &names, &overrides).unwrap(),
+            Drive::Cmds(vec![Cmd::Restool(argv(&[
+                "--script",
+                "dpio",
+                "create",
+                "--channel-mode=DPIO_NO_CHANNEL",
+                "--num-priorities=8",
+                "--container=dprc.1",
+            ]))])
+        );
+
+        // The default table is untouched: the plain wrapper renders the
+        // local-channel dpio every existing suite was generated with.
+        assert_eq!(
+            drive(&create, &pre, &names).unwrap(),
+            Drive::Cmds(vec![Cmd::Restool(argv(&[
+                "--script",
+                "dpio",
+                "create",
+                "--channel-mode=DPIO_LOCAL_CHANNEL",
+                "--num-priorities=8",
+                "--container=dprc.1",
+            ]))])
+        );
+    }
+
+    #[test]
+    fn create_args_flag_parses_family_and_arguments() {
+        let (fam, args) =
+            CreateArgs::parse_flag("dpio=--channel-mode=DPIO_NO_CHANNEL --num-priorities=8")
+                .unwrap();
+        assert_eq!(fam, Family::Dpio);
+        assert_eq!(
+            args,
+            vec!["--channel-mode=DPIO_NO_CHANNEL", "--num-priorities=8"]
+        );
+
+        // Unknown family and empty arguments both fail.
+        assert!(CreateArgs::parse_flag("dpnope=--x").is_err());
+        assert!(CreateArgs::parse_flag("dpio=   ").is_err());
+        // A value with no `=` is not <fam>=<args>.
+        assert!(CreateArgs::parse_flag("dpio").is_err());
     }
 
     /// The endpoints sit in a scratch container, but the connect must

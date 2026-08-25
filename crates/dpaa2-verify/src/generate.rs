@@ -23,8 +23,8 @@
 use std::fmt::Write as _;
 
 use crate::adapter::{
-    Binding, Cmd, Drive, Expected, MachineView, MbtTrace, ModelAction, ObjRef, Probe, drive,
-    expect, readback,
+    Binding, Cmd, CreateArgs, Drive, Expected, MachineView, MbtTrace, ModelAction, ObjRef, Probe,
+    drive, drive_with, expect, readback,
 };
 use crate::safety::{self, RunClass};
 
@@ -78,6 +78,10 @@ pub struct SuiteSpec {
     pub trace_file: String,
     /// Hand-written steps to source after the last trace step, if any.
     pub hook: Option<Hook>,
+    /// Per-family `restool <fam> create` arguments this suite renders
+    /// instead of the adapter's default table. Empty renders every
+    /// create on the defaults, as every committed suite was generated.
+    pub create_args: CreateArgs,
 }
 
 /// One step of the offline-diffable plan.
@@ -116,6 +120,12 @@ pub struct SuitePlan {
     /// written before hooks existed still parse.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub hook: Option<String>,
+    /// The per-family create-argument overrides the suite rendered.
+    /// Absent when the suite used the default table, so every plan
+    /// committed before overrides existed still parses and re-serializes
+    /// byte-identically.
+    #[serde(default, skip_serializing_if = "CreateArgs::is_empty")]
+    pub create_args: CreateArgs,
 }
 
 /// A generated suite: the reviewable script and its plan.
@@ -527,7 +537,8 @@ pub fn generate(
         }
 
         let created = crate::adapter::created_object(&pre, &step.post);
-        let d = drive(&step.action, &pre, &sym).map_err(|e| format!("step {i}: {e}"))?;
+        let d = drive_with(&step.action, &pre, &sym, &spec.create_args)
+            .map_err(|e| format!("step {i}: {e}"))?;
         let driven = match &d {
             Drive::Await(why) => {
                 let _ = writeln!(body, "# awaited: {why}");
@@ -732,6 +743,7 @@ pub fn generate(
             trace_file: spec.trace_file.clone(),
             steps,
             hook: spec.hook.as_ref().map(|h| h.path.clone()),
+            create_args: spec.create_args.clone(),
         },
     })
 }
@@ -840,6 +852,7 @@ mod tests {
             kind,
             trace_file: "test.itf.json".to_owned(),
             hook: None,
+            create_args: CreateArgs::default(),
         }
     }
 
@@ -1398,5 +1411,69 @@ mod tests {
         let v = reports[3].verdict.as_ref().unwrap();
         assert!(!v.pass);
         assert!(v.exit.ok, "exit stays auxiliary evidence");
+    }
+
+    /// A create-argument override reaches both artifacts — the rendered
+    /// create line and the recorded plan — while a suite without one
+    /// serializes no `create_args` key, so committed plans stay
+    /// byte-identical.
+    #[test]
+    fn create_args_override_reaches_script_and_plan() {
+        let dpio = |num| ObjRef {
+            fam: Family::Dpio,
+            num,
+        };
+        let mut init = MachineView::default();
+        init.objs.insert(dprc(1), obj(None, true));
+        let mut post = init.clone();
+        post.objs.insert(dpio(101), obj(Some(dprc(1)), false));
+        let trace = MbtTrace {
+            init,
+            steps: vec![MbtStep {
+                action: ModelAction::CreateObject {
+                    fam: Family::Dpio,
+                    container: dprc(1),
+                },
+                post,
+            }],
+        };
+
+        let mut over_spec = spec(SuiteKind::Standard);
+        over_spec.create_args = [(
+            Family::Dpio,
+            vec![
+                "--channel-mode=DPIO_NO_CHANNEL".to_owned(),
+                "--num-priorities=8".to_owned(),
+            ],
+        )]
+        .into_iter()
+        .collect();
+        let suite = generate(&over_spec, &trace, RecoveryGuarantee::Verified).unwrap();
+
+        // The override renders the create line.
+        assert!(
+            suite.script.contains(
+                "restool --script dpio create --channel-mode=DPIO_NO_CHANNEL --num-priorities=8 --container=dprc.1"
+            ),
+            "{}",
+            suite.script
+        );
+        // And it is recorded in the plan, round-tripping through JSON.
+        let json = serde_json::to_string(&suite.plan).unwrap();
+        assert!(json.contains("create_args"), "{json}");
+        let back: SuitePlan = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, suite.plan);
+
+        // A suite without overrides serializes no key at all, so plans
+        // written before overrides existed stay byte-identical.
+        let plain = generate(
+            &spec(SuiteKind::Standard),
+            &scratch_trace(),
+            RecoveryGuarantee::Verified,
+        )
+        .unwrap();
+        let json = serde_json::to_string(&plain.plan).unwrap();
+        assert!(!json.contains("create_args"), "{json}");
+        assert!(plain.plan.create_args.is_empty());
     }
 }

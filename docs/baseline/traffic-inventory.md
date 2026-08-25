@@ -76,6 +76,7 @@ No link semantics; any dpmac named is from the unwired set.
 | V-DPRTC-2 | Read-only observations: reported API version, paddr/little_endian vs DT, two-step-only manual claim vs one-step kernel path | dprtc.md unknowns 4, 5, 6 | none |
 | V-DPRTC-3 | Destroy of the DPL-born dprtc.0: bound attempt, unbind, unbound destroy, reboot-restore check — gated on the recovery guarantee (see §4), sequenced last in its sitting | dprtc.md unknown 3 | none |
 | V-DPDBG-1 | Singleton probes: create in root, second create, create in non-root; set/dump with out-of-range values; unhandled dump type | DPDBG-I1, I4; dpdbg.md unknowns 1, 2, 5 | none |
+| V-READBACK-1 | Read-back sweep: bare `dpni`, bare `dpdmai`, NO_CHANNEL `dpio`, `dpbp` and `dpdcei` created unplugged in one scratch container and each read back with `info` before the trap reclaims them — the defaults the lifecycle suites never read | DPNI-I7; DPDMAI-I5; DPIO-I3 (reported priorities); DPBP-I5 (bpid vs id); DPDCEI-I1 (API version); dpio.md unknown 1, dpbp.md unknown 2, dpdcei.md unknown 2, dpdmai.md unknown 1 | none |
 | V-GENDPL-1 | generate-dpl round-trip audit against created objects (lossy/wrong emitters across dpni/dpdcei/dpaiop/dpdmai) | dpni.md silent-failure notes; DPDCEI-I2; DPAIOP-I3; DPDMAI-I4 | none |
 
 ## 2. Link-signaling scenarios

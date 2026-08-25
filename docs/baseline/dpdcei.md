@@ -126,8 +126,10 @@ DPDCEI-I1) rather than emitting an object nothing can drive.
 1. Does MC 10.39.0 on this SoC accept `DPDCEI_CREATE`? With the hardware
    confirmed present, success is now the expected outcome; a refusal
    would mean the firmware build gates the module despite the silicon.
-2. Does `DPDCEI_GET_API_VERSION` (token-0, cheap probe) succeed even with
-   no DCE hardware — i.e., is the module linked into this MC build?
+2. ~~Does `DPDCEI_GET_API_VERSION` (token-0, cheap probe) succeed even with
+   no DCE hardware — i.e., is the module linked into this MC build?~~ —
+   resolved: yes, `dpdcei info` reports API 2.3 (restool's header
+   version) [board-observed 2026-08-25, V-READBACK-1].
 3. The `dce_version` value (fetched then discarded by restool) — would
    identify the DCE generation if the block exists.
 4. MC-side legal `priority` range (restool clamps 1..8 client-side; the

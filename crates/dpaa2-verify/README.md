@@ -64,6 +64,14 @@ the file for total-deny references before sourcing it, and the plan
 records the path. Recovery-verification suites take no hook: the reboot
 is their teardown.
 
+A suite may also state the `restool <fam> create` arguments it renders
+for a family: `--create-args dpio=--channel-mode=DPIO_NO_CHANNEL
+--num-priorities=8` (repeatable, once per family) replaces the adapter's
+default create table for that family only. The override is a
+generation-time detail of one suite, not a lifecycle attribute — the
+model never sees it — so it lives on the command line and the plan
+records it, leaving every other suite's create rendering unchanged.
+
 ```sh
 cargo run -p dpaa2-verify -- generate --trace t.itf.json --id V-X-1 --out suites/
 cargo run -p dpaa2-verify -- diff --plan suites/V-X-1.plan.json --results results/

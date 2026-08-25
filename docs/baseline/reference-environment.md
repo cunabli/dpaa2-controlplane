@@ -104,11 +104,14 @@ What the bare boot looks like, beyond the count:
   | dpni | 8.5 | 7.18 |
   | dprtc | 2.3 | 2.0 |
   | dpseci | 5.4 | 5.3 |
+  | dpdcei | 2.3 | 2.3 |
+  | dpdmai | 3.4 | 3.4 |
 
-  The firmware is ahead of restool on six of eight families — the same
-  skew the banner finding above records, now per family. Families with
-  no boot resident (dpsw, dpdmux, dpci, dpdcei, dpdmai, dpaiop) report
-  theirs when a suite creates one (V-READBACK-1 for dpdcei).
+  The firmware is ahead of restool on six of the eight resident
+  families — the same skew the banner finding above records, now per
+  family. dpdcei and dpdmai have no boot resident; their rows come from
+  V-READBACK-1's runtime creates (2026-08-25). dpsw, dpdmux, dpci and
+  dpaiop report theirs when a suite reads one back.
 
 The snapshot deliberately drops counters (`dpni` statistics, the dpmac
 `Counters:` block): they move with every management frame, and the diff
