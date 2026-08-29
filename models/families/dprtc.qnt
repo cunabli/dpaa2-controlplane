@@ -5,7 +5,10 @@
 // placement stays AnyContainer. The kernel-MMIO vs DPDK-MC split
 // (DPRTC-I2) is the ownership-exclusivity law, phase 2.
 //
-// Named invariants: none yet (phase 2). Apalache-marked subset: none.
+// Named invariants (modeled; dispositions in models/COVERAGE.md):
+//   DPRTC-I1 families/dprtc.qnt singleton + main.qnt DPRTC_I1Test;
+//   DPRTC-I2 structural (LAW 5); DPRTC-I5 structural (no create-config state).
+// Apalache-marked subset: none.
 module dprtc {
   import types.* from "../core/types"
 

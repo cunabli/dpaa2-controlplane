@@ -4,7 +4,10 @@
 // per thread. The dpio driver itself draws a dpmcp at probe — the
 // dpio→dpmcp ordering edge inside the pool-companion phase (§4).
 //
-// Named invariants: none yet (phase 2). Apalache-marked subset: none.
+// Named invariants (modeled; dispositions in models/COVERAGE.md):
+//   DPIO-I1 core/invariants.qnt DPIO_I1 + main.qnt DPMCP_I1Test;
+//   DPIO-I4 structural (state carries no dpio-to-CPU pairing).
+// Apalache-marked subset: DPIO-I1.
 module dpio {
   import types.* from "../core/types"
 

@@ -4,7 +4,10 @@
 // write-only (DPDBG-I2, breaking): an observation-layer law encoded in
 // phase 2, not a parameter.
 //
-// Named invariants: none yet (phase 2). Apalache-marked subset: none.
+// Named invariants (modeled; dispositions in models/COVERAGE.md):
+//   DPDBG-I1 families/dpdbg.qnt RootOnly+singleton + main.qnt DPDBG_I1Test/DPDBG_I1SingletonTest;
+//   DPDBG-I2 structural (no debug-state observable); DPDBG-I4 main.qnt DPDBG_I4Test.
+// Apalache-marked subset: none.
 module dpdbg {
   import types.* from "../core/types"
 

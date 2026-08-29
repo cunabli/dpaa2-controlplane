@@ -16,6 +16,8 @@ Cross-family relationships are mapped in [object-model.md](object-model.md);
 the board scenarios that will settle this document's open items are
 classified in [traffic-inventory.md](traffic-inventory.md).
 
+The family's model parameters live in [models/families/dprc.qnt](../../models/families/dprc.qnt); every invariant candidate below has a disposition row in [models/COVERAGE.md](../../models/COVERAGE.md), and the board suites that settled them are indexed in [models/board/README.md](../../models/board/README.md).
+
 The DPRC (Data Path Resource Container) is the container family everything
 else lives in: a software context (kernel, VPP, a VM) is associated with one
 DPRC holding every object and resource it may use; parents spawn descendant
@@ -330,7 +332,7 @@ false belief.
 | DPRC-I8 | Scan ordering postcondition (ADR-0006 fold): plugging an allocatable (dpmcp/dpbp/dpcon) lands it in its container's kernel pool before any consumer in the same scan probes | consumer probe success when pool objects and consumer are plugged in one batch | candidate — no runtime observable through restool (V-POOL-1 rev 2, 2026-08-29: a child container cannot be plugged by the tool, so no batch plug→probe ever runs outside the root); needs a DPL-defined child or the raw command path (#10) |
 | DPRC-I9 | Teardown reachability (liveness): from every reachable scratch-container state some finite action sequence empties and destroys the container | suite replay ending in `destroy` success + container absent from `list` | verified 2026-08-23 (V-DPRC-1 rev 3, 13/13): the scratch container was emptied through both move directions and destroyed, absent in read-back; unknown #1 is answered by ADR-0007 §3's release/evict law, so a non-empty destroy never blocks teardown either |
 | DPRC-I10 | Immutability: icid, portal_id, and options of a container never change across any post-create action sequence | `dprc info` before/after every suite | candidate |
-| DPRC-I11 | `set-locked 1` on a child removes create/destroy/assign/unassign/lock from the entire sub-hierarchy; `set-locked 0` restores it (who may unlock: unknown #4) | denied MC status on each operation class inside the locked hierarchy | board-pending — rev 1 (V-DPRC-3, 2026-08-29) observed the lock refusing assign (No privilege, object unplugged), leaving reads working and lifting from the root, but also accepting `set-label`, which the hook had predicted stripped; the corrected hook re-runs as rev 2 |
+| DPRC-I11 | `set-locked 1` on a child removes create/destroy/assign/unassign/lock from the entire sub-hierarchy; `set-locked 0` restores it (who may unlock: unknown #4) | denied MC status on each operation class inside the locked hierarchy | modeled in `main.qnt` `DPRC_I11Test` + spawn/unlock tests (simulate); board open after rev 1 (V-DPRC-3, 2026-08-29) — the lock refused assign (No privilege, object unplugged), left reads working and lifted from the root, but also accepted `set-label`, which the hook had predicted stripped; the corrected hook settles it at rev 2, while the child-portal unlock face stays restool-unreachable → `dprc-encapsulation` (#4) |
 
 ## Unknown / unverified register
 

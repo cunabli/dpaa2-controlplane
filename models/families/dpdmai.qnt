@@ -4,7 +4,7 @@
 // inside the "additive" API window (DPL-vs-CREATE divergence
 // pre-10.38.1, DPDMAI-I2) — per-action version state, a phase-2 law.
 //
-// Named invariants: none yet (phase 2). Apalache-marked subset: none.
+// Named invariants: none modeled — see models/COVERAGE.md for the family's dispositions. Apalache-marked subset: none.
 module dpdmai {
   import types.* from "../core/types"
 

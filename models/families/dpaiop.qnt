@@ -4,7 +4,10 @@
 // the last gate" exemplar. Its aiop_container_id is a create-time
 // reference to an AIOP-flagged dprc, not a connect edge (DPAIOP-I4).
 //
-// Named invariants: none yet (phase 2). Apalache-marked subset: none.
+// Named invariants (modeled; dispositions in models/COVERAGE.md):
+//   DPAIOP-I1 families/dpaiop.qnt creatable=false + main.qnt DPAIOP_I1Test;
+//   DPAIOP-I2 main.qnt DPAIOP_I1Test (OBJ_CREATE present, refused anyway).
+// Apalache-marked subset: none.
 module dpaiop {
   import types.* from "../core/types"
 

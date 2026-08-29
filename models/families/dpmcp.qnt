@@ -5,7 +5,10 @@
 // invariant concern. Never reset, on any path (DPMCP-I3, breaking).
 // The dependency arrows of §4 bottom out here (DPMCP-I1).
 //
-// Named invariants: none yet (phase 2). Apalache-marked subset: none.
+// Named invariants (modeled; dispositions in models/COVERAGE.md):
+//   DPMCP-I1 main.qnt DPMCP_I1Test; DPMCP-I2 main.qnt DPMCP_I2Test/DPMCP_I2ReturnTest;
+//   DPMCP-I3 main.qnt DPMCP_I3Test; DPMCP-I4 core/invariants.qnt DPRC_I1 (placement face).
+// Apalache-marked subset: DPMCP-I4.
 module dpmcp {
   import types.* from "../core/types"
 

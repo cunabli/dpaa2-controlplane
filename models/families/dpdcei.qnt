@@ -2,7 +2,7 @@
 // hardware is present — but no consumer exists in the corpus (§3): a
 // created dpdcei stays created-but-never-enabled.
 //
-// Named invariants: none yet (phase 2). Apalache-marked subset: none.
+// Named invariants: none modeled — see models/COVERAGE.md for the family's dispositions. Apalache-marked subset: none.
 module dpdcei {
   import types.* from "../core/types"
 

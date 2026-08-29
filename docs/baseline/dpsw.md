@@ -16,6 +16,8 @@ Cross-family relationships are mapped in [object-model.md](object-model.md);
 the board scenarios that will settle this document's open items are
 classified in [traffic-inventory.md](traffic-inventory.md).
 
+The family's model parameters live in [models/families/dpsw.qnt](../../models/families/dpsw.qnt); every invariant candidate below has a disposition row in [models/COVERAGE.md](../../models/COVERAGE.md), and the board suites that settled them are indexed in [models/board/README.md](../../models/board/README.md).
+
 The DPSW is the multi-port L2 switch. Ownership is asymmetric to
 dpdmux's: the kernel has a real, maintained upstream driver
 (`dpaa2-switch`), while **DPDK has no claim path at all** — dpsw is not

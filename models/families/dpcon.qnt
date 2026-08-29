@@ -3,7 +3,10 @@
 // (DPCON-I1). Shortage after the first degrades the consumer instead of
 // deferring it (DPNI-I5, breaking) — a phase-2 invariant concern.
 //
-// Named invariants: none yet (phase 2). Apalache-marked subset: none.
+// Named invariants (modeled; dispositions in models/COVERAGE.md):
+//   DPCON-I2 core/invariants.qnt LAW4_twoIdSpaces + main.qnt DPCON_I2Test;
+//   DPCON-I5 main.qnt DPCON_I5Test.
+// Apalache-marked subset: DPCON-I2.
 module dpcon {
   import types.* from "../core/types"
 

@@ -4,7 +4,10 @@
 // policy (set_resetable) that a later reset honors: a phase-2 invariant
 // concern, not a parameter.
 //
-// Named invariants: none yet (phase 2). Apalache-marked subset: none.
+// Named invariants (modeled; dispositions in models/COVERAGE.md):
+//   DPDMUX-I3 main.qnt DPDMUX_I3Test; DPDMUX-I5 main.qnt DPDMUX_I5Test;
+//   DPDMUX-I8 core/connect.qnt legalPorts + main.qnt DPDMUX_I8Test/DPDMUX_I8NonZeroUplinkTest.
+// Apalache-marked subset: none.
 module dpdmux {
   import types.* from "../core/types"
 

@@ -2,7 +2,10 @@
 // pinned there: the runtime lifecycle is connect/disconnect, not
 // create/move (DPMAC-I1) — creatable=false plus RootOnly encode it.
 //
-// Named invariants: none yet (phase 2). Apalache-marked subset: none.
+// Named invariants (modeled; dispositions in models/COVERAGE.md):
+//   DPMAC-I1 core/invariants.qnt DPMAC_I1; DPMAC-I5 main.qnt DPMAC_I5Test;
+//   DPMAC-I8 main.qnt DPSECI_I8Test (class witness) + ph.4 adapter law.
+// Apalache-marked subset: DPMAC-I1.
 module dpmac {
   import types.* from "../core/types"
 

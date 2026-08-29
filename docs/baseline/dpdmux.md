@@ -16,6 +16,8 @@ Cross-family relationships are mapped in [object-model.md](object-model.md);
 the board scenarios that will settle this document's open items are
 classified in [traffic-inventory.md](traffic-inventory.md).
 
+The family's model parameters live in [models/families/dpdmux.qnt](../../models/families/dpdmux.qnt); every invariant candidate below has a disposition row in [models/COVERAGE.md](../../models/COVERAGE.md), and the board suites that settled them are indexed in [models/board/README.md](../../models/board/README.md).
+
 The DPDMUX is an L2 demultiplexer: one uplink shared across N downlink
 interfaces, each connectable to a dpni (or another object) — the object
 family ROADMAP phase 12 designates for **kernel/VPP port sharing** (one

@@ -4,7 +4,12 @@
 // Pool free does no MC reset — membership never implies clean state
 // (DPBP-I3, breaking).
 //
-// Named invariants: none yet (phase 2). Apalache-marked subset: none.
+// Named invariants (modeled; dispositions in models/COVERAGE.md):
+//   DPBP-I1 main.qnt DPBP_I5Test;
+//   DPBP-I2 core/invariants.qnt DPBP_I2 + main.qnt DPBP_I2Test/DPBP_I2PlugTest;
+//   DPBP-I3 main.qnt DPBP_I3Test; DPBP-I4 main.qnt DPBP_I4Test/DPBP_I4TopUpTest;
+//   DPBP-I5 core/invariants.qnt LAW4_twoIdSpaces + main.qnt DPBP_I5Test.
+// Apalache-marked subset: DPBP-I2, DPBP-I5.
 module dpbp {
   import types.* from "../core/types"
 

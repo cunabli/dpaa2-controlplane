@@ -4,7 +4,10 @@
 // DPSECI-I5) — the core's unbind transform already models "no
 // guarantee".
 //
-// Named invariants: none yet (phase 2). Apalache-marked subset: none.
+// Named invariants (modeled; dispositions in models/COVERAGE.md):
+//   DPSECI-I5 main.qnt DPSECI_I5Test; DPSECI-I7 structural (LAW 5);
+//   DPSECI-I8 main.qnt DPSECI_I8Test.
+// Apalache-marked subset: none.
 module dpseci {
   import types.* from "../core/types"
 

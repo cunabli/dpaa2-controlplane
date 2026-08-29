@@ -16,6 +16,8 @@ Cross-family relationships are mapped in [object-model.md](object-model.md);
 the board scenarios that will settle this document's open items are
 classified in [traffic-inventory.md](traffic-inventory.md).
 
+The family's model parameters live in [models/families/dpdcei.qnt](../../models/families/dpdcei.qnt); every invariant candidate below has a disposition row in [models/COVERAGE.md](../../models/COVERAGE.md), and the board suites that settled them are indexed in [models/board/README.md](../../models/board/README.md).
+
 The DPDCEI fronts the DCE compression/decompression engine — an optional
 SoC block that **this platform has**: DPAA2UM rev 53 Table 2-1 (p. 2-8)
 lists DPDCEI platforms as LS2080, LS2088, **LX2160** [read, manual].
@@ -116,7 +118,7 @@ DPDCEI-I1) rather than emitting an object nothing can drive.
 
 | Id | Proposition | Observables | Status |
 |---|---|---|---|
-| DPDCEI-I1 | Consumer-unreachable: the DCE block exists on this SoC (Table 2-1) but no software in the corpus can drive a dpdcei — the model refuses dpdcei intents on consumer absence, not hardware absence | manual Table 2-1; `dpdcei create` probe status (`0x0` expected now; `0xB`/`0x8` would re-open the hardware question) | candidate (hardware read, create board-pending) |
+| DPDCEI-I1 | Consumer-unreachable: the DCE block exists on this SoC (Table 2-1) but no software in the corpus can drive a dpdcei — the model refuses dpdcei intents on consumer absence, not hardware absence | manual Table 2-1; `dpdcei create` probe status (`0x0` expected now; `0xB`/`0x8` would re-open the hardware question) | deferred to the intent-layer's consumer-absence rule (`intent-layer`, #3); the create face landed (V-LIFE-DPDCEI-1) and the DCE module reads linked at API 2.3 (V-READBACK-1, 2026-08-25); the consumer-absence probes stay open → V-DPDCEI-1 under `tier-c-families` (#13) |
 | DPDCEI-I2 | **Breaking:** the model must NOT assume generate-dpl round-trips config — `priority` is write-only and silently dropped by the DPL emitter | diff DPL node vs create args | verified 2026-08-29 (V-GENDPL-1 rev 1): a dpdcei created `--priority=2` is emitted with `engine` only; the priority is absent from `dpdcei info` as well |
 | DPDCEI-I3 | **Breaking:** the model must NOT trust restool's destroy exit code in a non-root container — MC error is overwritten by dprc_close success | `$?` after a forced-fail destroy | candidate |
 | DPDCEI-I4 | Immutability: `engine` fixed at create; the only runtime-mutable state (rx-queue dest) is unreachable from restool, so restool-visible state is create-frozen | `dpdcei info` before/after any restool sequence | candidate |

@@ -38,7 +38,7 @@ State a container contributes to the model:
   drivers can reach it — allocation and driver binding never cross the
   boundary (DPRC-I1, DPMCP-I4).
 - **Locking**: `set-locked 1` strips create/destroy/assign/lock from the
-  entire sub-hierarchy (DPRC-I11, board-pending).
+  entire sub-hierarchy (DPRC-I11, board open after V-DPRC-3 rev 1).
 
 Placement constraints that are laws, not conventions: dpdbg exists only in
 the root container (firmware-refused elsewhere; DPDBG-I1); dprtc is a

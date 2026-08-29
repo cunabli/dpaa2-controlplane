@@ -1,7 +1,14 @@
 // dpni family parameters (dpni.md). The created-then-bound consumer the
 // canonical lifecycle order was board-validated on (C1 [verified]).
 //
-// Named invariants: none yet (phase 2). Apalache-marked subset: none.
+// Named invariants (modeled; dispositions in models/COVERAGE.md):
+//   DPNI-I1 structural (LAW 1, no cfg block in state); DPNI-I2 main.qnt DPNI_I2Test;
+//   DPNI-I3 retro/reconciler.qnt association runs (itf-replay);
+//   DPNI-I4 machine.qnt kernelBind census guard + main.qnt DPNI_I4Test;
+//   DPNI-I8 main.qnt DPNI_I8Test;
+//   DPNI-I9 core/invariants.qnt DPNI_I9 + main.qnt DPNI_I9Test;
+//   DPNI-I11 main.qnt IOCTL_OK/DPNI_I11Test + core/ioctl_policy.qnt.
+// Apalache-marked subset: DPNI-I9, DPNI-I11.
 module dpni {
   import types.* from "../core/types"
 

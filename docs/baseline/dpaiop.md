@@ -16,6 +16,8 @@ Cross-family relationships are mapped in [object-model.md](object-model.md);
 the board scenarios that will settle this document's open items are
 classified in [traffic-inventory.md](traffic-inventory.md).
 
+The family's model parameters live in [models/families/dpaiop.qnt](../../models/families/dpaiop.qnt); every invariant candidate below has a disposition row in [models/COVERAGE.md](../../models/COVERAGE.md), and the board suites that settled them are indexed in [models/board/README.md](../../models/board/README.md).
+
 The DPAIOP represents an **AIOP tile** — the optional programmable packet
 engine of LS1088/LS2088-class SoCs. Tier C question answered up front:
 **not board-exercisable on this platform**, on two independent grounds:

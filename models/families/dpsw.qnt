@@ -3,7 +3,10 @@
 // reset-on-bind class — binding additionally dismantles MC-default
 // state (DPSW-I4, breaking).
 //
-// Named invariants: none yet (phase 2). Apalache-marked subset: none.
+// Named invariants (modeled; dispositions in models/COVERAGE.md):
+//   DPSW-I3 main.qnt DPSW_I3Test; DPSW-I4 main.qnt DPSW_I4Test;
+//   DPSW-I5 core/invariants.qnt LAW4_twoIdSpaces (DPBP_I5Test witness).
+// Apalache-marked subset: DPSW-I5.
 module dpsw {
   import types.* from "../core/types"
 

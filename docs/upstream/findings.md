@@ -364,3 +364,33 @@ cites the suite and the design record that carry the numbers.
     container *evicts* a foreign resident one hop up rather than
     cascading, which nothing documents. Evidence: ADR-0007, suites
     V-DPRC-1 rev 1–3 and V-DPRC-6. — question
+
+## From the closing pass (tasks 6.5 and 7.2, 2026-08-30)
+
+### Linux kernel
+
+47. **The fsl-mc uapi command whitelist blocks two commands the models
+    and adapter otherwise emit.** `fsl_mc_command_check` in
+    `drivers/bus/fsl-mc/fsl-mc-uapi.c` tests every MC command sent
+    through `/dev/dprc.N` against a fixed `fsl_mc_accepted_cmds[]` list
+    and refuses anything off it with `-EACCES`, whatever the caller's
+    privilege. Every verb the baseline's adapter, model driver and
+    harness render resolves inside that list, but two do not —
+    `DPNI_SET_TX_CONFIRMATION_MODE` (0x2661) and `DPMAC_SET_LINK_STATE`
+    (0x0c32) — so both are unreachable through `/dev/dprc.N` and need
+    either a kernel patch extending the whitelist or a VFIO userspace
+    transport that never meets the uapi check. Evidence:
+    mc-ioctl-policy.md §3, probes V-DPNI-4 and V-LINK-3. — candidate
+
+### ls-* scripts (shipped with restool)
+
+48. **`ls-addni` sizes companion objects by port, which is only right
+    for the kernel regime.** The script creates one dpbp per dpni, one
+    dpmcp per dpio and per dpni, and dpios once per CPU. A poll-mode
+    userspace consumer in a child container needs a different shape —
+    two dpios per consumer thread, a fixed pair of dpbps, and at least
+    one transmit queue per thread — and nothing in the script or its
+    help text says the count assumes the kernel driver. Each shortfall
+    fails late and quietly (portal exhaustion mid-run, buffer setup
+    failure, silent transmit drops with no MC error). Evidence:
+    ADR-0012, dpio.md, dpbp.md, dpni.md. — candidate

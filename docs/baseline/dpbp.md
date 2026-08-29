@@ -16,6 +16,8 @@ Cross-family relationships are mapped in [object-model.md](object-model.md);
 the board scenarios that will settle this document's open items are
 classified in [traffic-inventory.md](traffic-inventory.md).
 
+The family's model parameters live in [models/families/dpbp.qnt](../../models/families/dpbp.qnt); every invariant candidate below has a disposition row in [models/COVERAGE.md](../../models/COVERAGE.md), and the board suites that settled them are indexed in [models/board/README.md](../../models/board/README.md).
+
 The DPBP is a QBMan buffer pool. It is the simplest object family — no
 create options at all — and the archetype of the **allocatable pool
 object**: consumers (dpni via `fsl_dpaa2_eth` or the DPDK PMD, dpsw)

@@ -16,6 +16,8 @@ Cross-family relationships are mapped in [object-model.md](object-model.md);
 the board scenarios that will settle this document's open items are
 classified in [traffic-inventory.md](traffic-inventory.md).
 
+The family's model parameters live in [models/families/dpseci.qnt](../../models/families/dpseci.qnt); every invariant candidate below has a disposition row in [models/COVERAGE.md](../../models/COVERAGE.md), and the board suites that settled them are indexed in [models/board/README.md](../../models/board/README.md).
+
 The DPSECI is the SEC (crypto accelerator) interface object: queue pairs
 into and out of the SEC engine. Its consumer is either the kernel
 `dpaa2_caam` driver (a Linux cryptodev) or the DPDK `dpaa2_sec` PMD via
@@ -219,7 +221,7 @@ runtime model.
 | DPSECI-I2 | Create precondition (restool layer): priorities count = num-queues, each in 1–8; MC-layer validation is unknown and must not be assumed | restool exit on mismatch; MC status on out-of-range via DPL | restool layer board-anchored 2026-08-29 (V-DPSECI-1 rev 1: priority 0, a priority above 8, and a priority-count ≠ num-queues are each refused by restool's own parser, exit 234, before any MC command; also V-LIFE-DPSECI-1 rev 1 and production use); MC-layer validation unreachable through restool, board-pending → V-DPSECI-1 (MC layer) under `dpseci-typestate` (#8) |
 | DPSECI-I3 | **Breaking:** the model must NOT treat restool `info` output as the convergence observable for this family — the options mask is not printed; only raw `GET_ATTR` observes it | info output vs GET_ATTR response | candidate |
 | DPSECI-I4 | Safety: consumer backpressure exists iff `HAS_CG` was set at create; absent it, enqueue is unbounded (kernel consumer) | congestion config presence; enqueue behavior at saturation | candidate |
-| DPSECI-I5 | **Breaking:** the model must NOT assume unbind ⇒ clean MC state: the kernel reset is gated on API > 5.3, and rx-queue steering + armed CG (with dangling iova) persist when skipped | `get_rx_queue`/`get_congestion_notification` after unbind | board-pending (board API is 5.4 → reset expected live) |
+| DPSECI-I5 | **Breaking:** the model must NOT assume unbind ⇒ clean MC state: the kernel reset is gated on API > 5.3, and rx-queue steering + armed CG (with dangling iova) persist when skipped | `get_rx_queue`/`get_congestion_notification` after unbind | modeled in `main.qnt` `DPSECI_I5Test` (simulate); the board reset path stays open — board API is 5.4 so the reset is expected live → V-DPSECI-2 under `dpseci-typestate` (#8) |
 | DPSECI-I6 | Liveness ceiling: a queue pair over-posted past its FLE depth wedges permanently with no MC-visible error; consumers must self-cap in-flight (≤ half the FLE pool) | enqueue returns 0 with in-flight 0; qp stats; 5.4 queue-status flags | verified (ADR-0005) |
 | DPSECI-I7 | **Breaking:** the model must NOT assume MC-enforced exclusivity: multiple open tokens are structurally permitted, and a VFIO close resets the object under any other opener; single-owner is a modeling assumption (ADR-0006), not an MC property | concurrent open success; config wiped after VFIO close | candidate |
 | DPSECI-I8 | Destroy precondition: all tokens closed and no bound driver; restool's destroy result is unreliable in child containers (error overwritten) | object presence after "successful" destroy | candidate |

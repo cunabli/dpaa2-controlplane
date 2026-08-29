@@ -16,6 +16,8 @@ Cross-family relationships are mapped in [object-model.md](object-model.md);
 the board scenarios that will settle this document's open items are
 classified in [traffic-inventory.md](traffic-inventory.md).
 
+The family's model parameters live in [models/families/dpdbg.qnt](../../models/families/dpdbg.qnt); every invariant candidate below has a disposition row in [models/COVERAGE.md](../../models/COVERAGE.md), and the board suites that settled them are indexed in [models/board/README.md](../../models/board/README.md).
+
 Tier C question answered up front: dpdbg is a **real MC object family, not
 a facade** — it owns module id 0xf in the MC opcode space with the full
 canonical verb set, is created/destroyed against a dprc token, opened by

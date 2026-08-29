@@ -16,6 +16,8 @@ Cross-family relationships are mapped in [object-model.md](object-model.md);
 the board scenarios that will settle this document's open items are
 classified in [traffic-inventory.md](traffic-inventory.md).
 
+The family's model parameters live in [models/families/dpdmai.qnt](../../models/families/dpdmai.qnt); every invariant candidate below has a disposition row in [models/COVERAGE.md](../../models/COVERAGE.md), and the board suites that settled them are indexed in [models/board/README.md](../../models/board/README.md).
+
 The DPDMAI fronts the LX2160A's **qDMA engine** (in the firmware line
 since MC 10.7.0, queue count scaled to core count — 16 on LX2160 — since
 10.8.0; DPAA2UM rev 53 Table 2-1 lists LX2160 among DPDMAI platforms).
@@ -141,7 +143,7 @@ the VPP port series has no qdma consumer today.
 |---|---|---|---|
 | DPDMAI-I1 | Create-frozen sizing: priorities/queues/options are immutable; reconciler repairs drift only by destroy+recreate (which unbinds the consumer) | attr readback vs desired | candidate |
 | DPDMAI-I2 | **Breaking:** the model must NOT assume the DPL path equals the create path — on pre-10.38.1 firmware DPL num_queues/options were silently defaulted while CREATE honored them; version-gate any DPL equivalence claim | firmware version vs DPL-created attr readback | candidate (corpus-proven for the window) |
-| DPDMAI-I3 | Consumer-shape coupling: a kernel-consumable dpdmai needs num_queues ≥ min(num_priorities, 2) — the driver walks queue_idx sized by the *priority* count | probe outcome of a 1-queue/2-priority object | board-pending |
+| DPDMAI-I3 | Consumer-shape coupling: a kernel-consumable dpdmai needs num_queues ≥ min(num_priorities, 2) — the driver walks queue_idx sized by the *priority* count | probe outcome of a 1-queue/2-priority object | unfalsifiable on the reference pair — the reference kernel registers no qdma driver (ADR-0008), so a bare dpdmai stays unbound with nothing to claim it (V-LIFE-DPDMAI-1 rev 2); re-anchored to `tier-c-families` (#13) with a qdma-capable kernel as its precondition |
 | DPDMAI-I4 | **Breaking:** the model must NOT assume generate-dpl round-trips config — priorities value→count mangling plus dropped fields (worse than dpdcei/dpaiop: actively wrong, not just lossy) | regenerated node vs create args | verified 2026-08-29 (V-GENDPL-1 rev 1): `--priorities=2,4` came back as `priorities = <0x2>` — the count in the list's place |
 | DPDMAI-I5 | Unknown-default hazard: create without `--num-queues` yields an MC-chosen count no corpus documents; the model must treat it as unspecified, never as 1 | `info` after a bare create | verified 2026-08-29 (V-READBACK-1 rev 2, hook 10/10): the corrected hook confirms MC 10.39.0 chooses 1 queue and 2 priorities — the model keeps it unspecified, the number is now known |
 

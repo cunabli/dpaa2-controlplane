@@ -2,7 +2,14 @@
 // containers are created under SPAWN and bound by fsl_mc_dprc
 // automatically; identity (id, icid, portal) is pool-assigned at create.
 //
-// Named invariants: none yet (phase 2). Apalache-marked subset: none.
+// Named invariants (modeled; dispositions in models/COVERAGE.md):
+//   DPRC-I1 core/invariants.qnt DPRC_I1; DPRC-I2 core/invariants.qnt DPRC_I2;
+//   DPRC-I3 main.qnt DPRC_I3Test; DPRC-I4 core/invariants.qnt DPRC_I4;
+//   DPRC-I5 core/connect.qnt canConnect + main.qnt DPNI_I9Test;
+//   DPRC-I6 main.qnt DPRC_I6Test/DPRC_I6RescanRefusedTest;
+//   DPRC-I7 main.qnt DPRC_I7Test; DPRC-I10 main.qnt DPRC_I10Test;
+//   DPRC-I11 main.qnt DPRC_I11Test + DPRC_I11SpawnTest/DPRC_I11UnlockTest.
+// Apalache-marked subset: DPRC-I1, DPRC-I2, DPRC-I4.
 module dprc {
   import types.* from "../core/types"
 

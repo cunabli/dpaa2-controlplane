@@ -4,7 +4,12 @@
 // Its Tx priority capacity is the peer's count, not its own (DPCI-I1,
 // asymmetry) — a phase-2 invariant concern.
 //
-// Named invariants: none yet (phase 2). Apalache-marked subset: none.
+// Named invariants (modeled; dispositions in models/COVERAGE.md):
+//   DPCI-I1 core/connect.qnt legalPair + main.qnt DPCI_I1Test/DPCI_I1CrossFamilyTest;
+//   DPCI-I2 structural (no dpci options state);
+//   DPCI-I3 main.qnt DPCI_I3Test + families/dpci.qnt createTriggersRescan=false;
+//   DPCI-I5 main.qnt DPCI_I5Test.
+// Apalache-marked subset: none.
 module dpci {
   import types.* from "../core/types"
 
