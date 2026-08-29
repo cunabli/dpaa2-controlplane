@@ -470,12 +470,16 @@ fn view(s: &Value) -> Result<MachineView, String> {
 /// carry no nondet picks and are rejected by name).
 pub fn parse_mbt_trace(json: &str) -> Result<MbtTrace, String> {
     let root: Value = serde_json::from_str(json).map_err(|e| e.to_string())?;
+    // The CoreState variable is the sole non-`mbt::` var — except that a
+    // trace frozen after the ioctl-policy change also carries the machine's
+    // `lastVerbs` var, which this parser ignores (the `lastverbs_trace` test
+    // reads it directly). Exclude it so `s` is picked, not `lastVerbs`.
     let state_var = root["vars"]
         .as_array()
         .ok_or("trace has no vars")?
         .iter()
         .filter_map(Value::as_str)
-        .find(|v| !v.starts_with("mbt::"))
+        .find(|v| !v.starts_with("mbt::") && !v.ends_with("lastVerbs"))
         .ok_or("trace has no machine state variable")?
         .to_owned();
     let states = root["states"].as_array().ok_or("trace has no states")?;

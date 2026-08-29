@@ -26,14 +26,19 @@
 //          single-valued bind/allocatedBy fields ARE ADR-0006's
 //          single-initiating-writer assumption; the board catches the
 //          MC allowing the silent fight (DPSECI-I7, DPRTC-I2).
-//   LAW 6 (version is per-action state) — not modeled in state; the
-//          phase-4 adapter carries emitted command versions per action
-//          (DPNI-I11, DPDMAI-I2).
+//   LAW 6 (version is per-action state) — the emitted command versions
+//          stay a phase-4 adapter concern (DPDMAI-I2), but the transport
+//          face of DPNI-I11 is modeled: every verb an action emits is
+//          inside the kernel's /dev/dprc.N whitelist. That invariant reads
+//          the `lastVerbs` machine variable (not CoreState) against
+//          core/ioctl_policy.qnt `VERB_OK`, so it lives in main.qnt as
+//          `IOCTL_OK`, not as a CoreState predicate here.
 //
 // Named invariants (state, simulator rung): LAW3_triState,
 //   LAW4_twoIdSpaces, DPRC_I1, DPRC_I2, DPRC_I4, DPNI_I9, DPMAC_I1,
-//   DPBP_I2, DPIO_I1.
-// Apalache-marked subset (task 2.3): all nine, at bounded depth 1 —
+//   DPBP_I2, DPIO_I1 (all below), plus DPNI_I11 as `IOCTL_OK` in main.qnt
+//   (over the `lastVerbs` variable, not CoreState).
+// Apalache-marked subset (task 2.3): all ten, at bounded depth 1 —
 //   init plus every single-step successor class, symbolically. Depth 1
 //   is the empirical ceiling: the transition relation (lineage
 //   unrolling, map rebuilds) makes each further symbolic step cost

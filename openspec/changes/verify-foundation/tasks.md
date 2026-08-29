@@ -133,7 +133,7 @@ board task is an operator sitting sync point.
 - [x] 6.4 MC status register: refusal codes as a lint-checked table
       seeded with the five seen so far; plans carry expected refusals
       that `diff` scores from captured stderr
-- [ ] 6.5 Ioctl command-policy coverage: the reference kernel's fsl-mc
+- [x] 6.5 Ioctl command-policy coverage: the reference kernel's fsl-mc
       uapi whitelist as a committed table; a test checks every command
       the models and adapter emit against it — rows outside it are the
       exact scope of a kernel patch or of a VFIO userspace transport

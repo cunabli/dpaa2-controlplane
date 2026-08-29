@@ -287,7 +287,10 @@ either, and reading it as evidence of *anything* stable is unsafe
    admin-down of the peer's interface is not a link-down stimulus on
    this wiring: it never drops the light the peer transmits. The direct
    raw probe (issuing `SET_LINK_STATE` ourselves with chosen field
-   values) stays open — V-LINK-3, deferred to the online driver.
+   values) stays open — V-LINK-3, whose `SET_LINK_STATE` is outside
+   the `/dev/dprc.N` whitelist (`docs/baseline/mc-ioctl-policy.md` §3):
+   its route is a kernel patch or the VFIO transport, not the online
+   driver.
 3. Provenance of `serdes_eq_settings` and `ifg_cfg` (no DPC property
    exists; `set_params` covers IPG only) — RCW/firmware defaults
    presumed.

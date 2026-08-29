@@ -92,6 +92,51 @@ just-in-time proposal starts from them rather than rediscovering them:
   equivalent is property-based encode/decode round-trips in #10's normal
   test suite.
 
+### 7. The ioctl whitelist is the boundary between the two native transports (amended 2026-08-29)
+
+The `/dev/dprc.N` path the portal (§2) will use is not a raw pipe to the
+firmware: the kernel forwards only the commands listed in
+`fsl_mc_accepted_cmds[]` (`drivers/bus/fsl-mc/fsl-mc-uapi.c`) and refuses
+every other one with `-EACCES` before it is sent, whatever the caller's
+privilege. `docs/baseline/mc-ioctl-policy.md` (task 6.5) is that list as a
+committed table — generated from the reference kernel and restool trees,
+whose commits it records — with every verb the adapter and the harness
+drive resolved against it. The same generator writes the list as a Quint
+module (`models/core/ioctl_policy.qnt`): the machine records the §2 verb
+keys each action emits (`lastVerbs`), the invariant `IOCTL_OK` (DPNI-I11)
+requires each verb's `VERB_OK` — a per-verb accept/refuse flag the module
+ties to the proven whitelist rule (`verbOkAgreesWithAcceptedTest`), so
+apalache proves the invariant for every action at depth 1 without folding
+the whitelist — so the model, not the harness, is where the knowledge lives.
+Rust is traced against it: every committed ITF trace's `lastVerbs` must
+equal what the harness resolves for the same action, and a `cargo test`
+fails when a rendered command falls outside the list or needs
+`CAP_NET_ADMIN` without the generated suite announcing it.
+
+Consequences for change #10 and beyond:
+
+- **A command inside the table** is portal work: the ioctl transport can
+  carry it today, on an unpatched kernel, and the restool oracle (§1)
+  covers it — restool crosses the same whitelist.
+- **A command outside the table** is one of two things, and the table's §3
+  is the exact list: a kernel patch extending `fsl_mc_accepted_cmds[]`
+  (upstream precedent: `d67cc29e6d1f` "list more commands as accepted
+  through the ioctl", `a2ad5533f862` "add the dprc_get_mem() command to
+  the whitelist"), or the VFIO transport (`vfio-fsl-mc`), which maps the
+  object's own portal and never meets the uapi check. Neither is covered
+  by the restool oracle; the differential gate (§3) needs a patched kernel
+  or a second observation path for those rows.
+- The two raw probes the board program deferred to "the online driver"
+  (V-DPNI-4, `DPNI_SET_TX_CONFIRMATION_MODE`; V-LINK-3,
+  `DPMAC_SET_LINK_STATE`) are outside the table, so no userspace driver
+  on this kernel reaches them; they are re-anchored to whichever of the
+  two routes #10 takes.
+- The rows needing `CAP_NET_ADMIN` are what "run as root" means for a
+  sitting; the generated suite header states it whenever a step needs it.
+
+Revisit trigger: a kernel bump — regenerate the table and re-run the test;
+a row moving in or out of the list is a change of transport scope.
+
 ## Consequences
 
 **Positive**
@@ -117,3 +162,6 @@ just-in-time proposal starts from them rather than rediscovering them:
 - `docs/ROADMAP.md` — change #10 `mc-portal-backend` and its dependencies.
 - ADR-0001 — the `McControl` trait seam and the workspace unsafe policy.
 - `src/restool` `mc_v10/` — the wire-format anchor for the portal.
+- `docs/baseline/mc-ioctl-policy.md` and `models/core/ioctl_policy.qnt` —
+  the kernel's ioctl whitelist as a table and as a Quint module, every
+  driven verb resolved against it (task 6.5, §7).

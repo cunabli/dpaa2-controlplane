@@ -21,6 +21,10 @@ module machine {
   import connect.* from "./connect"
   import create_allocate.* from "./create_allocate"
   import lifecycle.* from "./lifecycle"
+  // Flat import (not `as iop`): the Apalache verify-path flattener drops a
+  // nested-qualified name (`iop::VERB_OK` → QNT404), the same class of
+  // limitation that keeps ALL_PARAMS in families/params.qnt.
+  import ioctl_policy.* from "./ioctl_policy"
 
   // Per-family parameters (design D2); values come from the family
   // modules when they instantiate this machine.
@@ -33,6 +37,42 @@ module machine {
   const BOOT_DPMACS: Set[int]
 
   var s: CoreState
+
+  // The §2 verb keys the last action emitted through the /dev/dprc.N ioctl
+  // path (empty when the action issued no MC command, or ran on the board
+  // side — kernel bind, VFIO, link). A string channel, not command ids: the
+  // IOCTL_OK invariant in main.qnt reads each verb's ioctl_policy.VERB_OK,
+  // so Apalache never folds the whitelist. Kept as its own variable, not a
+  // CoreState field, so the reconciler's ITF view of `s` is untouched.
+  // The keys match dpaa2-verify `ioctlpolicy.rs::verbs_of`.
+  var lastVerbs: Set[str]
+
+  // The `<fam> create` / `<fam> destroy` verb keys per family. Quint has no
+  // string concatenation, so the full keys are matched out rather than built
+  // from a family token (mirrors dpaa2-verify `adapter.rs::Family::as_str`).
+  pure def createVerb(f: Family): str =
+    match f {
+      | Dprc => "dprc create"     | Dpni => "dpni create"
+      | Dpmac => "dpmac create"   | Dpbp => "dpbp create"
+      | Dpio => "dpio create"     | Dpcon => "dpcon create"
+      | Dpmcp => "dpmcp create"   | Dpseci => "dpseci create"
+      | Dpsw => "dpsw create"     | Dpdmux => "dpdmux create"
+      | Dpaiop => "dpaiop create" | Dpci => "dpci create"
+      | Dpdcei => "dpdcei create" | Dpdmai => "dpdmai create"
+      | Dprtc => "dprtc create"   | Dpdbg => "dpdbg create"
+    }
+
+  pure def destroyVerb(f: Family): str =
+    match f {
+      | Dprc => "dprc destroy"     | Dpni => "dpni destroy"
+      | Dpmac => "dpmac destroy"   | Dpbp => "dpbp destroy"
+      | Dpio => "dpio destroy"     | Dpcon => "dpcon destroy"
+      | Dpmcp => "dpmcp destroy"   | Dpseci => "dpseci destroy"
+      | Dpsw => "dpsw destroy"     | Dpdmux => "dpdmux destroy"
+      | Dpaiop => "dpaiop destroy" | Dpci => "dpci destroy"
+      | Dpdcei => "dpdcei destroy" | Dpdmai => "dpdmai destroy"
+      | Dprtc => "dprtc destroy"   | Dpdbg => "dpdbg destroy"
+    }
 
   pure val dprc0: ObjId = { fam: Dprc, num: 0 }
   pure val dprc1: ObjId = { fam: Dprc, num: 1 }
@@ -76,7 +116,10 @@ module machine {
     nextHw: 100,
   }
 
-  action init = s' = initialState
+  action init = all {
+    s' = initialState,
+    lastVerbs' = Set(),
+  }
 
   // The reference environment as a link scenario meets it
   // (docs/baseline/reference-environment.md): the same boot population as
@@ -110,8 +153,10 @@ module machine {
       .with("nextNum", initialState.nextNum.set(Dprc, 3).set(Dpni, 2))
   }
 
-  action initWiredAt(dpni: ObjId, mac: ObjId): bool =
-    s' = wiredState(dpni, mac)
+  action initWiredAt(dpni: ObjId, mac: ObjId): bool = all {
+    s' = wiredState(dpni, mac),
+    lastVerbs' = Set(),
+  }
 
   // Highest endpointPorts across the family modules (dpsw/dpdmux at
   // model scope). Apalache demands constant integer ranges, so the port
@@ -135,6 +180,7 @@ module machine {
     s.dprcs.get(parent).perms.contains(Spawn),
     not(lockedAnywhere(s, parent)),
     s' = createT(s, PARAMS, Dprc, parent),
+    lastVerbs' = Set("dprc create"),
   }
 
   action createContainer = {
@@ -146,6 +192,7 @@ module machine {
     fam != Dprc,
     canCreate(s, PARAMS, fam, c),
     s' = createT(s, PARAMS, fam, c),
+    lastVerbs' = Set(createVerb(fam)),
   }
 
   action createObject = {
@@ -162,6 +209,9 @@ module machine {
     o.fam != Dprc,
     not(s.objs.get(o).plugged),
     s' = setObj(s, o, s.objs.get(o).with("pristine", false)),
+    // Only a dpni has a restool-expressible pre-plug mutation (`dpni
+    // update --mac-addr`); other families emit no MC command here.
+    lastVerbs' = if (o.fam == Dpni) Set("dpni update") else Set(),
   }
 
   action preplugMutate = {
@@ -172,6 +222,12 @@ module machine {
   action assignChildAt(o: ObjId, dst: ObjId): bool = all {
     canMove(s, PARAMS, o, dst),
     s' = assignT(s, o, dst),
+    // The single assign primitive renders as `dprc assign` (push down) or
+    // `dprc unassign` (pull up) depending on the pre-state tree
+    // (adapter.rs::drive_with); the verb catalogue offers both, and both
+    // are whitelisted, so lastVerbs carries both keys — matching
+    // ioctlpolicy.rs::verbs_of, which likewise cannot pick a direction.
+    lastVerbs' = Set("dprc assign", "dprc unassign"),
   }
 
   action assignChild = {
@@ -189,6 +245,7 @@ module machine {
       | None => false
     },
     s' = plugT(s, o),
+    lastVerbs' = Set("dprc assign"),
   }
 
   action plug = {
@@ -217,6 +274,7 @@ module machine {
       | None => false
     },
     s' = unplugT(s, o),
+    lastVerbs' = Set("dprc assign"),
   }
 
   action unplug = {
@@ -255,6 +313,9 @@ module machine {
     s' = if (PARAMS.get(o.fam).hotBindAvailable)
            kernelBindT(s, PARAMS, o, mcps.union(bps).union(cons))
          else s,
+    // The kernel probes on its own — no restool/MC command crosses the
+    // ioctl path here (nor for the other board-driven transitions below).
+    lastVerbs' = Set(),
   }
 
   // Draw sets are built from single picks, not powersets: every family
@@ -282,6 +343,7 @@ module machine {
     s.objs.get(o).bind == Unbound,
     s.objs.get(o).allocatedBy == None,
     s' = vfioBindT(s, o),
+    lastVerbs' = Set(),
   }
 
   action vfioBind = {
@@ -293,6 +355,7 @@ module machine {
     s.objs.keys().contains(o),
     s.objs.get(o).bind != Unbound,
     s' = unbindT(s, o),
+    lastVerbs' = Set(),
   }
 
   action unbind = {
@@ -303,6 +366,7 @@ module machine {
   action connectEdgeAt(a: Endpoint, b: Endpoint): bool = all {
     canConnect(s, PARAMS, a, b),
     s' = connectT(s, a, b),
+    lastVerbs' = Set("dprc connect"),
   }
 
   action connectEdge = {
@@ -314,6 +378,7 @@ module machine {
   action disconnectEdgeAt(e: Endpoint): bool = all {
     connected(s, e),
     s' = disconnectT(s, e),
+    lastVerbs' = Set("dprc disconnect"),
   }
 
   action disconnectEdge = {
@@ -326,6 +391,8 @@ module machine {
   action rescanAt(c: ObjId): bool = all {
     isLinuxRoot(s, c),
     s' = rescanContainerT(s, c),
+    // `dprc sync` writes the sysfs rescan node — no MC command (empty set).
+    lastVerbs' = Set("dprc sync"),
   }
 
   action rescan = {
@@ -341,6 +408,7 @@ module machine {
     not(isLinuxRoot(s, c)),
     not(isMcGlobal(s, c)),
     s' = rescanContainerT(s, c),
+    lastVerbs' = Set(),
   }
 
   action childIrqRefresh = {
@@ -358,6 +426,7 @@ module machine {
       | None => false
     },
     s' = markAllocated(s, consumer, Set(p)),
+    lastVerbs' = Set(),
   }
 
   action allocate = {
@@ -372,6 +441,7 @@ module machine {
     // No MC reset on free — the object returns to the pool dirty
     // (DPBP-I3, DPMCP-I3): pristine keeps whatever it was.
     s' = setObj(s, p, s.objs.get(p).with("allocatedBy", None)),
+    lastVerbs' = Set(),
   }
 
   action free = {
@@ -387,6 +457,7 @@ module machine {
     not(s.objs.get(o).enabled),
     s' = setObj(s, o, s.objs.get(o).with("enabled", true)
                                    .with("pristine", false)),
+    lastVerbs' = Set(),
   }
 
   action enable = {
@@ -398,6 +469,7 @@ module machine {
     s.objs.keys().contains(o),
     s.objs.get(o).enabled,
     s' = setObj(s, o, s.objs.get(o).with("enabled", false)),
+    lastVerbs' = Set(),
   }
 
   action disable = {
@@ -416,6 +488,7 @@ module machine {
       | None => false
     },
     s' = s.with("dprcs", s.dprcs.set(c, s.dprcs.get(c).with("locked", v))),
+    lastVerbs' = Set("dprc set-locked"),
   }
 
   action setLocked = {
@@ -431,6 +504,7 @@ module machine {
     PARAMS.get(o.fam).endpointPorts > 0,
     s' = setObj(s, o, s.objs.get(o).with("linkUp",
                         not(s.objs.get(o).linkUp))),
+    lastVerbs' = Set(),
   }
 
   action linkChange = {
@@ -480,6 +554,7 @@ module machine {
       })
     else true,
     s' = destroyT(s, o),
+    lastVerbs' = Set(destroyVerb(o.fam)),
   }
 
   action destroy = {

@@ -292,7 +292,9 @@ under a bound driver — that race is unguarded [read].
 `/dev/dprc.N` whitelists exactly five dpni commands for the root
 container's ioctl path: set/get primary MAC (set requires
 `CAP_NET_ADMIN`), get statistics, get link state, get max frame length
-(`fsl-mc-uapi.c:60-64,253-283`) [read].
+(`fsl-mc-uapi.c:60-64,253-283`); the full whitelist, with every
+verb the series drives resolved against it, is
+`docs/baseline/mc-ioctl-policy.md` (task 6.5) [read].
 
 ## Lifecycle ordering and dependencies
 

@@ -50,7 +50,7 @@ No link semantics; any dpmac named is from the unwired set.
 | V-DPNI-1 | Bare-create default probe: `dpni create` with no options, read back attributes | DPNI-I7 | none |
 | V-DPNI-2 | num_queues ceiling walk (16 → 32) and dead-option create-then-fail exit shape | DPNI-I6; dpni.md unknown 2 | none |
 | V-DPNI-3 | Bind/unbind reset coverage: plug a scratch dpni (unconnected), set runtime state, unbind, read back | DPNI-I2, I8; unknown 4 | none |
-| V-DPNI-4 | TX_CONFIRMATION_MODE v1-vs-v2 handler probe (raw command via `/dev/dprc.N`) | DPNI-I11; unknown 1 | none |
+| V-DPNI-4 | TX_CONFIRMATION_MODE v1-vs-v2 handler probe (raw command; outside the `/dev/dprc.N` whitelist — kernel patch or VFIO transport, `docs/baseline/mc-ioctl-policy.md` §3) | DPNI-I11; unknown 1 | none |
 | V-DPMAC-1 | `dpmac info` on an unwired port: API version, counter refusal behavior at ids ≥ 28 | DPMAC-I7; dpmac.md unknowns 5, 7 | dpmac.4–6/8/10 (read-only) |
 | V-DPMAC-2 | `dpmac create --mac-id=<unused>` against a DPC with no such port entry; destroy after | dpmac.md unknown 1 | none (phantom id) |
 | V-POOL-1 | Pool mechanics sweep in a scratch container: plugged-vs-allocator visibility, exhaustion defer, top-up unblock | DPBP-I2, I4; DPMCP-I4 | none |
@@ -89,7 +89,7 @@ port.
 |---|---|---|---|
 | V-LINK-1 | dpci pair liveness: does link go up on connect alone or only after both ends enable? | DPCI-I5; dpci.md unknown 1 | none (virtual link) |
 | V-LINK-2 | dpmac connection-state vs MAC link-state split: `dpmac info` "link is up" against peer `dpni_get_link_state` under a real link transition | DPMAC-I5 | dpmac.7 or dpmac.9, flagged |
-| V-LINK-3 | `set_link_state` with `state_valid=0`: does the `up` bit take effect? (every kernel push depends on it) | DPMAC-I9; dpmac.md unknown 2 | dpmac.7 or dpmac.9, flagged |
+| V-LINK-3 | `set_link_state` with `state_valid=0`: does the `up` bit take effect? (every kernel push depends on it; the raw command is outside the `/dev/dprc.N` whitelist — kernel patch or VFIO transport, `docs/baseline/mc-ioctl-policy.md` §3) | DPMAC-I9; dpmac.md unknown 2 | dpmac.7 or dpmac.9, flagged |
 | V-LINK-4 | Directional link pair: peer request (`dpni_set_link_cfg`) surfacing in `dpmac_get_link_cfg`, PHY reality surfacing in `dpni_get_link_state` | DPMAC-I4 | dpmac.7 or dpmac.9, flagged |
 | V-LINK-5 | `assign --plugged=0/1` race against a bound, link-up netdev-backed dpni | DPRC-I2; dprc.md unknown 9 | dpmac.7 or dpmac.9, flagged |
 

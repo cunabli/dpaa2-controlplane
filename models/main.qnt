@@ -20,7 +20,7 @@
 // for every candidate are tabulated in models/COVERAGE.md (task 2.4).
 //
 // Named invariants: stateInvariants (see core/invariants.qnt for the
-// per-id list). Apalache-marked subset: all nine state invariants at
+// per-id list). Apalache-marked subset: all ten state invariants at
 // bounded depth 1 (rationale and empirical notes in
 // core/invariants.qnt):
 //
@@ -30,6 +30,9 @@ module main {
   import types.* from "./core/types"
   import invariants as inv from "./core/invariants"
   import params.* from "./families/params"
+  // Flat import (not `as iop`): the Apalache verify-path flattener drops a
+  // nested-qualified name, so `VERB_OK`/`accepted`/`PROBES` are unqualified.
+  import ioctl_policy.* from "./core/ioctl_policy"
 
   // DPC-born dpmacs of the reference environment: 3–10 and 17
   // (reference-environment.md). The board safety envelope (dpmac.3/17
@@ -54,6 +57,15 @@ module main {
   val DPBP_I2 = inv::DPBP_I2(s)
   val DPIO_I1 = inv::DPIO_I1(s, ALL_PARAMS)
 
+  // DPNI-I11 (LAW 6 face): every verb an action emits crosses the kernel's
+  // /dev/dprc.N whitelist (VERB_OK, the string channel — no command is
+  // refused with -EACCES). VERB_OK is tied to the proven `accepted` rule by
+  // ioctl_policy's verbOkAgreesWithAcceptedTest, so this reads a Map, not a
+  // whitelist fold. The raw version-skew probe (V-DPNI-4) sits outside that
+  // whitelist, so it cannot reach the firmware through the ioctl path at all
+  // (DPNI_I11ProbesOutsideTest); everything the machine drives can.
+  val IOCTL_OK = lastVerbs.forall(v => VERB_OK.get(v))
+
   // The simulator-rung conjunction (design D5): every state invariant
   // the machine must preserve, under their baseline ids.
   val stateInvariants: bool = and {
@@ -66,10 +78,11 @@ module main {
     DPMAC_I1,
     DPBP_I2,
     DPIO_I1,
+    IOCTL_OK,
   }
 
   // Assertion step for directed runs: holds the state and checks p.
-  action check(p: bool): bool = all { p, s' = s }
+  action check(p: bool): bool = all { p, s' = s, lastVerbs' = lastVerbs }
 
   // Ids the runs create, deterministic from the per-family counters.
   pure val dprc2: ObjId = { fam: Dprc, num: 2 }
@@ -271,6 +284,51 @@ module main {
       .then(createObjectAt(Dpni, dprc1))
       .then(connectEdgeAt(ep(dpni0), ep(mac7)))
       .then(connectEdgeAt(ep(dpni0), ep(mac8)).fail())
+
+  // DPNI-I11 (transport face): walk one action of every driven kind and
+  // assert IOCTL_OK after each — every verb the machine emits is inside the
+  // kernel's /dev/dprc.N whitelist (core/ioctl_policy.qnt VERB_OK). The
+  // board-driven kinds (linkChange here) emit no verb, so their lastVerbs is
+  // empty and trivially ok.
+  run DPNI_I11Test =
+    init
+      .then(createContainerAt(dprc1))                 // dprc create
+      .then(check(IOCTL_OK))
+      .then(createObjectAt(Dpni, dprc1))              // dpni create
+      .then(check(IOCTL_OK))
+      .then(preplugMutateAt(dpni0))                   // dpni update
+      .then(check(IOCTL_OK))
+      .then(connectEdgeAt(ep(dpni0), ep(mac7)))       // dprc connect
+      .then(check(IOCTL_OK))
+      .then(disconnectEdgeAt(ep(dpni0)))              // dprc disconnect
+      .then(check(IOCTL_OK))
+      .then(plugAt(dpni0))                            // dprc assign --plugged=1
+      .then(check(IOCTL_OK))
+      .then(rescanAt(dprc1))                          // dprc sync (no MC command)
+      .then(check(IOCTL_OK))
+      .then(linkChangeAt(mac7))                       // board-driven: emits nothing
+      .then(check(IOCTL_OK))
+      .then(unplugAt(dpni0))                          // dprc assign --plugged=0
+      .then(check(IOCTL_OK))
+      .then(assignChildAt(dpni0, dprc2))              // dprc assign/unassign (one hop)
+      .then(check(IOCTL_OK))
+      .then(setLockedAt(dprc2, true))                 // dprc set-locked
+      .then(check(IOCTL_OK))
+      .then(setLockedAt(dprc2, false))
+      .then(check(IOCTL_OK))
+      .then(createObjectAt(Dpbp, dprc1))              // dpbp create
+      .then(check(IOCTL_OK))
+      .then(destroyAt(dpbp0))                         // dpbp destroy
+      .then(check(IOCTL_OK))
+
+  // …and the raw version-skew probes the model driver cannot issue at all
+  // are outside that whitelist — the model's own statement that V-DPNI-4
+  // (and DPMAC's V-LINK-3) need a kernel patch or the VFIO transport.
+  run DPNI_I11ProbesOutsideTest =
+    init.then(check(and {
+      not(accepted(PROBES.get("V-DPNI-4"))),
+      not(accepted(PROBES.get("V-LINK-3"))),
+    }))
 
   // --- phase-2 directed encodings (design D3): action-guard and
   // --- Breaking absence-of-assumption candidates, named by baseline id

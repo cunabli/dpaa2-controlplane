@@ -41,8 +41,15 @@ pub struct ModelView {
 /// produced by `quint test --out-itf` over the core machine.
 pub fn parse_trace(json: &str) -> Result<Vec<ModelView>, String> {
     let root: Value = serde_json::from_str(json).map_err(|e| e.to_string())?;
-    let var = root["vars"][0]
-        .as_str()
+    // The CoreState variable, tolerating a trace that also froze the
+    // machine's `lastVerbs` var (the reconciler view never reads it): pick the
+    // non-`mbt::`, non-`lastVerbs` var rather than assuming it is index 0.
+    let var = root["vars"]
+        .as_array()
+        .ok_or("trace has no vars")?
+        .iter()
+        .filter_map(Value::as_str)
+        .find(|v| !v.starts_with("mbt::") && !v.ends_with("lastVerbs"))
         .ok_or("trace has no state variable")?
         .to_owned();
     root["states"]

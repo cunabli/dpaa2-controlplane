@@ -108,11 +108,18 @@ models/
 │   ├── create_allocate.qnt view 3 — create gates, pool membership
 │   ├── pools.qnt         view 4 — draw census predicates
 │   ├── lifecycle.qnt     view 5 — pure CoreState -> CoreState transforms
-│   ├── machine.qnt       the composed machine: consts, init, 20 actions, EVIDENCE
+│   ├── machine.qnt       the composed machine: consts, init, 20 actions, EVIDENCE;
+│   │                     `lastVerbs` records the §2 verb keys each action emits
+│   │                     through the ioctl path, checked by main.qnt `IOCTL_OK`
+│   ├── ioctl_policy.qnt  generated (never hand-edited): the /dev/dprc.N verb
+│   │                     whitelist as `VERB_OK`, written by helpers/mc-ioctl-policy.py
 │   └── invariants.qnt    phase-2 state invariants under baseline ids; §6 law map
 ├── families/             16 per-family FamilyParams records; laws as data,
 │                         no family forks the lifecycle logic; params.qnt
 │                         is the corpus-wide ALL_PARAMS table
+├── helpers/              source-derived generators: mc-ioctl-policy.py writes
+│                         core/ioctl_policy.qnt and docs/baseline/mc-ioctl-policy.md
+│                         from the reference kernel whitelist (byte-identical on rerun)
 ├── retro/                reconciler dpni↔dpmac retro-model: directed
 │                         runs mirroring the RestoolMc recipe, epoched
 │                         by the reconciler's observation points

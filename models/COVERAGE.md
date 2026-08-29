@@ -59,9 +59,13 @@ every suite-ledger row that says passed must have one — a verdict
 written past its evidence is a red test, not a reading exercise. Task
 6.4 adds the refusal side: every row of the MC status register
 (`docs/baseline/mc-status.md`) that cites a suite resolves to its
-verdict, and every status a verdict scored has a register row.
+verdict, and every status a verdict scored has a register row. Task 6.5 adds
+the transport side: every restool verb the model driver, the harness
+and the adapter render must resolve inside the kernel's `/dev/dprc.N`
+command whitelist (`docs/baseline/mc-ioctl-policy.md`), and the two raw
+probes must resolve outside it.
 
-Tally: 52 modeled, 49 deferred, 6 board-settled, 0 board-pending — 107 candidates.
+Tally: 53 modeled, 48 deferred, 6 board-settled, 0 board-pending — 107 candidates.
 
 | Candidate | Disposition | Location / owning change / settling scenario | CI rung | Board status |
 |-----------|-------------|----------------------------------------------|---------|--------------|
@@ -86,7 +90,7 @@ Tally: 52 modeled, 49 deferred, 6 board-settled, 0 board-pending — 107 candida
 | DPNI-I8 | modeled | `main.qnt` `DPNI_I8Test` (unbind grants no reset — the no-guarantee form) | simulate | falsified for the primary MAC 2026-08-29 (V-DPNI-3 rev 1): a MAC set from the netdev survived the kernel unbind — the remove-path reset did not clear it — so the clean-unbind reset is not even best-effort on the primary MAC. Max frame length read 1536 while unbound → `dpni-typestate` (#5) |
 | DPNI-I9 | modeled | `core/invariants.qnt` `DPNI_I9` + `main.qnt` `DPNI_I9Test` | apalache | verified (kdpni pairs in production) |
 | DPNI-I10 | deferred | `dpni-typestate` (#5): tx-ring/thread coupling below core-model scope | — | verified (ADR-0012) |
-| DPNI-I11 | deferred | this change ph.4 adapter — LAW 6: emitted command version per action | — | open: V-DPNI-4 (raw command via `/dev/dprc.N`) → `mc-portal-backend` (#10), the change that gives the harness a raw command path |
+| DPNI-I11 | modeled | `main.qnt` `IOCTL_OK` / `DPNI_I11Test` + `core/ioctl_policy.qnt` | apalache | open: V-DPNI-4 — its raw command `DPNI_SET_TX_CONFIRMATION_MODE` is outside the kernel's `/dev/dprc.N` whitelist (`docs/baseline/mc-ioctl-policy.md` §3, refused EACCES), so it needs a kernel patch or the VFIO transport → `mc-portal-backend` (#10) |
 | DPNI-I12 | deferred | this change ph.4 adapter: write-only field, no drift claim | — | — |
 | DPMAC-I1 | modeled | `core/invariants.qnt` `DPMAC_I1` (no-additions + root-pin; destroy is off-nominal) | apalache | verified (ADR-0001 §3); phantom-create face V-DPMAC-2 → `dpmac-typestate` (#7) |
 | DPMAC-I2 | deferred | `dpmac-typestate` (#7): MAC values not in core state | — | verified (ADR-0001 C2) |
@@ -96,7 +100,7 @@ Tally: 52 modeled, 49 deferred, 6 board-settled, 0 board-pending — 107 candida
 | DPMAC-I6 | deferred | `dpmac-typestate` (#7): driver arbitration ⟺ peer topology not in core machine | — | verified (production use) |
 | DPMAC-I7 | deferred | this change ph.4 adapter: counter vocabulary firmware-versioned, refusals silent | — | verified 2026-08-29 (V-DPMAC-1 rev 1, 5/5): restool asks for 62 counters and MC 10.39.0 answers 28, identical on every port — the 34 unknown ones are refused and skipped silently, so the row count is the only observable → the typestate reads the vocabulary from the firmware version, `dpmac-typestate` (#7) |
 | DPMAC-I8 | modeled | `main.qnt` `DPSECI_I8Test` (class witness: model refuses only what restool refuses) + ph.4 adapter law | simulate | — |
-| DPMAC-I9 | deferred | this change ph.4 adapter: emitted fields carried per action | — | kernel path verified (V-LINK-2 rev 3: `up` takes effect with `state_valid=0`, with propagation lag); raw probe V-LINK-3 → `mc-portal-backend` (#10) |
+| DPMAC-I9 | deferred | this change ph.4 adapter: emitted fields carried per action | — | kernel path verified (V-LINK-2 rev 3: `up` takes effect with `state_valid=0`, with propagation lag); raw probe V-LINK-3 (`DPMAC_SET_LINK_STATE`, outside the `/dev/dprc.N` whitelist per `docs/baseline/mc-ioctl-policy.md` §3 — kernel patch or VFIO transport) → `mc-portal-backend` (#10) |
 | DPBP-I1 | modeled | `main.qnt` `DPBP_I5Test` (zero cfg; identity is the hwId) | simulate | — |
 | DPBP-I2 | modeled | `core/invariants.qnt` `DPBP_I2` + `main.qnt` `DPBP_I2Test`/`DPBP_I2PlugTest` | apalache | open: the kernel-pool half needs a plugged, bound child → `pool-objects` (#6); the child half is board-anchored 2026-08-29 (V-POOL-1 rev 1: every plugged resident is MC-listed in the scratch child yet absent from the bus, an unplugged child having no bus node), as is the plugged-vs-allocator half (V-LIFE-DPNI-1: the census drew plugged companions; V-LIFE-DPIO-1 rev 1: after `dprc sync` the allocator claimed a free plugged dpmcp) |
 | DPBP-I3 | modeled | `main.qnt` `DPBP_I3Test` (dirty return on free) | simulate | open: the free path is Linux-side, not restool-observable — V-POOL-2 rev 1 (2026-08-29) recorded the dpbp plugged and MC-listed but the unplugged child never bound, so the `dpbp_reset` drain was never driven → `pool-objects` (#6) |
