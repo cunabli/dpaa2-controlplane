@@ -145,7 +145,7 @@ board task is an operator sitting sync point.
       the models and adapter emit against it — rows outside it are the
       exact scope of a kernel patch or of a VFIO userspace transport
 
-- [ ] 6.6 Regenerate the committed ITF traces from the current model so
+- [x] 6.6 Regenerate the committed ITF traces from the current model so
       every trace carries the verb channel (`lastVerbs`) and the ioctl
       policy is checked live by `cargo test`, not only by Apalache
 

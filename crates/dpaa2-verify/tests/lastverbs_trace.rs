@@ -3,9 +3,11 @@
 //! the Rust verb catalogue honest against that record: for every committed
 //! ITF trace that carries `lastVerbs`, the step's set must equal
 //! `ioctlpolicy::verbs_of` for the step's action — a direct string-set
-//! comparison, no command-id resolution. Traces frozen before `lastVerbs`
-//! existed lack the variable and are skipped with a count (never regenerated
-//! here).
+//! comparison, no command-id resolution. Every committed trace is now
+//! regenerated to carry `lastVerbs`, so the test fails if one lacks it. The
+//! verb comparison runs only on `--mbt` board traces, whose states carry an
+//! action label; the retro `quint test` freezes have no action and are held
+//! to `lastVerbs` presence only.
 
 use std::collections::BTreeSet;
 
@@ -82,6 +84,7 @@ fn expected(action: &ModelAction) -> BTreeSet<String> {
 fn committed_traces_lastverbs_matches_the_verb_catalogue() {
     let mut carried = 0usize;
     let mut skipped = 0usize;
+    let mut saw_nonempty = false;
 
     for path in trace_files() {
         let json = std::fs::read_to_string(&path).expect("read trace");
@@ -92,6 +95,18 @@ fn committed_traces_lastverbs_matches_the_verb_catalogue() {
             continue;
         }
         carried += 1;
+        // Every carried state must expose the variable; a non-empty set on any
+        // step proves the cross-check below is exercised, not vacuous.
+        for s in states {
+            let lv = last_verbs(s).expect("state carries lastVerbs");
+            saw_nonempty |= !itf_str_set(lv).is_empty();
+        }
+        // The verb comparison needs the action label, which only `--mbt`
+        // traces carry; the retro `quint test` freezes have none, so they are
+        // held to presence only.
+        if !states.iter().any(|s| s.get("mbt::actionTaken").is_some()) {
+            continue;
+        }
         let trace = parse_mbt_trace(&json).expect("parse mbt trace with lastVerbs");
         for (k, step) in trace.steps.iter().enumerate() {
             let last = itf_str_set(last_verbs(&states[k + 1]).expect("step carries lastVerbs"));
@@ -105,7 +120,15 @@ fn committed_traces_lastverbs_matches_the_verb_catalogue() {
         }
     }
 
-    println!(
-        "lastVerbs cross-check: {carried} trace(s) carried lastVerbs, {skipped} skipped (pre-change)"
+    assert_eq!(
+        skipped, 0,
+        "every committed trace must carry lastVerbs; {skipped} lacked it"
     );
+    assert!(carried > 0, "no committed trace carried lastVerbs");
+    assert!(
+        saw_nonempty,
+        "no step carried a non-empty lastVerbs set — the cross-check was vacuous"
+    );
+
+    println!("lastVerbs cross-check: {carried} trace(s) carried lastVerbs, {skipped} skipped");
 }
