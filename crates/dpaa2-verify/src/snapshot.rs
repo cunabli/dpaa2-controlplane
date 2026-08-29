@@ -78,6 +78,12 @@ pub struct Snapshot {
     pub containers: BTreeMap<String, Container>,
     /// The raw (redacted, trimmed) `dprc show mc.global` text.
     pub mc_global: String,
+    /// The MC-level resource pools, name → free count, from `dprc show
+    /// mc.global --resources` (ADR-0011). Empty when the capture did not
+    /// take it — the committed clean-boot reference predates it, so a diff
+    /// compares this map only when both sides carry it.
+    #[serde(default)]
+    pub resources: BTreeMap<String, u32>,
     /// Every object, keyed by name.
     pub objects: BTreeMap<String, Object>,
     /// The per-family object API version (e.g. `dpni` -> `7.17`).
@@ -125,6 +131,9 @@ uname -r > "$CAP/kernel-version.txt"
 # --- containers ---
 restool dprc list --full-path > "$CAP/dprc-list.txt"
 restool dprc show mc.global > "$CAP/show-mc.global.txt" 2>&1 || true
+# The MC-level resource pools (per-name free counts), so a post-teardown
+# or post-reboot diff can show whether a pool came back (ADR-0011).
+restool dprc show mc.global --resources > "$CAP/show-mc.global-resources.txt" 2>&1 || true
 
 # --- read every container back: show, info, driver link ---
 while read -r path; do
@@ -287,6 +296,25 @@ fn parse_connections(dts: &str) -> Vec<(String, String)> {
     conns
 }
 
+/// Parses `dprc show mc.global --resources` into a name → free-count map.
+/// Each line is `<pool-name>: <count>` (e.g. `mcp: 200`, `cqch.ctm0.ins1:
+/// 31`); a line that does not split on a colon into a name and an integer
+/// is skipped (a header, a blank, or an error message from the capture).
+fn parse_resources(text: &str) -> BTreeMap<String, u32> {
+    let mut out = BTreeMap::new();
+    for line in text.lines() {
+        if let Some((name, count)) = line.split_once(':')
+            && let Ok(n) = count.trim().parse::<u32>()
+        {
+            let name = name.trim();
+            if !name.is_empty() {
+                out.insert(name.to_owned(), n);
+            }
+        }
+    }
+    out
+}
+
 /// Parses a capture directory into a [`Snapshot`]. `read` maps a capture
 /// file name (e.g. `show-dprc.1.txt`, `info-dpni.1.txt`) to its content,
 /// or `None` when the file does not exist.
@@ -404,6 +432,9 @@ pub fn parse(read: impl Fn(&str) -> Option<String>) -> Result<Snapshot, String> 
     let mc_global = read("show-mc.global.txt")
         .map(|s| redact(s.trim()))
         .unwrap_or_default();
+    let resources = read("show-mc.global-resources.txt")
+        .map(|s| parse_resources(&s))
+        .unwrap_or_default();
     let connections = read("dpl.dts")
         .map(|s| parse_connections(&s))
         .unwrap_or_default();
@@ -412,6 +443,7 @@ pub fn parse(read: impl Fn(&str) -> Option<String>) -> Result<Snapshot, String> 
         versions,
         containers,
         mc_global,
+        resources,
         objects,
         api_versions,
         connections,
@@ -535,11 +567,39 @@ pub fn diff(a: &Snapshot, b: &Snapshot) -> Vec<String> {
         }
     }
 
+    // mc.global resource pools (ADR-0011): compared only when *both*
+    // captures carry them. The committed clean-boot reference predates the
+    // `--resources` capture, so a diff against it carries an empty map on
+    // one side; comparing would flag every pool as added. When both carry
+    // them, a pool that did not return to its pre-value (a leaked dpmcp
+    // portal) shows here.
+    if !a.resources.is_empty() && !b.resources.is_empty() {
+        for name in union_keys(&a.resources, &b.resources) {
+            match (a.resources.get(&name), b.resources.get(&name)) {
+                (Some(_), None) => out.push(format!("- resource {name}")),
+                (None, Some(y)) => out.push(format!("+ resource {name}: {y}")),
+                (Some(x), Some(y)) if x != y => {
+                    out.push(format!("~ resource {name}: {x} -> {y}"));
+                }
+                _ => {}
+            }
+        }
+    }
+
     if a.mc_global != b.mc_global {
         out.push("~ mc_global differs".to_owned());
     }
 
     out
+}
+
+/// Whether the two snapshots can be compared on their `--resources` pools:
+/// true only when both carry a capture. The CLI reports the one-sided case
+/// once (the committed reference has no capture; ADR-0011) rather than
+/// letting [`diff`] flag every pool.
+#[must_use]
+pub fn resources_comparable(a: &Snapshot, b: &Snapshot) -> bool {
+    !a.resources.is_empty() && !b.resources.is_empty()
 }
 
 #[cfg(test)]
@@ -818,6 +878,41 @@ mod tests {
         assert!(!info.contains_key("Counters"));
         assert!(!info.contains_key("rx all frames"));
         assert!(!info.contains_key("tx frames ok"));
+    }
+
+    #[test]
+    fn resources_parse_and_diff_only_when_both_sides_carry_them() {
+        // A small --resources capture: `name: count` lines, a header and a
+        // blank that do not parse.
+        let text = "\
+mcp: 200\n\
+cg: 253\n\
+cqch.ctm0.ins1: 31\n\
+some header with no colon count\n\
+\n";
+        let res = parse_resources(text);
+        assert_eq!(res.get("mcp"), Some(&200));
+        assert_eq!(res.get("cg"), Some(&253));
+        assert_eq!(res.get("cqch.ctm0.ins1"), Some(&31));
+        assert_eq!(res.len(), 3, "{res:?}");
+
+        // Two snapshots that both carry resources: a changed pool shows.
+        let mut a = parse(fixture(&sample_files())).unwrap();
+        a.resources = res.clone();
+        let mut b = a.clone();
+        b.resources.insert("mcp".to_owned(), 138); // a leaked portal
+        assert!(resources_comparable(&a, &b));
+        assert_eq!(diff(&a, &b), vec!["~ resource mcp: 200 -> 138"]);
+
+        // The reference side carries no capture: the pools are not
+        // compared, so no false per-pool deltas (ADR-0011).
+        let mut noref = a.clone();
+        noref.resources.clear();
+        assert!(!resources_comparable(&noref, &a));
+        assert!(
+            diff(&noref, &a).is_empty(),
+            "a one-sided resources capture must not flag deltas"
+        );
     }
 
     #[test]

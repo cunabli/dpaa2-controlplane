@@ -66,7 +66,11 @@ restool v2.4 exposes 14 subcommands (`dprc_commands.c:2404–2464`) [read]:
 Constraints stated by restool's own help [read]:
 
 - `assign`: DPRCs themselves cannot be assigned; a DPRC's plugged state
-  cannot (and need not) be changed; **plugged objects cannot be moved**;
+  cannot (and need not) be changed [board-verified 2026-08-29, V-POOL-1
+  rev 2: `assign --plugged=1` on a dprc exits with "Cannot change
+  plugged state of dprc" before any command is issued — so a
+  runtime-created child, unplugged at creation, is never kernel-driven];
+  **plugged objects cannot be moved**;
   the operation "may be restricted by the permissions granted in the
   container attributes".
 - `connect`: the named parent must be a **common ancestor** of both
@@ -262,6 +266,12 @@ rescan/autorescan ABI are stock upstream.
   parent's listing while fully operational [verified] — plugged state of a
   DPRC does not gate its use as a container (consistent with "not possible
   and unnecessary to change the plugged state of a DPRC").
+- A `dprc create` leaves the new child **unplugged** [verified 2026-08-29,
+  V-POOL-1 rev 1 probe]: it has no `/sys/bus/fsl-mc/devices` node of its
+  own and `fsl_mc_dprc` never binds it, so the kernel does not scan the
+  child's residents. The rev-1 hand-bind wrote to a device that did not
+  exist. Driving a child from the kernel needs the child *plugged* first —
+  V-POOL-1 rev 2's added trace step.
 
 ## Intent mapping
 
@@ -315,9 +325,9 @@ false belief.
 | DPRC-I3 | Move precondition: `assign --child` is enabled only for unplugged objects; a move of a plugged object is refused and the object's container membership is unchanged | command exit + MC status; object's container membership unchanged after refusal | verified 2026-08-29 (V-DPRC-6 rev 1): the one-hop move of a plugged dpbp was refused by restool's own client guard ("cannot be moved because it is currently in plugged state" / "unplug it first") before any MC command, and the dpbp stayed put — the refusal is the restool layer, so the MC-layer status stays unreachable through restool |
 | DPRC-I4 | `dprc create` without `--options` yields exactly {SPAWN, ALLOC, OBJ_CREATE, IRQ_CFG}_ALLOWED | options mask in `dprc info` | verified |
 | DPRC-I5 | Connect precondition: `connect(p, e1, e2)` enabled only if p is a common ancestor of e1 and e2 and both are currently unconnected | command exit; `GET_CONNECTION` per endpoint | candidate |
-| DPRC-I6 | **Breaking:** the model must NOT assume `sync` ⇒ mutation visible. Bus rescan reaches root containers only and discards errors; visibility of a mutation is established only by re-observation of the affected container | child-container object list unchanged after sync following an out-of-band mutation | verified 2026-08-29 (V-DPRC-5 rev 1): a dpci created in a scratch child was absent from `/sys/bus/fsl-mc/devices` before and after `dprc sync` while `dprc show` listed it in the child throughout; only the root-created dpci reached the bus |
+| DPRC-I6 | **Breaking:** the model must NOT assume `sync` ⇒ mutation visible. Bus rescan reaches root containers only and discards errors; visibility of a mutation is established only by re-observation of the affected container | child-container object list unchanged after sync following an out-of-band mutation | verified 2026-08-29 (V-DPRC-5 rev 1): a dpci created in a scratch child was absent from `/sys/bus/fsl-mc/devices` before and after `dprc sync` while `dprc show` listed it in the child throughout; only the root-created dpci reached the bus. Settled for every child restool can make [V-POOL-1 rev 2, 2026-08-29]: a restool-created child is unplugged and restool refuses to plug a dprc, so the child never gets a driver and its residents never reach the bus — visibility is root-only at runtime; a kernel-driven child exists only when the DPL defines it |
 | DPRC-I7 | **Breaking:** the model must NOT assume Linux device removal destroys MC objects; removal is Linux-side only, objects survive on the bus | object still listed by `dprc show` after driver unbind/device_del | candidate |
-| DPRC-I8 | Scan ordering postcondition (ADR-0006 fold): plugging an allocatable (dpmcp/dpbp/dpcon) lands it in its container's kernel pool before any consumer in the same scan probes | consumer probe success when pool objects and consumer are plugged in one batch | candidate |
+| DPRC-I8 | Scan ordering postcondition (ADR-0006 fold): plugging an allocatable (dpmcp/dpbp/dpcon) lands it in its container's kernel pool before any consumer in the same scan probes | consumer probe success when pool objects and consumer are plugged in one batch | candidate — no runtime observable through restool (V-POOL-1 rev 2, 2026-08-29: a child container cannot be plugged by the tool, so no batch plug→probe ever runs outside the root); needs a DPL-defined child or the raw command path (#10) |
 | DPRC-I9 | Teardown reachability (liveness): from every reachable scratch-container state some finite action sequence empties and destroys the container | suite replay ending in `destroy` success + container absent from `list` | verified 2026-08-23 (V-DPRC-1 rev 3, 13/13): the scratch container was emptied through both move directions and destroyed, absent in read-back; unknown #1 is answered by ADR-0007 §3's release/evict law, so a non-empty destroy never blocks teardown either |
 | DPRC-I10 | Immutability: icid, portal_id, and options of a container never change across any post-create action sequence | `dprc info` before/after every suite | candidate |
 | DPRC-I11 | `set-locked 1` on a child removes create/destroy/assign/unassign/lock from the entire sub-hierarchy; `set-locked 0` restores it (who may unlock: unknown #4) | denied MC status on each operation class inside the locked hierarchy | board-pending — rev 1 (V-DPRC-3, 2026-08-29) observed the lock refusing assign (No privilege, object unplugged), leaving reads working and lifting from the root, but also accepting `set-label`, which the hook had predicted stripped; the corrected hook re-runs as rev 2 |
@@ -387,7 +397,14 @@ object-lifecycle-only scenarios except where noted):
    qd 253, opr 256, …); `dprc info mc.global` and `dump-mem mc.global`
    are refused by restool itself (`dprc.0 does not exist` / `Invalid MC
    object name`, exit 234) before any MC command — the alias exists for
-   `show` only.
+   `show` only. A create-until-refused walk against these pools
+   [V-CEIL-1 rev 1, 2026-08-29; ADR-0011] met a **dpni ceiling of 18**
+   (17 created on top of the boot dpni, the 18th refused No resources)
+   with **every listed pool still showing headroom** — frame queues,
+   congestion groups, queuing destinations and the WRIOP tables all well
+   above their draw — so whatever bounds the dpni count is an unlisted
+   resource (a DPC object budget, or a per-WRIOP-port table), not one
+   `--resources` exposes.
 6. ~~`AIOP` and `PL_ALLOWED` option semantics on a board with no AIOP.~~
    **Answered as far as restool reaches** — `DPRC_CFG_OPT_AIOP` is
    accepted at `dprc create` on this AIOP-less board (the container is

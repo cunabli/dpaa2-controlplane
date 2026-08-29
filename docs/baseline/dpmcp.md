@@ -74,9 +74,22 @@ dpmcp inside its dpio loop [read/verified].
 DPRC's built-in portal** (zero pool draw); each additional simultaneous
 opener draws one dpmcp, returned on close. So the cost is
 concurrency-driven, not cumulative — N parallel restool invocations
-need N−1 free dpmcps, and exhaustion surfaces as `open()` failing with
-`ENXIO` (matching dprc.md's "every additional concurrent opener")
-[read].
+were read as needing N−1 free dpmcps, with exhaustion surfacing as
+`open()` failing with `ENXIO` [read].
+
+**Single-opener mechanism** [verified 2026-08-29, V-POOL-3 rev 1]: the
+board never reaches that exhaustion, because it admits only **one** opener
+at a time. `fsl_mc_uapi_dev_open` calls `fsl_mc_portal_allocate` for the
+root dprc, which draws a dpmcp from the root pool, opens it, and then
+records the root dprc as that dpmcp's **consumer** with `device_link_add`
+(`mc-io.c`). The dpmcp is the root dprc's own child, so the link would
+make a device depend on its descendant; the device core refuses such a
+cycle, the allocator maps the refusal to `-EINVAL`, and the second
+`open()` fails `EINVAL` — not `ENXIO`, and with the pool nowhere near
+empty (over a hundred free at the time). This holds for any process, not
+just restool, and is the kernel enforcing ADR-0006's single-writer stance
+one layer below the tool (ADR-0006 amendment 2026-08-29). The N−1 pool
+draw the corpus predicted is unreachable through this device.
 
 **DPMCPs are never reset in this kernel**: `fsl_mc_portal_reset` exists,
 is exported, and has zero callers — a portal returns to the pool
@@ -125,10 +138,11 @@ family.
 | Id | Proposition | Observables | Status |
 |---|---|---|---|
 | DPMCP-I1 | Bottom of the dependency graph: every MC-command-issuing consumer holds ≥ 1 dpmcp (or the root's built-in portal); dpmcp itself depends only on container membership | consumer probe/open outcomes vs pool free-count | candidate |
-| DPMCP-I2 | Concurrency law for the uapi: N simultaneous `/dev/dprc.N` openers require N−1 pool dpmcps; the first is free (built-in portal); closes return them | `open()` errno at exhaustion; free-count across open/close sequences | candidate |
+| DPMCP-I2 | Concurrency law for the uapi: N simultaneous `/dev/dprc.N` openers require N−1 pool dpmcps; the first is free (built-in portal); closes return them | `open()` errno at exhaustion; free-count across open/close sequences | falsified as stated 2026-08-29 (V-POOL-3 rev 1): the uapi admits **one** opener at a time — the second `open()` fails `EINVAL` while the first is held, with over a hundred portals free, so exhaustion is never reached and `ENXIO` never appears (single-opener mechanism below; ADR-0006 amendment); rev 2 counted it — one held, 119 refused |
 | DPMCP-I3 | **Breaking:** the model must NOT assume portal state is clean on allocate — no reset happens anywhere in the kernel lifecycle, ever | portal state after a re-allocation following an aborted owner | candidate |
 | DPMCP-I4 | Placement law: the dpmcp must be in the *consumer's* container (pool locality, DPRC-I1); a top-up in any other container is a no-op for the consumer | consumer defer despite global dpmcp surplus | verified (DPRC-I1 class; ls-addmux bug demonstrates the violation [read]) |
 | DPMCP-I5 | **Breaking:** transport failures are not observable at default verbosity — the model's fairness assumption ("commands eventually complete or fail loudly") does not hold; every convergence check needs its own timeout | absence of dmesg output during a forced MC stall | candidate |
+| DPMCP-I6 | A destroyed dpmcp's MC portal is not returned to `mc.global --resources` for the rest of the boot — not on destroy, not when its container is destroyed; only a reboot restores the count | the `mcp` count across create, destroy, container destroy and reboot | verified 2026-08-29 (V-CEIL-1 rev 2 + the rev 2 snapshots): 200 → 138 after 64 creates, 138 after 64 destroys, 138 after the child's destroy, 203 after the reboot (ADR-0011 §3) |
 
 ## Unknown / unverified register
 
@@ -137,8 +151,25 @@ family.
    is defined but no in-corpus caller sets it).
 2. What state a dpmcp can actually carry across owners given no reset
    (is DPMCP-I3 vacuous because portals are stateless, or real?).
+   **Re-anchored** [V-POOL-2 rev 1, 2026-08-29]: restool exposes no
+   portal state at all — `dpmcp info` prints id, version, plugged state,
+   label and the options mask, none of which a re-allocation would move —
+   so this stays unobservable through restool and needs the raw portal
+   backend (`mc-portal-backend`, #10) to settle.
 3. Whether pinning `portal_id` via DPL has observable consequences
    (restool cannot express it).
 4. The board's dpmcp id-14 hole in dprc.1 (52 dpmcps, one id gap) —
    boot-time consumption or DPL artifact? [carried from
    reference-environment capture].
+5. **Does a destroyed dpmcp return its MC portal to the pool?** — No,
+   not for the rest of the boot [answered, V-CEIL-1 rev 1 + rev 2 and
+   the rev 2 snapshots, 2026-08-29; ADR-0011 §3; DPMCP-I6 below].
+   Creating 64 dpmcps in a scratch child drew the MC portal count from
+   200 to 138 (62 drawn for 64 creates), all 64 destroyed cleanly
+   without the count moving, the checkpoint after the *child itself*
+   was destroyed still read 138, and only the reboot restored 203. A
+   firmware leak, not a container quota. The reconciler treats dpmcp
+   churn as consuming a fixed 203-portal budget per boot and never
+   recycles a portal through destroy. What stays open is the listing's
+   arithmetic — 62 for 64, and 203 to 200 before the family ran in both
+   sittings after five and six earlier create/destroy pairs.

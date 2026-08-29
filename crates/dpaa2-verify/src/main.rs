@@ -61,6 +61,12 @@ enum Command {
         /// the recovery gate; must mutate only its own scratch set).
         #[arg(long)]
         recovery_verification: bool,
+        /// Generate a reboot-persistence suite (V-DPDMAI-2): V-RECOVERY-1's
+        /// two-script shape used to test whether a root resident it creates
+        /// outlives a reboot. Gated on the verified recovery guarantee; its
+        /// post-half also asserts every created object is absent afterward.
+        #[arg(long)]
+        reboot_persistence: bool,
         /// Marker file whose presence records a passed recovery
         /// verification (committed by task 5.1).
         #[arg(long, default_value = "models/board/RECOVERY-VERIFIED")]
@@ -324,6 +330,7 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
             class,
             flagged,
             recovery_verification,
+            reboot_persistence,
             recovery_marker,
             hook,
             create_args,
@@ -353,6 +360,8 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
                 },
                 kind: if recovery_verification {
                     SuiteKind::RecoveryVerification
+                } else if reboot_persistence {
+                    SuiteKind::RebootPersistence
                 } else {
                     SuiteKind::Standard
                 },
@@ -808,7 +817,18 @@ fn run_snapshot(what: SnapshotCmd) -> Result<ExitCode, String> {
                     .map_err(|e| format!("reading {}: {e}", p.display()))?;
                 serde_json::from_str(&text).map_err(|e| format!("parsing {}: {e}", p.display()))
             };
-            let deltas = snapshot::diff(&read(&a)?, &read(&b)?);
+            let (sa, sb) = (read(&a)?, read(&b)?);
+            // Report the one-sided --resources case once (the committed
+            // reference predates the capture; ADR-0011) rather than
+            // flagging every pool. `diff` skips the comparison there.
+            if !snapshot::resources_comparable(&sa, &sb)
+                && (!sa.resources.is_empty() || !sb.resources.is_empty())
+            {
+                eprintln!(
+                    "note: mc.global --resources present on only one side; skipping the pool comparison"
+                );
+            }
+            let deltas = snapshot::diff(&sa, &sb);
             for line in &deltas {
                 println!("{line}");
             }

@@ -1,0 +1,37 @@
+{
+  "id": "V-DPDMAI-2",
+  "class": "object-lifecycle-only",
+  "flagged": false,
+  "trace_file": "models/board/V-DPDMAI-2/vdpdmai2.itf.json",
+  "steps": [
+    {
+      "index": 0,
+      "title": "CreateObject { fam: Dpdmai, container: ObjRef { fam: Dprc, num: 1 } }",
+      "driven": true,
+      "probes": [
+        {
+          "Restool": [
+            "dprc",
+            "show",
+            "dprc.1"
+          ]
+        }
+      ],
+      "created": {
+        "fam": "Dpdmai",
+        "num": 0
+      },
+      "expected": {
+        "object": {
+          "fam": "Dpdmai",
+          "num": 0
+        },
+        "present": true,
+        "plugged": false,
+        "endpoint": null,
+        "driver_bound": null,
+        "link_up": null
+      }
+    }
+  ]
+}

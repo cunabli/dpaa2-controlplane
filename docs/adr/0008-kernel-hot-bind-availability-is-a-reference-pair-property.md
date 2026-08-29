@@ -256,6 +256,59 @@ and expect a rebind or a reboot after it. V-DPDMUX-2's phase 4 is
 removed from the committed hook (the suite's other agent), leaving the
 teardown as the only place a destroy happens.
 
+### 8. A bound dpni evicts the port's standalone MAC driver; sever the edge before unbinding
+
+Task 5.11's sitting found a second way for a boot resident to lose its
+driver, with no race in it. The clean-boot reference shows every wired
+dpmac bound to the standalone `fsl_dpaa2_mac` driver. When a dpni
+connected to that dpmac is bound to `fsl_dpaa2_eth`, the ethernet
+driver's connect path *releases* the standalone driver from the dpmac on
+purpose (`dpaa2_eth_connect_mac` → `dpaa2_mac_driver_detach`): the
+netdev now owns the MAC and the PHY. On the dpni's remove path the
+ethernet driver asks the device core to re-attach the standalone driver
+(`dpaa2_mac_driver_attach` → `device_attach`), and the standalone probe
+looks at the dpmac's endpoint: if it is still a dpni, the probe defers.
+
+The generated teardown unbinds a root-bound dpni first and destroys it
+afterwards, so at the moment the re-attach is attempted the edge is
+still there, the probe defers, and when the destroy finally severs the
+edge nothing runs the deferred probe again — the device core retries
+deferred probes only after some other probe on the bus succeeds. The
+next two suites of the sitting created nothing the kernel probes, and
+the port stayed driverless until the reboot. Both mid-sitting snapshots
+show it (`dpmac.7 driver: fsl_dpaa2_mac -> (none)`); the post-reboot
+snapshot is clean.
+
+Two rules follow.
+
+- **Teardown order for a connected, bound dpni is sever, then unbind.**
+  A disconnect issued while the dpni is still bound raises the
+  endpoint-changed interrupt in the ethernet driver, which runs the
+  same re-attach with the edge already gone, and the standalone driver
+  binds at once. The generator's teardown is changed to disconnect such
+  a dpni before unbinding it; the wired suites (V-LINK-2, V-LINK-4,
+  V-LINK-5, V-TRAF-0) are the ones this touches. Any operator or tool
+  flow that dismantles a netdev on a wired port inherits the rule: an
+  unbind-then-destroy leaves the port without a driver.
+- **The residents rule compares against the reference, not against
+  itself.** The 5.11 hooks read the boot residents' driver links before
+  and after the hook body and passed — the loss happened during the
+  suite's own trace steps, before the hook's first read. The rule is
+  changed to compare every read against the driver the clean-boot
+  reference records, so a resident that arrives at a hook already
+  driverless is a `FAIL` on the first read.
+
+Verified on the board the same day (rev 2 sitting, 2026-08-29): V-LINK-4
+regenerated with the sever-first teardown left dpmac.7 bound to its
+standalone driver, and all three checkpoint snapshots of that sitting
+show zero deltas.
+
+This is not the §4 race: the sequence is deterministic, repeats on
+every such teardown, and is fully anchored in driver source. It is
+recorded here because its symptom is the one this record is about — a
+boot resident silently without its driver — and because the fix is,
+again, an ordering rule for the harness.
+
 ## Open questions and revisit triggers
 
 - **Why does the firmware hand back a stale plugged bit?** Everything up

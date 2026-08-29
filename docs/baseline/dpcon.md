@@ -110,7 +110,7 @@ opaque vendor default until a consumer needs them [read/verified].
 | DPCON-I2 | Two id spaces: dequeue/notification addressing uses `qbman_ch_id`, never the object id; the model must carry both per dpcon | `dpcon info` channel id vs object id | candidate |
 | DPCON-I3 | **Breaking:** the model must NOT assume created priority capacity is used — every in-corpus consumer drives priority 0 only; priorities are create-immutable dead weight until proven otherwise | CDAN configs; consumer source | candidate |
 | DPCON-I4 | Notification retargeting is the one mutable edge: dpcon→dpio binding can change at runtime (set_notification), and disabling is expressed as dpio id −1, not a separate state | `set_notification` sequences + dequeue behavior | candidate |
-| DPCON-I5 | **Breaking:** pool membership ⇒ clean state is false (no reset on free) — shared with DPBP-I3 | re-allocated dpcon state before consumer reset | candidate |
+| DPCON-I5 | **Breaking:** pool membership ⇒ clean state is false (no reset on free) — shared with DPBP-I3 | re-allocated dpcon state before consumer reset | candidate — the free path is Linux-side and not restool-observable (V-POOL-2 rev 1, 2026-08-29: the unplugged child never bound, so the free-then-reallocate cycle was never driven) |
 
 ## Unknown / unverified register
 

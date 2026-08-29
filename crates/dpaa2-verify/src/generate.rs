@@ -49,6 +49,13 @@ pub enum SuiteKind {
     /// The recovery-verification suite: exempt from the gate, but every
     /// mutation must target only objects the trace itself creates.
     RecoveryVerification,
+    /// A reboot-persistence suite (V-DPDMAI-2): V-RECOVERY-1's two-script
+    /// shape — pre-state capture, no teardown trap, a post-boot diff — but
+    /// used to test whether a *root* resident it creates outlives a reboot.
+    /// Gated on the verified recovery guarantee like a standard mutating
+    /// suite, and its post-half additionally asserts each created object
+    /// is absent after the reboot.
+    RebootPersistence,
 }
 
 /// A hand-written shell file the suite sources after its last trace
@@ -408,8 +415,34 @@ fn recovery_footer(id: &str) -> String {
 /// pre-state capture. A clean diff is what marks the recovery guarantee
 /// verified (the operator then commits the marker file); any difference
 /// stops the board program (design D7 step 1).
-fn postboot_script(id: &str) -> String {
+fn postboot_script(id: &str, absence: bool) -> String {
     let ref_pair = REF_PAIR_ASSERT;
+    // A reboot-persistence suite additionally asserts every object the
+    // pre-half created is gone after the reboot: the recovery guarantee
+    // (ADR-0003 §7) erases every runtime object not in the DPL, so
+    // `restool <fam> info` on each must say it does not exist. The family
+    // is the created.txt model key's prefix (`dpdmai_0` → `dpdmai`).
+    let absence_block = if absence {
+        "\n# --- created-object persistence check (reboot-persistence) ---\n\
+         if [ -r \"$RESULTS/created.txt\" ]; then\n  \
+         while read -r model board _; do\n    \
+         [ -n \"$board\" ] || continue\n    \
+         fam=\"${model%%_*}\"\n    \
+         if restool \"$fam\" info \"$board\" > /dev/null 2>&1; then\n      \
+         echo \"FAIL persistence: $board ($fam) survived the reboot\" >&2; status=1\n    \
+         else\n      \
+         echo \"PASS persistence: $board ($fam) absent after reboot (does not exist)\"\n    \
+         fi\n  \
+         done < \"$RESULTS/created.txt\"\nfi\n"
+    } else {
+        ""
+    };
+    let clean_msg = if absence {
+        "reboot-persistence diff clean: the reboot restored the pre-mutation state"
+    } else {
+        "recovery diff clean: the reboot restored the pre-mutation state\n  \
+         echo \"guarantee verified - commit models/board/RECOVERY-VERIFIED to unblock mutating suites\""
+    };
     format!(
         r#"#!/bin/sh
 # suite: {id} post-boot diff
@@ -432,9 +465,8 @@ status=0
 diff -u "$RESULTS/pre-dpl.dts" "$RESULTS/post-dpl.dts"               > "$RESULTS/recovery-diff.txt" || status=1
 diff -u "$RESULTS/pre-dprc-list.txt" "$RESULTS/post-dprc-list.txt"  >> "$RESULTS/recovery-diff.txt" || status=1
 diff -u "$RESULTS/pre-dprc1-show.txt" "$RESULTS/post-dprc1-show.txt" >> "$RESULTS/recovery-diff.txt" || status=1
-if [ "$status" = 0 ]; then
-  echo "recovery diff clean: the reboot restored the pre-mutation state"
-  echo "guarantee verified - commit models/board/RECOVERY-VERIFIED to unblock mutating suites"
+{absence_block}if [ "$status" = 0 ]; then
+  echo "{clean_msg}"
 else
   echo "RECOVERY DIFF NOT CLEAN - board program stops here (design D7); see $RESULTS/recovery-diff.txt" >&2
 fi
@@ -490,6 +522,49 @@ fn check_scratch_only(trace: &MbtTrace) -> Result<(), String> {
     Ok(())
 }
 
+/// Validates a reboot-persistence trace: it may create objects and
+/// containers anywhere — the reboot erases every runtime object, the root
+/// included, so a bare root create is exactly the resident whose
+/// persistence is under test — but it must not mutate a pre-existing boot
+/// object. No teardown runs (the reboot is the teardown), so a stray
+/// mutation of a boot object would outlive the pre-half with nothing to
+/// undo it. This is `check_scratch_only` minus the created-container
+/// restriction (a root create is the point here, not a violation).
+fn check_reboot_persistence(trace: &MbtTrace) -> Result<(), String> {
+    let mut created: Vec<ObjRef> = Vec::new();
+    let mut pre = trace.init.clone();
+    for (i, step) in trace.steps.iter().enumerate() {
+        match &step.action {
+            ModelAction::CreateContainer { .. } | ModelAction::CreateObject { .. } => {
+                if let Some(c) = crate::adapter::created_object(&pre, &step.post) {
+                    created.push(c);
+                }
+            }
+            other => {
+                let is_driven = !matches!(
+                    other,
+                    ModelAction::KernelBind { .. }
+                        | ModelAction::ChildIrqRefresh { .. }
+                        | ModelAction::Allocate { .. }
+                        | ModelAction::Free { .. }
+                        | ModelAction::Enable { .. }
+                        | ModelAction::Disable { .. }
+                        | ModelAction::LinkChange { .. }
+                );
+                if is_driven
+                    && let Some(outside) = other.refs().iter().find(|r| !created.contains(r))
+                {
+                    return Err(format!(
+                        "step {i}: reboot-persistence suite mutates {outside}, which it did not create"
+                    ));
+                }
+            }
+        }
+        pre = step.post.clone();
+    }
+    Ok(())
+}
+
 /// Generates one suite from a model trace.
 ///
 /// # Errors
@@ -520,10 +595,10 @@ pub fn generate(
             ));
         }
     }
-    if spec.kind == SuiteKind::RecoveryVerification && spec.hook.is_some() {
+    if spec.kind != SuiteKind::Standard && spec.hook.is_some() {
         return Err(
-            "refusing: a recovery-verification suite takes no hook — the reboot is its \
-             teardown, so hook steps would land in the recovery diff as state nothing \
+            "refusing: a recovery or reboot-persistence suite takes no hook — the reboot is \
+             its teardown, so hook steps would land in the post-boot diff as state nothing \
              explains"
                 .to_owned(),
         );
@@ -542,7 +617,9 @@ pub fn generate(
         )
     });
     match (spec.kind, recovery) {
-        (SuiteKind::Standard, RecoveryGuarantee::Unverified) if mutating => {
+        (SuiteKind::Standard | SuiteKind::RebootPersistence, RecoveryGuarantee::Unverified)
+            if mutating =>
+        {
             return Err(
                 "refusing to emit a mutating suite: the recovery guarantee (ADR-0003 §7) is \
                  unverified — run the recovery-verification suite first"
@@ -550,6 +627,7 @@ pub fn generate(
             );
         }
         (SuiteKind::RecoveryVerification, _) => check_scratch_only(trace)?,
+        (SuiteKind::RebootPersistence, _) => check_reboot_persistence(trace)?,
         _ => {}
     }
 
@@ -683,12 +761,18 @@ pub fn generate(
     // Every other suite tears down unconditionally (ADR-0003 §6):
     // destroy everything this run created, newest first, best-effort —
     // pass, fail, or abort alike.
-    let (capture, trap, footer, postboot) = if spec.kind == SuiteKind::RecoveryVerification {
+    let (capture, trap, footer, postboot) = if matches!(
+        spec.kind,
+        SuiteKind::RecoveryVerification | SuiteKind::RebootPersistence
+    ) {
         (
             PRE_STATE_CAPTURE.to_owned(),
             String::new(),
             recovery_footer(&spec.id),
-            Some(postboot_script(&spec.id)),
+            Some(postboot_script(
+                &spec.id,
+                spec.kind == SuiteKind::RebootPersistence,
+            )),
         )
     } else {
         // Teardown stderr is evidence, not noise: a refused unplug is
@@ -714,6 +798,28 @@ pub fn generate(
                 // first if it is bound; child-container objects never are
                 // (DPRC-I6), so they skip this.
                 if root.as_deref() == Some(parent.as_str()) {
+                    // A dpni the trace both connected to a dpmac and
+                    // kernel-bound must have its edge severed *before* the
+                    // unbind (ADR-0008 §8): an unbind-then-destroy leaves
+                    // the standalone MAC driver's deferred re-attach with
+                    // the edge still there, and the port stays driverless
+                    // until a reboot. A disconnect while still bound runs
+                    // the re-attach with the edge gone, and the standalone
+                    // driver binds at once.
+                    let connected_bound_dpni = obj.fam == crate::adapter::Family::Dpni
+                        && pre
+                            .objs
+                            .get(obj)
+                            .is_some_and(|o| o.bind == crate::adapter::BindView::Kernel)
+                        && pre
+                            .peer_of(*obj)
+                            .is_some_and(|p| p.obj.fam == crate::adapter::Family::Dpmac);
+                    if connected_bound_dpni && let Some(root) = root.as_ref() {
+                        let _ = writeln!(
+                            trap,
+                            "  # sever the dpmac edge before unbinding (ADR-0008 §8)\n  [ -n \"${{{var}:-}}\" ] && restool dprc disconnect {root} --endpoint=\"${{{var}}}\" {log} || true"
+                        );
+                    }
                     let dev = format!("/sys/bus/fsl-mc/devices/${{{var}}}");
                     let _ = writeln!(
                         trap,
@@ -1189,6 +1295,134 @@ mod tests {
         sh_parses(&s);
     }
 
+    /// A dpni the trace both connected to a dpmac and kernel-bound must be
+    /// disconnected before its sysfs unbind in teardown (ADR-0008 §8): an
+    /// unbind-then-destroy leaves the standalone MAC driver's deferred
+    /// re-attach with the edge still there, and the port stays driverless.
+    #[test]
+    fn teardown_severs_a_connected_bound_dpni_before_unbinding() {
+        let dpni = ObjRef {
+            fam: Family::Dpni,
+            num: 101,
+        };
+        // dpmac.5 is a lifecycle-only port (ADR-0003), so the connect needs
+        // no traffic flag.
+        let dpmac = ObjRef {
+            fam: Family::Dpmac,
+            num: 5,
+        };
+        let ep = |o| crate::adapter::EndpointRef { obj: o, port: 0 };
+
+        let mut init = MachineView::default();
+        init.objs.insert(dprc(1), obj(None, true));
+        init.objs.insert(dpmac, obj(Some(dprc(1)), true));
+
+        // create dpni.101 → connect to dpmac.5 → plug → kernel-bind.
+        let mut s1 = init.clone();
+        s1.objs.insert(dpni, obj(Some(dprc(1)), false));
+        let mut s2 = s1.clone();
+        s2.edges.insert((ep(dpni), ep(dpmac)));
+        let mut s3 = s2.clone();
+        s3.objs.get_mut(&dpni).unwrap().plugged = true;
+        let mut s4 = s3.clone();
+        s4.objs.get_mut(&dpni).unwrap().bind = BindView::Kernel;
+
+        let trace = MbtTrace {
+            init,
+            steps: vec![
+                MbtStep {
+                    action: ModelAction::CreateObject {
+                        fam: Family::Dpni,
+                        container: dprc(1),
+                    },
+                    post: s1,
+                },
+                MbtStep {
+                    action: ModelAction::ConnectEdge {
+                        a: ep(dpni),
+                        b: ep(dpmac),
+                    },
+                    post: s2,
+                },
+                MbtStep {
+                    action: ModelAction::Plug { obj: dpni },
+                    post: s3,
+                },
+                MbtStep {
+                    action: ModelAction::KernelBind { obj: dpni },
+                    post: s4,
+                },
+            ],
+        };
+        let s = generate(
+            &spec(SuiteKind::Standard),
+            &trace,
+            RecoveryGuarantee::Verified,
+        )
+        .unwrap()
+        .script;
+
+        let teardown = s.split("teardown() {").nth(1).unwrap();
+        let disconnect = teardown
+            .find("dprc disconnect")
+            .expect("teardown disconnects the bound dpni");
+        let unbind = teardown.find("/driver/unbind").expect("teardown unbinds");
+        let unplug = teardown.find("--plugged=0").expect("teardown unplugs");
+        assert!(disconnect < unbind, "disconnect must precede the unbind");
+        assert!(unbind < unplug, "unbind must precede the unplug");
+        sh_parses(&s);
+    }
+
+    /// A created dpni with no dpmac peer is not disconnected in teardown —
+    /// there is no edge to sever, and naming a non-existent one would fail.
+    #[test]
+    fn teardown_does_not_disconnect_an_unconnected_dpni() {
+        let dpni = ObjRef {
+            fam: Family::Dpni,
+            num: 101,
+        };
+        let mut init = MachineView::default();
+        init.objs.insert(dprc(1), obj(None, true));
+        let mut s1 = init.clone();
+        s1.objs.insert(dpni, obj(Some(dprc(1)), false));
+        let mut s2 = s1.clone();
+        s2.objs.get_mut(&dpni).unwrap().plugged = true;
+        let mut s3 = s2.clone();
+        s3.objs.get_mut(&dpni).unwrap().bind = BindView::Kernel;
+        let trace = MbtTrace {
+            init,
+            steps: vec![
+                MbtStep {
+                    action: ModelAction::CreateObject {
+                        fam: Family::Dpni,
+                        container: dprc(1),
+                    },
+                    post: s1,
+                },
+                MbtStep {
+                    action: ModelAction::Plug { obj: dpni },
+                    post: s2,
+                },
+                MbtStep {
+                    action: ModelAction::KernelBind { obj: dpni },
+                    post: s3,
+                },
+            ],
+        };
+        let s = generate(
+            &spec(SuiteKind::Standard),
+            &trace,
+            RecoveryGuarantee::Verified,
+        )
+        .unwrap()
+        .script;
+        let teardown = s.split("teardown() {").nth(1).unwrap();
+        assert!(
+            !teardown.contains("dprc disconnect"),
+            "no edge to sever: {teardown}"
+        );
+    }
+
     /// A flap prompt must ask for evidence, not an ack: V-LINK-2's
     /// flap-down step was acked and then read the link still up, and a
     /// premature ack is indistinguishable from a real firmware finding.
@@ -1510,6 +1744,61 @@ mod tests {
 
         sh_parses(s);
         sh_parses(post);
+    }
+
+    /// A reboot-persistence suite creates a bare *root* resident (which
+    /// `check_scratch_only` would refuse), keeps V-RECOVERY-1's no-trap
+    /// two-script shape, and its post-half asserts the created object is
+    /// absent after the reboot. It is gated on the recovery guarantee like
+    /// any mutating suite, and takes no hook.
+    #[test]
+    fn reboot_persistence_allows_a_root_create_and_checks_absence() {
+        let dpdmai = ObjRef {
+            fam: Family::Dpdmai,
+            num: 0,
+        };
+        let mut init = MachineView::default();
+        init.objs.insert(dprc(1), obj(None, true));
+        let mut post = init.clone();
+        post.objs.insert(dpdmai, obj(Some(dprc(1)), false));
+        let trace = MbtTrace {
+            init,
+            steps: vec![MbtStep {
+                action: ModelAction::CreateObject {
+                    fam: Family::Dpdmai,
+                    container: dprc(1),
+                },
+                post,
+            }],
+        };
+        let mut over_spec = spec(SuiteKind::RebootPersistence);
+
+        // Gated on the recovery guarantee like any mutating suite.
+        let err = generate(&over_spec, &trace, RecoveryGuarantee::Unverified).unwrap_err();
+        assert!(err.contains("recovery guarantee"), "{err}");
+
+        // Verified: the bare root create generates, no trap, with a
+        // post-boot half that also asserts absence.
+        let suite = generate(&over_spec, &trace, RecoveryGuarantee::Verified).unwrap();
+        assert!(!suite.script.contains("trap teardown"));
+        assert!(suite.script.contains("pre-dpl.dts"));
+        assert!(!suite.script.contains("destroy"));
+        let postboot = suite.postboot.as_deref().unwrap();
+        assert!(postboot.contains("persistence:"), "{postboot}");
+        assert!(
+            postboot.contains("reboot-persistence diff clean"),
+            "{postboot}"
+        );
+        sh_parses(&suite.script);
+        sh_parses(postboot);
+
+        // A hook is refused — the reboot is the teardown.
+        over_spec.hook = Some(Hook {
+            path: "models/board/V-DPDMAI-2/x.sh".to_owned(),
+            contents: "echo hi\n".to_owned(),
+        });
+        let err = generate(&over_spec, &trace, RecoveryGuarantee::Verified).unwrap_err();
+        assert!(err.contains("takes no hook"), "{err}");
     }
 
     #[test]

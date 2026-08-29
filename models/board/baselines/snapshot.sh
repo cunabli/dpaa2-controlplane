@@ -29,6 +29,9 @@ uname -r > "$CAP/kernel-version.txt"
 # --- containers ---
 restool dprc list --full-path > "$CAP/dprc-list.txt"
 restool dprc show mc.global > "$CAP/show-mc.global.txt" 2>&1 || true
+# The MC-level resource pools (per-name free counts), so a post-teardown
+# or post-reboot diff can show whether a pool came back (ADR-0011).
+restool dprc show mc.global --resources > "$CAP/show-mc.global-resources.txt" 2>&1 || true
 
 # --- read every container back: show, info, driver link ---
 while read -r path; do

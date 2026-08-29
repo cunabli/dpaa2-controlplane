@@ -169,6 +169,28 @@ The kernel never reads the dpmac's MAC address — the port MAC reaches
 Linux only through `dpni_get_port_mac_addr` on the connected dpni
 (dpni.md, DPNI-I3) [read].
 
+**A bound dpni evicts the standalone driver; only a disconnect while
+bound hands it back** [verified 2026-08-29, sitting 5.11; ADR-0008 §8].
+When a dpni connected to a dpmac binds to `fsl_dpaa2_eth`, the ethernet
+driver's connect path *releases* the standalone driver from that dpmac on
+purpose (`dpaa2_eth_connect_mac` → `dpaa2_mac_driver_detach`): the netdev
+now owns the MAC and the PHY. On the dpni's remove path the ethernet
+driver asks the device core to re-attach the standalone driver
+(`dpaa2_mac_driver_attach` → `device_attach`), but the standalone probe
+(`dpaa2-mac-standalone.c`) looks at the dpmac's endpoint and *defers* if
+it is still a dpni. So an **unbind-then-destroy** teardown leaves the port
+driverless: at re-attach the edge is still there (probe defers), and when
+the later destroy finally severs it nothing re-runs the deferred probe —
+the device core retries a deferred probe only after some other probe on
+the bus succeeds. A **disconnect issued while the dpni is still bound**
+raises the endpoint-changed interrupt, which runs the re-attach with the
+edge already gone, and the standalone driver binds at once — so the
+teardown order for a connected, bound dpni is **sever, then unbind**. This
+is not the ADR-0008 §4 rescan race: it is deterministic and fully anchored
+in driver source. The sitting's two mid-run snapshots showed
+`dpmac.7 driver: fsl_dpaa2_mac → (none)` from this ordering; the reboot
+restored it.
+
 ## Lifecycle ordering and dependencies
 
 Dpmacs are created by the MC at boot from the DPC and normally live
@@ -241,7 +263,7 @@ either, and reading it as evidence of *anything* stable is unsafe
 | DPMAC-I1 | Identity permanence: dpmac ids are DPC-fixed and never renumber across reboots or any action sequence; the set of dpmacs is constant at runtime (create/destroy are off-nominal) | `dprc show` dpmac set across reboots | verified (ADR-0001 §3) |
 | DPMAC-I2 | The dpmac MAC address is immutable through every API surface (no setter exists) and survives all connect/disconnect sequences; it is the address the connected dpni inherits (DPNI-I3) | `get_mac_addr` before/after suites; dpni primary MAC after connect | verified (ADR-0001 C2) |
 | DPMAC-I3 | Attribute immutability with two exceptions: `dpmac_attr` fields are constant except `eth_if` (via `set_protocol`) and IPG (via `set_params`) | `get_attributes` before/after | candidate |
-| DPMAC-I4 | Link channels are directional and distinct: `get_link_cfg` carries peer *requests* (from `dpni_set_link_cfg`), `set_link_state` carries PHY *reality* (to `dpni_get_link_state`); the model must not conflate them into one link variable | both queries under a forced peer request | candidate |
+| DPMAC-I4 | Link channels are directional and distinct: `get_link_cfg` carries peer *requests* (from `dpni_set_link_cfg`), `set_link_state` carries PHY *reality* (to `dpni_get_link_state`); the model must not conflate them into one link variable | both queries under a forced peer request | candidate — no kernel-side observable (V-LINK-4 rev 2, 2026-08-29): dpmac.7 is a PHY-typed port, and for those the ethernet driver routes `ethtool -A`/`-a` through phylink — the read is phylink's own configuration (autoneg on, manual rx/tx bits) and the write never reaches `dpni_set_link_cfg`; rev 1's reading (the PHY's reality overwriting a probe-time request) was wrong, (a)'s off/off was phylink's default. Both channels need the raw `dpni_get_link_state`/`dpmac_get_link_cfg` reads → `dpmac-typestate` (#7) |
 | DPMAC-I5 | **Breaking:** the model must NOT read `dpmac info`'s "link is up" as MAC link state — it is the DPRC connection state; MAC link state has no restool observable at all | info output vs peer `dpni_get_link_state` with cable pulled | verified 2026-08-24 (V-LINK-2 rev 3): never read as MAC link state — but on a bound, enabled pair the connection-state text co-varies with the cable flap, so the two are not independent |
 | DPMAC-I6 | Driver arbitration: standalone driver bound ⟺ no same-container host-managed peer connected; cross-container peers leave the standalone driver owning the PHY while the datapath is remote | driver symlink under `/sys/bus/fsl-mc/devices/dpmac.N/`; `macN` presence | verified (in production use on this board) |
 | DPMAC-I7 | **Breaking:** the model must NOT assume the counter vocabulary: available counters are firmware-versioned (28 at 10.39, 62 at 10.40+) and refusals are silent; absence ≠ zero | per-counter MC status vs restool output | verified 2026-08-29 (V-DPMAC-1 rev 1): 28 of restool's 62 counters printed on every port, the rest refused and skipped without a trace in the output |

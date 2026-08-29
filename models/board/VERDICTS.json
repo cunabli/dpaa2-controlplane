@@ -1,4 +1,41 @@
 {
+  "V-CEIL-1": {
+    "V-CEIL-1-rev1": {
+      "pass": false,
+      "date": "2026-08-29",
+      "kind": "batch",
+      "revision": 1,
+      "steps": "1/1",
+      "source_hash": "fnv1a64:2b361d22e6a86459",
+      "hook": "7/8",
+      "archive": null,
+      "refusals": []
+    },
+    "V-CEIL-1-rev2": {
+      "pass": false,
+      "date": "2026-08-29",
+      "kind": "batch",
+      "revision": 2,
+      "steps": "1/1",
+      "source_hash": "fnv1a64:2b361d22e6a86459",
+      "hook": "8/9",
+      "archive": null,
+      "refusals": []
+    }
+  },
+  "V-CONC-1": {
+    "V-CONC-1-rev1": {
+      "pass": false,
+      "date": "2026-08-29",
+      "kind": "batch",
+      "revision": 1,
+      "steps": "1/1",
+      "source_hash": "fnv1a64:01899470bc399b21",
+      "hook": "1/4",
+      "archive": null,
+      "refusals": []
+    }
+  },
   "V-DPAIOP-1": {
     "V-DPAIOP-1/probes-rev1": {
       "pass": true,
@@ -87,6 +124,19 @@
       "revision": 1,
       "steps": "3/3",
       "source_hash": "fnv1a64:e13c79ae6b93c80f",
+      "hook": null,
+      "archive": null,
+      "refusals": []
+    }
+  },
+  "V-DPDMAI-2": {
+    "V-DPDMAI-2-rev1": {
+      "pass": true,
+      "date": "2026-08-29",
+      "kind": "batch",
+      "revision": 1,
+      "steps": "1/1",
+      "source_hash": "fnv1a64:ea7e956c5ff0549e",
       "hook": null,
       "archive": null,
       "refusals": []
@@ -212,6 +262,19 @@
       "refusals": []
     }
   },
+  "V-DPNI-3": {
+    "V-DPNI-3-rev1": {
+      "pass": false,
+      "date": "2026-08-29",
+      "kind": "batch",
+      "revision": 1,
+      "steps": "9/9",
+      "source_hash": "fnv1a64:2642e5bd2b236f1a",
+      "hook": "2/4",
+      "archive": null,
+      "refusals": []
+    }
+  },
   "V-DPRC-1": {
     "V-DPRC-1": {
       "pass": false,
@@ -260,6 +323,19 @@
       "refusals": [
         "No resources"
       ]
+    },
+    "V-DPRC-2-NOALLOC-1-rev2": {
+      "pass": true,
+      "date": "2026-08-29",
+      "kind": "batch",
+      "revision": 2,
+      "steps": "2/2",
+      "source_hash": "fnv1a64:7952bfa5b359f1cd",
+      "hook": null,
+      "archive": null,
+      "refusals": [
+        "No resources"
+      ]
     }
   },
   "V-DPRC-2-NOCREATE-1": {
@@ -273,6 +349,17 @@
       "hook": null,
       "archive": null,
       "refusals": []
+    },
+    "V-DPRC-2-NOCREATE-1-rev2": {
+      "pass": true,
+      "date": "2026-08-29",
+      "kind": "batch",
+      "revision": 2,
+      "steps": "2/2",
+      "source_hash": "fnv1a64:c307d61757cf9314",
+      "hook": null,
+      "archive": null,
+      "refusals": []
     }
   },
   "V-DPRC-2-NOSPAWN-1": {
@@ -283,6 +370,19 @@
       "revision": 1,
       "steps": "1/2",
       "source_hash": "fnv1a64:42b7b5f02af56f90",
+      "hook": null,
+      "archive": null,
+      "refusals": [
+        "Configuration error"
+      ]
+    },
+    "V-DPRC-2-NOSPAWN-1-rev2": {
+      "pass": true,
+      "date": "2026-08-29",
+      "kind": "batch",
+      "revision": 2,
+      "steps": "2/2",
+      "source_hash": "fnv1a64:85226300579397e6",
       "hook": null,
       "archive": null,
       "refusals": [
@@ -325,6 +425,17 @@
       "steps": "2/2",
       "source_hash": "fnv1a64:df04d4a3f9e30699",
       "hook": "5/6",
+      "archive": null,
+      "refusals": []
+    },
+    "V-DPRC-3-rev2": {
+      "pass": true,
+      "date": "2026-08-29",
+      "kind": "batch",
+      "revision": 2,
+      "steps": "2/2",
+      "source_hash": "fnv1a64:df04d4a3f9e30699",
+      "hook": "6/6",
       "archive": null,
       "refusals": []
     }
@@ -642,6 +753,34 @@
       "refusals": []
     }
   },
+  "V-LINK-4": {
+    "V-LINK-4-rev1": {
+      "pass": true,
+      "date": "2026-08-29",
+      "kind": "batch",
+      "revision": 1,
+      "steps": "12/12",
+      "source_hash": "fnv1a64:371d45c19f87cd36",
+      "hook": "2/2",
+      "archive": null,
+      "refusals": [
+        "No resources"
+      ]
+    },
+    "V-LINK-4-rev2": {
+      "pass": true,
+      "date": "2026-08-29",
+      "kind": "batch",
+      "revision": 2,
+      "steps": "12/12",
+      "source_hash": "fnv1a64:371d45c19f87cd36",
+      "hook": "3/3",
+      "archive": null,
+      "refusals": [
+        "No resources"
+      ]
+    }
+  },
   "V-LINK-5": {
     "V-LINK-5": {
       "pass": false,
@@ -651,6 +790,78 @@
       "steps": "12/13",
       "source_hash": "fnv1a64:93de6e29b994bb9d",
       "hook": null,
+      "archive": null,
+      "refusals": []
+    }
+  },
+  "V-POOL-1": {
+    "V-POOL-1-rev1": {
+      "pass": true,
+      "date": "2026-08-29",
+      "kind": "batch",
+      "revision": 1,
+      "steps": "16/16",
+      "source_hash": "fnv1a64:62e694ac2c7fb124",
+      "hook": "8/8",
+      "archive": null,
+      "refusals": []
+    },
+    "V-POOL-1-rev2": {
+      "pass": false,
+      "date": "2026-08-29",
+      "kind": "batch",
+      "revision": 2,
+      "steps": "16/17",
+      "source_hash": "fnv1a64:2f2ee4ea95cad041",
+      "hook": "2/2",
+      "archive": null,
+      "refusals": []
+    }
+  },
+  "V-POOL-2": {
+    "V-POOL-2-rev1": {
+      "pass": true,
+      "date": "2026-08-29",
+      "kind": "batch",
+      "revision": 1,
+      "steps": "16/16",
+      "source_hash": "fnv1a64:348f24b32e92cc75",
+      "hook": "2/2",
+      "archive": null,
+      "refusals": []
+    },
+    "V-POOL-2-rev2": {
+      "pass": false,
+      "date": "2026-08-29",
+      "kind": "batch",
+      "revision": 2,
+      "steps": "16/17",
+      "source_hash": "fnv1a64:232793f9da8dc014",
+      "hook": "3/3",
+      "archive": null,
+      "refusals": []
+    }
+  },
+  "V-POOL-3": {
+    "V-POOL-3-rev1": {
+      "pass": true,
+      "date": "2026-08-29",
+      "kind": "batch",
+      "revision": 1,
+      "steps": "1/1",
+      "source_hash": "fnv1a64:d30dd07b28bf97ef",
+      "hook": "2/2",
+      "archive": null,
+      "refusals": []
+    },
+    "V-POOL-3-rev2": {
+      "pass": true,
+      "date": "2026-08-29",
+      "kind": "batch",
+      "revision": 2,
+      "steps": "1/1",
+      "source_hash": "fnv1a64:d30dd07b28bf97ef",
+      "hook": "4/4",
       "archive": null,
       "refusals": []
     }

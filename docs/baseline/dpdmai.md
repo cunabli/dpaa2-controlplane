@@ -155,7 +155,14 @@ the VPP port series has no qdma consumer today.
 3. The MC-enforced queue ceiling on this SoC (changelog says core count
    = 16; restool clamps 16 client-side; unconfirmed).
 4. Whether `dpaa2_qdma_shutdown`'s wrong-token destroy ever succeeds —
-   i.e. does a created dpdmai persist across kernel shutdown?
+   i.e. does a created dpdmai persist across kernel shutdown? **Half
+   answered** [V-DPDMAI-2 rev 1, 2026-08-29]: the *persistence* half is
+   settled — a bare, unplugged root dpdmai is absent after a reboot
+   (recovery diff clean at the 97-object reference), so a runtime dpdmai
+   does not outlive a reboot. The *shutdown-path* half is unanswerable on
+   this BSP: no qdma driver ever binds a dpdmai (V-LIFE-DPDMAI-1,
+   ADR-0008), so `dpaa2_qdma_shutdown` never runs and the wrong-token
+   destroy is never exercised.
 5. Whether `DPDMAI_OPT_CG_PER_PRIORITY` is accepted and reflected in
    `info` (exercised by zero code anywhere).
 6. Free-dpmcp headroom in the root container for a qdma probe after

@@ -53,6 +53,52 @@ drift-reporting pass, and the level-triggered next pass is the recovery.
 Revisit trigger: any real deployment where a second initiator becomes
 legitimate (e.g. another management agent on the same bus).
 
+## Amendment 2026-08-29 — the kernel enforces the single writer (task 5.11)
+
+The stance above was written as an operational contract: nothing stops a
+second restool from running, so the docs ask operators not to. The
+board sitting for task 5.11 (suites V-POOL-3 and V-CONC-1) found the
+kernel already enforcing it, and more strictly than the contract asks.
+
+`/dev/dprc.1` admits exactly one opener at a time on the reference
+kernel. The first opener is handed the root container's own portal; any
+later opener while the first is still open fails `open()` with `EINVAL`.
+The path is `fsl_mc_uapi_dev_open` → `fsl_mc_portal_allocate(root
+dprc)`, which allocates a dpmcp from the root pool and then records the
+root dprc as that dpmcp's *consumer* with `device_link_add`. The dpmcp is
+the root dprc's own child, so the link would make a device depend on its
+descendant; the device core refuses such links, the allocator maps the
+refusal to `EINVAL`, and the open fails. No dpmcp is ever short: the pool
+had well over a hundred free portals and `ENXIO` — the errno the baseline
+predicted for exhaustion — never appeared. Every concurrent restool the
+sitting tried met the same errno: 119 of 120 held openers, 27 of 32
+concurrent reads, one of two concurrent create loops. This is kernel
+behaviour, not firmware, and it holds for any process that opens the
+device, restool or not.
+
+Three consequences for this decision record:
+
+1. **§1 is no longer only a contract.** A second initiator through the
+   uapi cannot exist while the first holds the device open. The tool must
+   serialize its own restool (or portal) use, and an operator's restool
+   run during a pass fails rather than interleaving. The "violation mode"
+   of §4 therefore surfaces as `EINVAL` on the loser, not as drift.
+2. **The MC-level question stays open.** Whether the firmware itself
+   serializes commands from two portals correctly is what V-CONC-1 set
+   out to learn and could not: the kernel stopped the second writer
+   before a single command reached the MC. Answering it needs a second
+   portal the uapi does not grant — the online driver with its own dpmcp
+   (`mc-portal-backend`), or a kernel where the consumer link is taken on
+   the opener's behalf rather than the root's.
+3. **Multi-opener designs are out.** Any plan to run reconciler workers,
+   a watcher and a CLI as concurrent openers of `/dev/dprc.N` is unsound
+   on this kernel; one opener owns the device for its lifetime.
+
+Revisit trigger: a kernel where `fsl_mc_uapi_dev_open` allocates the
+dynamic portal without the root-as-consumer link (or takes the link from
+a non-ancestor device). The check is V-POOL-3: more than one opener held
+at once with `ENXIO`, not `EINVAL`, at exhaustion.
+
 ## Consequences
 
 **Positive**

@@ -171,12 +171,13 @@ must also name the userspace consumer, or be refused.
    each other inside the root; the pair reads back and the spaced
    teardown destroyed it cleanly.
 4. ~~Per-container/global dpci ceiling (no resource cap is expressed in
-   the DPC).~~ **Bounded, not found** — V-DPCI-2 rev 1: sixteen dpcis in
-   one scratch child plus two in the root plus a hook fixture, nineteen
-   standing at once, every create accepted; no pool in `dprc show
-   mc.global --resources` names dpci. The ceiling, if any, is above 19;
-   the walk is bounded on purpose (an open-ended loop is a way to lose
-   the board).
+   the DPC).~~ **Bounded, not found** — V-DPCI-2 rev 1 stood nineteen at
+   once with every create accepted, and V-CEIL-1 rev 1 (2026-08-29)
+   created dpcis to the walk's cap of 64 in a scratch child without a
+   refusal, their pools restored after the destroys; no pool in `dprc
+   show mc.global --resources` names dpci. The ceiling, if any, is
+   **above 64**; the walk is bounded on purpose (an open-ended loop is a
+   way to lose the board).
 5. ~~Asymmetric-pair connect (2 vs 1 priorities): rejected at connect, or
    accepted with one direction short?~~ **Accepted, effective count
    unobservable** — V-DPCI-2 rev 1: a 1-priority dpci connected to a

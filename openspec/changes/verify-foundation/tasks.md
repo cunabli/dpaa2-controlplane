@@ -108,7 +108,7 @@ board task is an operator sitting sync point.
       permission matrix, `generate-dpl` emit-and-diff, and the stray
       unknowns no invariant row carries (dpci 3–5, dprtc 6, dprc 2/6/11);
       settles DPMAC-I7, DPRC-I6/I11, DPCI-I3, DPAIOP-I3/DPDCEI-I2/DPDMAI-I4
-- [ ] 5.11 Riskier set, one design note each before generation (board
+- [x] 5.11 Riskier set, one design note each before generation (board
       sitting, sequenced last): pool exhaustion in a scratch container
       without starving boot residents (V-POOL-1..3), netdev runtime
       state across unbind/rebind (V-DPNI-3), the peer-request channel

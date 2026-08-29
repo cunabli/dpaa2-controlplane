@@ -259,8 +259,12 @@ through phylink; disconnect hands it back.
 exercises): `ip link up/down` → `dpni_enable/disable`; `ip link set
 address` → `dpni_set_primary_mac_addr`; promisc/filter lists →
 `dpni_set_*_promisc`/`dpni_add_mac_addr`/`dpni_clear_mac_filters`;
-`ethtool -A` → `dpni_set_link_cfg` (driver forces pause on by default at
-probe when API ≥ 7.13); `ethtool -N/-U` →
+`ethtool -A` → `dpni_set_link_cfg` (the driver *requests* pause on at
+probe when API ≥ 7.13, but the first link event overwrites that request
+with the PHY's negotiated reality — on the wired pair the board came up
+"flow control off"; and `ethtool -a` reads the driver's cached request,
+which is what the last write asked for, not the firmware's state until the
+next link interrupt [V-LINK-4 rev 1, 2026-08-29]); `ethtool -N/-U` →
 `dpni_set_rx_hash_dist`/`dpni_add_fs_entry`; checksum toggles →
 `dpni_set_offload`; `tc tbf` → `dpni_set_tx_shaping`; VLAN filter →
 `dpni_enable_vlan_filter`/`dpni_add_vlan_id`. MTU changes do **not** reach
@@ -411,13 +415,13 @@ attribute get) — never on the return code of the mutation.
 | Id | Proposition | Observables | Status |
 |---|---|---|---|
 | DPNI-I1 | Every `dpni_cfg` field (options, queue/TC counts, table sizes, num_cgs, num_opr, dist_key_size, num_channels) is immutable across any post-create action sequence; no MC command mutates them | `dpni info` attribute block before/after every suite | candidate |
-| DPNI-I2 | **Breaking:** the model must NOT assume MC-side runtime state set before kernel bind survives the bind — `fsl_dpaa2_eth` probe calls `dpni_reset()` unconditionally; only the `dpni_cfg` block survives | set primary MAC via restool → plug → read back after netdev appears: MAC re-derived per DPNI-I3, not preserved | candidate |
+| DPNI-I2 | **Breaking:** the model must NOT assume MC-side runtime state set before kernel bind survives the bind — `fsl_dpaa2_eth` probe calls `dpni_reset()` unconditionally; only the `dpni_cfg` block survives | set primary MAC via restool → plug → read back after netdev appears: MAC re-derived per DPNI-I3, not preserved | falsified for the primary MAC 2026-08-29 (V-DPNI-3 rev 1): a second MAC set through restool while the dpni was unbound was carried by both the firmware and the new netdev after the rebind (read back at each step) — the probe did not reset it, because the driver keeps a non-zero firmware MAC and randomizes only a zero one (DPNI-I3). The law holds for other pre-bind state, not the primary MAC |
 | DPNI-I3 | MAC inheritance: after connect+bind with a non-zero DPMAC port MAC, DPNI primary MAC = port MAC (driver writes it back); with both zero, a random MAC is written back and presented as permanent | `dpni info` primary MAC vs port MAC; netdev `addr_assign_type` | verified (ADR-0001 C2) |
 | DPNI-I4 | Probe precondition (C1): kernel bind completes only if the container pool holds ≥1 dpbp, ≥1 dpmcp, ≥1 dpcon with an affine dpio; a bare dpni stays connected-but-unbound | probe outcome; `-ENXIO`/"No more resources" in dmesg; netdev absent | verified (ADR-0001 C1) |
 | DPNI-I5 | **Breaking:** the model must NOT assume bind success ⇒ all provisioned queues serviced; DPCON shortage beyond the first degrades silently to `num_channels < num_queues`, leaving destination-less queues | `ethtool -l` count vs `dpni info` num_queues; dmesg "Not enough DPCONs" | candidate |
 | DPNI-I6 | **Breaking:** the model must NOT assume nonzero exit ⇒ no side effect: create with a dead option creates the object and then fails; and exit 0 ⇒ success is false for `dpni update` (three 0-exit failure paths) | `dprc show` delta across a failed create; primary MAC read-back after a "successful" update | candidate |
 | DPNI-I7 | Create-default determinism: an omitted create option ⇒ 0 on the wire ⇒ MC default (1 queue, 1 TC, 16 MAC entries, 0 QoS entries with a single TC, 64 FS, VLAN filtering off, one CG) | `dpni info` of a bare `dpni create` | verified 2026-08-29 (V-READBACK-1 rev 2, hook 10/10) — the corrected hook confirms the rev-1 read-back; the 80 MAC / 64 QoS this row first predicted were restool's maxima, and the DPL-born management dpni in the clean-boot reference reads the same 16/0 |
-| DPNI-I8 | Clean-unbind postcondition: successful driver remove resets the object to initial state; but reset failure is non-fatal, so unbind ⇒ reset is best-effort — convergence is established only by read-back | `dpni info` after unbind: default attributes, zero filter tables | board-pending |
+| DPNI-I8 | Clean-unbind postcondition: successful driver remove resets the object to initial state; but reset failure is non-fatal, so unbind ⇒ reset is best-effort — convergence is established only by read-back | `dpni info` after unbind: default attributes, zero filter tables | falsified for the primary MAC 2026-08-29 (V-DPNI-3 rev 1): a MAC set from the netdev survived the kernel unbind, read back present in `dpni info` while unbound — the remove-path reset does not clear the primary MAC, so the clean-unbind reset is not even best-effort on it. Max frame length read 1536 while unbound |
 | DPNI-I9 | Endpoint cardinality: a dpni has at most one connection; connect requires both endpoints currently disconnected and a common-ancestor initiator (dprc.md DPRC-I5), including the cross-container dpni↔dpni case | `dprc connect` exit; `GET_CONNECTION` per endpoint | verified (kdpni pairs in production use) |
 | DPNI-I10 | Consumer tx-floor: any consumer driving tx from T threads needs T independent tx rings on the dpni; a ring shared by two threads silently drops enqueues (no MC error, no counter on the dpni side) | VPP `<if>-tx` drops with `num-tx-queues < T`; clean at `= T` | verified (ADR-0012) |
 | DPNI-I11 | Version-skew emission: the southbound emits statically-versioned commands (no negotiation exists); the model carries the emitted command version per action, and `SET/GET_TX_CONFIRMATION_MODE` from a 10.32-built client emits v1 against a firmware registering v2 | command version bits on the wire; MC status on mismatch | candidate |
@@ -443,7 +447,13 @@ attribute get) — never on the return code of the mutation.
    deployed `num_cgs = num_queues + 8`.
 4. What exactly `dpni_reset` clears: the flib says "returns the object to
    initial state" with no per-field enumeration (pools binding? QoS/FS
-   tables?). Feeds DPNI-I8's board check.
+   tables?). Narrowed [V-DPNI-3 rev 1, 2026-08-29]: **`dpni_reset` does
+   not clear the primary MAC** — a MAC set from the netdev survived the
+   kernel unbind (which calls `dpni_reset`) and a second MAC set through
+   restool while unbound survived the rebind (which calls it again), so
+   whatever "initial state" the reset restores, the primary MAC is not in
+   it. Max frame length read 1536 while unbound. The QoS/FS-table half is
+   still unread.
 5. `dpni_set_pools.dpbp_id`: DPBP object id or BPID? The two in-tree
    kernel call sites disagree; the answer decides which one is latently
    broken.

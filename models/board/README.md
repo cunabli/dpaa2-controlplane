@@ -64,16 +64,24 @@ diff` and read by the ledger lint, so a status cell here or a "verified
 | V-DPSECI-1 | `probes.json` | **passed** 2026-08-29 (rev 1), 8/8 — DPSECI-I2 create-validation: `--num-queues=1 --priorities=0`, `--priorities=9`, and `--num-queues=2 --priorities=1` are each refused by restool's own parser (exit 234, `Invalid priority value.` / `Please set 2 priorities`) before any MC command is built, so the MC-layer validation is unreachable through restool — that unreachability is the finding, not an MC refusal. The positive lifecycle face is V-LIFE-DPSECI-1 |
 | V-DPNI-2 | `probes.json` | **passed** 2026-08-29 (rev 1), 12/12 — the DPNI-I6 inversion and the num_queues ceiling: `dpni create --max-senders=8` (a dead v9-era option) creates the dpni and prints its id, *then* exits 234, so exit status is no side-effect oracle and convergence rests on read-back (the object stands, reads back present, and is destroyed by the next step); then a bracketing walk of num_queues 32, 24, 28, 20 — all accepted at create. restool caps the option at 32, so the MC ceiling (if any) lies at or above restool's reach (the true WRIOP-3.0.0 ceiling is dpni.md unknown 2); the walk found no refusal, and the closing census read dpni.1 absent |
 | V-DPRC-5 | `vdprc5.qnt` + `visibility.sh` (suite hook) | **passed** 2026-08-29 (rev 1), 3/3 + hook 4/4 — DPRC-I6 and DPCI-I3's rescan face. A dpci created in a scratch child never appears under `/sys/bus/fsl-mc/devices`, before or after `dprc sync`, while `dprc show` lists it in the child all along: bus visibility reaches root residents only (DPRC-I6 held). The root-created dpci was on the bus *before* the hook's explicit rescan — `/sys/bus/fsl-mc/autorescan` reads 1 on this BSP, so the dprc driver rescans on the MC's object-added interrupt and a root create becomes bus-visible without the mutator asking. The MC-side law (a create command triggers no rescan, `createTriggersRescan=false`) stands; the sysfs lag DPCI-I3 describes is closed by a kernel setting here, so it is a BSP property to read, never a law to assume |
-| V-DPRC-3 | `vdprc3.qnt` + `lock.sh` (suite hook) | rev 1 2026-08-29, steps 2/2, hook 6/7 — **failed on one prediction; the board did not diverge** (DPRC-I11, dprc.md unknown 4). `set-locked --locked=1` issued from the root is accepted; under the lock a `dprc assign --plugged=1` on the child's dpbp is refused No privilege (0x4) and the dpbp reads back unplugged; `dprc show` and `dpbp info` keep working; `--locked=0` from the root is accepted and the same plug then succeeds. The FAIL line is the register's guess: `dprc set-label` on the locked child's dpbp is *accepted* and the label reads back — the lock strips assign, not labels. restool's `set-locked` always opens the target's parent portal, so "who may unlock" is exercisable only as the root; a child-portal unlock needs a portal restool never opens. The hook oracle is corrected (rev 2 asserts the label lands) and re-runs with the next sitting |
+| V-DPRC-3 | `vdprc3.qnt` + `lock.sh` (suite hook) | **passed** 2026-08-29 (rev 2), steps 2/2 + hook 6/6 — DPRC-I11, dprc.md unknown 4. Rev 1 (2026-08-29, 2/2, hook 6/7) **failed on one prediction; the board did not diverge**: `set-locked --locked=1` from the root is accepted; under the lock a `dprc assign --plugged=1` on the child's dpbp is refused No privilege (0x4) and reads back unplugged; `dprc show` and `dpbp info` keep working; `--locked=0` from the root lifts it and the plug then succeeds. The one FAIL was the register's guess: `dprc set-label` on the locked child's dpbp is *accepted* and the label reads back — the lock strips assign, not labels. The corrected hook (rev 2 asserts the label lands) passes 6/6. restool's `set-locked` always opens the target's parent portal, so a child-portal unlock stays unreachable through restool; the rev 1 verdict stands as recorded |
 | V-DPCI-2 | `vdpci2.qnt` + `pair.sh` (suite hook) | **passed** 2026-08-29 (rev 1), 20/20 + hook 1/1 — dpci.md unknowns 3, 4, 5. Sixteen 2-priority dpcis in one scratch child plus two in the root were all created: the bounded ceiling walk found no ceiling (19 dpcis stood at once with the hook's fixture; no pool in the `--resources` walk names dpci). The two root dpcis connect to each other inside the root (unknown 3: same-container connect is legal there). The hook's 1-priority fixture connected to a 2-priority dpci without refusal (unknown 5: accepted, not rejected), but each end's `dpci info` reports **its own** count as `peer's num_of_priorities` — the peer attribute mirrors the local value, so which count the link carries is unobservable from the control plane; recorded as ambivalent (a traffic probe settles it, restool cannot). The teardown of 19 objects including the connected root pair was clean: spaced destroys, no bus incident, zero snapshot deltas |
 | V-GENDPL-1 | `vgendpl1.qnt` + `dpl.sh` (suite hook) | **passed** 2026-08-29 (rev 1), 4/4 + hook 1/1 — DPDCEI-I2 and DPDMAI-I4 (DPAIOP-I3 is re-anchored: no dpaiop can exist on this silicon, V-DPAIOP-1). `generate-dpl` of a scratch child holding a dpdcei (`--engine=DPDCEI_ENGINE_DECOMPRESSION --priority=2`), a dpdmai (`--priorities=2,4`) and a dpci (`--num-priorities=2`) is not a round-trip: the dpdcei node carries `engine` only — the priority is write-only, absent from `dpdcei info` as well; the dpdmai node emits `priorities = <0x2>`, the *count* `dpdmai info` reports, where the DPL grammar expects the list `<2 4>`, so a re-applied DPL builds a different object; the dpci round-trips (`num_of_priorities = <0x2>`); and the child container is emitted with `parent = "none"` and the default option string, i.e. as a root. The emitted `.dts` is kept beside the results; the by-eye diff is folded into dpdcei.md/dpdmai.md's owners via COVERAGE |
-| V-DPRC-2-NOCREATE-1 | `vdprc2nocreate.qnt` | rev 1 2026-08-29, 1/2 — **failed on the predicted refusal; the board accepted.** A dpbp create into a child made *without* `DPRC_CFG_OPT_OBJ_CREATE_ALLOWED` succeeds and reads back in the child. restool issues every create through the root's portal with the child's open token, and the bit gates creates issued from the child's *own* portal — one restool never opens. Matrix row: OBJ_CREATE_ALLOWED does not constrain a parent creating on the child's behalf; its refusal face is unreachable through restool. Rev 2 is regenerated with the observed expectation (no refusal) and re-runs with the next sitting |
-| V-DPRC-2-NOSPAWN-1 | `vdprc2nospawn.qnt` | rev 1 2026-08-29, 1/2 — **failed on the predicted status only.** A `dprc create` under a child made without `SPAWN_ALLOWED` is refused, with Configuration error (0x6) rather than the predicted No privilege, and the child stays empty. Rev 2 carries `--expect-refusal 1="Configuration error"` and re-runs with the next sitting |
-| V-DPRC-2-NOALLOC-1 | `vdprc2noalloc.qnt` | rev 1 2026-08-29, 1/2 — **failed on the predicted status only.** A dpbp create into a child made without `ALLOC_ALLOWED` is refused No resources (0x8): the child cannot draw the buffer-pool id from its parent's pool, so the create fails as a resource shortfall, not a privilege check. Rev 2 carries `--expect-refusal 1="No resources"` and re-runs with the next sitting |
+| V-DPRC-2-NOCREATE-1 | `vdprc2nocreate.qnt` | **passed** 2026-08-29 (rev 2), 2/2 — rev 1 (2026-08-29, 1/2) failed on the predicted refusal: a dpbp create into a child made *without* `DPRC_CFG_OPT_OBJ_CREATE_ALLOWED` succeeds and reads back in the child, because restool issues every create through the root's portal with the child's open token and the bit gates only creates from the child's *own* portal — one restool never opens. Rev 2 carries the observed expectation (no refusal) and passes: OBJ_CREATE_ALLOWED does not constrain a parent creating on the child's behalf, and its refusal face is unreachable through restool. The rev 1 verdict stands as recorded |
+| V-DPRC-2-NOSPAWN-1 | `vdprc2nospawn.qnt` | **passed** 2026-08-29 (rev 2), 2/2 — rev 1 (2026-08-29, 1/2) refused as predicted but with the wrong status: a `dprc create` under a child made without `SPAWN_ALLOWED` is refused Configuration error (0x6), not the predicted No privilege, and the child stays empty. Rev 2 carries `--expect-refusal 1="Configuration error"` and passes |
+| V-DPRC-2-NOALLOC-1 | `vdprc2noalloc.qnt` | **passed** 2026-08-29 (rev 2), 2/2 — rev 1 (2026-08-29, 1/2) refused as predicted but with the wrong status: a dpbp create into a child made without `ALLOC_ALLOWED` is refused No resources (0x8) — the child cannot draw the buffer-pool id from its parent's pool, so the create fails as a resource shortfall, not a privilege check. Rev 2 carries `--expect-refusal 1="No resources"` and passes |
 | V-DPRC-2-TOPO-1 | `vdprc2topo.qnt` + `topo.sh` (suite hook) | **passed** 2026-08-29 (rev 1), 4/4 + hook 1/1 — with `TOPOLOGY_CHANGES_ALLOWED` added, a disconnect and a connect issued *on the child* (`dprc disconnect`/`connect dprc.2 …`) both succeed. The control for V-DPCI-1 rev 1: that No privilege was the missing topology bit, and connects rendered against the root ancestor never needed it |
 | V-DPRC-2-PL-1 | `vdprc2pl.qnt` + `pl.sh` (suite hook) | **passed** 2026-08-29 (rev 1), 2/2 + hook 2/2 — `PL_ALLOWED` is accepted at create and reads back in `dprc info --verbose` (options 0xc7: SPAWN, ALLOC, OBJ_CREATE, IRQ_CFG, PL); nothing else in the surface changes and a dpbp create in that child behaves as in a default one. What the bit enables is not observable through restool |
 | V-DPMAC-1 | `probes.json` | **passed** 2026-08-29 (rev 1), 5/5 — DPMAC-I7 / dpmac.md unknown 7. `dpmac info --verbose` on the five unwired ports prints exactly 28 counter rows each, out of the 62 restool 2.4 asks for: the 34 counters MC 10.39.0 does not know are refused and skipped silently (`dpmac_commands.c` swallows the error), identical across the 25G (CAUI) and 10G (XFI) ports, so the vocabulary is firmware-wide, not per port, and the row count is the only observable of a refusal. Surface: endpoint state −1 / no object, link type PHY, max rate per interface type |
 | V-DPRC-4 | `probes.json` | **passed** 2026-08-29 (rev 1), 9/9 — dprc.md unknowns 5, 7, 10, 11, 12. `dprc show mc.global` lists dprc.1 alone; `dprc info mc.global` and `dump-mem mc.global` are refused by restool itself (`dprc.0 does not exist` / `Invalid MC object name`, exit 234) before any MC command — the alias exists for `show` only; `dprc show mc.global --resources` is accepted and lists the MC-level pools (bp 63, mcp 203, swp 49, fq 1981, cg 253, qd 253, …). `dump-mem dprc.1 --partition_id=MEM_PART_PEB` prints one page holding one free block (offset 0x80000, 1.5 MiB). dpmcp.14 reads back plugged in dprc.1 — a consumed companion, not an id hole (the 5.5 premise corrected). `/dev/dprc.1` is 0600 root:root and the only udev rule naming dprc tags dprc.1 to start the provisioning unit with no mode change, so the portal needs root. `/sys/bus/fsl-mc/autorescan` reads 1 |
+| V-POOL-1 | `vpool1.qnt` + `pool1.sh` (suite hook) | rev 2 2026-08-29, steps 16/17 + hook 2/2 (residents; the faces recorded) — **the plug is refused before the firmware is asked**: `restool dprc assign --plugged=1` on a dprc exits with "Cannot change plugged state of dprc", a rule restool applies itself (dprc_commands.c) and one dprc.md had recorded from the tool's help; the design overlooked it. The child stayed unplugged, the bus match refuses unplugged objects and exempts only the root dprc, so faces (c)–(e) were skipped again. Through restool a runtime-created child container is never kernel-driven; a kernel-driven child exists only when the DPL defines it at boot. Whether the firmware would accept the plug from a raw command is the one route left (`mc-portal-backend`, #10). The suite retires at rev 2 with the frozen trace as the evidence. Rev 1 (2026-08-29) **passed**, 16/16 + hook 8/8 — DPBP-I2's child half held (every plugged resident is MC-listed in the scratch child yet absent from the bus), but the hand-bind the notes planned wrote to a device that does not exist: a restool-created child container is *unplugged*, so it has no bus node and nothing to bind. Faces (c)-(e) were skipped as designed and DPBP-I4/DPRC-I8 keep their online-driver anchor. The cut runs deeper than the skipped faces — 5.10's DPRC-I6 evidence was gathered on an unplugged child too — so whether a *plugged* child is kernel-driven (its own bus, pools, residents probed) is the question the corrected rev 2 answers, with the plug added as a trace step |
+| V-POOL-2 | `vpool2.qnt` + `pool2.sh` (suite hook) | rev 2 2026-08-29, steps 16/17 + hook 3/3 — the same refused plug as V-POOL-1's; the one judged line held again (the dpbp stayed plugged and MC-listed through the cycle). DPBP-I3/DPCON-I5's free-path cycle stays unobservable here and DPMCP-I3 keeps its `pool-objects` anchor; the suite retires at rev 2. Rev 1 (2026-08-29) **passed**, 16/16 + hook 2/2 — the same scratch child as V-POOL-1, unplugged and unbindable, so the dpni unbind/rebind cycle DPBP-I3/DPCON-I5 need never ran; the only judged line held (the dpbp stayed plugged and MC-listed through the hook). DPBP-I3 and DPCON-I5 stay open — the free path is Linux-side and not restool-observable — and DPMCP-I3 re-anchors to `pool-objects` (#6). Rev 2 plugs the child as a trace step, as V-POOL-1's |
+| V-POOL-3 | `vpool3.qnt` + `pool3.sh` (suite hook) | **passed** 2026-08-29 (rev 2), 1/1 + hook 4/4 — the corrected count: one opener held the portal, 119 were refused `EINVAL` (K=120), and the pool answered after the release. Rev 1 (2026-08-29, 1/1 + hook 2/2) found the law — DPMCP-I2 falsified as stated: the second opener of `/dev/dprc.1` fails `open()` with `EINVAL` while the first is held, not `ENXIO` at exhaustion, with over a hundred portals still free. The uapi allocates the extra portal on the root container's behalf and records the root as the consumer of its own child dpmcp — a device-link cycle the kernel refuses (ADR-0006 amendment). The two PASS lines are the pool recovery and the residents rule; the hook counted the refused openers as zero because a failed `exec` ends the subshell before the counter, so the RECORD lines carry the real count — corrected for a rev 2 |
+| V-CONC-1 | `vconc1.qnt` + `conc.sh` (suite hook) | rev 1 2026-08-29, steps 1/1, hook 1/4 — **the firmware-concurrency question could not be reached; not a divergence.** `/dev/dprc.1` admits one opener at a time on this kernel (V-POOL-3's `EINVAL`): the second writer of every concurrent face failed `open()` before a command reached the MC — half of a two-writer create race, so 64 objects never listed. ADR-0006's single-writer stance is now enforced by the kernel rather than asked of operators, and whether the firmware serializes two portals stays open (it needs a second portal the uapi does not grant). The one reading that survived: 26 of 32 destroyed ids were minted again, lowest-free (ADR-0010). Not an invariant row — it amends ADR-0006 |
+| V-CEIL-1 | `vceil1.qnt` + `ceil.sh` (suite hook) | rev 2 2026-08-29, steps 1/1, hook 8/9 — the same numbers to the object (dpbp 63, five families at the cap of 64, the dpni refused at the 18th, MC portals 200 → 138 → 138) and the answer rev 1 lacked: the checkpoint snapshot taken *after the scratch child was destroyed* still reads 138 portals, and only the reboot restores 203. A destroyed dpmcp's portal is gone for the rest of the boot — a firmware leak, not a container quota (ADR-0011 §3 settled; DPMCP-I6). The FAIL line is that leak, as in rev 1. Rev 1 2026-08-29, steps 1/1, hook 7/8 — **the one FAIL is a finding the hook could not expect, not a leak.** A dpbp is refused exactly at the buffer pool's free count (63, `No resources`) and every unit comes back on destroy — the census predicts the refusal to the object. dpcon, dpmcp, dpci, dpdmai and dpdcei all reach the cap of 64 in a scratch child with their pools restored after the destroys (dpci's ceiling, "above 19" at 5.10, is now "above 64"). A dpni is refused at the 18th with every listed pool showing room — an unlisted resource. And a destroyed dpmcp does not return its portal to the parent's listing (64 created, 62 drawn, none back after 64 clean destroys) — the FAIL line. Both ambivalent findings are ADR-0011; the snapshot now captures the pools so the next diff can settle them |
+| V-DPNI-3 | `vdpni3.qnt` + `dpni3.sh` (suite hook) | rev 1 2026-08-29, steps 9/9, hook 2/4 — **failed on two predictions; the board did not diverge.** The primary MAC survives both an unbind and a rebind: a MAC set from the netdev reached the firmware and the remove-path reset did not clear it (DPNI-I8's predicted clear did not happen), and a second MAC set through restool while unbound was carried by both the firmware and the new netdev after the rebind (DPNI-I2's predicted reset did not happen). Both laws are falsified for the primary MAC — the driver keeps a non-zero firmware MAC and randomizes only a zero one (DPNI-I3). Max frame length read 1536 while unbound. The hook oracle is inverted for a rev 2; the rev 1 verdict stands as recorded |
+| V-LINK-4 | `vlink4.qnt` + `link.sh` (suite hook) | **passed** 2026-08-29 (rev 2), 12/12 + hook 3/3, checkpoint snapshot clean — the inverted write separated nothing, and the kernel says why: dpmac.7 is a PHY-typed port, and on those the ethernet driver routes both `ethtool -A` and `ethtool -a` to phylink — the read returns phylink's own configuration (autoneg on, manual rx/tx bits) and the write updates that configuration and the PHY's advertisement; `dpni_set_link_cfg` and `dpni_get_link_state` are never touched. (a) read off/off — phylink's default, not a negotiated reality; (b) wrote on/on and read it straight back; (c) the bounce left it at on/on; (d) restored off/off. Rev 1's reading — the PHY's reality overwriting a probe-time request — was wrong. DPMAC-I4 has no kernel-side observable on this port and stays with `dpmac-typestate` (#7) for the raw `dpni_get_link_state`/`dpmac_get_link_cfg` reads. The regenerated sever-before-unbind teardown handed dpmac.7's driver back: zero deltas at the checkpoint (ADR-0008 §8 holds on the board). Rev 1 (2026-08-29) **passed**, 12/12 + hook 2/2 — DPMAC-I4's two channels could not be separated as designed and the suite still passed (no FAIL line): the netdev came up with pause off on both sides — the PHY negotiated "flow control off" and that reality overwrote the driver's probe-time request — so writing "off" onto "off" observed nothing, and only the restoring write showed the mechanism. `ethtool -a` reports the last request immediately after a write and the firmware's reality after a link event, because the driver caches the request until the next link interrupt. The channels are separable — the rev 2 face inverts the write against the current reading and reads after a bounce. DPMAC-I4 stays open with that sharper reason; the raw `dpmac_get_link_cfg` read stays with `dpmac-typestate` (#7) |
+| V-DPDMAI-2 | `vdpdmai2.qnt` (reboot-persistence pair) | **passed** 2026-08-29 (rev 1), 1/1 — dpdmai.md unknown 4's persistence half: a bare unplugged dpdmai created in the root is absent after the reboot, the closing recovery diff clean at the 97-object reference. The shutdown-path half stays unanswerable on this BSP — no qdma driver binds a dpdmai (ADR-0008), so `dpaa2_qdma_shutdown`'s wrong-token destroy never runs |
 
 V-LIFE-DPNI-1 carries the "per-family lifecycle scenarios" of design
 D7 step 2 for the dpni family: the §5 canonical order through the
@@ -94,10 +102,8 @@ design D9):
 | Scenario | Why deferred | Where it goes |
 |---|---|---|
 | V-DPNI-2 | attribute read-back (num_queues ceiling) and the dead-option *exit-shape* probe (DPNI-I6 inversion) | landed as `V-DPNI-2/probes.json` (task 5.9), ran 2026-08-29 |
-| V-DPNI-3 | post-bind runtime-state mutation is not restool-drivable; bind/unbind faces covered by V-LIFE-DPNI-1 | online driver |
 | V-DPNI-4 | raw command via `/dev/dprc.N` | online driver |
 | V-DPMAC-2 | the model forbids dpmac create (DPMAC-I1) — the probe deliberately tests an unknown against a model law; a board answer amends the model | online driver |
-| V-POOL-1..3 | exhaustion/defer faces are refusals; kernel-internal draws are `Await`; the positive census face is judged by V-LIFE-DPNI-1 | online driver |
 | V-DPSECI-1 | create-validation refusals (priority range, count-vs-num-queues); the positive lifecycle face is V-LIFE-DPSECI-1 | landed as `V-DPSECI-1/probes.json` (task 5.9), ran 2026-08-29 |
 | V-DPSECI-2 | raw GET_ATTR attribute read-back | online driver |
 | V-DPSW-2..3 | V-DPSW-2 is a raw-reset probe; V-DPSW-3 needs per-scenario endpoint counts. The positive create+connect face landed as V-DPSW-1 | online driver |
@@ -105,9 +111,7 @@ design D9):
 | V-DPDMUX-3 | cross-regime reset probe | online driver |
 | V-DPCI-2's OPR face | options-discard hardware probe (OPR config, dpci.md unknown 6); the generated V-DPCI-2 carries the connect and ceiling faces (unknowns 3–5), not this one | online driver |
 | V-LINK-3 | raw `SET_LINK_STATE` commands through `/dev/dprc.N` that no crate code drives; its kernel-path half is already answered by V-LINK-2 (dpmac.md unknown #2) | online driver |
-| V-LINK-4 | the peer-request channel (`dpni_set_link_cfg`, reachable as `ethtool -A`) has no restool verb, and the flagged wiring carries no kernel netdev to drive it from | online driver |
 | V-DPDCEI-1 probes | GET_API_VERSION / dce_version reads; the create face is V-LIFE-DPDCEI-1 | online driver |
-| V-DPDMAI-2 | shutdown/reboot-cycle shaped — the V-RECOVERY-1 two-script pattern, not a plain batch suite | later, recovery-shaped suite |
 
 Which roadmap change owns each deferred scenario is recorded per
 invariant in `models/COVERAGE.md` (task 5.6): the family's own change
@@ -305,6 +309,518 @@ their rev 2 runs ride along with the 5.11 sitting; the rev 1 verdicts
 stand as recorded. The option-bit matrix, the id-reuse law and the
 ABA hazard it creates are written up in dprc.md, object-model.md §6
 and ADR-0010.
+
+### Sitting 5.11: the riskier set — design notes before generation
+
+This is the last board sitting of the change and the first whose
+scenarios touch the kernel from the outside: binding a container by
+hand, holding portals open, rewriting a netdev's state, draining MC
+pools, racing two writers, and a reboot. Each scenario below therefore
+got a design note *before* any suite was generated (task 5.11's
+condition), stating what it observes, how, what it can break, and when
+it stops. The notes are the plan; the generated suites implement them
+and the fold judges against them.
+
+**Rule shared by every hook here.** A hook reads the boot residents'
+driver links (`/sys/bus/fsl-mc/devices/<obj>/driver` for every object
+the clean-boot reference lists as bound) before its first face and
+after its last, and prints one `FAIL` line if any changed. That is the
+abort rule: a changed link means a boot resident lost or swapped its
+driver (ADR-0008 §4–§5), the sitting stops there, and the board is
+rebooted before anything else runs. The read lives in one sourced file
+beside the suites (`models/board/residents.sh`) so eight hooks do not
+carry eight copies. No hook destroys anything in the root (ADR-0008 §7);
+hooks that create do so in a scratch child only, and reclaim it
+themselves before the generated teardown runs.
+
+**Run order.** Rising root involvement, riskiest last, with a snapshot
+diff as a checkpoint before the two MC-wide scenarios and the reboot at
+the very end healing whatever the last two left:
+
+1. rev 2 of the four corrected 5.10 oracles — V-DPRC-2-NOCREATE-1,
+   V-DPRC-2-NOSPAWN-1, V-DPRC-2-NOALLOC-1, V-DPRC-3 (scratch children
+   only, nothing new);
+2. V-POOL-1, V-POOL-2 (a scratch child, bound to the kernel by hand);
+3. V-POOL-3 (root uapi, transient);
+4. V-DPNI-3 (a root-bound scratch dpni);
+5. V-LINK-4 (root-bound scratch dpni on the flagged dpmac.7);
+6. snapshot and diff — the checkpoint;
+7. V-CONC-1, then V-CEIL-1 (scratch children, MC-wide pools);
+8. snapshot and diff;
+9. V-DPDMAI-2 pre-half, reboot, post-half, closing snapshot and diff
+   (the reboot restoring the 97-object reference is the sitting's
+   milestone).
+
+#### V-POOL-1 — pool mechanics in a kernel-bound scratch child
+
+*What it observes.* DPBP-I2's plugged-vs-allocator split, DPBP-I4's
+exhaustion-then-top-up cycle, and DPRC-I8's claim that plugging pool
+objects and their consumer in one batch lets the consumer probe. All
+three need a kernel that probes consumers against a pool that is not
+the root's — and 5.10 proved the kernel never scans a scratch child's
+residents on its own (DPRC-I6). dprc.md records that the kernel *can*
+drive a child container, with its own bus and pools, when the child
+dprc is bound to `fsl_mc_dprc`; a restool-created child evidently is
+not bound. Binding it by hand is the untested step this scenario
+turns on.
+
+*How.* The trace creates a scratch child with two dpmcps, two dpcons,
+two dpbps and two unconnected dpnis, and plugs everything except the
+second dpbp — that is DPRC-I8's batch, minus one pool object. The hook
+then (a) records that the plugged residents are MC-listed but have no
+sysfs node (the child half of DPBP-I2); (b) writes the child's name to
+`/sys/bus/fsl-mc/drivers/fsl_mc_dprc/bind` and reads back the child's
+driver link and whether its residents now appear on the bus; (c)
+expects the first dpni bound and the second not, with `No more
+resources of type dpbp` in the kernel log — exhaustion is a deferred
+probe, not a refusal; (d) plugs the second dpbp and expects the
+deferred dpni to bind (DPBP-I4's top-up); (e) unbinds the child dprc
+again so the generated teardown finds the child exactly as its
+trace left it. The dpio question is recorded, not assumed: dpaa2-eth
+draws dpbp/dpcon/dpmcp from its own container (DPRC-I1) but selects a
+dpio from a global service, so a child dpni may or may not probe with
+no dpio of its own; if neither dpni ever binds, that is the finding.
+
+*Blast radius.* The child and its residents. Binding the child scans
+the child only; the root is neither rescanned nor destroyed in, so the
+ADR-0008 §4 race is not in play. Pool draws never cross containers
+(DPRC-I1), so the root's residents keep theirs.
+
+*Guard and abort.* The shared residents rule. If step (b) leaves the
+child unbound, faces (c)–(e) are skipped and DPBP-I4/DPRC-I8 re-anchor
+to `pool-objects` (#6) with "a hand-bound scratch dprc does not probe
+its residents on this BSP" as the reason; face (a) is still judged.
+
+*Settles or re-anchors.* DPBP-I2 (child half), DPBP-I4 (kernel side),
+DPRC-I8.
+
+#### V-POOL-2 — what a pool object carries across owners
+
+*What it observes.* DPBP-I3 and DPCON-I5 say a freed pool object is not
+clean: the kernel frees a dpbp as `drain → disable → close` with no
+reset, so the next allocator's reset is what cleans it. DPMCP-I3 says
+the same of portals, with no reset anywhere. The board can show the
+dpbp half through restool — `dpbp info` prints the object's plugged
+state and bpid, and the kernel's drain is what decides whether any
+buffer state survives — but restool exposes nothing of a dpmcp's
+state, so the portal half has no observable here.
+
+*How.* The same module and trace as V-POOL-1 (the group is the same;
+only the hook differs), bound the same way. The hook binds the child,
+waits for the first dpni to bind, records `dpbp info` of its dpbp,
+unbinds that dpni through sysfs (the kernel's drain-and-free path),
+records `dpbp info` again, rebinds the dpni and records a third time.
+Every line is a `RECORD`; the only judged line is that the dpbp stays
+plugged and MC-listed through the cycle, because the free path is
+Linux-side and never reaches the MC object (dprc.md, object removal).
+
+*Blast radius and guard.* As V-POOL-1: the child only, the shared
+residents rule, the child unbound before the hook returns.
+
+*Settles or re-anchors.* DPBP-I3 and DPCON-I5 settle to "the free path
+is not MC-observable; cleanliness is the next allocator's job" if the
+read-backs are identical across the cycle, and stay open otherwise.
+DPMCP-I3 re-anchors to `pool-objects` (#6) with "restool exposes no
+portal state" as the reason, whatever the run shows.
+
+#### V-POOL-3 — the uapi opener law
+
+*What it observes.* DPMCP-I2: N simultaneous openers of `/dev/dprc.1`
+need N−1 free dpmcps in the root pool, the first opener rides the
+root's own portal, and exhaustion is `open()` failing with `ENXIO`.
+The reference boot has 52 dpmcps in the root and a 203-portal MC pool
+(V-DPRC-4), so the expected ceiling is roughly the free count plus one.
+
+*How.* This scenario is inherently root-side — the uapi is the root
+container's device — and it is the one place the sitting touches the
+root's pool. The trace is the smallest there is (one scratch child, so
+the suite has a teardown and a results directory); the hook spawns
+openers that each open the device and hold it, until one fails,
+records N and the errno, releases every opener at once, and then
+proves the pool recovered: `restool dprc show dprc.1` answers again
+and the residents rule holds. No restool call happens while openers
+are held, because restool is itself an opener.
+
+*Blast radius.* The root's *free* dpmcps, for the seconds the openers
+are held. Boot residents already hold theirs (allocated at probe) and
+lose nothing; the only thing that cannot happen during the hold is a
+new kernel probe needing a portal, and none is scheduled.
+
+*Guard and abort.* Hold cap of a few seconds enforced by the openers
+themselves (they exit on a timer whatever the hook does); the shared
+residents rule after release; if `dprc show` does not answer after
+release the hook prints `FAIL` and the sitting stops.
+
+*Settles or re-anchors.* DPMCP-I2.
+
+#### V-DPNI-3 — netdev runtime state across unbind and rebind
+
+*What it observes.* DPNI-I2 (MC state set before a bind does not
+survive the bind: the probe resets the object) and DPNI-I8 (a clean
+unbind resets the object, but only the read-back proves it), plus
+dpni.md unknown 4 (what `dpni_reset` clears) as far as the primary MAC
+shows it. MTU is deliberately not the probe: the kernel never sends an
+MTU change to the MC (max frame length stays pinned; dpni.md runtime
+knob map), so it cannot say anything about MC-side state.
+
+*How.* V-LIFE-DPNI-1's root group — dpmcp, dpbp, dpcon and one
+unconnected dpni, plugged and bound — and a hook that walks one
+cycle: (a) record the bound netdev's MAC and `dpni info`'s; (b)
+`ip link set address` to a locally administered MAC, expect `dpni
+info` to show it (the kernel's `dpni_set_primary_mac_addr` path); (c)
+unbind through sysfs, expect `dpni info` *not* to show it (DPNI-I8: the
+remove path reset the object) and record `max frame length`; (d) while
+unbound, `restool dpni update --mac-addr=` a second MAC — MC state set
+before a bind; (e) rebind through sysfs and expect neither the netdev
+nor `dpni info` to carry the second MAC (DPNI-I2: the probe reset it
+and re-derived a random MAC, since the dpni has no dpmac to inherit
+from, DPNI-I3).
+
+*Blast radius.* One root-bound scratch dpni and its companions, the
+same set the generated teardown already unbinds and destroys. The
+hook's own unbind and rebind are sysfs writes to that one object; they
+trigger a probe, not a bus rescan, so no root destroy and no ADR-0008
+§4 window.
+
+*Guard and abort.* The shared residents rule. A rebind that does not
+produce a driver link within the wait is a `FAIL` (the object would be
+left for teardown in the state the trace expects anyway).
+
+*Settles or re-anchors.* DPNI-I2, DPNI-I8; unknown 4 narrows to "the
+primary MAC is cleared".
+
+#### V-LINK-4 — the peer-request channel
+
+*What it observes.* DPMAC-I4: the MC keeps two directional link
+channels — requests flowing down from the dpni (`dpni_set_link_cfg`,
+read by the MAC side as `dpmac_get_link_cfg`) and reality flowing up
+from the PHY (`dpmac_set_link_state`, read by the dpni as
+`dpni_get_link_state`) — and a model must not fold them into one link
+variable. `restool dpmac info` never issues `dpmac_get_link_cfg`
+(dpmac_commands.c), so the request channel has no restool read-back;
+the bead anticipated this and the note records it. What *is*
+observable is the kernel's echo: `ethtool -A` writes the request
+channel and `ethtool -a` reads the reality channel back
+(`dpni_get_link_state` options, dpni.md), so a request that does not
+reappear in the read-back is the two channels being distinct.
+
+*How.* V-TRAF-0's module and fourteen-step trace, verbatim — one
+kernel-bound dpni on dpmac.7 brought to a confirmed link-up, which
+needs the peer port admin-up as V-TRAF-0 did — with a different hook
+and no frames (class link-signaling, flagged dpmac.7). The hook: (a)
+records `ethtool -a` as bound (the driver forces pause on at probe);
+(b) writes `ethtool -A rx off tx off` and immediately reads `ethtool
+-a`, `dpni info` link status and the kernel log for dpmac.7; (c) asks
+the operator to bounce the peer port, waits for the local carrier and
+restool's link read-back to agree again (V-LINK-2's acknowledgment),
+and reads `ethtool -a` once more — a bounce is a PHY-reality push, so
+this is the read that shows what reality carries; (d) restores
+`ethtool -A rx on tx on` and reads it back before returning. A pause
+read-back that stays "on" through (b) and only changes, if at all, at
+(c) is the two-channel law holding; one that flips at (b) says the MC
+mirrors requests into state and the model may use one variable.
+
+*Blast radius.* The scratch dpni and dpmac.7's pause configuration,
+restored by the hook. dpmac.7 is the flagged wired port; on the bare
+boot it carries no boot connection to sever or restore.
+
+*Guard and abort.* The shared residents rule; the pause restore in (d)
+must read back before the hook returns, else `FAIL`.
+
+*Settles or re-anchors.* DPMAC-I4 settles on the kernel-side evidence
+if (b)/(c) separate the channels; the restool gap is recorded in
+dpmac.md either way and the raw `dpmac_get_link_cfg` read stays with
+`dpmac-typestate` (#7).
+
+#### V-DPDMAI-2 — a runtime dpdmai across a reboot
+
+*What it observes.* dpdmai.md unknown 4 asks whether a created dpdmai
+survives a kernel shutdown, because `dpaa2_qdma_shutdown` destroys the
+object with the wrong token. On this BSP no qdma driver binds a dpdmai
+at all (V-LIFE-DPDMAI-1, ADR-0008), so the shutdown path never runs and
+the wrong-token question is unanswerable here; what the board can
+answer is the persistence half — whether a runtime-created root
+resident of this family outlives a reboot — which V-RECOVERY-1 answered
+for a container and a dpbp and this suite answers for a dpdmai.
+
+*How.* V-RECOVERY-1's two-script shape. The pre-half creates one bare
+dpdmai in the root (unplugged: nothing for the bus to scan) and captures
+`dprc show dprc.1` and `dpdmai info`; it has no teardown trap — the
+reboot is the teardown. The post-half, run after the reboot with the
+same results directory, expects the dpdmai absent from `dprc show` and
+`dpdmai info` to say it does not exist, and the closing snapshot diff
+against the clean-boot reference reports zero deltas.
+
+*Blast radius.* One unplugged root resident until the reboot, and the
+reboot itself, which is why this runs last.
+
+*Guard and abort.* The residents rule before the reboot; after it, the
+snapshot diff is the judge — any delta means the reboot did not restore
+the reference and the recovery guarantee (ADR-0003 §7) is re-examined
+before the marker is trusted again.
+
+*Settles or re-anchors.* dpdmai.md unknown 4 re-anchors to "no qdma
+driver on this BSP; persistence face answered".
+
+#### V-CEIL-1 — MC resource ceilings by create-until-refused
+
+*What it observes.* `dprc show mc.global --resources` lists the MC's
+pools — bp 63, mcp 203, swp 49, fq 1981, cg 253, qd 253, opr 256
+(V-DPRC-4) — and the reference boot's draw on them is known from the
+snapshot. Whether a create is refused exactly when its pool runs dry,
+with which status, and whether every refused create leaves the census
+untouched, is what a scratch child can show without starving anyone:
+boot residents already hold their draws, and a child with the ALLOC
+bit draws the rest from the same MC pools (5.10, V-DPRC-2-NOALLOC-1).
+
+*How.* A one-step trace (the scratch child) and a hook that, per
+family in a fixed order — dpbp, dpcon, dpmcp, dpci, dpdmai, dpdcei,
+dpni — creates in the child until restool is refused or a per-family
+cap of 64 is reached, records the count and the MC status text of the
+refusal, reads `mc.global --resources` after each family, then destroys
+what it created (in the child, never the root; ADR-0008 §7 allows it)
+and reads the resources again. The prediction per family is the free
+count of its gating pool: dpbp is refused at the 63rd (bp 63, one drawn
+at boot) with `No resources`; the others either meet a pool or the cap.
+dpio, dpseci, dpsw, dpdmux and dprtc are out: dpio seats and the crypto
+algorithm claim belong to boot residents (ADR-0008), dpsw/dpdmux need
+endpoint counts per create, and dprtc is a singleton already probed.
+
+*Blast radius.* The child's residents (bus-invisible, DPRC-I6, so no
+scan and no driver) and the MC pools, drained to zero for the seconds
+between the last accepted create and the family's destroys. The root's
+free dpmcps are not touched by the child's dpmcp creates (they draw from
+the MC pool, not the root's), so restool keeps working throughout.
+
+*Guard and abort.* A refusal with `No memory available` (0x9) or a
+timeout (0x7) stops the family and the hook at once — those say the MC
+itself, not a pool, is short. `restool dprc show dprc.1` must answer
+between families. The residents rule after the destroys. The snapshot
+diff that follows is the leak check; a resources read that does not
+return to its pre-family value is a `FAIL` line.
+
+*Settles or re-anchors.* dpci.md unknown 4 (the ceiling above 19),
+dpni.md's per-object resource cost, and the mc-status register gains
+whichever code the refusals carry. A ceiling met below its pool's free
+count is an ambivalence for an ADR, not a verdict.
+
+#### V-CONC-1 — two writers and a rapid create/destroy loop
+
+*What it observes.* ADR-0006 assumes one initiating writer during a
+pass and calls a second one an operational violation, not a modeled
+transition. Whether that assumption is load-bearing at the MC — whether
+two portals issuing creates and destroys into one container can lose
+an object, corrupt a listing, or hang a command — is what this run
+learns. Every restool invocation opens its own portal (V-POOL-3's law),
+so two restool loops are two writers.
+
+*How.* A one-step trace (the scratch child) and a hook with three
+faces, all inside the child: (a) two loops each create 32 dpbps
+concurrently; expect 64 objects listed, 64 distinct ids, no MC error;
+(b) one loop creates and destroys a dpbp repeatedly while the other
+lists the child repeatedly; expect every listing to succeed and the
+final count to match; (c) one loop destroys an object while the other
+reads it; expect each read to be either the object or "does not exist",
+never a hang. Ids are expected to be reused lowest-free throughout
+(ADR-0010), and the hook counts how often a destroyed id came back.
+The hook destroys everything it made, in the child, before returning.
+
+*Blast radius.* The child only — bus-invisible residents, no rescan,
+so the rescan race ADR-0008 describes (the one real concurrency hazard
+the program has met) is not in play. Two portals from the root's free
+dpmcps, returned on exit.
+
+*Guard and abort.* A `Device is busy` (0xA) or timeout (0x7) status
+stops the hook immediately and is the finding; the residents rule
+after. Loops are bounded (32 iterations each).
+
+*Settles or re-anchors.* Not an invariant row: the result amends
+ADR-0006 — either "the MC serializes concurrent portal commands; the
+single-writer contract is about plan consistency, not command safety"
+or, if anything is lost or hangs, "the contract is load-bearing at the
+MC and must be enforced". Either way the assumption stops being
+unexamined.
+
+#### Running the sitting
+
+On the board, from a clean boot, from the checkout root, in this order.
+A hook's `FAIL residents` line or a non-zero snapshot diff stops the
+sitting at that point: reboot, report, do not continue.
+
+```sh
+# 1. rev 2 of the four corrected 5.10 oracles
+for s in V-DPRC-2-NOCREATE-1 V-DPRC-2-NOSPAWN-1 V-DPRC-2-NOALLOC-1 V-DPRC-3; do
+  sh models/board/$s/$s.sh results/$s-rev2; done
+# 2–5. the kernel-driving suites, rising root involvement
+sh models/board/V-POOL-1/V-POOL-1.sh results/V-POOL-1-rev1
+sh models/board/V-POOL-2/V-POOL-2.sh results/V-POOL-2-rev1
+sh models/board/V-POOL-3/V-POOL-3.sh results/V-POOL-3-rev1
+sh models/board/V-DPNI-3/V-DPNI-3.sh results/V-DPNI-3-rev1
+sh models/board/V-LINK-4/V-LINK-4.sh results/V-LINK-4-rev1   # peer port facing dpmac.7 admin-up first; the hook asks for one bounce
+# 6. checkpoint
+sh models/board/baselines/snapshot.sh results/5.11-snapshot-a
+# 7. the MC-wide pair
+sh models/board/V-CONC-1/V-CONC-1.sh results/V-CONC-1-rev1
+sh models/board/V-CEIL-1/V-CEIL-1.sh results/V-CEIL-1-rev1
+# 8. checkpoint
+sh models/board/baselines/snapshot.sh results/5.11-snapshot-b
+# 9. the reboot pair
+sh models/board/V-DPDMAI-2/V-DPDMAI-2.sh results/V-DPDMAI-2-rev1
+reboot
+# after the reboot
+sh models/board/V-DPDMAI-2/V-DPDMAI-2-postboot.sh results/V-DPDMAI-2-rev1
+sh models/board/baselines/snapshot.sh results/5.11-snapshot-c
+```
+
+Back on the workstation, with `results/` copied over: `diff --plan` per
+suite (the postboot half indexes under `V-DPDMAI-2-postboot`), then
+`snapshot parse` + `snapshot diff` for each of the three captures, as
+"After every sitting" describes.
+
+#### What the board answered
+
+The sitting ran 2026-08-29 in one pass, in the order above, and the
+reboot restored the 97-object reference: the closing snapshot has zero
+deltas. The two mid-sitting snapshots each carry one delta — dpmac.7
+without its driver from V-LINK-4 onward — which no hook saw and which
+turned out to be a teardown-order law, not a race (ADR-0008 §8). Every
+run is indexed in `VERDICTS.json`; the four rev 2 re-runs of the 5.10
+oracles all pass, so those corrections stand.
+
+Nine of the twelve runs pass and three carry a FAIL verdict. As in 5.10,
+a FAIL here is a prediction being wrong or a finding the hook could not
+have known to expect, never a leaked object: the residents rule passed
+in every hook and the reboot healed the one loss it could not see.
+
+- **The management device admits one opener** (V-POOL-3, V-CONC-1).
+  The uapi law said N openers need N−1 free portals and fail `ENXIO`
+  when out. The board never got there: the second opener of
+  `/dev/dprc.1` fails `open()` with `EINVAL` while the first is held,
+  with over a hundred portals free — 119 of 120 held openers, 27 of 32
+  concurrent reads, and half of a two-writer create race, all the same
+  errno. The cause is in the kernel: the uapi allocates the extra
+  portal on the root container's behalf and records the root as the
+  consumer of its own child dpmcp, a dependency cycle the device core
+  refuses. DPMCP-I2 is falsified in that form; ADR-0006's single-writer
+  stance is now enforced by the kernel rather than asked of operators;
+  and the firmware-side concurrency question V-CONC-1 was built for
+  stays open, since no second command ever reached the MC. V-CONC-1's
+  one real reading survives: 26 of 32 destroyed ids were minted again
+  (ADR-0010). V-POOL-3's hook counted the refused openers as zero
+  because a failed `exec` ends the subshell before the counter — the
+  RECORD lines carry the truth; the hook is corrected for a rev 2.
+- **The primary MAC survives both an unbind and a rebind** (V-DPNI-3).
+  A MAC set from the netdev reached the firmware; after the unbind the
+  firmware still carried it (the remove path's reset does not clear
+  it); a second MAC set through restool while unbound was carried by
+  both the firmware and the new netdev after the rebind. DPNI-I2
+  ("state set before a bind does not survive the bind") and DPNI-I8
+  ("a clean unbind resets the object") are both falsified for the
+  primary MAC: the driver keeps a non-zero firmware MAC and randomizes
+  only a zero one (DPNI-I3). Max frame length read 1536 while unbound.
+- **A restool-created child container is unplugged** (V-POOL-1,
+  V-POOL-2), so it has no device on the bus and nothing to bind. The
+  hand-bind the notes planned wrote to a device that did not exist;
+  faces (c)–(e) were skipped as designed and DPBP-I4/DPRC-I8 keep their
+  online-driver anchor for now. The finding cuts deeper than the
+  skipped faces: 5.10's DPRC-I6 evidence ("a child's residents never
+  reach the bus") was gathered on an unplugged child too. Whether a
+  *plugged* child is driven by the kernel — its own bus, its own pools,
+  its residents probed — is the question a rev 2 with the plug as a
+  trace step answers, and it decides whether pool exhaustion can ever
+  be observed outside the root. (Rev 2, below: the plug is refused by
+  restool itself.)
+- **The pause channels could not be separated as designed** (V-LINK-4).
+  The netdev came up with pause off on both sides — the PHY negotiated
+  "flow control off" and that reality overwrote the driver's probe-time
+  request — so writing "off" onto "off" observed nothing, and only the
+  restoring write showed the mechanism: `ethtool -a` reports the last
+  request immediately after a write and the firmware's reality after a
+  link event, because the driver caches the request until the next
+  link interrupt. The channels are separable, with the write inverted
+  against the current reading and a bounce after it; that is the rev 2
+  face. DPMAC-I4 stays open with that sharper reason. (Rev 2, below:
+  this reading was wrong — on a PHY-typed port ethtool never touches
+  either channel.)
+- **Ceilings** (V-CEIL-1). A dpbp is refused exactly at the pool's
+  free count (63, `No resources`); dpcon, dpmcp, dpci, dpdmai and
+  dpdcei all reach the cap of 64 in a scratch child with their pools
+  restored after the destroys; a dpni is refused at the 18th on the
+  board with every listed pool showing room. And a destroyed dpmcp does
+  not return its portal to the parent's listing — 64 created, 62 drawn,
+  none back after 64 clean destroys. Both ambivalent findings, and the
+  reconciler's stance until they settle, are ADR-0011; the snapshot
+  script now captures the pools so the next diff can answer. (Rev 2,
+  below: the portals never come back within a boot.)
+- **A runtime dpdmai does not survive a reboot** (V-DPDMAI-2): created
+  bare and unplugged in the root, absent after the reboot, recovery
+  diff clean. dpdmai.md unknown 4's shutdown-path half is unanswerable
+  here (no DMA driver ever binds), its persistence half is answered.
+
+Corrections landed in place and ran as a rev 2 the same day (next
+section): V-POOL-1 and
+V-POOL-2 plug the child as a trace step, rescan once before waiting for
+the kernel to hold it (a plug's own rescan is unproven), and judge the
+inverse claim — a kernel-driven child's residents *are* bus-visible;
+V-LINK-4 inverts the pause write against its first reading; V-POOL-3
+counts refused openers from the subshell's exit; `residents.sh`
+compares against the reference's drivers and lets a hook declare the
+one resident its own trace evicts (V-LINK-4 names dpmac.7); the
+generator severs a connected, bound dpni's edge before unbinding it
+(ADR-0008 §8) and V-LINK-4 is regenerated with that teardown;
+`snapshot.sh` captures `mc.global --resources`.
+
+#### Rev 2 (2026-08-29): what the corrections answered
+
+The five corrected suites and the resource-carrying snapshot ran the
+same day: V-POOL-1, V-POOL-2, V-POOL-3, V-LINK-4, a checkpoint,
+V-CEIL-1, a checkpoint, the reboot, a closing checkpoint. All three
+snapshots show zero deltas — the sever-before-unbind teardown hands
+dpmac.7's driver back, so ADR-0008 §8 holds on the board — and the
+residents rule passed in every hook.
+
+- **A child container cannot be plugged through restool** (V-POOL-1,
+  V-POOL-2). The plug step fails before the firmware is asked: restool
+  refuses `--plugged` on a dprc with "Cannot change plugged state of
+  dprc" — a rule it applies itself, and one dprc.md had recorded from
+  the tool's help; the design overlooked it. The kernel's bus match
+  refuses unplugged objects and exempts only the root dprc, so a
+  runtime-created child never gets a driver and its residents never
+  reach the bus. That turns 5.10's DPRC-I6 evidence from qualified to
+  settled for every child restool can make: pool exhaustion is
+  observable in the root only, and a kernel-driven child exists only
+  when the DPL defines it at boot. Whether the firmware would accept
+  the plug from a raw command is the one route left
+  (`mc-portal-backend`, #10); both suites retire at rev 2.
+- **The opener law, counted** (V-POOL-3): one held, 119 refused with
+  `EINVAL`, the pool answering after the release. The rev 1 finding
+  stands with its numbers.
+- **Neither link channel is visible through ethtool on a PHY-typed
+  port** (V-LINK-4). dpmac.7 is `DPMAC_LINK_TYPE_PHY`, and for such
+  ports the ethernet driver routes both `ethtool -A` and `ethtool -a`
+  to phylink: the read returns phylink's own configuration — autoneg
+  on, manual rx/tx bits — and the write updates that configuration and
+  the PHY's advertisement; `dpni_set_link_cfg` and `dpni_get_link_state`
+  are never touched. So (a)'s off/off was phylink's default, not a
+  negotiated reality; the inverted on/on read straight back, survived
+  the bounce, and off/off restored. Rev 1's reading — the PHY's reality
+  overwriting a probe-time request — was wrong. DPMAC-I4 has no
+  kernel-side observable here; the raw reads stay with
+  `dpmac-typestate` (#7).
+- **A destroyed dpmcp's portal is gone until the reboot** (V-CEIL-1
+  and the snapshots). The family drew the portal count from 200 to 138
+  and returned none on destroy, as before; the new reading is the
+  checkpoint after the scratch child itself was destroyed: still 138.
+  Only the reboot restored 203. Of ADR-0011 §3's two readings, the
+  firmware leak is the one that holds, and the reconciler's rule —
+  create portals once, never recycle one through destroy — is now
+  grounded rather than cautious. The listing's arithmetic stays odd
+  (62 drawn for 64 creates; 203 to 200 by the first checkpoint in both
+  sittings, after five and six earlier create/destroy pairs) and is
+  left as an open question in the ADR.
+
+The reference snapshot now carries the pool counts from the post-reboot
+capture, so every later diff compares them.
 
 ### After every sitting: snapshot and diff
 
