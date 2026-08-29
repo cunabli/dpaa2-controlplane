@@ -19,6 +19,18 @@
       "cmd": ["sh", "-c", "for d in /proc/device-tree/soc/*ptp*; do echo \"$d\"; hexdump -C \"$d/reg\" 2>/dev/null | head -3; done"],
       "expect": "capture the DT ptp-timer reg window (dprtc.md unknown 5). Only the DT half is observable — restool reads the MC attr's paddr/little_endian and silently discards both, so this records the DT side for the ledger and the unknown stays half-answered by design",
       "exit": "any"
+    },
+    {
+      "label": "one-step-sync in each kernel dpni's tx timestamp modes",
+      "cmd": ["sh", "-c", "for n in /sys/bus/fsl-mc/drivers/fsl_dpaa2_eth/dpni.*/net/*; do ifn=$(basename \"$n\"); echo \"== $ifn ==\"; ethtool -T \"$ifn\"; done"],
+      "expect": "exit any; walk every kernel-bound dpni's netdev and read `ethtool -T`. ethtool may be absent — if so, say so and the surface stays unread this sitting. The oracle is whether 'Hardware Transmit Timestamp Modes' lists `onestep-sync`: its presence makes one-step 1588 claimable on this platform, its absence upholds the manual's two-step-only note (dprtc.md unknown 6)",
+      "exit": "any"
+    },
+    {
+      "label": "PTP clock capability surface",
+      "cmd": ["sh", "-c", "for f in /sys/class/ptp/ptp*/*; do [ -f \"$f\" ] && echo \"$f=$(cat \"$f\" 2>/dev/null)\"; done"],
+      "expect": "exit any; dump every regular file under /sys/class/ptp/ptp*/ as path=value (n_alarms, n_ext_ts, n_per_out, pps_available, clock_name, max_adjustment, …). Records what the clock advertises for the one-step/SYNC path — the second observable feeding dprtc.md unknown 6",
+      "exit": "any"
     }
   ]
 }

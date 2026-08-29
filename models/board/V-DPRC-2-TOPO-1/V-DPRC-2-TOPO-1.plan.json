@@ -1,0 +1,133 @@
+{
+  "id": "V-DPRC-2-TOPO-1",
+  "class": "object-lifecycle-only",
+  "flagged": false,
+  "trace_file": "models/board/V-DPRC-2-TOPO-1/vdprc2topo.itf.json",
+  "steps": [
+    {
+      "index": 0,
+      "title": "CreateContainer { parent: ObjRef { fam: Dprc, num: 1 } }",
+      "driven": true,
+      "probes": [
+        {
+          "Restool": [
+            "dprc",
+            "show",
+            "dprc.1"
+          ]
+        }
+      ],
+      "created": {
+        "fam": "Dprc",
+        "num": 2
+      },
+      "expected": {
+        "object": {
+          "fam": "Dprc",
+          "num": 2
+        },
+        "present": true,
+        "plugged": false,
+        "endpoint": null,
+        "driver_bound": null,
+        "link_up": null
+      }
+    },
+    {
+      "index": 1,
+      "title": "CreateObject { fam: Dpci, container: ObjRef { fam: Dprc, num: 2 } }",
+      "driven": true,
+      "probes": [
+        {
+          "Restool": [
+            "dprc",
+            "show",
+            "dprc.2"
+          ]
+        }
+      ],
+      "created": {
+        "fam": "Dpci",
+        "num": 0
+      },
+      "expected": {
+        "object": {
+          "fam": "Dpci",
+          "num": 0
+        },
+        "present": true,
+        "plugged": false,
+        "endpoint": null,
+        "driver_bound": null,
+        "link_up": null
+      }
+    },
+    {
+      "index": 2,
+      "title": "CreateObject { fam: Dpci, container: ObjRef { fam: Dprc, num: 2 } }",
+      "driven": true,
+      "probes": [
+        {
+          "Restool": [
+            "dprc",
+            "show",
+            "dprc.2"
+          ]
+        }
+      ],
+      "created": {
+        "fam": "Dpci",
+        "num": 1
+      },
+      "expected": {
+        "object": {
+          "fam": "Dpci",
+          "num": 1
+        },
+        "present": true,
+        "plugged": false,
+        "endpoint": null,
+        "driver_bound": null,
+        "link_up": null
+      }
+    },
+    {
+      "index": 3,
+      "title": "ConnectEdge { a: EndpointRef { obj: ObjRef { fam: Dpci, num: 0 }, port: 0 }, b: EndpointRef { obj: ObjRef { fam: Dpci, num: 1 }, port: 0 } }",
+      "driven": true,
+      "probes": [
+        {
+          "Restool": [
+            "dpci",
+            "info",
+            "dpci.0"
+          ]
+        }
+      ],
+      "created": null,
+      "expected": {
+        "object": {
+          "fam": "Dpci",
+          "num": 0
+        },
+        "present": null,
+        "plugged": null,
+        "endpoint": {
+          "obj": {
+            "fam": "Dpci",
+            "num": 1
+          },
+          "port": 0
+        },
+        "driver_bound": null,
+        "link_up": false
+      }
+    }
+  ],
+  "hook": "models/board/V-DPRC-2-TOPO-1/topo.sh",
+  "create_args": {
+    "Dprc": [
+      "--options=DPRC_CFG_OPT_SPAWN_ALLOWED,DPRC_CFG_OPT_ALLOC_ALLOWED,DPRC_CFG_OPT_OBJ_CREATE_ALLOWED,DPRC_CFG_OPT_IRQ_CFG_ALLOWED,DPRC_CFG_OPT_TOPOLOGY_CHANGES_ALLOWED"
+    ]
+  }
+}

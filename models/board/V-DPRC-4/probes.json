@@ -1,0 +1,61 @@
+{
+  "suite": "V-DPRC-4",
+  "class": "lifecycle",
+  "steps": [
+    {
+      "label": "mc.global census: dprc.0 holds only dprc.1",
+      "cmd": ["restool", "dprc", "show", "mc.global"],
+      "expect": "zero exit; expect exactly one row — dprc.1, listed unplugged. Confirms the answered half of dprc.md unknown 5: the MC's own container (dprc.0, aliased mc.global) holds only the root container",
+      "exit": "zero"
+    },
+    {
+      "label": "read the MC's own container attributes",
+      "cmd": ["restool", "dprc", "info", "mc.global", "--verbose"],
+      "expect": "exit any; the open half of dprc.md unknown 5 — is an attribute read against the MC's own container (dprc.0) accepted at all? Capture the id/icid/portal/options surface if it succeeds, or the MC status text verbatim if it is refused",
+      "exit": "any"
+    },
+    {
+      "label": "resource walk on dprc.0",
+      "cmd": ["restool", "dprc", "show", "mc.global", "--resources"],
+      "expect": "exit any; record whether the pooled-resource walk is accepted on dprc.0. --resources is absent from restool's help text but exists in v2.4 (dprc_commands.c); when accepted it lists the container's resources by type",
+      "exit": "any"
+    },
+    {
+      "label": "PEB free-block dump on the root container",
+      "cmd": ["restool", "dprc", "dump-mem", "dprc.1", "--partition_id=MEM_PART_PEB"],
+      "expect": "exit any; dprc.md unknown 10 — the Packet-Express-Buffer partition's free-block output semantics on this firmware. Capture the block listing",
+      "exit": "any"
+    },
+    {
+      "label": "PEB free-block dump on the MC's own container",
+      "cmd": ["restool", "dprc", "dump-mem", "mc.global", "--partition_id=MEM_PART_PEB"],
+      "expect": "exit any; the same PEB dump against dprc.0 — whether the partition query is answered there too, and how its output differs from the root's",
+      "exit": "any"
+    },
+    {
+      "label": "dpmcp.14 is a plugged root resident, not an id hole",
+      "cmd": ["restool", "dprc", "show", "dprc.1"],
+      "expect": "zero exit; dpmcp.14 reads back present in the root container — a consumed dpmcp companion, not a gap. Corrects the 'id hole at 14' premise from 5.5 (dprc.md unknown 7): the id is occupied, so the hole is a wrong reading of the pool, folded here rather than left open",
+      "exit": "zero",
+      "readback": { "container": "dprc.1", "object": "dpmcp.14", "presence": "present" }
+    },
+    {
+      "label": "/dev/dprc.N node mode and owner",
+      "cmd": ["sh", "-c", "ls -l /dev/dprc* && stat -c '%n %a %U:%G' /dev/dprc*"],
+      "expect": "exit any; dprc.md unknown 11 (mode/owner) — capture the /dev/dprc.N node's permission bits and owner:group. The kernel sets no mode on the misc device by default, so anything relaxed here is this BSP's udev, which decides whether the Rust portal needs root or CAP_NET_ADMIN only",
+      "exit": "any"
+    },
+    {
+      "label": "udev rules mentioning dprc",
+      "cmd": ["sh", "-c", "grep -rn dprc /etc/udev/rules.d /lib/udev/rules.d /usr/lib/udev/rules.d /run/udev/rules.d 2>/dev/null; true"],
+      "expect": "zero exit (guarded by '; true'); unknown 11's udev half — whether any udev rule mentions dprc. Empty output (no match) is the expected answer on a stock BSP and means the kernel default mode stands",
+      "exit": "zero"
+    },
+    {
+      "label": "child-DPRC autorescan state",
+      "cmd": ["sh", "-c", "cat /sys/bus/fsl-mc/autorescan"],
+      "expect": "zero exit; dprc.md unknown 12 — whether child-DPRC IRQ autorescan is enabled in this BSP. 1 means child-container mutations become visible without an explicit rescan by the mutator; 0 means they do not",
+      "exit": "zero"
+    }
+  ]
+}

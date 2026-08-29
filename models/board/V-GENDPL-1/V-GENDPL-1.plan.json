@@ -1,0 +1,137 @@
+{
+  "id": "V-GENDPL-1",
+  "class": "object-lifecycle-only",
+  "flagged": false,
+  "trace_file": "models/board/V-GENDPL-1/vgendpl1.itf.json",
+  "steps": [
+    {
+      "index": 0,
+      "title": "CreateContainer { parent: ObjRef { fam: Dprc, num: 1 } }",
+      "driven": true,
+      "probes": [
+        {
+          "Restool": [
+            "dprc",
+            "show",
+            "dprc.1"
+          ]
+        }
+      ],
+      "created": {
+        "fam": "Dprc",
+        "num": 2
+      },
+      "expected": {
+        "object": {
+          "fam": "Dprc",
+          "num": 2
+        },
+        "present": true,
+        "plugged": false,
+        "endpoint": null,
+        "driver_bound": null,
+        "link_up": null
+      }
+    },
+    {
+      "index": 1,
+      "title": "CreateObject { fam: Dpdcei, container: ObjRef { fam: Dprc, num: 2 } }",
+      "driven": true,
+      "probes": [
+        {
+          "Restool": [
+            "dprc",
+            "show",
+            "dprc.2"
+          ]
+        }
+      ],
+      "created": {
+        "fam": "Dpdcei",
+        "num": 0
+      },
+      "expected": {
+        "object": {
+          "fam": "Dpdcei",
+          "num": 0
+        },
+        "present": true,
+        "plugged": false,
+        "endpoint": null,
+        "driver_bound": null,
+        "link_up": null
+      }
+    },
+    {
+      "index": 2,
+      "title": "CreateObject { fam: Dpdmai, container: ObjRef { fam: Dprc, num: 2 } }",
+      "driven": true,
+      "probes": [
+        {
+          "Restool": [
+            "dprc",
+            "show",
+            "dprc.2"
+          ]
+        }
+      ],
+      "created": {
+        "fam": "Dpdmai",
+        "num": 0
+      },
+      "expected": {
+        "object": {
+          "fam": "Dpdmai",
+          "num": 0
+        },
+        "present": true,
+        "plugged": false,
+        "endpoint": null,
+        "driver_bound": null,
+        "link_up": null
+      }
+    },
+    {
+      "index": 3,
+      "title": "CreateObject { fam: Dpci, container: ObjRef { fam: Dprc, num: 2 } }",
+      "driven": true,
+      "probes": [
+        {
+          "Restool": [
+            "dprc",
+            "show",
+            "dprc.2"
+          ]
+        }
+      ],
+      "created": {
+        "fam": "Dpci",
+        "num": 0
+      },
+      "expected": {
+        "object": {
+          "fam": "Dpci",
+          "num": 0
+        },
+        "present": true,
+        "plugged": false,
+        "endpoint": null,
+        "driver_bound": null,
+        "link_up": null
+      }
+    }
+  ],
+  "hook": "models/board/V-GENDPL-1/dpl.sh",
+  "create_args": {
+    "Dpci": [
+      "--num-priorities=2"
+    ],
+    "Dpdcei": [
+      "--engine=DPDCEI_ENGINE_DECOMPRESSION",
+      "--priority=2"
+    ],
+    "Dpdmai": [
+      "--priorities=2,4"
+    ]
+  }
+}

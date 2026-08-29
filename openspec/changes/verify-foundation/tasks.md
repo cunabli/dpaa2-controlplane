@@ -102,7 +102,7 @@ board task is an operator sitting sync point.
       exit shapes — hooks where an object must stand, probe plans
       otherwise; settles DPSW-I1/I2, DPDMUX-I8, DPRC-I3, DPAIOP-I1/I2,
       DPSECI-I2, DPNI-I6
-- [ ] 5.10 Read-only observations (board sitting): `dpmac info` on the
+- [x] 5.10 Read-only observations (board sitting): `dpmac info` on the
       unwired ports, `mc.global`/`dump-mem`, child-container rescan
       visibility through sysfs, lock/unlock round-trips, the option-bit
       permission matrix, `generate-dpl` emit-and-diff, and the stray

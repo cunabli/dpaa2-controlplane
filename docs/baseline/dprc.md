@@ -315,12 +315,12 @@ false belief.
 | DPRC-I3 | Move precondition: `assign --child` is enabled only for unplugged objects; a move of a plugged object is refused and the object's container membership is unchanged | command exit + MC status; object's container membership unchanged after refusal | verified 2026-08-29 (V-DPRC-6 rev 1): the one-hop move of a plugged dpbp was refused by restool's own client guard ("cannot be moved because it is currently in plugged state" / "unplug it first") before any MC command, and the dpbp stayed put — the refusal is the restool layer, so the MC-layer status stays unreachable through restool |
 | DPRC-I4 | `dprc create` without `--options` yields exactly {SPAWN, ALLOC, OBJ_CREATE, IRQ_CFG}_ALLOWED | options mask in `dprc info` | verified |
 | DPRC-I5 | Connect precondition: `connect(p, e1, e2)` enabled only if p is a common ancestor of e1 and e2 and both are currently unconnected | command exit; `GET_CONNECTION` per endpoint | candidate |
-| DPRC-I6 | **Breaking:** the model must NOT assume `sync` ⇒ mutation visible. Bus rescan reaches root containers only and discards errors; visibility of a mutation is established only by re-observation of the affected container | child-container object list unchanged after sync following an out-of-band mutation | candidate |
+| DPRC-I6 | **Breaking:** the model must NOT assume `sync` ⇒ mutation visible. Bus rescan reaches root containers only and discards errors; visibility of a mutation is established only by re-observation of the affected container | child-container object list unchanged after sync following an out-of-band mutation | verified 2026-08-29 (V-DPRC-5 rev 1): a dpci created in a scratch child was absent from `/sys/bus/fsl-mc/devices` before and after `dprc sync` while `dprc show` listed it in the child throughout; only the root-created dpci reached the bus |
 | DPRC-I7 | **Breaking:** the model must NOT assume Linux device removal destroys MC objects; removal is Linux-side only, objects survive on the bus | object still listed by `dprc show` after driver unbind/device_del | candidate |
 | DPRC-I8 | Scan ordering postcondition (ADR-0006 fold): plugging an allocatable (dpmcp/dpbp/dpcon) lands it in its container's kernel pool before any consumer in the same scan probes | consumer probe success when pool objects and consumer are plugged in one batch | candidate |
 | DPRC-I9 | Teardown reachability (liveness): from every reachable scratch-container state some finite action sequence empties and destroys the container | suite replay ending in `destroy` success + container absent from `list` | verified 2026-08-23 (V-DPRC-1 rev 3, 13/13): the scratch container was emptied through both move directions and destroyed, absent in read-back; unknown #1 is answered by ADR-0007 §3's release/evict law, so a non-empty destroy never blocks teardown either |
 | DPRC-I10 | Immutability: icid, portal_id, and options of a container never change across any post-create action sequence | `dprc info` before/after every suite | candidate |
-| DPRC-I11 | `set-locked 1` on a child removes create/destroy/assign/unassign/lock from the entire sub-hierarchy; `set-locked 0` restores it (who may unlock: unknown #4) | denied MC status on each operation class inside the locked hierarchy | board-pending |
+| DPRC-I11 | `set-locked 1` on a child removes create/destroy/assign/unassign/lock from the entire sub-hierarchy; `set-locked 0` restores it (who may unlock: unknown #4) | denied MC status on each operation class inside the locked hierarchy | board-pending — rev 1 (V-DPRC-3, 2026-08-29) observed the lock refusing assign (No privilege, object unplugged), leaving reads working and lifting from the root, but also accepting `set-label`, which the hook had predicted stripped; the corrected hook re-runs as rev 2 |
 
 ## Unknown / unverified register
 
@@ -333,33 +333,77 @@ object-lifecycle-only scenarios except where noted):
    the read-back told the two cases apart. A resident the container
    created dies with it; a resident merely assigned in survives,
    evicted unplugged into the parent (ADR-0007 §3).
-2. Are DPRC `options` mutable post-create by any MC command (restool has
-   none)?
-3. Which option bit gates which operation (`SPAWN` vs `OBJ_CREATE` vs
+2. ~~Are DPRC `options` mutable post-create by any MC command (restool has
+   none)?~~ **Closed by absence** (task 5.10): restool exposes no verb and
+   the flib has no `dprc_set_options`; the options are create-time only
+   through every client this project drives, so drift is refuse-and-
+   report (object-model.md §6 law 1).
+3. ~~Which option bit gates which operation (`SPAWN` vs `OBJ_CREATE` vs
    `TOPOLOGY_CHANGES` vs `ALLOC`): create-child vs create-object vs
-   connect vs assign — the permission matrix is undocumented. Two data
-   points now on record [board suite V-DPRC-6 rev 1, 2026-08-29]: a
-   single-command sibling-to-sibling move (`dprc assign --child`, source
-   and destination siblings) is refused by the MC with No privilege
-   (0x4), which fills the sibling-move status the register left unknown;
-   and moving a *plugged* object is refused earlier still, by restool's
-   own client guard ("cannot be moved because it is currently in plugged
-   state" / "unplug it first"), before the MC is asked.
-4. `set-locked` semantics: who can unlock (parent only?), and what exactly
-   the locked hierarchy still allows (info/show?).
-5. What `dprc.0`/`mc.global` reveals via `show` — answered: `dprc.0`
-   holds exactly one object, `dprc.1`, listed unplugged [board-observed
-   2026-08-25, clean-boot snapshot] — and whether any operation against
-   it is accepted (still open, task 5.10).
-6. `AIOP` and `PL_ALLOWED` option semantics on a board with no AIOP.
-   Partially answered [board suite V-DPAIOP-1 rev 1, 2026-08-29]: the
-   `DPRC_CFG_OPT_AIOP` bit is *accepted* at `dprc create` on this
-   AIOP-less board (the container is created, unplugged, and destroys
-   cleanly) — so the platform gate is not on the option bit but inside
-   the MC's `dpaiop create` handler (dpaiop.md). `PL_ALLOWED` semantics
-   stay open.
-7. dpmcp id hole (14) in the root pool (reference-environment.md) —
-   creation-order artifact or consumed companion?
+   connect vs assign — the permission matrix is undocumented.~~
+   **Answered** — board suites V-DPRC-2-{NOSPAWN,NOALLOC,NOCREATE,TOPO}-1
+   rev 1 and V-DPRC-6 rev 1, 2026-08-29, each bit removed from (or added
+   to) restool's default mask on a scratch child:
+   - `SPAWN_ALLOWED` absent → `dprc create` under the child is refused
+     **Configuration error (0x6)**, not No privilege; the child stays
+     empty.
+   - `ALLOC_ALLOWED` absent → a dpbp create in the child is refused **No
+     resources (0x8)**: the child cannot draw ids from its parent's pool,
+     so the failure surfaces as a resource shortfall.
+   - `OBJ_CREATE_ALLOWED` absent → a dpbp create in the child **succeeds**
+     when restool issues it. restool sends every create through the root
+     portal with the child's open token; the bit gates creates issued on
+     the child's *own* portal, which restool never opens. A parent
+     creating on the child's behalf is never constrained by it.
+   - `TOPOLOGY_CHANGES_ALLOWED` present → connect and disconnect issued
+     *on the child* succeed; absent (the default) they are refused No
+     privilege (0x4) while the same connect on the root ancestor is
+     accepted (V-DPCI-1 rev 1 and its control V-DPRC-2-TOPO-1).
+   - Independent of any bit: a single-command sibling-to-sibling move
+     (`dprc assign --child`) is refused No privilege (0x4), and moving a
+     *plugged* object is refused earlier by restool's own client guard
+     ("cannot be moved because it is currently in plugged state") before
+     the MC is asked [V-DPRC-6 rev 1].
+   The three statuses differ, so a reconciler must not read "No
+   privilege" as the only shape of an option-bit refusal.
+4. ~~`set-locked` semantics: who can unlock (parent only?), and what exactly
+   the locked hierarchy still allows (info/show?).~~ **Answered** — board
+   suite V-DPRC-3 rev 1, 2026-08-29: with the child locked from the root,
+   `dprc assign --plugged=1` on its dpbp is refused No privilege (0x4)
+   and the object reads back unplugged; `dprc show` and `dpbp info` keep
+   working; `dprc set-label` on the locked child's object is **accepted**
+   and the label reads back — the lock strips assign (and, per the flib,
+   create/destroy/unassign/lock), not labels. `--locked=0` from the root
+   is accepted and the plug then succeeds. Only the root could be
+   exercised as the unlocker: restool's `set-locked` opens the target's
+   parent portal, so a child-portal unlock stays unprobed until a child
+   portal exists. The create class under lock is unprobed by design (a
+   hook does not create for the thing under test).
+5. ~~What `dprc.0`/`mc.global` reveals via `show`, and whether any
+   operation against it is accepted.~~ **Answered** — board plan V-DPRC-4
+   rev 1, 2026-08-29: `dprc show mc.global` lists exactly one object,
+   `dprc.1`, unplugged; `dprc show mc.global --resources` is accepted and
+   lists the MC-level pools (bp 63, mcp 203, swp 49, fq 1981, cg 253,
+   qd 253, opr 256, …); `dprc info mc.global` and `dump-mem mc.global`
+   are refused by restool itself (`dprc.0 does not exist` / `Invalid MC
+   object name`, exit 234) before any MC command — the alias exists for
+   `show` only.
+6. ~~`AIOP` and `PL_ALLOWED` option semantics on a board with no AIOP.~~
+   **Answered as far as restool reaches** — `DPRC_CFG_OPT_AIOP` is
+   accepted at `dprc create` on this AIOP-less board (the container is
+   created, unplugged, and destroys cleanly), so the platform gate is
+   inside the MC's `dpaiop create` handler, not on the bit [V-DPAIOP-1
+   rev 1]. `PL_ALLOWED` is accepted at create and reads back in `dprc
+   info --verbose` (options 0xc7 with restool's defaults); nothing else
+   in the surface changes and creates in that child behave as in a
+   default one [V-DPRC-2-PL-1 rev 1, 2026-08-29]. What the bit enables
+   is not observable through restool.
+7. ~~dpmcp id hole (14) in the root pool (reference-environment.md) —
+   creation-order artifact or consumed companion?~~ **Corrected** —
+   board plan V-DPRC-4 rev 1, 2026-08-29: dpmcp.14 reads back plugged in
+   dprc.1. There is no hole; the 5.5 reading of the pool was wrong, and
+   the reference snapshot (`models/board/baselines/reference.json`)
+   already listed it.
 8. ~~MC 10.32 → 10.39 DPRC command deltas~~ — resolved: none (see MC API
    notes).
 9. ~~Whether `assign --plugged` on an object bound to a kernel driver is
@@ -371,10 +415,20 @@ object-lifecycle-only scenarios except where noted):
    silently dropped; releasing such an object requires unbinding the
    driver first.
 10. `dump-mem` output semantics and whether partitions beyond PEB exist on
-    LX2160A firmware.
-11. `/dev/dprc.N` permissions: the kernel sets no mode/owner (default misc
-    device); whether this BSP's udev relaxes it is unchecked — matters for
-    whether the Rust portal needs root vs CAP_NET_ADMIN only.
-12. Whether `autorescan` (child-DPRC IRQ rescan) is enabled in this BSP's
-    default configuration — determines if child-container mutations are
-    ever observed without an explicit re-scan by the mutator.
+    LX2160A firmware. Half answered [V-DPRC-4 rev 1, 2026-08-29]:
+    `dump-mem dprc.1 --partition_id=MEM_PART_PEB` prints one page of up
+    to five (offset, size) free blocks — here a single block at offset
+    0x80000 of 1.5 MiB — so the output is a free-block list, not a
+    memory image. The other partition ids were not asked for.
+11. ~~`/dev/dprc.N` permissions: whether this BSP's udev relaxes the
+    kernel default.~~ **Answered** [V-DPRC-4 rev 1]: `/dev/dprc.1` is
+    `0600 root:root`; the only udev rule naming dprc tags dprc.1 to
+    start the provisioning unit and sets no mode — the Rust portal needs
+    root (or a udev rule this project ships).
+12. ~~Whether `autorescan` (child-DPRC IRQ rescan) is enabled in this
+    BSP's default configuration.~~ **Answered** [V-DPRC-4 rev 1,
+    V-DPRC-5 rev 1]: `/sys/bus/fsl-mc/autorescan` reads 1, and a
+    root-created dpci was on the bus before any explicit `dprc sync`.
+    Root-container mutations become bus-visible without the mutator
+    rescanning; child-container residents never do, rescan or not
+    (DPRC-I6).

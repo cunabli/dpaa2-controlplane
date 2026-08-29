@@ -1,0 +1,36 @@
+{
+  "suite": "V-DPMAC-1",
+  "class": "lifecycle",
+  "steps": [
+    {
+      "label": "dpmac.4 info surface and counter-row count",
+      "cmd": ["restool", "dpmac", "info", "dpmac.4", "--verbose"],
+      "expect": "zero exit; capture the full surface — endpoint/link-state line, link type, eth interface, max rate — then count the rows printed under 'Counters:'. 28 rows means the 10.39 counter vocabulary, 62 means the info walk reached every counter. Absence is not zero: the vocabulary is firmware-versioned and a refused counter is skipped silently, so the count is the only observable (DPMAC-I7; dpmac.md unknown 7)",
+      "exit": "zero"
+    },
+    {
+      "label": "dpmac.5 info surface and counter-row count",
+      "cmd": ["restool", "dpmac", "info", "dpmac.5", "--verbose"],
+      "expect": "zero exit; capture the same surface (endpoint/link line, link type, eth interface, max rate) and count the counter rows — 28 = the 10.39 vocabulary, 62 = a complete 10.40+ walk (DPMAC-I7)",
+      "exit": "zero"
+    },
+    {
+      "label": "dpmac.6 info surface and counter-row count",
+      "cmd": ["restool", "dpmac", "info", "dpmac.6", "--verbose"],
+      "expect": "zero exit; capture the same surface (endpoint/link line, link type, eth interface, max rate) and count the counter rows — 28 = the 10.39 vocabulary, 62 = a complete 10.40+ walk (DPMAC-I7)",
+      "exit": "zero"
+    },
+    {
+      "label": "dpmac.8 info surface and counter-row count",
+      "cmd": ["restool", "dpmac", "info", "dpmac.8", "--verbose"],
+      "expect": "zero exit; capture the same surface (endpoint/link line, link type, eth interface, max rate) and count the counter rows — 28 = the 10.39 vocabulary, 62 = a complete 10.40+ walk (DPMAC-I7)",
+      "exit": "zero"
+    },
+    {
+      "label": "dpmac.10 info surface and counter-row count",
+      "cmd": ["restool", "dpmac", "info", "dpmac.10", "--verbose"],
+      "expect": "zero exit; capture the same surface (endpoint/link line, link type, eth interface, max rate) and count the counter rows — 28 = the 10.39 vocabulary, 62 = a complete 10.40+ walk. Across all five unwired ports the count is expected identical (firmware-wide, not per-port), which anchors DPMAC-I7's 'firmware-versioned' half (dpmac.md unknown 7)",
+      "exit": "zero"
+    }
+  ]
+}

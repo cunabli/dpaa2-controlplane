@@ -145,7 +145,7 @@ must also name the userspace consumer, or be refused.
 |---|---|---|---|
 | DPCI-I1 | Pair symmetry: connection is one peer exactly, set only via dprc connect; Rx capacity is own priority count, Tx capacity is the peer's — asymmetric pairs give asymmetric directions | `dpci info` both ends; Tx FQID validity per priority | candidate |
 | DPCI-I2 | **Breaking:** the model must NOT carry `options` as configurable state — the flag is discarded on the wire by every flib and unreadable back; model dpci as options-less until a fixed flib exists | flib marshalling; GET_ATTR shape | candidate (corpus-proven) |
-| DPCI-I3 | **Breaking:** the model must NOT equate object existence with bus visibility — dpci create performs no rescan; MC state and sysfs state diverge until an explicit rescan | sysfs before/after `--rescan` | candidate |
+| DPCI-I3 | **Breaking:** the model must NOT equate object existence with bus visibility — dpci create performs no rescan; MC state and sysfs state diverge until an explicit rescan | sysfs before/after `--rescan` | verified 2026-08-29 (V-DPRC-5 rev 1): the create triggers no rescan of its own; on this BSP `autorescan=1` had the root dpci on the bus before the explicit sync, so the divergence window is a kernel setting, not a constant |
 | DPCI-I4 | Exercisability without AIOP: create + connect of a GPP↔GPP pair succeeds on this DPC (no platform gate exists for dpci, unlike dpaiop) | create/connect/`link status` on the board | verified 2026-08-23 (V-DPCI-1 rev 2, 7/7): a bare GPP↔GPP pair in a scratch container was created and connected (the connect issued against the root ancestor) and read back peered at 1 priority each — no platform gate |
 | DPCI-I5 | Consumer-required liveness: link state reflects consumer enable, not mere connection — a restool-only pair may never leave link-down | `dpci info` after connect, before any enable | verified 2026-08-23 (V-LINK-1): the pair reads `link status: 0 - down` right after the connect and restool has no enable verb for the family, so link-up is the consumer's to grant — the intent-layer contract is decided |
 
@@ -165,11 +165,26 @@ must also name the userspace consumer, or be refused.
    endpoint afterwards. The edge dies with the object, as the model
    already assumed. The same sitting showed the connect itself is legal
    while both endpoints are still unplugged.
-3. Same-container connect in the *root* dprc — all corpus examples pair
-   in children or across containers.
-4. Per-container/global dpci ceiling (no resource cap is expressed in the
-   DPC).
-5. Asymmetric-pair connect (2 vs 1 priorities): rejected at connect, or
-   accepted with one direction short?
+3. ~~Same-container connect in the *root* dprc — all corpus examples pair
+   in children or across containers.~~ **Answered** — board suite
+   V-DPCI-2 rev 1, 2026-08-29: two dpcis created in the root connect to
+   each other inside the root; the pair reads back and the spaced
+   teardown destroyed it cleanly.
+4. ~~Per-container/global dpci ceiling (no resource cap is expressed in
+   the DPC).~~ **Bounded, not found** — V-DPCI-2 rev 1: sixteen dpcis in
+   one scratch child plus two in the root plus a hook fixture, nineteen
+   standing at once, every create accepted; no pool in `dprc show
+   mc.global --resources` names dpci. The ceiling, if any, is above 19;
+   the walk is bounded on purpose (an open-ended loop is a way to lose
+   the board).
+5. ~~Asymmetric-pair connect (2 vs 1 priorities): rejected at connect, or
+   accepted with one direction short?~~ **Accepted, effective count
+   unobservable** — V-DPCI-2 rev 1: a 1-priority dpci connected to a
+   2-priority one without refusal, but each end's `dpci info` reports
+   its *own* count as `peer's num_of_priorities` (the fixture says 1, the
+   2-priority end says 2). The peer attribute mirrors the local value, so
+   whether the link runs one priority or two cannot be read from the
+   control plane; only a traffic probe settles it. A typestate should
+   refuse asymmetric pairs rather than trust the read-back.
 6. Indirect probe for DPCI-I2 on hardware: does OPR config succeed on an
    object created "with" the flag (proving MC defaulted it off)?

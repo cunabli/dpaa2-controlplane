@@ -772,7 +772,13 @@ pub fn drive_with(
             // restool cannot pin it — the create output names the child.
             // `--script` keeps that output a bare object name; batch
             // scripts reuse it verbatim as the container reference.
-            cmd(argv(&["--script", "dprc", "create", names.name(*parent)?]))
+            // A `--create-args dprc=…` override (e.g. `--options=<mask>`)
+            // rides on the container create too, the same way a
+            // CreateObject renders its family's arguments; the default
+            // table is empty for dprc, so committed suites are unchanged.
+            let mut v = argv(&["--script", "dprc", "create", names.name(*parent)?]);
+            v.extend(create.args_for(Family::Dprc));
+            cmd(v)
         }
         // restool's dpdbg create takes no arguments at all: it pins the
         // container to the root and the id to 0 itself
@@ -1582,6 +1588,43 @@ mod tests {
                 "--channel-mode=DPIO_LOCAL_CHANNEL",
                 "--num-priorities=8",
                 "--container=dprc.1",
+            ]))])
+        );
+    }
+
+    /// A `--create-args dprc=…` override rides on the container create,
+    /// the same way it rides on an object create — the option mask lands
+    /// after the parent reference. The V-DPRC-2 option-bit suites depend
+    /// on this to set the container's permission mask.
+    #[test]
+    fn drive_with_renders_container_create_argument_overrides() {
+        let pre = state(None);
+        let names = Binding::seed(&pre);
+        let create = ModelAction::CreateContainer { parent: dprc1() };
+
+        let overrides: CreateArgs = [(
+            Family::Dprc,
+            vec!["--options=DPRC_CFG_OPT_SPAWN_ALLOWED".to_owned()],
+        )]
+        .into_iter()
+        .collect();
+        assert_eq!(
+            drive_with(&create, &pre, &names, &overrides).unwrap(),
+            Drive::Cmds(vec![Cmd::Restool(argv(&[
+                "--script",
+                "dprc",
+                "create",
+                "dprc.1",
+                "--options=DPRC_CFG_OPT_SPAWN_ALLOWED",
+            ]))])
+        );
+
+        // The default table is empty for dprc, so the plain wrapper
+        // renders the bare container create every committed suite uses.
+        assert_eq!(
+            drive(&create, &pre, &names).unwrap(),
+            Drive::Cmds(vec![Cmd::Restool(argv(&[
+                "--script", "dprc", "create", "dprc.1",
             ]))])
         );
     }

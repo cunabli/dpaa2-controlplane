@@ -284,3 +284,14 @@ Distilled once here; each is proven per-family in the anchored docs:
    inside "additive" flib windows — the model carries the emitted
    command version and the firmware behavior version as part of each
    action (DPNI-I11, DPDMAI-I2).
+7. **Object ids are reused, not retired.** The MC hands out the lowest
+   free id of a family, in one namespace across every container: a
+   destroyed object's id is reissued by the next create of that family
+   [board, 2026-08-29: every 5.10 suite got `dprc.2` again; V-DPRC-5
+   released `dpci.0`/`dpci.1` and V-DPCI-2 was handed `dpci.0` first;
+   `dpmcp.53` was reissued six times across earlier sittings]. The
+   Quint models' monotone `nextNum` is an abstraction that keeps names
+   unique inside one trace — it is not a claim about the firmware. A
+   name therefore identifies an object only while that object is known
+   to be alive; across a destroy the same name may be someone else, the
+   ABA hazard of ADR-0010.

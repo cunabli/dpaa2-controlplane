@@ -244,7 +244,7 @@ either, and reading it as evidence of *anything* stable is unsafe
 | DPMAC-I4 | Link channels are directional and distinct: `get_link_cfg` carries peer *requests* (from `dpni_set_link_cfg`), `set_link_state` carries PHY *reality* (to `dpni_get_link_state`); the model must not conflate them into one link variable | both queries under a forced peer request | candidate |
 | DPMAC-I5 | **Breaking:** the model must NOT read `dpmac info`'s "link is up" as MAC link state — it is the DPRC connection state; MAC link state has no restool observable at all | info output vs peer `dpni_get_link_state` with cable pulled | verified 2026-08-24 (V-LINK-2 rev 3): never read as MAC link state — but on a bound, enabled pair the connection-state text co-varies with the cable flap, so the two are not independent |
 | DPMAC-I6 | Driver arbitration: standalone driver bound ⟺ no same-container host-managed peer connected; cross-container peers leave the standalone driver owning the PHY while the datapath is remote | driver symlink under `/sys/bus/fsl-mc/devices/dpmac.N/`; `macN` presence | verified (in production use on this board) |
-| DPMAC-I7 | **Breaking:** the model must NOT assume the counter vocabulary: available counters are firmware-versioned (28 at 10.39, 62 at 10.40+) and refusals are silent; absence ≠ zero | per-counter MC status vs restool output | candidate |
+| DPMAC-I7 | **Breaking:** the model must NOT assume the counter vocabulary: available counters are firmware-versioned (28 at 10.39, 62 at 10.40+) and refusals are silent; absence ≠ zero | per-counter MC status vs restool output | verified 2026-08-29 (V-DPMAC-1 rev 1): 28 of restool's 62 counters printed on every port, the rest refused and skipped without a trace in the output |
 | DPMAC-I8 | **Breaking:** exit 0 ⇒ destroyed is false in child containers (error overwritten) and always false under `ls-delete all` (result discarded) | object presence after "successful" destroy | candidate |
 | DPMAC-I9 | Every kernel link-state push carries `state_valid=0` and empty supported/advertising; the model carries emitted fields per action and treats MC's interpretation as an environment choice until board-probed | wire fields; peer-visible link state | candidate |
 
@@ -279,7 +279,12 @@ either, and reading it as evidence of *anything* stable is unsafe
    unknown 7.
 6. Wire-format history of `GET_ATTR` v1→v3 and `GET_LINK_CFG`/
    `SET_LINK_STATE` v1→v2 (only the newest layout per snapshot).
-7. Whether counters ≥ 28 are refused cleanly by 10.39 firmware (feeds
-   DPMAC-I7's observable).
+7. ~~Whether counters ≥ 28 are refused cleanly by 10.39 firmware (feeds
+   DPMAC-I7's observable).~~ **Answered** — board plan V-DPMAC-1 rev 1,
+   2026-08-29: restool 2.4 asks for 62 counters and `dpmac info` prints
+   28 on every port, 25G and 10G alike — the 34 counters 10.39.0 does not
+   carry are refused and skipped silently (`dpmac_commands.c` drops the
+   error), so the refusal is clean but invisible and the row count is
+   the only observable. The vocabulary is firmware-wide, not per port.
 8. `eth_if` resolution when the DPC omits `enet_if` (RCW SerDes protocol
    mapping happens outside both repos).

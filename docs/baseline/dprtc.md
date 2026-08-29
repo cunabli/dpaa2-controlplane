@@ -177,8 +177,12 @@ never shared.
    `info --verbose` reports zero mappable regions; the MC's paddr view
    stays unobservable through restool, which reads and discards it, so
    the comparison needs a raw GET_ATTR probe.
-6. Manual Table 2-1 marks the DPRTC row "Two-step 1588 only", yet the
+6. ~~Manual Table 2-1 marks the DPRTC row "Two-step 1588 only", yet the
    changelog adds one-step/single-step APIs from 10.22.0 and the kernel
    carries a one-step SYNC path — stale manual comment or a real
-   platform limit? Decides whether one-step timestamping is claimable
-   here.
+   platform limit?~~ **Answered** — board plan V-DPRTC-2 rev 2,
+   2026-08-29: `ethtool -T` on the kernel dpni lists `onestep-sync`
+   among the hardware transmit timestamp modes, and the DPAA2 PTP clock
+   advertises 2 alarms, 2 external timestamps, 3 periodic outputs and
+   PPS. One-step timestamping is claimable on this kernel/firmware; the
+   manual's row is stale.

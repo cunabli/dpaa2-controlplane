@@ -38,6 +38,19 @@
       "refusals": []
     }
   },
+  "V-DPCI-2": {
+    "V-DPCI-2-rev1": {
+      "pass": true,
+      "date": "2026-08-29",
+      "kind": "batch",
+      "revision": 1,
+      "steps": "20/20",
+      "source_hash": "fnv1a64:8aeec1d9590d2d71",
+      "hook": "1/1",
+      "archive": null,
+      "refusals": []
+    }
+  },
   "V-DPDBG-1": {
     "V-DPDBG-1/probes": {
       "pass": false,
@@ -160,6 +173,19 @@
       "refusals": []
     }
   },
+  "V-DPMAC-1": {
+    "V-DPMAC-1/probes-rev1": {
+      "pass": true,
+      "date": "2026-08-29",
+      "kind": "probes",
+      "revision": 1,
+      "steps": "5/5",
+      "source_hash": "fnv1a64:7d71927d0c724e28",
+      "hook": null,
+      "archive": null,
+      "refusals": []
+    }
+  },
   "V-DPNI-1": {
     "V-DPNI-1": {
       "pass": true,
@@ -221,6 +247,114 @@
       "refusals": []
     }
   },
+  "V-DPRC-2-NOALLOC-1": {
+    "V-DPRC-2-NOALLOC-1-rev1": {
+      "pass": false,
+      "date": "2026-08-29",
+      "kind": "batch",
+      "revision": 1,
+      "steps": "1/2",
+      "source_hash": "fnv1a64:ca440b43cdf1f58f",
+      "hook": null,
+      "archive": null,
+      "refusals": [
+        "No resources"
+      ]
+    }
+  },
+  "V-DPRC-2-NOCREATE-1": {
+    "V-DPRC-2-NOCREATE-1-rev1": {
+      "pass": false,
+      "date": "2026-08-29",
+      "kind": "batch",
+      "revision": 1,
+      "steps": "1/2",
+      "source_hash": "fnv1a64:ab650763409388eb",
+      "hook": null,
+      "archive": null,
+      "refusals": []
+    }
+  },
+  "V-DPRC-2-NOSPAWN-1": {
+    "V-DPRC-2-NOSPAWN-1-rev1": {
+      "pass": false,
+      "date": "2026-08-29",
+      "kind": "batch",
+      "revision": 1,
+      "steps": "1/2",
+      "source_hash": "fnv1a64:42b7b5f02af56f90",
+      "hook": null,
+      "archive": null,
+      "refusals": [
+        "Configuration error"
+      ]
+    }
+  },
+  "V-DPRC-2-PL-1": {
+    "V-DPRC-2-PL-1-rev1": {
+      "pass": true,
+      "date": "2026-08-29",
+      "kind": "batch",
+      "revision": 1,
+      "steps": "2/2",
+      "source_hash": "fnv1a64:0b9fcb91fbe06eb6",
+      "hook": "1/1",
+      "archive": null,
+      "refusals": []
+    }
+  },
+  "V-DPRC-2-TOPO-1": {
+    "V-DPRC-2-TOPO-1-rev1": {
+      "pass": true,
+      "date": "2026-08-29",
+      "kind": "batch",
+      "revision": 1,
+      "steps": "4/4",
+      "source_hash": "fnv1a64:66d69502666d8769",
+      "hook": "1/1",
+      "archive": null,
+      "refusals": []
+    }
+  },
+  "V-DPRC-3": {
+    "V-DPRC-3-rev1": {
+      "pass": false,
+      "date": "2026-08-29",
+      "kind": "batch",
+      "revision": 1,
+      "steps": "2/2",
+      "source_hash": "fnv1a64:df04d4a3f9e30699",
+      "hook": "5/6",
+      "archive": null,
+      "refusals": []
+    }
+  },
+  "V-DPRC-4": {
+    "V-DPRC-4/probes-rev1": {
+      "pass": true,
+      "date": "2026-08-29",
+      "kind": "probes",
+      "revision": 1,
+      "steps": "9/9",
+      "source_hash": "fnv1a64:19bb99186f458a25",
+      "hook": null,
+      "archive": null,
+      "refusals": []
+    }
+  },
+  "V-DPRC-5": {
+    "V-DPRC-5-rev1": {
+      "pass": true,
+      "date": "2026-08-29",
+      "kind": "batch",
+      "revision": 1,
+      "steps": "3/3",
+      "source_hash": "fnv1a64:7e3b82cfab9a03db",
+      "hook": "3/3",
+      "archive": null,
+      "refusals": []
+    }
+  },
   "V-DPRC-6": {
     "V-DPRC-6-rev1": {
       "pass": true,
@@ -257,6 +391,17 @@
       "revision": 1,
       "steps": "3/3",
       "source_hash": "fnv1a64:bec473800b16abfb",
+      "hook": null,
+      "archive": null,
+      "refusals": []
+    },
+    "V-DPRTC-2/probes-rev2": {
+      "pass": true,
+      "date": "2026-08-29",
+      "kind": "probes",
+      "revision": 2,
+      "steps": "5/5",
+      "source_hash": "fnv1a64:000fd04b00a0c7ea",
       "hook": null,
       "archive": null,
       "refusals": []
@@ -345,6 +490,19 @@
       "steps": "7/7",
       "source_hash": "fnv1a64:a7d3f9d6e77cba86",
       "hook": "2/2",
+      "archive": null,
+      "refusals": []
+    }
+  },
+  "V-GENDPL-1": {
+    "V-GENDPL-1-rev1": {
+      "pass": true,
+      "date": "2026-08-29",
+      "kind": "batch",
+      "revision": 1,
+      "steps": "4/4",
+      "source_hash": "fnv1a64:b4e8149afe780ea0",
+      "hook": "1/1",
       "archive": null,
       "refusals": []
     }
