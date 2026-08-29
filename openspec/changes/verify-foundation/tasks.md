@@ -115,6 +115,13 @@ board task is an operator sitting sync point.
       through the dpmac.7 netdev (V-LINK-4), the dpdmai reboot cycle
       (V-DPDMAI-2); each settled or re-anchored with its reason
 
+- [ ] 5.12 Companion draw, measured (board sitting): V-POOL-4 creates
+      dpios and dpnis one at a time in a scratch child and reads the
+      firmware's MC-portal pool after each, so "one dpmcp per
+      portal-consuming object, including each dpio" is board-settled
+      and ADR-0012's open question 1 gets its number; design note
+      before generation, as in 5.11
+
 ## 6. Evidence automation (self-standing; gates close-out)
 
 - [x] 6.1 Ledger lint: a cargo test cross-checks COVERAGE.md against
@@ -137,6 +144,10 @@ board task is an operator sitting sync point.
       uapi whitelist as a committed table; a test checks every command
       the models and adapter emit against it — rows outside it are the
       exact scope of a kernel patch or of a VFIO userspace transport
+
+- [ ] 6.6 Regenerate the committed ITF traces from the current model so
+      every trace carries the verb channel (`lastVerbs`) and the ioctl
+      policy is checked live by `cargo test`, not only by Apalache
 
 ## 7. Close-out
 
