@@ -96,7 +96,7 @@ board task is an operator sitting sync point.
       window, and the operator instruction archives results outside
       the checkout — refusal evidence and ADR-0008 markers become files,
       not prose, before the refusal sitting
-- [ ] 5.9 Refusal probes (board sitting): default-built dpsw at kernel
+- [x] 5.9 Refusal probes (board sitting): default-built dpsw at kernel
       probe, dpdmux uplink→dpni connect, move of a plugged object,
       dpaiop create, dpseci and dpni create-validation and dead-option
       exit shapes — hooks where an object must stand, probe plans

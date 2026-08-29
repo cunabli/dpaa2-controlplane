@@ -121,17 +121,24 @@ dpdcei.
 
 | Id | Proposition | Observables | Status |
 |---|---|---|---|
-| DPAIOP-I1 | Platform-unsupported: LX2160 is absent from the DPAIOP row of manual Table 2-1, has no AIOP config surface, and MC ≥ 10.18.0 refuses create on AIOP-less silicon; the model refuses dpaiop intents | manual Table 2-1; `dpaiop create` probe MC status | corpus-confirmed (manual + gate); status code board-pending |
-| DPAIOP-I2 | **Breaking:** the model must NOT assume DPRC permission ⇒ create permission — OBJ_CREATE gates the container check, the platform gate lives inside the MC create handler | create refused in a container whose options allow OBJ_CREATE | candidate |
+| DPAIOP-I1 | Platform-unsupported: LX2160 is absent from the DPAIOP row of manual Table 2-1, has no AIOP config surface, and MC ≥ 10.18.0 refuses create on AIOP-less silicon; the model refuses dpaiop intents | manual Table 2-1; `dpaiop create` probe MC status | verified 2026-08-29 (V-DPAIOP-1 rev 1): `dpaiop create` refused Configuration error (0x6), nothing created — the status the 10.18.0 gate never named; corpus-confirmed by manual + gate |
+| DPAIOP-I2 | **Breaking:** the model must NOT assume DPRC permission ⇒ create permission — OBJ_CREATE gates the container check, the platform gate lives inside the MC create handler | create refused in a container whose options allow OBJ_CREATE | verified 2026-08-29 (V-DPAIOP-1 rev 1): refused in the root container, which permits OBJ_CREATE — the gate is in the MC's dpaiop create handler, while `dprc create --options=…AIOP` was accepted the same sitting |
 | DPAIOP-I3 | **Breaking:** the model must NOT assume generate-dpl round-trips config — `aiop_container_id` is write-only and silently dropped | regenerated DPL node vs hand-written DPL | candidate |
 | DPAIOP-I4 | Two-object coupling: a functional dpaiop requires a *pair* (AIOP-flagged dprc + dpaiop referencing it) created in order; neither alone is meaningful | DPDK 22.11 `dynamic_AIOP_dpl.sh` sequence | candidate (unfalsifiable here) |
 
 ## Unknown / unverified register
 
-1. The exact MC status `DPAIOP_CREATE` returns on LX2160A (the 10.18.0
-   gate names no errno) — needed for a precise negative-path assertion.
-2. Whether the refusal fires at `dpaiop create` or already at
+1. ~~The exact MC status `DPAIOP_CREATE` returns on LX2160A (the 10.18.0
+   gate names no errno) — needed for a precise negative-path
+   assertion.~~ **Answered** — board suite V-DPAIOP-1 rev 1,
+   2026-08-29: `dpaiop create --aiop-container-id=dprc.1` is refused
+   Configuration error (status 0x6, exit 250), nothing created.
+2. ~~Whether the refusal fires at `dpaiop create` or already at
    `dprc create --options=...,DPRC_CFG_OPT_AIOP` — two separately
-   observable steps.
+   observable steps.~~ **Answered** — board suite V-DPAIOP-1 rev 1,
+   2026-08-29: it fires at `dpaiop create`; the `DPRC_CFG_OPT_AIOP`
+   option bit is accepted at `dprc create` (the AIOP-flagged container
+   is created and destroys cleanly), so the platform gate lives in the
+   MC's dpaiop create handler, not the DPRC option.
 3. What `/dev/dpaa2_aiop_console` open returns with no AIOP (the magic
    check depends on DDR contents the code alone can't settle).

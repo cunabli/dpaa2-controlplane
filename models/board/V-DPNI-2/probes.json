@@ -1,0 +1,85 @@
+{
+  "suite": "V-DPNI-2",
+  "class": "lifecycle",
+  "steps": [
+    {
+      "label": "capture root container pre-probe",
+      "cmd": ["restool", "dprc", "show", "dprc.1"],
+      "expect": "zero exit; blast-radius reference for the closing census",
+      "exit": "zero"
+    },
+    {
+      "label": "dead-option create: object created, then nonzero exit (DPNI-I6)",
+      "cmd": ["restool", "dpni", "create", "--max-senders=8", "--container=dprc.1"],
+      "expect": "nonzero exit but dpni.1 PRESENT — the inversion; judge on read-back, not exit",
+      "exit": "nonzero",
+      "readback": { "container": "dprc.1", "object": "dpni.1", "presence": "present" }
+    },
+    {
+      "label": "destroy the leaked dpni",
+      "cmd": ["restool", "dpni", "destroy", "dpni.1"],
+      "expect": "clean destroy: zero exit, dpni.1 absent",
+      "exit": "zero",
+      "readback": { "container": "dprc.1", "object": "dpni.1", "presence": "absent" }
+    },
+    {
+      "label": "num-queues ceiling walk: 32",
+      "cmd": ["restool", "dpni", "create", "--num-queues=32", "--container=dprc.1"],
+      "expect": "exit any; present=accepted, absent=refused; skip (s) once bracketed (accept N, refuse N+4)",
+      "exit": "any",
+      "readback": { "container": "dprc.1", "object": "dpni.1", "presence": "present" }
+    },
+    {
+      "label": "contingency: destroy the num-queues=32 dpni",
+      "cmd": ["restool", "dpni", "destroy", "dpni.1"],
+      "expect": "skip (s) if the create above was refused; else free dpni.1",
+      "exit": "any"
+    },
+    {
+      "label": "num-queues ceiling walk: 24",
+      "cmd": ["restool", "dpni", "create", "--num-queues=24", "--container=dprc.1"],
+      "expect": "exit any; present=accepted, absent=refused; skip (s) if already bracketed",
+      "exit": "any",
+      "readback": { "container": "dprc.1", "object": "dpni.1", "presence": "present" }
+    },
+    {
+      "label": "contingency: destroy the num-queues=24 dpni",
+      "cmd": ["restool", "dpni", "destroy", "dpni.1"],
+      "expect": "skip (s) if the create above was refused or skipped; else free dpni.1",
+      "exit": "any"
+    },
+    {
+      "label": "num-queues ceiling walk: 28",
+      "cmd": ["restool", "dpni", "create", "--num-queues=28", "--container=dprc.1"],
+      "expect": "exit any; present=accepted, absent=refused; skip (s) if already bracketed",
+      "exit": "any",
+      "readback": { "container": "dprc.1", "object": "dpni.1", "presence": "present" }
+    },
+    {
+      "label": "contingency: destroy the num-queues=28 dpni",
+      "cmd": ["restool", "dpni", "destroy", "dpni.1"],
+      "expect": "skip (s) if the create above was refused or skipped; else free dpni.1",
+      "exit": "any"
+    },
+    {
+      "label": "num-queues ceiling walk: 20",
+      "cmd": ["restool", "dpni", "create", "--num-queues=20", "--container=dprc.1"],
+      "expect": "exit any; present=accepted, absent=refused; skip (s) if already bracketed",
+      "exit": "any",
+      "readback": { "container": "dprc.1", "object": "dpni.1", "presence": "present" }
+    },
+    {
+      "label": "contingency: destroy the num-queues=20 dpni",
+      "cmd": ["restool", "dpni", "destroy", "dpni.1"],
+      "expect": "skip (s) if the create above was refused or skipped; else free dpni.1",
+      "exit": "any"
+    },
+    {
+      "label": "capture root container post-probe",
+      "cmd": ["restool", "dprc", "show", "dprc.1"],
+      "expect": "zero exit; no dpni.1 residue",
+      "exit": "zero",
+      "readback": { "container": "dprc.1", "object": "dpni.1", "presence": "absent" }
+    }
+  ]
+}

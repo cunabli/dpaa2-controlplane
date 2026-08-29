@@ -66,7 +66,12 @@ trace whose declared class does not match the ports it touches.
 
 All MBT work runs inside scratch child DPRCs created for the run: nothing
 outside the scratch container is mutated, and teardown is unconditional —
-it runs whether the suite passed, failed, or aborted.
+it runs whether the suite passed, failed, or aborted. A hook may connect,
+disconnect, plug, and read while the created objects still stand; it never
+destroys or creates an object in the root container. The teardown alone
+destroys, once per run and with its destroys spaced, because a hook's own
+destroys re-open the bus-rescan window the spacing exists to close
+(ADR-0008 §7).
 
 ### 7. Recovery guarantee is an assumption until verified
 

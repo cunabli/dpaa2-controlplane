@@ -236,9 +236,14 @@ method/ownership matrix started in `dpdmux.md` [read].
 ## Unknown / unverified register
 
 1. Whether the board's DPC/DPL contains any dpsw (expected none), and
-   whether MC 10.39 even accepts the PER_VLAN/PER_OBJECT +
-   ctrl-if-enabled combination ls-addsw emits (kernel refuses it; the
-   MC-side semantics of per-VLAN flooding are unobserved).
+   ~~whether MC 10.39 even accepts the PER_VLAN/PER_OBJECT +
+   ctrl-if-enabled combination ls-addsw emits~~ **Answered** — board
+   suite V-DPSW-4 rev 1, 2026-08-29: MC 10.39 *does* accept that shape —
+   it creates and connects the switch without complaint — and the
+   kernel `fsl_dpaa2_switch` driver is what refuses it, at probe, with
+   "Flooding domain is not per FDB, cannot probe" (−95 EOPNOTSUPP) and
+   an empty driver link. The MC-side semantics of per-VLAN flooding
+   itself stay unobserved (no consumer drives it).
 2. What `dpsw_reset` preserves — dpsw has no `set_resetable`
    analogue in the flib (unlike dpdmux): is reset always total?
 3. `mem_size` and `max_meters_per_if` semantics (dead/undocumented,

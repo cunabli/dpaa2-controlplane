@@ -1,0 +1,59 @@
+{
+  "suite": "V-DPSECI-1",
+  "class": "lifecycle",
+  "steps": [
+    {
+      "label": "capture root container pre-probe",
+      "cmd": ["restool", "dprc", "show", "dprc.1"],
+      "expect": "zero exit; blast-radius reference; dpseci.0 present",
+      "exit": "zero",
+      "readback": { "container": "dprc.1", "object": "dpseci.0", "presence": "present" }
+    },
+    {
+      "label": "priority 0 rejected — restool layer, MC unreachable (DPSECI-I2)",
+      "cmd": ["restool", "dpseci", "create", "--num-queues=1", "--priorities=0"],
+      "expect": "restool rejects before the MC (exit 234); dpseci.1 absent — MC-layer check unreachable",
+      "exit": "nonzero",
+      "readback": { "container": "dprc.1", "object": "dpseci.1", "presence": "absent" }
+    },
+    {
+      "label": "contingency: destroy an unexpectedly created dpseci",
+      "cmd": ["restool", "dpseci", "destroy", "dpseci.1"],
+      "expect": "skip (s) if the create was rejected; else remove dpseci.1",
+      "exit": "any"
+    },
+    {
+      "label": "priority above 8 rejected — restool layer, MC unreachable",
+      "cmd": ["restool", "dpseci", "create", "--num-queues=1", "--priorities=9"],
+      "expect": "restool rejects >8 before the MC (exit 234); dpseci.1 absent",
+      "exit": "nonzero",
+      "readback": { "container": "dprc.1", "object": "dpseci.1", "presence": "absent" }
+    },
+    {
+      "label": "contingency: destroy an unexpectedly created dpseci",
+      "cmd": ["restool", "dpseci", "destroy", "dpseci.1"],
+      "expect": "skip (s) if the create was rejected; else remove dpseci.1",
+      "exit": "any"
+    },
+    {
+      "label": "priority count != num-queues rejected — restool layer, MC unreachable",
+      "cmd": ["restool", "dpseci", "create", "--num-queues=2", "--priorities=1"],
+      "expect": "restool rejects the count mismatch before the MC (exit 234); dpseci.1 absent",
+      "exit": "nonzero",
+      "readback": { "container": "dprc.1", "object": "dpseci.1", "presence": "absent" }
+    },
+    {
+      "label": "contingency: destroy an unexpectedly created dpseci",
+      "cmd": ["restool", "dpseci", "destroy", "dpseci.1"],
+      "expect": "skip (s) if the create was rejected; else remove dpseci.1",
+      "exit": "any"
+    },
+    {
+      "label": "capture root container post-probe",
+      "cmd": ["restool", "dprc", "show", "dprc.1"],
+      "expect": "zero exit; no dpseci.1 residue",
+      "exit": "zero",
+      "readback": { "container": "dprc.1", "object": "dpseci.1", "presence": "absent" }
+    }
+  ]
+}

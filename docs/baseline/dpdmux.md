@@ -264,8 +264,25 @@ upstream kernel driver while dpdmux has a staging prototype [read].
 5. Soft-parser profile commands (10.37+): no in-corpus caller; are
    they usable on the pinned MC and do they interact with method
    CUSTOM's key?
-6. Whether uplink = interface 0 is an MC contract or only convention
-   (DPDMUX-I8's footing).
+6. ~~Whether uplink = interface 0 is an MC contract or only
+   convention (DPDMUX-I8's footing).~~ **Answered, final** — board suite
+   V-DPDMUX-2 rev 1–5, 2026-08-29: interface 0 is how the MC reads a bare
+   object name in `dprc connect`; the dpmac-only uplink rule the 10.37
+   changelog describes is **not enforced at connect** on the pinned
+   10.39. The MC accepts a dpni on the uplink (interface 0, rev 2) and,
+   from a fresh boot, on the downlink (interface 1, rev 5, with the
+   read-back agreeing — `dpdmux info` interface 1 and `dpni info`
+   endpoint both name the pairing), and then refuses the *disconnect*
+   from every end: Configuration error (0x6) from the dpni end and from
+   the demux downlink end, No resources (0x8) from the bare-name uplink
+   end. So a dpni on either interface is un-disconnectable, and the
+   pairing cannot be undone short of destroying an object. No pairing
+   survives a reboot or a destroy-and-recreate (rev 5). The model keeps
+   its own `legalPorts` guard ahead of the firmware for exactly this
+   reason (ADR-0009), and treats any dpdmux↔dpni edge as destroy-only.
+   Two controls stay unissued and deferred to `dpdmux-typestate` (#12):
+   whether a dpmac uplink peer disconnects cleanly, and whether the
+   downlink accepts once the uplink is already populated.
 7. Real rule capacity: `max_dmat_entries` default 64/if vs the DPDK
    8-entry `rule[]` (declared, unused) vs TCAM depth for CUSTOM
    entries — no corpus source states the CUSTOM-entry limit.

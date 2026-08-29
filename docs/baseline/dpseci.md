@@ -216,7 +216,7 @@ runtime model.
 | Id | Proposition | Observables | Status |
 |---|---|---|---|
 | DPSECI-I1 | `options`, tx/rx queue counts, and per-queue tx priorities are immutable post-create; no setter exists (tx queues have no set path at all) | `get_attributes` + per-queue `get_tx_queue` before/after suites | candidate |
-| DPSECI-I2 | Create precondition (restool layer): priorities count = num-queues, each in 1–8; MC-layer validation is unknown and must not be assumed | restool exit on mismatch; MC status on out-of-range via DPL | restool layer board-anchored 2026-08-23 (V-LIFE-DPSECI-1 rev 1: `--num-queues` and `--priorities` demanded as a pair; also in production use); MC-layer validation board-pending → V-DPSECI-1 under `dpseci-typestate` (#8) |
+| DPSECI-I2 | Create precondition (restool layer): priorities count = num-queues, each in 1–8; MC-layer validation is unknown and must not be assumed | restool exit on mismatch; MC status on out-of-range via DPL | restool layer board-anchored 2026-08-29 (V-DPSECI-1 rev 1: priority 0, a priority above 8, and a priority-count ≠ num-queues are each refused by restool's own parser, exit 234, before any MC command; also V-LIFE-DPSECI-1 rev 1 and production use); MC-layer validation unreachable through restool, board-pending → V-DPSECI-1 (MC layer) under `dpseci-typestate` (#8) |
 | DPSECI-I3 | **Breaking:** the model must NOT treat restool `info` output as the convergence observable for this family — the options mask is not printed; only raw `GET_ATTR` observes it | info output vs GET_ATTR response | candidate |
 | DPSECI-I4 | Safety: consumer backpressure exists iff `HAS_CG` was set at create; absent it, enqueue is unbounded (kernel consumer) | congestion config presence; enqueue behavior at saturation | candidate |
 | DPSECI-I5 | **Breaking:** the model must NOT assume unbind ⇒ clean MC state: the kernel reset is gated on API > 5.3, and rx-queue steering + armed CG (with dangling iova) persist when skipped | `get_rx_queue`/`get_congestion_notification` after unbind | board-pending (board API is 5.4 → reset expected live) |
@@ -229,7 +229,11 @@ runtime model.
 
 1. MC-side validation rules at create: does firmware reject priority 0,
    priorities ≠ queue count, or rx ≠ tx counts? (No validator in either
-   flib; one legacy DPL ships priority 0.)
+   flib; one legacy DPL ships priority 0.) Partially answered [board
+   suite V-DPSECI-1 rev 1, 2026-08-29]: restool's own parser refuses all
+   three (priority 0, a priority above 8, and a count ≠ num-queues) with
+   exit 234 before any MC command is built, so the MC-side rule stays
+   unreachable through restool — the ioctl portal is needed to reach it.
 2. Board confirmation that dpseci API reports 5.4 (drives DPSECI-I5's
    reset path) — one dmesg/`restool dpseci info` line.
 3. Whether the kernel container's dpseci carries `HAS_CG` (it predates

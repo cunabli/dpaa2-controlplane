@@ -143,7 +143,7 @@ the VPP port series has no qdma consumer today.
 | DPDMAI-I2 | **Breaking:** the model must NOT assume the DPL path equals the create path — on pre-10.38.1 firmware DPL num_queues/options were silently defaulted while CREATE honored them; version-gate any DPL equivalence claim | firmware version vs DPL-created attr readback | candidate (corpus-proven for the window) |
 | DPDMAI-I3 | Consumer-shape coupling: a kernel-consumable dpdmai needs num_queues ≥ min(num_priorities, 2) — the driver walks queue_idx sized by the *priority* count | probe outcome of a 1-queue/2-priority object | board-pending |
 | DPDMAI-I4 | **Breaking:** the model must NOT assume generate-dpl round-trips config — priorities value→count mangling plus dropped fields (worse than dpdcei/dpaiop: actively wrong, not just lossy) | regenerated node vs create args | candidate |
-| DPDMAI-I5 | Unknown-default hazard: create without `--num-queues` yields an MC-chosen count no corpus documents; the model must treat it as unspecified, never as 1 | `info` after a bare create | verified 2026-08-25 (V-READBACK-1 rev 1 read-back; the harness verdict waits on rev 2 with the corrected hook): MC 10.39.0 chooses 1 queue and 2 priorities — the model keeps it unspecified, the number is now known |
+| DPDMAI-I5 | Unknown-default hazard: create without `--num-queues` yields an MC-chosen count no corpus documents; the model must treat it as unspecified, never as 1 | `info` after a bare create | verified 2026-08-29 (V-READBACK-1 rev 2, hook 10/10): the corrected hook confirms MC 10.39.0 chooses 1 queue and 2 priorities — the model keeps it unspecified, the number is now known |
 
 ## Unknown / unverified register
 

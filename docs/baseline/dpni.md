@@ -416,7 +416,7 @@ attribute get) — never on the return code of the mutation.
 | DPNI-I4 | Probe precondition (C1): kernel bind completes only if the container pool holds ≥1 dpbp, ≥1 dpmcp, ≥1 dpcon with an affine dpio; a bare dpni stays connected-but-unbound | probe outcome; `-ENXIO`/"No more resources" in dmesg; netdev absent | verified (ADR-0001 C1) |
 | DPNI-I5 | **Breaking:** the model must NOT assume bind success ⇒ all provisioned queues serviced; DPCON shortage beyond the first degrades silently to `num_channels < num_queues`, leaving destination-less queues | `ethtool -l` count vs `dpni info` num_queues; dmesg "Not enough DPCONs" | candidate |
 | DPNI-I6 | **Breaking:** the model must NOT assume nonzero exit ⇒ no side effect: create with a dead option creates the object and then fails; and exit 0 ⇒ success is false for `dpni update` (three 0-exit failure paths) | `dprc show` delta across a failed create; primary MAC read-back after a "successful" update | candidate |
-| DPNI-I7 | Create-default determinism: an omitted create option ⇒ 0 on the wire ⇒ MC default (1 queue, 1 TC, 16 MAC entries, 0 QoS entries with a single TC, 64 FS, VLAN filtering off, one CG) | `dpni info` of a bare `dpni create` | verified 2026-08-25 (V-READBACK-1 rev 1 read-back; the harness verdict waits on rev 2 with the corrected hook) — the 80 MAC / 64 QoS this row first predicted were restool's maxima; the DPL-born management dpni in the clean-boot reference reads the same 16/0 |
+| DPNI-I7 | Create-default determinism: an omitted create option ⇒ 0 on the wire ⇒ MC default (1 queue, 1 TC, 16 MAC entries, 0 QoS entries with a single TC, 64 FS, VLAN filtering off, one CG) | `dpni info` of a bare `dpni create` | verified 2026-08-29 (V-READBACK-1 rev 2, hook 10/10) — the corrected hook confirms the rev-1 read-back; the 80 MAC / 64 QoS this row first predicted were restool's maxima, and the DPL-born management dpni in the clean-boot reference reads the same 16/0 |
 | DPNI-I8 | Clean-unbind postcondition: successful driver remove resets the object to initial state; but reset failure is non-fatal, so unbind ⇒ reset is best-effort — convergence is established only by read-back | `dpni info` after unbind: default attributes, zero filter tables | board-pending |
 | DPNI-I9 | Endpoint cardinality: a dpni has at most one connection; connect requires both endpoints currently disconnected and a common-ancestor initiator (dprc.md DPRC-I5), including the cross-container dpni↔dpni case | `dprc connect` exit; `GET_CONNECTION` per endpoint | verified (kdpni pairs in production use) |
 | DPNI-I10 | Consumer tx-floor: any consumer driving tx from T threads needs T independent tx rings on the dpni; a ring shared by two threads silently drops enqueues (no MC error, no counter on the dpni side) | VPP `<if>-tx` drops with `num-tx-queues < T`; clean at `= T` | verified (ADR-0012) |
@@ -432,7 +432,12 @@ attribute get) — never on the return code of the mutation.
    skew.
 2. True `num_queues` ceiling on WRIOP 3.0.0: doc says 8, restool caps 32,
    16 is deployed and working [verified]. Where between 16 and 32 does the
-   MC refuse?
+   MC refuse? Partially answered [board suite V-DPNI-2 rev 1,
+   2026-08-29]: a bracketing walk created dpnis at `--num-queues` 32, 28,
+   24 and 20 and the MC accepted every one — so if the MC caps the count
+   at all, it caps at or above restool's own limit of 32; the walk found
+   no refusal below the cap, and the MC-side ceiling stays unreachable
+   through restool.
 3. Semantics of `num_cgs`, `num_opr`, `dist_key_size` — present in
    `dpni_cfg`, absent from its doc block; and the rationale for our
    deployed `num_cgs = num_queues + 8`.

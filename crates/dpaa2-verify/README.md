@@ -68,8 +68,12 @@ teardown trap — the shape a traffic face needs, since a trace cannot
 express frames. Its text is read at generation and screened by the
 safety envelope like any other board-touching step, the script re-greps
 the file for total-deny references before sourcing it, and the plan
-records the path. Recovery-verification suites take no hook: the reboot
-is their teardown.
+records the path. A hook may connect, disconnect, plug, and read the
+standing objects, but it never destroys or re-creates one in the root
+container: only the script's own teardown destroys, once per run and
+spaced, because a hook's unspaced destroys re-open the bus-rescan window
+the spacing closes (ADR-0008 §7). Recovery-verification suites take no
+hook: the reboot is their teardown.
 
 A suite may also state the `restool <fam> create` arguments it renders
 for a family: `--create-args dpio=--channel-mode=DPIO_NO_CHANNEL

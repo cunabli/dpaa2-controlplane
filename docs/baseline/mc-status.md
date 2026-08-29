@@ -63,21 +63,51 @@ refusal; the lint resolves every citation to `models/board/VERDICTS.json`.
 | 0x8 | No resources | dprtc · create | A second dprtc while the DPL-born dprtc.0 stands (singleton since MC 10.31); `dprc show` byte-identical before and after | MC | V-DPRTC-1 |
 | 0x8 | No resources | dpdbg · create | A second dpdbg while dpdbg.0 stands (root-only singleton) — the same status as the dprtc singleton, hinting at a shared firmware path | MC | V-DPDBG-1 rev 2 |
 | — | — | dprc · assign `--plugged=0`; dprtc · destroy | The object is bound to a kernel driver: restool's client guard refuses with "unbind it first" and `-EBUSY` (exit 240) before any MC command is sent; the object stays plugged and bound | restool | V-LINK-5; V-DPRTC-3 rev 2 |
-| — | unknown | dprc · assign `--child` | A sibling-to-sibling move (source and destination are not parent and child). Exit 255 says `-EPERM`, which restool's mapping makes No privilege, but rev 1 predates stderr capture so the status text was never recorded — task 5.9 fills it | MC | V-DPRC-1 rev 1 |
+| 0x4 | No privilege | dprc · assign `--child` | A sibling-to-sibling move (source and destination are not parent and child), issued with the exact rendering V-DPRC-1 rev 1 used (which exited 255); the object stayed in its source container. This fills the row task 5.9 left as unknown | MC | V-DPRC-6 rev 1 |
+| — | — | dprc · assign `--child` | The move of a *plugged* object one hop up is refused by restool's own client guard — "cannot be moved because it is currently in plugged state" / "unplug it first" — before any MC command is sent; the object stays in its container. The MC-layer face is unreachable through restool | restool | V-DPRC-6 rev 1 |
+| — | — | dpsw · create + plug | A dpsw built with restool's silent defaults (flooding PER_VLAN, broadcast PER_OBJECT) is created and connected by the MC without complaint, then refused by the kernel `fsl_dpaa2_switch` driver at probe — dmesg "Flooding domain is not per FDB, cannot probe", −95 (EOPNOTSUPP), driver link empty. The refusal is the kernel's, not the MC's | kernel | V-DPSW-4 rev 1 |
+| 0x6 | Configuration error | dpaiop · create | `dpaiop create` on this AIOP-less silicon; nothing created. The gate lives in the MC's dpaiop create handler, not the DPRC options — `dprc create --options=…AIOP` was accepted the same sitting | MC | V-DPAIOP-1 rev 1 |
+| 0x6 | Configuration error | dprc · connect | A dpni onto a dpdmux downlink (interface 1) while the uplink is empty: refused, yet the read-back shows the dpni on interface 0 — the refused command left a connection behind, and only a destroy removes it | MC | V-DPDMUX-2 rev 3 |
+| 0x6 | Configuration error | dprc · disconnect | Tearing down a dpni the MC accepted onto a dpdmux uplink (interface 0), refused from either the demux end or the dpni end; the connect itself was accepted, so the pairing stands until an object is destroyed | MC | V-DPDMUX-2 rev 2; V-DPDMUX-2 rev 3 |
+| 0x6 | Configuration error | dprc · disconnect | A dpni on a dpdmux downlink (interface 1), from the dpni end or the demux downlink end; the connect had been accepted on a fresh boot, so the pairing is permanent until a destroy | MC | V-DPDMUX-2 rev 5 |
+| 0x8 | No resources | dprc · disconnect | Disconnecting an unconnected dpdmux downlink interface (interface 1) from the demux end | MC | V-DPDMUX-2 rev 2 |
+| 0x8 | No resources | dprc · disconnect | The demux uplink end (bare name, interface 0) while nothing is connected there, even though the dpni sits on interface 1 | MC | V-DPDMUX-2 rev 5 |
+| — | — | dpseci · create | Priority 0, a priority above 8, or a priority-count that does not equal num-queues: restool's own parser refuses (exit 234, "Invalid priority value." / "Please set N priorities") before any MC command is built. The MC-layer validation is unreachable through restool | restool | V-DPSECI-1 rev 1 |
+| — | — | dpni · create `--max-senders` | A dead v9-era option: restool creates the dpni, prints its id, then exits 234 on the unconsumed option — the object stands and read-back is the only side-effect oracle | restool | V-DPNI-2 rev 1 |
 
 ## What the register does not hold yet
 
-- Refusals the models predict but no suite has issued: the kernel's
-  probe refusal of a default-built dpsw (DPSW-I1's refusal face), the
-  dpdmux uplink→dpni connect (DPDMUX-I8), `dpaiop create` on this
-  platform (DPAIOP-I1/I2), dpseci priority validation at the MC layer
-  (DPSECI-I2), the dpni dead-option create (DPNI-I6). Task 5.9 issues
-  each with an expected-refusal step and adds its row here; a status
-  that contradicts a model guard amends the model in the same change.
-- Kernel-side refusals (`-ENXIO "No more resources"` at probe, DPRC-I1)
-  are dmesg text, not an MC status; they land here once a suite scores
-  them from `dmesg.txt`.
-- Statuses 0x3, 0x5, 0x7, 0x9–0xC have never been seen on this board.
+- MC-layer faces that stay unreachable through restool, because a
+  restool client guard refuses first: the move of a *plugged* object
+  (the guard answers before the MC is asked), and dpseci create
+  priority validation (restool's parser refuses priority range and
+  count before any MC command). Both need the ioctl portal to reach the
+  MC-layer rule.
+- The dpni `num_queues` ceiling above restool's cap of 32: the create
+  walk (V-DPNI-2 rev 1) found no MC refusal up to 32, so if the MC caps
+  the count at all it caps at or above restool's reach — no status yet.
+- The dpdmux→dpni pairing is now on record as accepted, not refused, on
+  either interface: MC 10.39 takes the connect and then refuses every
+  disconnect (0x6 and 0x8 above), so the model's `legalPorts` guard is
+  stricter than the firmware (ADR-0009), and there is no connect-side
+  refusal to register. Rev 3 saw a downlink connect refused with a status
+  (0x6) that still left the dpni on interface 0, but rev 5 from a fresh
+  boot saw the downlink connect accepted cleanly with the state agreeing,
+  so that refusal did not reproduce. Two cases remain unissued: a
+  dpmac-uplink *disconnect* (never tested — V-DPDMUX-1 only ever destroyed
+  its dpmac-uplink pairing, and rev 4's dpmac-uplink connect was refused
+  by the rev-3 ghost so the disconnect was never reached) and a
+  downlink-with-populated-uplink connect. Both are deferred to
+  `dpdmux-typestate` (#12).
+- 0x8 No resources, first seen on `dprtc`/`dpdbg` create, has now also
+  been seen on `dprc disconnect` of an unconnected dpdmux interface.
+- Kernel-side refusals are dmesg text, not an MC status. The dpsw probe
+  refusal (−95 EOPNOTSUPP) is now scored from the kernel log and
+  registered above (a `kernel` row); DPRC-I1's `-ENXIO "No more
+  resources"` at probe still lands here once a suite scores it from
+  `dmesg.txt`.
+- Statuses 0x3, 0x5, 0x7, 0x9–0xC have never been seen on this board;
+  0x4, 0x6 and 0x8 have.
 
 ## How a suite expects a refusal
 

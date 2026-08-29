@@ -1,0 +1,45 @@
+{
+  "suite": "V-DPAIOP-1",
+  "class": "lifecycle",
+  "steps": [
+    {
+      "label": "capture root container pre-probe",
+      "cmd": ["restool", "dprc", "show", "dprc.1"],
+      "expect": "zero exit; capture the root listing as the blast-radius reference",
+      "exit": "zero"
+    },
+    {
+      "label": "dpaiop create refused on AIOP-less silicon (DPAIOP-I1/I2)",
+      "cmd": ["restool", "dpaiop", "create", "--aiop-container-id=dprc.1"],
+      "expect": "refused: nonzero exit, dpaiop.0 absent; record the MC status",
+      "exit": "nonzero",
+      "readback": { "container": "dprc.1", "object": "dpaiop.0", "presence": "absent" }
+    },
+    {
+      "label": "contingency: destroy an unexpectedly created dpaiop",
+      "cmd": ["restool", "dpaiop", "destroy", "dpaiop.0"],
+      "expect": "skip (s) if the create was refused; else remove dpaiop.0",
+      "exit": "any"
+    },
+    {
+      "label": "AIOP-flagged dprc create — is the option bit refused?",
+      "cmd": ["restool", "dprc", "create", "dprc.1", "--options=DPRC_CFG_OPT_AIOP"],
+      "expect": "exit any; hypothesis dprc.2 created (only dpaiop create is gated), else absent is the finding",
+      "exit": "any",
+      "readback": { "container": "dprc.1", "object": "dprc.2", "presence": "present" }
+    },
+    {
+      "label": "contingency: destroy the AIOP-flagged dprc",
+      "cmd": ["restool", "dprc", "destroy", "dprc.2"],
+      "expect": "skip (s) if the create above was refused; else destroy dprc.2",
+      "exit": "any"
+    },
+    {
+      "label": "capture root container post-probe",
+      "cmd": ["restool", "dprc", "show", "dprc.1"],
+      "expect": "zero exit; matches the pre-probe capture, dpaiop.0 absent (no residue)",
+      "exit": "zero",
+      "readback": { "container": "dprc.1", "object": "dpaiop.0", "presence": "absent" }
+    }
+  ]
+}

@@ -4,7 +4,10 @@
   V-LIFE-DPSECI-1, V-LIFE-DPDMAI-1, rev 2), extended the same day with
   the bisect that root-caused the bystander unbind (§4–§6) and with the
   batch-3 sittings (V-DPSW-1, V-DPDMUX-1) that anchored the two
-  remaining available rows and settled the spacing experiment
+  remaining available rows and settled the spacing experiment;
+  extended 2026-08-29 (V-DPDMUX-2 rev 5) with §7 — a hook that runs
+  its own destroys re-opens the window the teardown's spacing had
+  closed
 - **Date:** 2026-08-23
 - **Supersedes / relates to:** OpenSpec change `verify-foundation` (task
   5.2, the per-family lifecycle suites); ADR-0003 §2 (evidence is
@@ -215,6 +218,44 @@ should still read the boot dpseci's driver link explicitly, and any
 anomaly still means a reboot before the next sitting, since neither the
 crypto namespace nor a detached driver recovers within a boot.
 
+### 7. A hook that destroys widens the window the teardown had closed
+
+The spacing of §6 is a property of the generated teardown, and only of
+it. A suite hook runs before that teardown, with its own body of
+commands, and nothing spaces those. V-DPDMUX-2 rev 5 proved the cost.
+Its hook carried a phase-4 that destroyed a connected dpni↔dpdmux pair
+and re-created it; the EXIT-trap teardown then destroyed the re-created
+pair a second time. Four root-container destroys landed in about nine
+seconds, two of them on a pairing the firmware had already refused to
+undo (ADR-0009) — the densest burst of root destroys any sitting had
+run. It hit the §4 race: 5.5 s after the run's marker the boot dpni's
+netdev logged link down, and 0.6 s later a boot dpcon was re-added to
+the bus (`Adding to iommu group`). The boot dpni lost its driver
+silently — the MC still shows it plugged and connected to its dpmac,
+because no command in the run named either object and the MC edge was
+never touched — and the management interface was down until the driver was
+rebound (a rebind or a reboot).
+
+Two things are new for the record. The destroyed pair was connected but
+*not* driver-bound, where §4's earlier casualties were both connected
+and bound: an unbound connected object is enough to raise the events
+that feed the race, so bindedness is not the threshold §4 read it as.
+And the boot dpcon's remove-and-re-add is the second sighting of the
+removal arm rather than the silent-detach arm — the first was the
+two-destroy teardown §4 describes — so both endings of the one race are
+now twice observed.
+
+The root cause is script design, not firmware: the hook did by hand,
+unspaced and doubled, the destroys the teardown is built to do once and
+spaced. The rule that follows is a placement rule. A hook never
+destroys or re-creates an object in the root container; only the
+script's own teardown does, once per run, with the §6 spacing. A suite
+whose *teardown* must itself destroy a connected pair is flagged in the
+suite ledger as a **management-link risk**: run it last in a sitting,
+and expect a rebind or a reboot after it. V-DPDMUX-2's phase 4 is
+removed from the committed hook (the suite's other agent), leaving the
+teardown as the only place a destroy happens.
+
 ## Open questions and revisit triggers
 
 - **Why does the firmware hand back a stale plugged bit?** Everything up
@@ -244,8 +285,14 @@ crypto namespace nor a detached driver recovers within a boot.
 - **The unanchored true rows.** dpsw and dpdmux are settled on the board
   (V-DPSW-1, V-DPDMUX-1). What remains unanchored is dprc, and dprtc and
   dpmac, whose rows are vacuous while nothing creates one at runtime.
-- **Does spacing hold under a heavier teardown?** Every destroy the
-  experiment covered was one object in one container. A teardown that
-  removes a container still holding residents, or several connected
-  objects at once, raises more events per command than anything measured
-  here. Revisit when a suite of that shape is authored.
+- **Does spacing hold under a heavier teardown?** Partly answered by
+  §7. A connected, unbound pair destroyed *twice* in one run — the
+  hook's phase-4 destroy-and-recreate plus the teardown's second
+  destroy, four root destroys in nine seconds — did not hold: it tripped
+  the race and took the boot dpni's driver. What still holds is the
+  single spaced teardown of a pair of that shape, which survived three
+  times (V-DPDMUX-2 revs 2, 3, 4). So the open half is narrower now:
+  spacing survives one teardown of a connected pair, but not a hook that
+  destroys ahead of it, and a teardown that removes a container still
+  holding residents remains unmeasured. Revisit when a suite of that
+  last shape is authored.

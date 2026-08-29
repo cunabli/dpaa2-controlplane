@@ -41,11 +41,12 @@ fn board_files(suffix: &str) -> Vec<PathBuf> {
 #[test]
 fn committed_probe_plans_parse_and_clear_the_envelope() {
     let plans = board_files("probes.json");
-    // V-DPRTC-1/2/3 (plus V-DPRTC-3's postboot half) and V-DPDBG-1: a
-    // count that drops means a plan was renamed out of the driver's
-    // reach, which would pass silently as an empty walk.
+    // V-DPRTC-1/2/3 (plus V-DPRTC-3's postboot half), V-DPDBG-1, and the
+    // task-5.9 refusal plans V-DPAIOP-1 / V-DPSECI-1 / V-DPNI-2: a count
+    // that drops means a plan was renamed out of the driver's reach,
+    // which would pass silently as an empty walk.
     assert!(
-        plans.len() >= 5,
+        plans.len() >= 8,
         "expected the committed probe plans under models/board, found {plans:?}"
     );
     for path in plans {
