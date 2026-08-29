@@ -2,7 +2,7 @@
   "id": "V-DPRC-1",
   "class": "object-lifecycle-only",
   "flagged": false,
-  "trace_file": "models/traces/vdprc1.itf.json",
+  "trace_file": "models/board/V-DPRC-1/vdprc1.itf.json",
   "steps": [
     {
       "index": 0,

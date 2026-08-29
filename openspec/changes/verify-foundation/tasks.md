@@ -148,7 +148,7 @@ board task is an operator sitting sync point.
 - [x] 6.6 Regenerate the committed ITF traces from the current model so
       every trace carries the verb channel (`lastVerbs`) and the ioctl
       policy is checked live by `cargo test`, not only by Apalache
-- [ ] 6.7 Four committed plans (V-DPNI-1, V-DPRC-1, V-LIFE-DPNI-1,
+- [x] 6.7 Four committed plans (V-DPNI-1, V-DPRC-1, V-LIFE-DPNI-1,
       V-RECOVERY-1) name a `trace_file` under `models/traces/` that no
       longer exists — the traces moved beside their suites before the
       field was ever read back. Point them, and the matching script

@@ -2,7 +2,7 @@
   "id": "V-RECOVERY-1",
   "class": "object-lifecycle-only",
   "flagged": false,
-  "trace_file": "models/traces/recovery.itf.json",
+  "trace_file": "models/board/V-RECOVERY-1/recovery.itf.json",
   "steps": [
     {
       "index": 0,

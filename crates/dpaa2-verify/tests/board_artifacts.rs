@@ -134,6 +134,33 @@ fn expected_refusal_probe_steps_parse_and_are_validated() {
     );
 }
 
+/// Each plan's `trace_file` points at its sibling trace. Nothing reads
+/// the field after generation, so this is the only thing that keeps it
+/// true when a trace moves or is renamed.
+#[test]
+fn committed_plan_trace_files_resolve() {
+    let plans = board_files(".plan.json");
+    // A count that drops means a plan was renamed out of reach, which
+    // would pass silently as an empty walk.
+    assert!(
+        plans.len() >= 36,
+        "expected the committed plans under models/board, found {plans:?}"
+    );
+    let root = format!("{}/../../", env!("CARGO_MANIFEST_DIR"));
+    for path in plans {
+        let json = std::fs::read_to_string(&path).expect("read committed plan");
+        let plan: serde_json::Value = serde_json::from_str(&json).expect("parse plan");
+        let trace_file = plan["trace_file"].as_str().expect("trace_file string");
+        let resolved = PathBuf::from(&root).join(trace_file);
+        assert!(
+            resolved.exists(),
+            "{}: trace_file {trace_file} missing at {}",
+            path.display(),
+            resolved.display()
+        );
+    }
+}
+
 #[test]
 fn committed_board_traces_parse() {
     let traces = board_files(".itf.json");

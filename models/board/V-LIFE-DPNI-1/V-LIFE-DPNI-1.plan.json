@@ -2,7 +2,7 @@
   "id": "V-LIFE-DPNI-1",
   "class": "object-lifecycle-only",
   "flagged": false,
-  "trace_file": "models/traces/vlife_dpni1.itf.json",
+  "trace_file": "models/board/V-LIFE-DPNI-1/vlife_dpni1.itf.json",
   "steps": [
     {
       "index": 0,
