@@ -140,7 +140,7 @@ board task is an operator sitting sync point.
 
 ## 7. Close-out
 
-- [ ] 7.1 Verify every spec scenario of `formal-models` and
+- [x] 7.1 Verify every spec scenario of `formal-models` and
       `mbt-harness` against the produced artifacts
 - [ ] 7.2 Cross-link models ↔ baseline docs ↔ ledger ↔ ADRs (baseline
       status cells brought level with the ledger); append
