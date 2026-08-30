@@ -23,7 +23,8 @@ every later change (#4 onward) executes a plan this compiler emits.
   `kernel|poll-mode`, `max_cores` budget, `crypto_flows`), a *port*
   (dpmac anchor, rate, owning consumer), a *link* (point-to-point
   dpni↔dpni pseudo-wire between two consumers), a *fabric*
-  (hardware-switched domain over ports and consumers), and *crypto*
+  (a forwarding domain over members — ports, consumers, other fabrics —
+  switched in hardware by a dpsw or in software by its owner), and *crypto*
   (per-consumer accelerator). `kernel` is the reserved root-regime
   consumer; dprtc.0 is pinned and never derived; dpdbg is not a
   construct. The operator states capacity and who consumes it — never a
@@ -45,7 +46,7 @@ every later change (#4 onward) executes a plan this compiler emits.
   complete list of violations, not the first — consumer absence
   (DPDCEI-I1, deferred here from #2), an unanchored, reserved, foreign or
   double-claimed dpmac, an over-rate port, a poll-mode consumer steering
-  a fabric, a thread count over the core budget, a limit below its
+  a hardware fabric, a thread count over the core budget, a limit below its
   request, and cross-consumer infeasibility against a counted or
   observed ceiling (an unknown ceiling warns, never refuses).
 - **The plan's relationships are locked by construction**: containment

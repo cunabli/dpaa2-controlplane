@@ -5,7 +5,7 @@
 // with the rate it must deliver, a link between two consumers, a fabric
 // steered by one, an accelerator for one. No construct carries a dpio,
 // dpbp, dpcon, dpmcp, queue or worker count; every such number is the
-// derivation's (intent/derive.qnt, task 1.2). The dpaa2-api Rust types
+// derivation's (intent/derive.qnt). The dpaa2-api Rust types
 // transcribe this module once the vocabulary is accepted at the gate
 // (design D6, D7).
 //
@@ -32,17 +32,30 @@ module intent_types {
   type Consumer = { name: str, regime: Regime, maxCores: int, cryptoFlows: int }
 
   // A port: the dpmac anchor, the rate the port must deliver in Mbps (the
-  // unit `dpmac info` reports its maximum in), and the owning consumer.
+  // unit `dpmac info` reports its maximum in), and the owning consumer. A
+  // port named by a fabric is terminated by the fabric's owner — a port
+  // owner that differs from the fabric owner is a refusal (task 1.3).
   type Port = { name: str, dpmac: int, rate: int, owner: str }
 
   // A link: point-to-point dpni↔dpni pseudo-wire between two consumers
   // (object-model.md §2, DPNI-I9), ends named by consumer.
   type Link = { name: str, a: str, b: str }
 
-  // A fabric: one hardware-switched domain over member ports and
-  // consumers, steered by the consumer that owns its dpsw. That the owner
-  // is kernel-steered is a rule (task 1.3), not a shape.
-  type Fabric = { name: str, owner: str, ports: Set[str], consumers: Set[str] }
+  // Who forwards between the members: Hardware — a DPSW (figure 6c), which
+  // only the kernel can drive (dpsw.md: DPDK has no claim path); Software —
+  // the owner consumer bridges its own dpnis (kernel bridge, a VPP bridge
+  // domain, …), which the MC never sees.
+  type Switching = Hardware | Software
+  // A fabric member: a declared port, a consumer, or another fabric — so a
+  // software switch can bridge a hardware-switched domain and a physical
+  // port (a chain of switches), stated, not implied.
+  type Member = MPort(str) | MConsumer(str) | MFabric(str)
+  // A fabric: one switched domain over its members, steered by the consumer
+  // that owns it. That a hardware fabric's owner is the kernel is a rule
+  // (task 1.3), not a shape. Members are a List: declaration order numbers
+  // the dpsw interfaces and the dpni ordinals (same rationale as the other
+  // lists).
+  type Fabric = { name: str, switching: Switching, owner: str, members: List[Member] }
 
   // An accelerator for one consumer; its queue count derives from the
   // owner's `cryptoFlows` (dpseci.md, task 1.2).
@@ -53,11 +66,17 @@ module intent_types {
   // the request is a refusal (task 1.3).
   type Limit = { consumer: str, family: Family, limit: int }
 
+  // Declaration order is the ordinal source: design D6 keys every derived
+  // object by (consumer, family, ordinal), and a TOML `[[port]]` array is
+  // ordered. Quint has no string ordering, so a Set would leave the third
+  // dpni's ordinal undefined; the lists carry the positions the derivation
+  // reads (intent/derive.qnt). crypto and limits stay Sets — unordered,
+  // matched by (owner) / (consumer, family), never by position.
   type Intent = {
-    consumers: Set[Consumer],
-    ports: Set[Port],
-    links: Set[Link],
-    fabrics: Set[Fabric],
+    consumers: List[Consumer],
+    ports: List[Port],
+    links: List[Link],
+    fabrics: List[Fabric],
     crypto: Set[Crypto],
     limits: Set[Limit],
   }
@@ -126,6 +145,8 @@ module intent_types {
   // flattener drops a sum-type constructor whose only value use sits in
   // another module (QNT404; see families/params.qnt, core/companions.qnt).
   pure val ETH_IFS: Set[EthIf] = Set(XFI, CAUI, RGMII)
+  pure val SWITCHINGS: Set[Switching] = Set(Hardware, Software)
+  pure val MEMBERS: Set[Member] = Set(MPort("p"), MConsumer("c"), MFabric("f"))
   pure val LINK_TYPES: Set[LinkType] = Set(LinkNone, LinkFixed, LinkPhy, LinkBackplane)
   pure val AVAILABILITIES: Set[Availability] = Set(Free, Reserved("why"), Foreign("owner"))
   pure val CEILINGS: Set[Ceiling] =

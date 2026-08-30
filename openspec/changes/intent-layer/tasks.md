@@ -32,7 +32,7 @@ the change's only other operator sync point (design D12).
       foreign from the ADR-0003 matrix; three-valued ceilings
       counted/observed/unknown with ADR-0011 provenance) loaded from the
       reference snapshot (design D1, D2)
-- [ ] 1.2 Derivation as pure defs: the rate-class → T table (one seeded
+- [x] 1.2 Derivation as pure defs: the rate-class → T table (one seeded
       row, `unmeasured`), `max_cores` bound, companion draws by
       reference to `companions.qnt`, dpcon per polled queue, dpseci and
       dpsw predicates, one child DPRC per non-kernel consumer, dprtc.0

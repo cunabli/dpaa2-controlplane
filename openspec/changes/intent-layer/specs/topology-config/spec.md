@@ -7,8 +7,8 @@ its static DPMAC anchor and never by an MC-assigned DPNI index, and in
 which every other object is derived from the constructs the operator
 declares: `[[consumer]]` (name, regime, `max_cores`,
 `crypto_flows`), `[[port]]` (dpmac, name, rate, consumer, MAC and MAC
-mode), `[[link]]` (two consumer ends), `[[fabric]]` (ports and
-consumers), and `[[crypto]]` (consumer). The config SHALL NOT require
+mode), `[[link]]` (two consumer ends), `[[fabric]]` (switching
+`hardware|software`, owner, members: ports, consumers, or fabrics), and `[[crypto]]` (consumer). The config SHALL NOT require
 or accept the operator naming a DPNI index or any dpio, dpbp, dpcon,
 dpmcp, queue or worker count; per-family limits under a consumer are
 the only object-level numbers and MUST NOT fall below the derived

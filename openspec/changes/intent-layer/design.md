@@ -59,8 +59,12 @@ below record that session so tasks transcribe rather than re-litigate.
 
 The schema carries five constructs — consumer (name, regime
 `kernel|poll-mode`, `max_cores`, `crypto_flows`), port (dpmac, rate,
-consumer), link (two consumer ends), fabric (ports and consumers in one
-hardware-switched domain), crypto (per consumer) — and no field for a
+consumer), link (two consumer ends), fabric (members — ports,
+consumers, or other fabrics — with a `switching` qualifier: `hardware`,
+a dpsw only the kernel can drive, or `software`, the owner consumer
+bridging its own dpnis, which the MC never sees; a chain of switches is
+a software fabric that lists a hardware fabric as a member — DPAA2 User
+Manual §2.2.2 figure 6a–c), crypto (per consumer) — and no field for a
 dpio, dpbp, dpcon, dpmcp, queue or worker count. `max_cores` is a budget
 the derivation must fit under; `crypto_flows` is a consumer-visible
 quantity, not an object count; `rate` is what the port must deliver.
@@ -116,10 +120,16 @@ process (the primary; a secondary adds one), dpni transmit queues ≥ T;
 kernel: dpio one per online CPU, dpbp and dpmcp one per consuming
 object plus one per dpio (ADR-0012, `companions.qnt`); dpcon one per
 polled queue (`dpcon.md`); dpseci `num_queues ≥ crypto_flows` with the
-`HAS_CG` safety bit (`dpseci.md`); dpsw `num_ifs` = port count,
-`max_fdbs ≥ num_ifs`, PER_FDB flooding and broadcast, control interface
-enabled — the kernel-bindable predicate (`dpsw.md`) — and kernel-steered
-only; one child DPRC per non-kernel consumer with restool-default
+`HAS_CG` safety bit (`dpseci.md`); dpsw for a hardware fabric
+only, `num_ifs` = its interface count (member ports as dpmac endpoints,
+member consumers and attached software fabrics as dpni endpoints —
+figure 6c), `max_fdbs ≥ num_ifs`, PER_FDB flooding and broadcast,
+control interface enabled — the kernel-bindable predicate (`dpsw.md`) —
+and kernel-steered only; a software fabric emits no dpsw: its owner
+terminates member ports (figure 6a) and reaches member consumers by
+dpni↔dpni pseudo-wire (figure 6b), the boundary connector that needs no
+netlink exposure; a hardware fabric inside a hardware fabric is refused
+until a baseline verifies dpsw↔dpsw; one child DPRC per non-kernel consumer with restool-default
 options (`dprc.md`); dprtc.0 pinned in root; dpdbg not derived. Each
 rule is one named invariant whose comment cites the section it comes
 from; the numbers live in the ADRs and the model, never twice.
@@ -130,7 +140,10 @@ from; the numbers live in the ADRs and the model, never twice.
 variants are the rules: `ConsumerAbsent` (DPDCEI-I1; a dpci or dpdcei
 intent with no userspace consumer named), `Unanchored` and
 `DoubleClaimed` (dpmac not in the inventory / claimed by two constructs),
-`OverRate` (rate above `max_rate`), `FabricNotKernelSteered`,
+`OverRate` (rate above `max_rate`), `FabricNotKernelSteered` (a
+hardware fabric whose owner is not the kernel), `PortOwnerMismatch` (a
+member port whose owner is not its fabric's), `UnsupportedEdge` (a
+hardware fabric inside a hardware fabric),
 `CoreBudgetExceeded` (T > `max_cores`), `OverrideBelowFloor`, and
 `Reserved`, `Foreign`, and `Infeasible { family, needed, available }`.
 `compile` returns *every* violation, not the first — the compiler idiom:

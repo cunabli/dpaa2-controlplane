@@ -4,8 +4,9 @@
 The `dpaa2-api` crate SHALL define an `Intent` type composed of five
 constructs — consumer (name, regime `kernel` or `poll-mode`, a
 `max_cores` budget, a `crypto_flows` count), port (dpmac anchor, rate,
-owning consumer), link (two consumer ends), fabric (a set of ports and
-consumers in one hardware-switched domain), and crypto (per consumer) —
+owning consumer), link (two consumer ends), fabric (members — ports,
+consumers, or fabrics — and a `switching` qualifier, hardware or
+software), and crypto (per consumer) —
 carrying no serialization derives and no field for a dpio, dpbp, dpcon,
 dpmcp, queue or worker count. The consumer name `kernel` SHALL be
 reserved for the root-container kernel regime. (ADR-0005 §1, ADR-0012)
@@ -14,6 +15,12 @@ reserved for the root-container kernel regime. (ADR-0005 §1, ADR-0012)
 - **WHEN** an intent contains a port that names no consumer
 - **THEN** the port is owned by the reserved `kernel` consumer in the
   root container
+
+#### Scenario: A chain of switches is stated as composition
+- **WHEN** a software fabric owned by a poll-mode consumer lists a
+  hardware fabric as a member
+- **THEN** the plan holds the kernel's dpsw with that consumer's dpni on
+  one of its interfaces, no second dpsw, and no pseudo-wire
 
 #### Scenario: No count field exists
 - **WHEN** the `Intent` type is inspected
@@ -94,8 +101,9 @@ The compiler SHALL refuse, with a variant naming the rule and the
 offending construct, on: consumer absence (a dpci or dpdcei intent with
 no userspace consumer named, DPDCEI-I1); an unanchored dpmac (not in
 the inventory); a reserved or foreign dpmac; a dpmac claimed by two
-constructs; a port rate above its dpmac's `max_rate`; a fabric steered
-by a poll-mode consumer; a derived T above the consumer's `max_cores`;
+constructs; a port rate above its dpmac's `max_rate`; a hardware fabric
+steered by a consumer other than the kernel; a member port whose owner
+is not its fabric's; a hardware fabric inside a hardware fabric; a derived T above the consumer's `max_cores`;
 a limit below its request; and cross-consumer infeasibility, where the
 sum of derived draws exceeds a `Counted` or `Observed` ceiling — naming
 the family, the amount needed, and the amount available. An `Unknown`
@@ -121,8 +129,9 @@ live-census refusal.
 - **THEN** compilation is refused with `DoubleClaimed` naming the dpmac
   and both constructs
 
-#### Scenario: A fabric owned by a poll-mode consumer
-- **WHEN** a fabric names a poll-mode consumer as its steering owner
+#### Scenario: A hardware fabric owned by a poll-mode consumer
+- **WHEN** a hardware-switched fabric names a poll-mode consumer as its
+  owner
 - **THEN** compilation is refused with `FabricNotKernelSteered`
 
 #### Scenario: A reserved anchor
