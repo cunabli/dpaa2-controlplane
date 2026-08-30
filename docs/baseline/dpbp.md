@@ -113,8 +113,9 @@ VFIO-owned and claimed by the PMD [verified]. Teardown: consumer frees
 
 ## Intent mapping
 
-Sizing rule (ADR-0012 [verified]): **two dpbps per VPP child container**
-(VPP pool + PMD SG pool), regardless of port count; kernel-side
+Sizing rule (ADR-0012 [verified]): **two dpbps per poll-mode child
+container** (the consumer's own pool + the driver's scatter-gather
+pool), regardless of port count; kernel-side
 consumers draw one each from the parent pool. The intent compiler emits
 dpbps as derived companions of the consumer set, never as user-facing
 objects.

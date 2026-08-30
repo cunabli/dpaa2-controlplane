@@ -172,19 +172,22 @@ The paid-for rules, all evidence-anchored in the pool family docs:
 
 - **dpio**: regime-typed, the most miscounted number on the board
   (DPIO-I2 [verified]). Kernel container: one per online CPU, ceiling
-  enforced (`-ERANGE` beyond). DPDK child: **exactly `2 × (main +
-  workers)`** — a general and an ethernet-rx portal per thread, each an
-  exclusive dpio (ADR-0012).
+  enforced (`-ERANGE` beyond). Poll-mode child: **exactly `2 × T`**, T
+  the consumer's thread count (main plus workers) — a general and a
+  receive portal per thread, each an exclusive dpio (ADR-0012).
 - **dpmcp**: one per portal-consuming object *including one per dpio*
   (the forgotten draw), plus concurrency headroom for the management
   plane itself — N simultaneous uapi openers need N−1 free dpmcps
-  (DPMCP-I1/I2). VPP child: 3 (PMD portals) [verified].
-- **dpbp**: one per kernel dpni/dpsw; **exactly two per VPP child**
-  (VPP pool + PMD scatter-gather pool) regardless of port count
-  (DPBP-I6 [verified]).
+  (DPMCP-I1/I2). Poll-mode child: **one per process** — the bus maps a
+  single dpmcp per process and every object's commands go through it
+  (ADR-0012, DPMCP-I7 [verified]); the 3 the board's child carries is a
+  script constant, two of them idle.
+- **dpbp**: one per kernel dpni/dpsw; **exactly two per poll-mode
+  child** (the consumer's own pool + the driver's scatter-gather pool)
+  regardless of port count (DPBP-I6, ADR-0012 [verified]).
 - **dpcon**: one per polled queue per consumer —
   `min(num_queues, consumer cores)` per kernel dpni, one per queue in
-  the VPP regime (DPCON-I1 [verified]).
+  the poll-mode regime (DPCON-I1 [verified]).
 - **irq**: 256 per container, `-ENOSPC` on exhaustion (dprc.md).
 
 Derivation direction for the intent compiler: dpni sizing *triggers* the

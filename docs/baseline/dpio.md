@@ -114,8 +114,9 @@ regime:
 ## Intent mapping
 
 Dpio count is a derived quantity of the consumer's thread model, never
-user-specified: kernel intent → one per CPU; VPP intent → `2 × T`. The
-compiler must also emit the companion dpmcp per dpio (kernel regime)
+user-specified: kernel intent → one per CPU; poll-mode intent → `2 × T`
+(ADR-0012). The compiler must also emit the companion dpmcp per dpio
+(kernel regime)
 and keep dpio creation *before* consumer dpnis in the plan order.
 
 ## Silent-failure notes

@@ -77,7 +77,7 @@ guarantee).
 - Every generated suite already behaves this way (it holds the ids it
   created and destroys in reverse order inside one run); nothing changes
   for `dpaa2-verify`.
-- Labels become part of the convergence intent: the intent layer (`#5`)
+- Labels become part of the convergence intent: the intent layer (`#3`)
   reserves a label namespace, and the read-back parser must surface the
   label column of `dprc show`.
 - The reference snapshot's object list is a set of names at one moment,

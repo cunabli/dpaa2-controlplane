@@ -117,9 +117,9 @@ primary process takes the first it lists, a secondary the last) and
 every object's MC commands go through it, so the count does not grow
 with dpios or dpnis (`models/core/companions.qnt`, ADR-0012; dpdk
 `drivers/bus/fslmc/fslmc_vfio.c` `fslmc_vfio_process_group`). The 3 the
-board's poll-mode child carries is one in use, one for a secondary
-process, one idle — and each idle one is an MC portal drawn for the boot
-(DPMCP-I6). Plus **concurrency headroom for the management plane
+board's poll-mode child carries is a script constant, not a derived
+count: one in use, two idle (ADR-0012, open question 1 settled) — and
+each idle one is an MC portal drawn for the boot (DPMCP-I6). Plus **concurrency headroom for the management plane
 itself**: the reconciler must model its own portal draw when running
 alongside other openers — a self-referential resource unique to this
 family.

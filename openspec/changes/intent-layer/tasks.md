@@ -13,7 +13,7 @@ the change's only other operator sync point (design D12).
       below, wiring dependencies (0 → 1 → 2 → gate → 3 → 4 → 5) and
       instantiating the six-point DoD per issue; mark ROADMAP row 3 in
       flight
-- [ ] 0.2 Align the prose to what #2 settled: `object-model.md` §4 takes
+- [x] 0.2 Align the prose to what #2 settled: `object-model.md` §4 takes
       ADR-0012's one-dpmcp-per-process and vendor-neutral wording; the
       dpmcp/dpbp/dpio intent sections cite ADR-0012 for numbers only;
       ADR-0010's "intent layer (#5)" becomes #3; `COVERAGE.md`
