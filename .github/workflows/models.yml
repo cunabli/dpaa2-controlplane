@@ -1,0 +1,50 @@
+name: Models # The Quint/Apalache model ladder
+
+# The ladder guards models/** and its toolchain only; Rust-only and
+# docs-only changes never start this runner. The replay rung's crate
+# tests (dpaa2-verify) stay covered on every push by CI's test job.
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - models/**
+      - package.json
+      - pnpm-lock.yaml
+      - .github/workflows/models.yml
+  pull_request:
+    paths:
+      - models/**
+      - package.json
+      - pnpm-lock.yaml
+      - .github/workflows/models.yml
+
+jobs:
+
+  model-validation:
+    name: Model Validation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 10
+      - name: Install Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: Install JVM (Apalache rung)
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 17
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Install Quint toolchain
+        run: pnpm install --frozen-lockfile
+      - name: Run the validation
+        run: pnpm model:validation
