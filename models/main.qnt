@@ -293,6 +293,16 @@ module main {
       companionDraw(PollMode, 0, 5, 1, 7).dpbp == 2,
     }))
 
+  // ADR-0012 as named laws (companions.qnt): the kernel draw, the poll-mode
+  // draw, the forgotten dpio→dpmcp portal, and monotonicity, over the finite
+  // input ranges the board spans (16 CPUs, T ≤ 8, 1–2 processes, ≤ 4 dpnis).
+  run ADR0012LawsTest = all {
+    1.to(16).forall(c => 0.to(4).forall(d =>
+      ADR0012_kernelDraw(c, d) and ADR0012_dpioDrawsDpmcp(Kernel, c, 0, 1, d) and ADR0012_neverRations(Kernel, c, 0, 1, d))),
+    1.to(8).forall(t => 1.to(2).forall(pr => 0.to(4).forall(d =>
+      ADR0012_pollModeDraw(t, pr, d) and ADR0012_dpioDrawsDpmcp(PollMode, 0, t, pr, d) and ADR0012_neverRations(PollMode, 0, t, pr, d)))),
+  }
+
   run refusesIllegalPairTest =
     init.then(connectEdgeAt(ep(mac7), ep(mac9)).fail())    // no dpmac↔dpmac edge (§2)
 

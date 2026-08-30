@@ -13,7 +13,7 @@
 // (sitting-5.12 note in models/board/README.md; dpdk-26.03
 // drivers/bus/fslmc/fslmc_vfio.c).
 //
-// Named invariants: none.
+// Named invariants: ADR0012_pollModeDraw, ADR0012_kernelDraw, ADR0012_dpioDrawsDpmcp, ADR0012_neverRations (below; pinned by ADR0012LawsTest in models/main.qnt).
 
 module companions {
   // The two consumer regimes ADR-0012 separates. Kernel: the container's
@@ -59,4 +59,36 @@ module companions {
   // process.
   pure val REF_KERNEL_DRAW = companionDraw(Kernel, 16, 0, 1, 1)
   pure val REF_POLLMODE_DRAW = companionDraw(PollMode, 0, 5, 1, 2)
+
+  // ---- ADR-0012 as named laws (pinned by ADR0012LawsTest, main.qnt) ----
+
+  // ADR-0012 decision, second bullet: the poll-mode child draws a general
+  // and a receive portal per thread (2·T dpios), a fixed dpbp pair, and one
+  // MC portal per process — the record carries no dpnis term, so the draw is
+  // independent of the port count.
+  pure def ADR0012_pollModeDraw(t: int, processes: int, dpnis: int): bool =
+    companionDraw(PollMode, 0, t, processes, dpnis) == { dpio: 2 * t, dpbp: 2, dpmcp: processes }
+
+  // ADR-0012 decision, first bullet: the kernel container draws one dpio per
+  // online CPU, one dpbp per dpni, and one dpmcp per consuming object — the
+  // dpios included, so dpmcp = cpus + dpnis.
+  pure def ADR0012_kernelDraw(cpus: int, dpnis: int): bool =
+    companionDraw(Kernel, cpus, 0, 1, dpnis) == { dpio: cpus, dpbp: dpnis, dpmcp: cpus + dpnis }
+
+  // ADR-0012 "the draw the port-count model forgets": in the kernel regime
+  // every dpio draws its own MC portal, so dpmcp ≥ dpio; on the DPDK bus the
+  // portal count is one per process regardless of how many dpios T implies.
+  pure def ADR0012_dpioDrawsDpmcp(regime: Regime, cpus: int, t: int, processes: int, dpnis: int): bool =
+    val d = companionDraw(regime, cpus, t, processes, dpnis)
+    match regime {
+      | Kernel => d.dpmcp >= d.dpio
+      | PollMode => d.dpmcp == processes
+    }
+
+  // ADR-0012 decision ("It does not ration a count down to fit"): the draw is
+  // monotone — raising any input never lowers any companion field.
+  pure def ADR0012_neverRations(regime: Regime, cpus: int, t: int, processes: int, dpnis: int): bool =
+    val lo = companionDraw(regime, cpus, t, processes, dpnis)
+    val hi = companionDraw(regime, cpus + 1, t + 1, processes + 1, dpnis + 1)
+    and { hi.dpio >= lo.dpio, hi.dpbp >= lo.dpbp, hi.dpmcp >= lo.dpmcp }
 }

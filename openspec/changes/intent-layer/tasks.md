@@ -47,7 +47,7 @@ the change's only other operator sync point (design D12).
       infeasibility naming
       family/needed/available against counted/observed ceilings and
       warning on unknown (design D5)
-- [ ] 1.4 Plan relationships as invariants: one container per object
+- [x] 1.4 Plan relationships as invariants: one container per object
       and root never a consumer, typed connect ends and no double
       connect, companions only as consumer derivations, emission order
       per `object-model.md` §5 — each a named invariant citing its
