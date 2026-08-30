@@ -12,6 +12,7 @@ module intent_main {
   import intent_types.* from "./types"
   import intent_inventory.* from "./inventory"
   import intent_derive.* from "./derive"
+  import intent_refuse.* from "./refuse"
 
   // ---- shared helpers for the derivation runs (task 1.2) ----
 
@@ -23,6 +24,19 @@ module intent_main {
   pure def keyIndex(order: List[Key], k: Key): int =
     order.foldl({ i: 0, found: -1 }, (acc, x) =>
       { i: acc.i + 1, found: if (acc.found >= 0) acc.found else if (x == k) acc.i else -1 }).found
+
+  // ---- shared helpers for the refusal runs (task 1.3) ----
+
+  pure def refusedWith(c: Compiled, pred: (Refusal) => bool): bool =
+    match c { | Refused(rs) => rs.exists(pred) | _ => false }
+  pure def refusalSet(c: Compiled): Set[Refusal] =
+    match c { | Refused(rs) => rs | _ => Set() }
+
+  // Inventory variants: one ceiling replaced, or dpmac.7 made DPL-foreign.
+  pure def invWithCeiling(fam: Family, ceil: Ceiling): Inventory =
+    REF_INVENTORY.with("ceilings", REF_INVENTORY.ceilings.put(fam, ceil))
+  pure val invWithForeignDpmac7: Inventory =
+    REF_INVENTORY.with("dpmacs", REF_INVENTORY.dpmacs.put(7, REF_INVENTORY.dpmacs.get(7).with("avail", Foreign("dpl"))))
 
   // ---- shared intent fragments ----
 
@@ -304,4 +318,150 @@ module intent_main {
   run deterministicTest = all {
     derive(routerIntent, REF_INVENTORY) == derive(routerIntent, REF_INVENTORY),
   }
+
+  // ---- refusals: the total function's other half (task 1.3) ----
+
+  // A clean intent compiles: the plan is the derivation, and every derived
+  // family whose ceiling is Unknown with a non-zero count warns (Dprc 1,
+  // Dpio 10, Dpcon 10; Dpseci/Dpsw are zero). No refusal.
+  run compileOkTest =
+    match compile(routerIntent, REF_INVENTORY) {
+      | Ok(res) => all {
+          res.plan == derive(routerIntent, REF_INVENTORY),
+          res.warnings == Set(
+            UnknownCeiling({ family: Dprc, needed: 1 }),
+            UnknownCeiling({ family: Dpio, needed: 10 }),
+            UnknownCeiling({ family: Dpcon, needed: 10 })),
+        }
+      | Refused(_) => false
+    }
+
+  // T = 5 above max_cores = 4 refuses by name and nothing else (design D3).
+  run coreBudgetExceededTest =
+    val router4Intent = routerIntent.with("consumers", [router.with("maxCores", 4)])
+    refusalSet(compile(router4Intent, REF_INVENTORY)) ==
+      Set(CoreBudgetExceeded({ consumer: "router", t: 5, maxCores: 4 }))
+
+  // Two independent violations reported at once (spec.md "All violations at
+  // once"): a reserved anchor and an exceeded core budget, and only those.
+  run allViolationsAtOnceTest =
+    val why17 = match REF_INVENTORY.dpmacs.get(17).avail { | Reserved(w) => w | _ => "" }
+    val intent = {
+      consumers: [router.with("maxCores", 4), kernel16],
+      ports: [wan0, wan1, { name: "mgmt", dpmac: 17, rate: 1000, owner: "kernel" }],
+      links: [], fabrics: [], crypto: Set(), limits: Set() }
+    val c = compile(intent, REF_INVENTORY)
+    all {
+      refusedWith(c, r => r == ReservedAnchor({ port: "mgmt", dpmac: 17, why: why17 })),
+      refusedWith(c, r => r == CoreBudgetExceeded({ consumer: "router", t: 5, maxCores: 4 })),
+      refusalSet(c).size() == 2,
+    }
+
+  // Three portless poll-mode consumers draw 6 dpbps against a listed pool of
+  // 5: cross-plan infeasibility named to the family and shortfall (ADR-0011).
+  run infeasibleTest =
+    val a = { name: "a", regime: PollMode, maxCores: 2, cryptoFlows: 0 }
+    val b = { name: "b", regime: PollMode, maxCores: 2, cryptoFlows: 0 }
+    val d = { name: "d", regime: PollMode, maxCores: 2, cryptoFlows: 0 }
+    val intent = { consumers: [a, b, d], ports: [], links: [], fabrics: [], crypto: Set(), limits: Set() }
+    refusalSet(compile(intent, invWithCeiling(Dpbp, Counted(5)))) ==
+      Set(Infeasible({ family: Dpbp, needed: 6, available: 5 }))
+
+  // A dpmac claimed by two ports, and a port switched into two fabrics.
+  run doubleClaimedTest =
+    val twoPorts = { consumers: [router],
+      ports: [wan0, { name: "wan1", dpmac: 7, rate: 10000, owner: "router" }],
+      links: [], fabrics: [], crypto: Set(), limits: Set() }
+    val twoFabrics = { consumers: [kernel16],
+      ports: [{ name: "p8", dpmac: 8, rate: 10000, owner: "kernel" }],
+      links: [],
+      fabrics: [{ name: "f1", switching: Hardware, owner: "kernel", members: [MPort("p8")] },
+                { name: "f2", switching: Hardware, owner: "kernel", members: [MPort("p8")] }],
+      crypto: Set(), limits: Set() }
+    all {
+      refusedWith(compile(twoPorts, REF_INVENTORY),
+        r => r == DoubleClaimed({ dpmac: 7, constructs: Set("wan0", "wan1") })),
+      refusedWith(compile(twoFabrics, REF_INVENTORY),
+        r => r == DoubleClaimed({ dpmac: 8, constructs: Set("f1", "f2") })),
+    }
+
+  // A hardware fabric a poll-mode consumer steers, and a kernel fabric that
+  // lists a router-owned port (design D4/D5).
+  run fabricNotKernelSteeredTest =
+    val steered = { consumers: [router],
+      ports: [wan0],
+      links: [],
+      fabrics: [{ name: "rsw", switching: Hardware, owner: "router", members: [MPort("wan0")] }],
+      crypto: Set(), limits: Set() }
+    val mismatch = { consumers: [kernel16, router],
+      ports: [{ name: "px", dpmac: 8, rate: 10000, owner: "router" }],
+      links: [],
+      fabrics: [{ name: "ksw", switching: Hardware, owner: "kernel", members: [MPort("px")] }],
+      crypto: Set(), limits: Set() }
+    all {
+      refusedWith(compile(steered, REF_INVENTORY),
+        r => r == FabricNotKernelSteered({ fabric: "rsw", owner: "router" })),
+      refusedWith(compile(mismatch, REF_INVENTORY),
+        r => r == PortOwnerMismatch({ fabric: "ksw", port: "px", owner: "router" })),
+    }
+
+  // A limit below its request refuses; a limit on a family whose count is
+  // fixed by constructs is never silently ignored (design D5/D7).
+  run limitRefusalsTest =
+    val below = routerIntent.with("limits", Set({ consumer: "router", family: Dpbp, limit: 1 }))
+    val notDerived = routerIntent.with("limits", Set({ consumer: "router", family: Dpni, limit: 5 }))
+    all {
+      refusedWith(compile(below, REF_INVENTORY),
+        r => r == LimitBelowRequest({ consumer: "router", family: Dpbp, request: 2, limit: 1 })),
+      refusedWith(compile(notDerived, REF_INVENTORY),
+        r => r == LimitNotDerived({ consumer: "router", family: Dpni })),
+    }
+
+  // A 25G port is a rate class the seeded table does not know: refused rather
+  // than extrapolated (design D3; derive.qnt open item (b)).
+  run unknownRateClassRefusedTest =
+    val intent = { consumers: [router],
+      ports: [{ name: "w", dpmac: 4, rate: 25000, owner: "router" }],
+      links: [], fabrics: [], crypto: Set(), limits: Set() }
+    refusedWith(compile(intent, REF_INVENTORY),
+      r => r == UnknownRateClass({ consumer: "router", rates: [25000] }))
+
+  // An unanchored dpmac, a DPL-foreign anchor, and a rate above the anchor's
+  // maximum (design D2; the last also unseeds T, so assert containment).
+  run unanchoredForeignTest =
+    val unanchored = { consumers: [router],
+      ports: [{ name: "w", dpmac: 99, rate: 10000, owner: "router" }],
+      links: [], fabrics: [], crypto: Set(), limits: Set() }
+    val overRate = { consumers: [router],
+      ports: [{ name: "wan0", dpmac: 7, rate: 25000, owner: "router" }],
+      links: [], fabrics: [], crypto: Set(), limits: Set() }
+    all {
+      refusedWith(compile(unanchored, REF_INVENTORY),
+        r => r == Unanchored({ port: "w", dpmac: 99 })),
+      refusedWith(compile(routerIntent, invWithForeignDpmac7),
+        r => r == ForeignAnchor({ port: "wan0", dpmac: 7, owner: "dpl" })),
+      refusedWith(compile(overRate, REF_INVENTORY),
+        r => r == OverRate({ port: "wan0", rate: 25000, maxRate: 10000 })),
+    }
+
+  // A hardware fabric inside a hardware fabric is refused (object-model.md §2;
+  // derive.qnt open item (d)): the same intent hwInHwDerivesNothingTest derives.
+  run unsupportedEdgeTest =
+    val intent = { consumers: [kernel16],
+      ports: [{ name: "p8", dpmac: 8, rate: 10000, owner: "kernel" },
+              { name: "p9", dpmac: 9, rate: 10000, owner: "kernel" }],
+      links: [],
+      fabrics: [{ name: "hw1", switching: Hardware, owner: "kernel", members: [MPort("p8")] },
+                { name: "hw2", switching: Hardware, owner: "kernel", members: [MFabric("hw1"), MPort("p9")] }],
+      crypto: Set(), limits: Set() }
+    refusedWith(compile(intent, REF_INVENTORY),
+      r => r == UnsupportedEdge({ fabric: "hw2", member: "hw1" }))
+
+  // A construct naming a consumer that was never declared (design D5).
+  run consumerAbsentTest =
+    val intent = { consumers: [router],
+      ports: [{ name: "wan0", dpmac: 7, rate: 10000, owner: "ghost" }],
+      links: [], fabrics: [], crypto: Set(), limits: Set() }
+    refusedWith(compile(intent, REF_INVENTORY),
+      r => r == ConsumerAbsent({ construct: "wan0", consumer: "ghost" }))
 }

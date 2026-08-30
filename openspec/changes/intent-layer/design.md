@@ -144,8 +144,13 @@ intent with no userspace consumer named), `Unanchored` and
 hardware fabric whose owner is not the kernel), `PortOwnerMismatch` (a
 member port whose owner is not its fabric's), `UnsupportedEdge` (a
 hardware fabric inside a hardware fabric),
-`CoreBudgetExceeded` (T > `max_cores`), `OverrideBelowFloor`, and
-`Reserved`, `Foreign`, and `Infeasible { family, needed, available }`.
+`CoreBudgetExceeded` (T > `max_cores`), `UnknownRateClass` (a poll-mode
+consumer whose terminated ports match no seeded rate-table row — D3
+refuses rather than extrapolates; a new row enters through a scenario
+that needs it), `LimitBelowRequest`, `LimitNotDerived` (a limit on a
+family whose count the constructs fix — never silently ignored, D7),
+`ConsumerAbsent`, `MemberUnresolved`, `SelfMember`, and `Reserved`,
+`Foreign`, and `Infeasible { family, needed, available }`.
 `compile` returns *every* violation, not the first — the compiler idiom:
 the operator fixes a file in one pass — so the error side is a non-empty
 `Refusals` list. `Refusal` and `Regime` are `#[non_exhaustive]`: a

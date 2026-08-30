@@ -104,7 +104,10 @@ the inventory); a reserved or foreign dpmac; a dpmac claimed by two
 constructs; a port rate above its dpmac's `max_rate`; a hardware fabric
 steered by a consumer other than the kernel; a member port whose owner
 is not its fabric's; a hardware fabric inside a hardware fabric; a derived T above the consumer's `max_cores`;
-a limit below its request; and cross-consumer infeasibility, where the
+a limit below its request; a limit on a family whose count the
+constructs fix; a poll-mode consumer whose terminated ports match no
+seeded rate-table row; a construct naming an undeclared consumer, port
+or fabric; and cross-consumer infeasibility, where the
 sum of derived draws exceeds a `Counted` or `Observed` ceiling — naming
 the family, the amount needed, and the amount available. An `Unknown`
 ceiling SHALL produce a warning in provenance, never a refusal. The
@@ -138,6 +141,12 @@ live-census refusal.
 - **WHEN** a port names `dpmac.17`
 - **THEN** compilation is refused with `Reserved` carrying the
   inventory's reason
+
+#### Scenario: An unseeded rate class is refused, not extrapolated
+- **WHEN** a poll-mode consumer terminates one 25G port and the rate
+  table holds only the 10G×2 row
+- **THEN** compilation is refused with `UnknownRateClass` naming the
+  consumer and its port rates
 
 #### Scenario: All violations at once
 - **WHEN** an intent claims `dpmac.17` and also exceeds `max_cores`

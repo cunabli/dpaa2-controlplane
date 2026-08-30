@@ -47,7 +47,7 @@ every later change (#4 onward) executes a plan this compiler emits.
   (DPDCEI-I1, deferred here from #2), an unanchored, reserved, foreign or
   double-claimed dpmac, an over-rate port, a poll-mode consumer steering
   a hardware fabric, a thread count over the core budget, a limit below its
-  request, and cross-consumer infeasibility against a counted or
+  request, an unseeded rate class, and cross-consumer infeasibility against a counted or
   observed ceiling (an unknown ceiling warns, never refuses).
 - **The plan's relationships are locked by construction**: containment
   (one container per object, root never a consumer), typed connect edges

@@ -40,10 +40,11 @@ the change's only other operator sync point (design D12).
       labels rendered from the key; provenance as a tree from each
       derived value to its rule, its inputs, the construct and the
       anchor (design D3, D4, D6)
-- [ ] 1.3 Refusals as the total function's other half, returned as the
+- [x] 1.3 Refusals as the total function's other half, returned as the
       complete list: consumer absence, unanchored, reserved, foreign,
       double-claimed, over-rate, fabric not kernel-steered, core budget
-      exceeded, limit below request, cross-consumer infeasibility naming
+      exceeded, unknown rate class, limit below request, cross-consumer
+      infeasibility naming
       family/needed/available against counted/observed ceilings and
       warning on unknown (design D5)
 - [ ] 1.4 Plan relationships as invariants: one container per object
