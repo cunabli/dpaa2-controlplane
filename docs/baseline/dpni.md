@@ -240,6 +240,15 @@ binds, or through the driver's own netdev interfaces.
   `TX_FRM_RELEASE`, `HAS_POLICING`, `SHARED_CONGESTION` are never read by
   the driver at all.
 
+The firmware's own per-object charge — separate from the kernel draw
+above, read from `dprc show mc.global --resources` — is, per dpni,
+**4 fq, 2 cg, 2 qd, 4 kp.wr0.ctlui, 3 plcye.wr0.ctlui, 3 qpr, 1 ifp.wr0,
+1 prp.wr0.ctlue, 1 prp.wr0.ctlui and 1 plcy.wr0.ctlui** of the listed
+pools, and **no mcp**, all returned on destroy [verified 2026-08-30,
+V-POOL-4 rev 2]. Seventeen dpnis' worth of that charge sits far below
+every listed floor, so the resource that refuses the 18th stays
+unlisted (ADR-0011 §2).
+
 **MAC precedence** (ADR-0001 C2, exact order,
 `dpaa2-eth.c:4573-4636`) [read; chain board-confirmed 2026-07-05
 [verified]]:

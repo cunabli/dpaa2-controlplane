@@ -65,7 +65,7 @@ and the adapter render must resolve inside the kernel's `/dev/dprc.N`
 command whitelist (`docs/baseline/mc-ioctl-policy.md`), and the two raw
 probes must resolve outside it.
 
-Tally: 53 modeled, 48 deferred, 6 board-settled, 0 board-pending — 107 candidates.
+Tally: 53 modeled, 48 deferred, 7 board-settled, 0 board-pending — 108 candidates.
 
 | Candidate | Disposition | Location / owning change / settling scenario | CI rung | Board status |
 |-----------|-------------|----------------------------------------------|---------|--------------|
@@ -124,6 +124,7 @@ Tally: 53 modeled, 48 deferred, 6 board-settled, 0 board-pending — 107 candida
 | DPMCP-I4 | modeled | `core/invariants.qnt` `DPRC_I1` (placement face) | apalache | verified (ls-addmux violation demonstrates) |
 | DPMCP-I5 | deferred | this change ph.4 online driver: per-step timeout; no fairness assumption | — | — |
 | DPMCP-I6 | board-settled | V-CEIL-1 rev 2 + the rev 2 snapshots (`mcp` in `mc.global --resources`) | — | board-settled 2026-08-29: a destroyed dpmcp's MC portal never returns within a boot — 200 → 138 after 64 creates, 138 after 64 destroys, 138 after the scratch child's destroy, 203 after the reboot; a firmware leak, not a container quota (ADR-0011 §3); the reconciler creates portals once and never recycles one through destroy |
+| DPMCP-I7 | board-settled | V-POOL-4 (`mcp` across per-create and per-destroy readings of `mc.global --resources`) | — | board-settled 2026-08-30 (V-POOL-4 rev 2): three dpios drew one `swp` and one `swpch.8wq` each, three dpnis drew 4 fq, 2 cg, 2 qd, 4 kp.wr0.ctlui, 3 plcye.wr0.ctlui, 3 qpr, 1 ifp.wr0, 1 prp.wr0.ctlue, 1 prp.wr0.ctlui and 1 plcy.wr0.ctlui each, `mcp` never moved and every unit returned on destroy; the dpmcp count is the consumer's — one per probing consumer in the kernel, one per process on the DPDK bus (`core/companions.qnt`, ADR-0012) |
 | DPSECI-I1 | deferred | `dpseci-typestate` (#8): cfg surface | — | — |
 | DPSECI-I2 | deferred | this change ph.4 generator: restool-layer validation coded at generation | — | open: V-DPSECI-1 (MC layer) → `dpseci-typestate` (#8); the restool layer is board-anchored 2026-08-29 (V-DPSECI-1/probes-rev1, 8/8: priority 0, a priority above 8, and a priority-count ≠ num-queues are each refused by restool's own parser, exit 234, before any MC command — so the MC-layer validation stays unreachable through restool) |
 | DPSECI-I3 | deferred | this change ph.4 adapter: dpseci convergence reads raw GET_ATTR, never `info` | — | open: V-DPSECI-2 (raw GET_ATTR) → `mc-portal-backend` (#10) |

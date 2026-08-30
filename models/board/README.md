@@ -79,6 +79,7 @@ diff` and read by the ledger lint, so a status cell here or a "verified
 | V-POOL-3 | `vpool3.qnt` + `pool3.sh` (suite hook) | **passed** 2026-08-29 (rev 2), 1/1 + hook 4/4 — the corrected count: one opener held the portal, 119 were refused `EINVAL` (K=120), and the pool answered after the release. Rev 1 (2026-08-29, 1/1 + hook 2/2) found the law — DPMCP-I2 falsified as stated: the second opener of `/dev/dprc.1` fails `open()` with `EINVAL` while the first is held, not `ENXIO` at exhaustion, with over a hundred portals still free. The uapi allocates the extra portal on the root container's behalf and records the root as the consumer of its own child dpmcp — a device-link cycle the kernel refuses (ADR-0006 amendment). The two PASS lines are the pool recovery and the residents rule; the hook counted the refused openers as zero because a failed `exec` ends the subshell before the counter, so the RECORD lines carry the real count — corrected for a rev 2 |
 | V-CONC-1 | `vconc1.qnt` + `conc.sh` (suite hook) | rev 1 2026-08-29, steps 1/1, hook 1/4 — **the firmware-concurrency question could not be reached; not a divergence.** `/dev/dprc.1` admits one opener at a time on this kernel (V-POOL-3's `EINVAL`): the second writer of every concurrent face failed `open()` before a command reached the MC — half of a two-writer create race, so 64 objects never listed. ADR-0006's single-writer stance is now enforced by the kernel rather than asked of operators, and whether the firmware serializes two portals stays open (it needs a second portal the uapi does not grant). The one reading that survived: 26 of 32 destroyed ids were minted again, lowest-free (ADR-0010). Not an invariant row — it amends ADR-0006 |
 | V-CEIL-1 | `vceil1.qnt` + `ceil.sh` (suite hook) | rev 2 2026-08-29, steps 1/1, hook 8/9 — the same numbers to the object (dpbp 63, five families at the cap of 64, the dpni refused at the 18th, MC portals 200 → 138 → 138) and the answer rev 1 lacked: the checkpoint snapshot taken *after the scratch child was destroyed* still reads 138 portals, and only the reboot restores 203. A destroyed dpmcp's portal is gone for the rest of the boot — a firmware leak, not a container quota (ADR-0011 §3 settled; DPMCP-I6). The FAIL line is that leak, as in rev 1. Rev 1 2026-08-29, steps 1/1, hook 7/8 — **the one FAIL is a finding the hook could not expect, not a leak.** A dpbp is refused exactly at the buffer pool's free count (63, `No resources`) and every unit comes back on destroy — the census predicts the refusal to the object. dpcon, dpmcp, dpci, dpdmai and dpdcei all reach the cap of 64 in a scratch child with their pools restored after the destroys (dpci's ceiling, "above 19" at 5.10, is now "above 64"). A dpni is refused at the 18th with every listed pool showing room — an unlisted resource. And a destroyed dpmcp does not return its portal to the parent's listing (64 created, 62 drawn, none back after 64 clean destroys) — the FAIL line. Both ambivalent findings are ADR-0011; the snapshot now captures the pools so the next diff can settle them |
+| V-POOL-4 | `vpool4.qnt` + `pool4.sh` (suite hook) | **passed** 2026-08-30 (rev 2), 1/1 + hook 8/8 — a dpio create draws one `swp` and one `swpch.8wq`; a dpni create draws 4 fq, 2 cg, 2 qd, 4 kp.wr0.ctlui, 3 plcye.wr0.ctlui, 3 qpr, 1 ifp.wr0, 1 prp.wr0.ctlue, 1 prp.wr0.ctlui and 1 plcy.wr0.ctlui; the draw is linear to the unit, `mcp` never moves, every unit returns on destroy, and both snapshots read 0 deltas. ADR-0012 open question 1 settled; DPMCP-I7. Rev 1 (2026-08-30, 1/1 + hook 6/8) read the identical twelve RECORD lines; its two FAIL lines were the hook's own linearity check comparing the `old->new` strings, whose absolute readings differ at every step by construction — corrected to compare signed differences for rev 2 |
 | V-DPNI-3 | `vdpni3.qnt` + `dpni3.sh` (suite hook) | rev 1 2026-08-29, steps 9/9, hook 2/4 — **failed on two predictions; the board did not diverge.** The primary MAC survives both an unbind and a rebind: a MAC set from the netdev reached the firmware and the remove-path reset did not clear it (DPNI-I8's predicted clear did not happen), and a second MAC set through restool while unbound was carried by both the firmware and the new netdev after the rebind (DPNI-I2's predicted reset did not happen). Both laws are falsified for the primary MAC — the driver keeps a non-zero firmware MAC and randomizes only a zero one (DPNI-I3). Max frame length read 1536 while unbound. The hook oracle is inverted for a rev 2; the rev 1 verdict stands as recorded |
 | V-LINK-4 | `vlink4.qnt` + `link.sh` (suite hook) | **passed** 2026-08-29 (rev 2), 12/12 + hook 3/3, checkpoint snapshot clean — the inverted write separated nothing, and the kernel says why: dpmac.7 is a PHY-typed port, and on those the ethernet driver routes both `ethtool -A` and `ethtool -a` to phylink — the read returns phylink's own configuration (autoneg on, manual rx/tx bits) and the write updates that configuration and the PHY's advertisement; `dpni_set_link_cfg` and `dpni_get_link_state` are never touched. (a) read off/off — phylink's default, not a negotiated reality; (b) wrote on/on and read it straight back; (c) the bounce left it at on/on; (d) restored off/off. Rev 1's reading — the PHY's reality overwriting a probe-time request — was wrong. DPMAC-I4 has no kernel-side observable on this port and stays with `dpmac-typestate` (#7) for the raw `dpni_get_link_state`/`dpmac_get_link_cfg` reads. The regenerated sever-before-unbind teardown handed dpmac.7's driver back: zero deltas at the checkpoint (ADR-0008 §8 holds on the board). Rev 1 (2026-08-29) **passed**, 12/12 + hook 2/2 — DPMAC-I4's two channels could not be separated as designed and the suite still passed (no FAIL line): the netdev came up with pause off on both sides — the PHY negotiated "flow control off" and that reality overwrote the driver's probe-time request — so writing "off" onto "off" observed nothing, and only the restoring write showed the mechanism. `ethtool -a` reports the last request immediately after a write and the firmware's reality after a link event, because the driver caches the request until the next link interrupt. The channels are separable — the rev 2 face inverts the write against the current reading and reads after a bounce. DPMAC-I4 stays open with that sharper reason; the raw `dpmac_get_link_cfg` read stays with `dpmac-typestate` (#7) |
 | V-DPDMAI-2 | `vdpdmai2.qnt` (reboot-persistence pair) | **passed** 2026-08-29 (rev 1), 1/1 — dpdmai.md unknown 4's persistence half: a bare unplugged dpdmai created in the root is absent after the reboot, the closing recovery diff clean at the 97-object reference. The shutdown-path half stays unanswerable on this BSP — no qdma driver binds a dpdmai (ADR-0008), so `dpaa2_qdma_shutdown`'s wrong-token destroy never runs |
@@ -839,6 +840,154 @@ residents rule passed in every hook.
 
 The reference snapshot now carries the pool counts from the post-reboot
 capture, so every later diff compares them.
+
+### Sitting 5.12: the companion draw, measured — design note before generation
+
+Task 5.12 puts one sentence to the board — "one dpmcp per
+portal-consuming object, including each dpio" — and ADR-0012's open
+question 1 hangs on it: the poll-mode child carries 3 dpmcps as a
+script constant, and the rule would derive a different number. The
+sentence splits in two before any suite is generated, because "portal"
+names two different resources:
+
+- The **kernel's draw is a pool object**: `fsl_mc_portal_allocate`
+  takes a dpmcp from the consumer's container when the consumer's driver
+  probes (`dpmcp.md` census, `dpio.md`). A restool-created child is
+  unplugged and never kernel-driven (V-POOL-1 rev 2), so no scratch-child
+  suite can watch this draw; it is source-read and already
+  board-anchored for the kernel regime (`DPMCP_I1Test`; V-LIFE-DPIO-1
+  rev 1: after `dprc sync` the allocator claimed a plugged dpmcp).
+- The **firmware's draw is an MC portal** — the `mcp` line of
+  `dprc show mc.global --resources` — and a dpmcp create takes one for
+  the rest of the boot (DPMCP-I6). Whether a dpio or a dpni create takes
+  one too is the reading the task names, and it decides whether a
+  container's dpmcp count is a firmware cost per object or purely the
+  consumer's requirement. That is what the board can settle.
+
+The poll-mode half of question 1 is answered by source, not by the
+board. The two buses NXP wrote for the MC — the kernel's fsl-mc bus and
+DPDK's fslmc bus — are the record of how the firmware is meant to be
+used, and where the kernel's draw cannot be observed here, the DPDK bus
+stands proxy. That bus maps **one dpmcp per process**: the primary
+process maps the first unblocked dpmcp it lists and drops the rest from
+its device list ("Ideally there is only a single dpmcp, but in case
+multiple exists, looping on remaining devices"); a secondary process
+takes the last one, and with a single dpmcp in the container it finds
+none and refuses to start. Every driver on that bus — dpio, dpni, dpbp,
+dpci, dprc — sends its MC commands through that one mapped portal
+(`MC_PORTAL_INDEX` 0). So the poll-mode count is `1 + 1 if a secondary
+process attaches`, independent of dpio and dpni counts; the 3 the
+board's poll-mode child carries is that number plus one idle portal,
+and every idle portal is an `mcp` drawn for the boot (DPMCP-I6).
+Source: dpdk-26.03 `drivers/bus/fslmc/fslmc_vfio.c`
+(`fslmc_vfio_process_group`) and `portal/dpaa2_hw_pvt.h`.
+
+#### V-POOL-4 — what a dpio and a dpni create draw from the MC pools
+
+*What it observes.* Per create, the delta of every line of
+`dprc show mc.global --resources` — the `mcp` line above all — for a
+dpio and then for a dpni in a scratch child, and per destroy whether
+each delta comes back. V-CEIL-1 read the pools only before a family and
+at its ceiling, and left dpio out; the one dpni number it gave is an
+aggregate: 17 dpnis moved ten lines (fq 68, cg 34, qd 34, kp 68, plcye
+51, qpr 51, ifp 17, prp 17 + 17, plcy 17) and `mcp` not at all. Every
+total is a multiple of 17, so the per-dpni prediction is exact: 4 fq,
+2 cg, 2 qd, 4 kp.wr0.ctlui, 3 plcye.wr0.ctlui, 3 qpr, 1 ifp.wr0,
+1 prp.wr0.ctlue, 1 prp.wr0.ctlui, 1 plcy.wr0.ctlui, and **0 mcp**. For
+a dpio the prediction is 1 `swp` (plus one `swpch.8wq` channel for
+restool's default local channel) and **0 mcp**; every draw returns on
+destroy.
+
+*How.* The same one-step trace as V-CEIL-1 (one scratch child under
+dprc.1, restool's default create) and a hook `pool4.sh` that, for dpio
+and then dpni: reads the pools, creates three objects one at a time
+reading after each, then destroys them one at a time reading after
+each. Three is the smallest count that tells a per-object draw from a
+one-off one: one object cannot, two cannot separate "the first is
+special" from "alternating", three can — the second and third deltas
+equal means linear, a different first delta names a one-off cost.
+`RECORD` lines carry every changed pool line per create and per destroy
+(an awk join of two readings — the board has no jq); the `PASS` lines
+are `mcp` unchanged across the family, the second and third deltas
+equal to the first (a linear draw), and the pools back at their
+pre-family reading after the destroys. All creates and destroys are in
+the child (ADR-0008 §7).
+
+*Blast radius.* The child's residents (an unplugged child has no bus
+node, so nothing is scanned or bound) and the MC pools a dpio and a dpni
+draw from, by three objects for seconds. A dpio created there never
+probes, so the root's dpio seats and the kernel's portal service are
+untouched. If a dpio's draw never returns (DPMCP-I6 is the precedent),
+the loss is three `swp` of the 23 no consumer holds (49 listed; 16
+kernel, 10 in the poll-mode child).
+
+*Guard and abort.* An MC-short status (`No memory available` 0x9, a
+timeout 0x7) stops the hook; `restool dprc show dprc.1` must answer
+between the two families; the residents rule before and after. A draw
+that does not return on destroy is a `FAIL` line, and the snapshot diff
+after the suite is the standing leak check.
+
+*Settles or re-anchors.* ADR-0012 open question 1, with the source
+half above: the poll-mode dpmcp count is `1 + secondaries`, the kernel
+count is one per probing consumer including each dpio, and neither is
+a firmware cost of the dpio or dpni itself. `dpmcp.md` gains
+DPMCP-I7 (board-settled): a dpio or dpni create draws no MC portal —
+the dpmcp count of a container is the consumer's requirement, not the
+object's. `dpni.md`'s per-object resource cost gets the per-unit draw
+of the listed pools (ADR-0011 §2's unlisted resource stays what it
+is — the 18th dpni was refused with every listed pool showing room).
+`dpio.md` unknown 3 narrows: the bus keeps one MC portal; its per-thread
+QBMan portal types stay outside the corpus. If a dpio or dpni create
+*does* move `mcp`, the count is a firmware cost per object, the ADR's
+rule holds in both regimes, and question 1's answer becomes
+`objects + 1 per process` — a number either way.
+
+*Model side.* A pure derivation, `models/core/companions.qnt`:
+`companionDraw(regime, cpus, threads, processes, dpnis)` →
+`{ dpio, dpbp, dpmcp }`, Kernel: dpio = one per CPU, dpbp = one per
+dpni, dpmcp = one per probing consumer including each dpio; PollMode:
+dpio = 2 × T, dpbp = 2, dpmcp = processes. Two directed runs in
+`main.qnt` (`ADR0012KernelDrawTest`, `ADR0012PollModeDrawTest`) pin the
+board's numbers — 16 kernel dpios for 16 CPUs; 10 / 2 / 1 for T = 5 with
+one process — under `pnpm model:test`, and ADR-0012's decision section
+cites the module as the place the numbers are derived, not stated.
+
+#### Running the sitting
+
+One suite and one checkpoint; the snapshot diff is the leak check the
+hook's `PASS` lines are judged against:
+
+```sh
+sh models/board/V-POOL-4/V-POOL-4.sh results/V-POOL-4-rev1
+sh models/board/baselines/snapshot.sh results/5.12-snapshot-a
+```
+
+then, on the workstation, `snapshot parse` + `snapshot diff` for the
+capture and `diff --plan` for the suite, as the section below says.
+
+#### What the board answered
+
+A dpio create drew one `swp` and one `swpch.8wq`; a dpni create drew 4
+fq, 2 cg, 2 qd, 4 kp.wr0.ctlui, 3 plcye.wr0.ctlui, 3 qpr, 1 ifp.wr0,
+1 prp.wr0.ctlue, 1 prp.wr0.ctlui and 1 plcy.wr0.ctlui. The draw is
+linear — the second and third objects of each family moved their pools
+by the same amount as the first — every unit came back on destroy, and
+both snapshots read 0 deltas.
+
+Neither create touched `mcp`. So the dpmcp count of a container is the
+consumer's requirement, not a firmware cost of the object: in the kernel
+regime one per probing consumer, each dpio included; on the DPDK bus one
+per process. With the source reading of the fslmc bus above, that settles
+ADR-0012 open question 1 — the poll-mode count is one per process, not
+three; the two extra portals the board's poll-mode child carries are
+idle MC portals drawn for the boot (DPMCP-I6). `dpmcp.md` gains
+DPMCP-I7.
+
+The lesson from the rev 1 → rev 2 correction is to compare draws, not
+readings: rev 1 read the identical twelve RECORD lines, but its hook's
+linearity check compared the `old->new` strings whose absolute readings
+differ at every step by construction, printing two FAIL lines the board
+never earned. Rev 2's hook compares signed differences and passes 8/8.
 
 ### After every sitting: snapshot and diff
 

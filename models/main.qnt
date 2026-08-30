@@ -29,6 +29,7 @@
 module main {
   import types.* from "./core/types"
   import invariants as inv from "./core/invariants"
+  import companions.* from "./core/companions"
   import params.* from "./families/params"
   // Flat import (not `as iop`): the Apalache verify-path flattener drops a
   // nested-qualified name, so `VERB_OK`/`accepted`/`PROBES` are unqualified.
@@ -273,6 +274,24 @@ module main {
       .then(assignChildAt(dpni0, dprc2))               // back home
       .then(destroyAt(dpni0))                          // owner == parent
       .expect(not(s.objs.keys().contains(dpni0)))
+
+  // ADR-0012 (kernel regime, decision first bullet): the reference kernel
+  // container of 16 CPUs driving one boot dpni draws 16 dpios (one per
+  // CPU), 1 dpbp (one per dpni), and 17 dpmcps (one per probing consumer,
+  // the 16 dpios included — the draw the port-count model forgets).
+  run ADR0012KernelDrawTest =
+    init.then(check(REF_KERNEL_DRAW == { dpio: 16, dpbp: 1, dpmcp: 17 }))
+
+  // ADR-0012 (poll-mode regime, decision second bullet): the reference
+  // child at T = 5 with one process draws 10 dpios (2 × T), a fixed dpbp
+  // pair, and 1 dpmcp (one per process). A secondary process adds one
+  // dpmcp; the dpbp pair does not scale with the dpni count.
+  run ADR0012PollModeDrawTest =
+    init.then(check(and {
+      REF_POLLMODE_DRAW == { dpio: 10, dpbp: 2, dpmcp: 1 },
+      companionDraw(PollMode, 0, 5, 2, 2).dpmcp == 2,
+      companionDraw(PollMode, 0, 5, 1, 7).dpbp == 2,
+    }))
 
   run refusesIllegalPairTest =
     init.then(connectEdgeAt(ep(mac7), ep(mac9)).fail())    // no dpmac↔dpmac edge (§2)

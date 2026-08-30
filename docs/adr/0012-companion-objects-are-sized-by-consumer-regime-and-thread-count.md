@@ -3,7 +3,8 @@
 - **Status:** Accepted — verified on the board during the consumer
   bring-up that preceded this series; the ledger carries it as DPIO-I2,
   DPBP-I6 and DPNI-I10, all `verified`, and the family documents cited
-  this record before it was written down here
+  this record before it was written down here; the dpmcp draw was
+  measured by V-POOL-4 (2026-08-30, task 5.12)
 - **Date:** 2026-08-30
 - **Supersedes / relates to:** ADR-0001 (intent is reified into
   objects; companions are the compiler's to derive); ADR-0011 (pool
@@ -56,10 +57,16 @@ surfaces mid-run, looking like something else.
   the dpni exposes no counter for it; only the consumer's own
   interface-side drop counter moves. This is a floor, not a tunable —
   it cannot be rationed down to save buffer memory.
-- **dpmcp.** Every portal-consuming object draws one, *including each
-  dpio* — the draw the port-count model forgets — and the management
-  plane itself needs headroom for concurrent openers
-  (`docs/baseline/dpmcp.md`).
+- **dpmcp.** The draw is the consumer's, not the object's: a dpio or
+  dpni create takes no MC portal (V-POOL-4, DPMCP-I7). In the kernel
+  regime every probing consumer draws one dpmcp from its container, each
+  dpio included — the draw the port-count model forgets. On the DPDK bus
+  the count is one per process: the bus maps a single dpmcp — the
+  primary process the first it lists, a secondary the last — and every
+  object's commands go through it (`drivers/bus/fslmc/fslmc_vfio.c`,
+  `fslmc_vfio_process_group`; `portal/dpaa2_hw_pvt.h`,
+  `MC_PORTAL_INDEX`). The management plane's own headroom is a separate
+  question (`docs/baseline/dpmcp.md`).
 
 ## Decision
 
@@ -71,14 +78,18 @@ never states a dpio, dpbp or transmit-queue number directly.
 - Kernel regime: dpios are a container-wide per-CPU service, at most one
   per online CPU; dpbps and dpmcps one per consuming object.
 - Poll-mode regime, per child container: dpio = 2 × T, dpbp = 2,
-  dpni transmit queues ≥ T, dpmcp = one per portal-consuming object
-  including each dpio, plus headroom.
+  dpni transmit queues ≥ T, dpmcp = one per process (the primary plus
+  each secondary).
 
 When the container's pools cannot back the derived set, the reconciler
 refuses the intent and names the shortfall. It does not ration a
 count down to fit: every one of the three numbers above fails late and
 quietly when short, so a "best effort" plan is a plan to fail on the
 data path.
+
+The derivation is `models/core/companions.qnt` (`companionDraw`), pinned
+by `ADR0012KernelDrawTest` and `ADR0012PollModeDrawTest` under `pnpm
+model:test`; the numbers live there and this record explains them.
 
 ## Consequences
 
@@ -96,10 +107,13 @@ data path.
 ## Open questions and revisit triggers
 
 1. The board's poll-mode child carries **3 dpmcps** as a script
-   constant, not a derived count. Deriving it from the rule above
-   (portal consumers + headroom) may give a different number; the first
-   `pool-objects` suite that creates a poll-mode container from intent
-   settles which is right.
+   constant, not a derived count. **Settled 2026-08-30** (V-POOL-4,
+   task 5.12): the derived count is one per process — 1 for a
+   single-process consumer, 2 with a secondary — not 3; the two extra
+   portals the board's poll-mode child carries are idle, and each idle
+   dpmcp is an MC portal drawn for the rest of the boot (DPMCP-I6). The
+   first `pool-objects` suite that creates a poll-mode container from
+   intent creates one, plus one per secondary.
 2. The 2 × T portal shape is board-observed, not source-cited from the
    consumer's bus code in this corpus (`dpio.md`, unknown #3). If a
    consumer ships a different portal model, the regime table gains a

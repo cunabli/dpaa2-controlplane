@@ -41,8 +41,8 @@ pool assignment** (−1) with no CLI to pin it — dead capability, same
 shape as dprc's icid/portal pinning (DPL-only) [read]. Used by:
 ls-addni (1 per dpio + 1 per dpni), ls-addsw (1), ls-addmux (1 — but
 created in the **root** container even when the dpdmux goes to a child:
-a placement bug), ls-append-dpl (generic); our dprc-script creates
-`NDPMCP=3` in the VPP child [verified, ADR-0012].
+a placement bug), ls-append-dpl (generic); the board's poll-mode child
+carries 3 [verified, ADR-0012; one is used — see Intent mapping].
 
 ## Attribute mutability
 
@@ -104,15 +104,22 @@ a stalled MC is invisible at default loglevel [read].
 Dpmcps must exist and be plugged before *anything* that talks to the MC
 through a pooled portal — including dpio probes. The dependency graph
 bottoms out here: dpmcp depends only on its container. Counts:
-kernel-side = one per consumer object (see census); VPP child =
-`NDPMCP=3` (PMD portals) [verified]. Teardown: portal free → pool
+kernel-side = one per consumer object (see census); poll-mode child =
+one per process (3 carried; ADR-0012). Teardown: portal free → pool
 return (no reset) → unbind → destroy.
 
 ## Intent mapping
 
 Pure derived companion: `#dpmcp = #portal-consuming objects (+ dpio
-count)` in the kernel regime; a fixed small count (3) in the VPP child
-[verified]. Plus **concurrency headroom for the management plane
+count)` in the kernel regime; in the poll-mode regime one per
+**process** — the DPDK fslmc bus maps a single dpmcp per process (the
+primary process takes the first it lists, a secondary the last) and
+every object's MC commands go through it, so the count does not grow
+with dpios or dpnis (`models/core/companions.qnt`, ADR-0012; dpdk
+`drivers/bus/fslmc/fslmc_vfio.c` `fslmc_vfio_process_group`). The 3 the
+board's poll-mode child carries is one in use, one for a secondary
+process, one idle — and each idle one is an MC portal drawn for the boot
+(DPMCP-I6). Plus **concurrency headroom for the management plane
 itself**: the reconciler must model its own portal draw when running
 alongside other openers — a self-referential resource unique to this
 family.
@@ -145,6 +152,7 @@ family.
 | DPMCP-I4 | Placement law: the dpmcp must be in the *consumer's* container (pool locality, DPRC-I1); a top-up in any other container is a no-op for the consumer | consumer defer despite global dpmcp surplus | verified (DPRC-I1 class; ls-addmux bug demonstrates the violation [read]) |
 | DPMCP-I5 | **Breaking:** transport failures are not observable at default verbosity — the model's fairness assumption ("commands eventually complete or fail loudly") does not hold; every convergence check needs its own timeout | absence of dmesg output during a forced MC stall | candidate |
 | DPMCP-I6 | A destroyed dpmcp's MC portal is not returned to `mc.global --resources` for the rest of the boot — not on destroy, not when its container is destroyed; only a reboot restores the count | the `mcp` count across create, destroy, container destroy and reboot | verified 2026-08-29 (V-CEIL-1 rev 2 + the rev 2 snapshots): 200 → 138 after 64 creates, 138 after 64 destroys, 138 after the child's destroy, 203 after the reboot (ADR-0011 §3) |
+| DPMCP-I7 | A dpio or dpni create draws no MC portal: the `mcp` line of `mc.global --resources` is unchanged across three creates and three destroys of each family while their own pools move by a fixed per-object amount and return on destroy — a container's dpmcp count is the consumer's requirement, not the object's | `mcp` across per-create and per-destroy readings | verified 2026-08-30 (V-POOL-4 rev 2; rev 1 read the same numbers, its two FAIL lines were the hook comparing absolute readings) |
 
 ## Unknown / unverified register
 

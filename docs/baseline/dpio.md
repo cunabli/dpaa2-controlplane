@@ -95,8 +95,12 @@ delta for the pinned pair [read, mc-utils diff].
 ## Lifecycle ordering and dependencies
 
 Each dpio consumes **one dpmcp** at kernel probe (ls-addni encodes this
-as one dpmcp created per dpio) [read/verified]. Create + plug before
-consumers; count rules differ by regime:
+as one dpmcp created per dpio) [read/verified]. The dpio create itself
+draws only **one `swp` and one `swpch.8wq`** (restool's default local
+channel) from the MC pools and **no mcp** [verified 2026-08-30,
+V-POOL-4]; the dpmcp is drawn only when a consumer probes the dpio, not
+by the create. Create + plug before consumers; count rules differ by
+regime:
 
 - Kernel container: one dpio per online CPU is the ceiling and the
   useful maximum (the board's dprc.1 holds 16 for 16 cores) [verified].
@@ -149,6 +153,10 @@ and keep dpio creation *before* consumer dpnis in the plan order.
    (same reset-coverage gap as every family).
 3. The DPDK-side portal-allocation algorithm's exact per-thread portal
    types (outside this corpus; ADR-0012's 2×T rule is board-verified
-   behaviorally, not source-cited on the DPDK side here).
+   behaviorally, not source-cited on the DPDK side here). **Narrowed**
+   [V-POOL-4, 2026-08-30]: the bus keeps a single MC portal per process
+   (`fslmc_vfio_process_group`), so the dpmcp side of the DPDK regime is
+   one per process; the per-thread QBMan portal types stay as ADR-0012
+   records them.
 4. Whether the board's DPC constrains QBMan portal count below the
    dpio count restool would allow.

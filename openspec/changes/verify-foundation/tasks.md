@@ -115,7 +115,7 @@ board task is an operator sitting sync point.
       through the dpmac.7 netdev (V-LINK-4), the dpdmai reboot cycle
       (V-DPDMAI-2); each settled or re-anchored with its reason
 
-- [ ] 5.12 Companion draw, measured (board sitting): V-POOL-4 creates
+- [x] 5.12 Companion draw, measured (board sitting): V-POOL-4 creates
       dpios and dpnis one at a time in a scratch child and reads the
       firmware's MC-portal pool after each, so "one dpmcp per
       portal-consuming object, including each dpio" is board-settled
