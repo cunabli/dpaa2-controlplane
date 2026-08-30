@@ -19,7 +19,7 @@ the change's only other operator sync point (design D12).
       ADR-0010's "intent layer (#5)" becomes #3; `COVERAGE.md`
       re-anchors DPDCEI-I1 to this change's consumer-absence rule and
       the deferred online-driver backlog rows owned by #3 are listed
-- [ ] 0.3 Amend ADR-0002: Alloy recorded as a per-model escalation
+- [x] 0.3 Amend ADR-0002: Alloy recorded as a per-model escalation
       trigger beside TLA+, for a relational property that proves awkward
       in Quint; not taken up front (design D7)
 

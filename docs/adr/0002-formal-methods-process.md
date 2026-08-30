@@ -29,6 +29,15 @@ TLA+ only when Apalache cannot check a temporal property that model needs;
 each escalation is recorded (in the model's header and the owning change)
 when taken, never presumed in advance.
 
+Alloy is the second escalation (amended 2026-08-30, change `intent-layer`
+design D7), for a different shape of property: a *relational* one — a
+plan's containment, connect-edge and companion-coupling structure, the
+kind the intent compiler must hold over every derivable plan — that
+proves awkward to state or check in Quint's state-machine surface. It is
+taken per model on the same terms as TLA+: only when Quint has been tried
+on that property and found awkward, recorded in the model's header and
+the owning change when taken, never up front.
+
 ### 2. Models are living artifacts
 
 A model is amended and rebaselined as understanding grows — a board
@@ -123,9 +132,9 @@ under-covering and volume has a question to answer.
 - Two artifacts (model + code) must be kept honest; the amend-in-place rule
   and ITF replay are the guards, and they only work if divergences are fed
   back promptly.
-- Quint/Apalache are younger tools than TLC; the TLA+ escalation hatch is
-  the mitigation, and each use of it is a data point on whether Quint was
-  the right primary.
+- Quint/Apalache are younger tools than TLC; the TLA+ and Alloy escalation
+  hatches are the mitigation, and each use of either is a data point on
+  whether Quint was the right primary.
 
 ## References
 
@@ -135,3 +144,5 @@ under-covering and volume has a question to answer.
   the CI ladder, and retro-models of the already-validated reconciler.
 - [How we built Cedar with automated reasoning and differential testing](https://www.amazon.science/blog/how-we-built-cedar-with-automated-reasoning-and-differential-testing)
   — the volume-scale differential testing §7 defers to.
+- [Alloy](https://alloytools.org/) — the relational escalation of §1;
+  OpenSpec change `intent-layer`, `design.md` D7.

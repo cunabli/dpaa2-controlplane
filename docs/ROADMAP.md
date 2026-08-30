@@ -50,8 +50,9 @@ All 16 families are ported; tiers order the work, they do not cut it.
   dpmac.3 remains total-deny.
 - **DPL tape-out (#14).** Stays on the table, deprioritized; nothing earlier
   depends on it, so it can never hold the series hostage.
-- **TLA+ escalation (any model).** Taken per-model only when Apalache cannot
-  check a needed temporal property; recorded when taken (ADR-0002).
+- **TLA+ or Alloy escalation (any model).** Taken per-model only when
+  Apalache cannot check a needed temporal property (TLA+) or a relational
+  property proves awkward in Quint (Alloy); recorded when taken (ADR-0002).
 - **YANG (or similar) northbound.** Revisit trigger: intent expression
   outgrows the tool (ADR-0005).
 - **Multi-MC-version support.** Non-goal; revisit trigger: a second board on
