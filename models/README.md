@@ -119,7 +119,13 @@ models/
 │                         is the corpus-wide ALL_PARAMS table
 ├── helpers/              source-derived generators: mc-ioctl-policy.py writes
 │                         core/ioctl_policy.qnt and docs/baseline/mc-ioctl-policy.md
-│                         from the reference kernel whitelist (byte-identical on rerun)
+│                         from the reference kernel whitelist; intent-inventory.py
+│                         writes intent/inventory.qnt from the board snapshot
+│                         (both byte-identical on rerun)
+├── intent/               change #3: the intent vocabulary and the hardware
+│   ├── types.qnt         inventory as types (design D1/D2); the derivation,
+│   ├── inventory.qnt     refusals, invariants and paired scenarios follow
+│   └── main.qnt          (tasks 1.2–2.5); main.qnt holds its *Test runs
 ├── retro/                reconciler dpni↔dpmac retro-model: directed
 │                         runs mirroring the RestoolMc recipe, epoched
 │                         by the reconciler's observation points

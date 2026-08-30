@@ -25,7 +25,7 @@ the change's only other operator sync point (design D12).
 
 ## 1. Intent model (Quint, `models/intent/`)
 
-- [ ] 1.1 Vocabulary as types: consumer (name, regime, `max_cores`,
+- [x] 1.1 Vocabulary as types: consumer (name, regime, `max_cores`,
       `crypto_flows`), port (dpmac, rate, owner), link, fabric, crypto;
       the reserved `kernel` consumer; the inventory type (dpmacs with
       `max_rate`/`eth_if`/`link_type` and availability free/reserved/
