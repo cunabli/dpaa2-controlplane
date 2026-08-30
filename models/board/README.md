@@ -1023,7 +1023,12 @@ more than the index holds.
 `results/` is gitignored operator material and a revision was lost once
 by being overwritten in place (V-DPSW-1 rev 1), so every sitting's
 results are archived at `~/dpaa2-board-evidence/` before the next
-revision runs. Scripts generated from now on also leave `step-N-err.txt`
+revision runs. The sittings of `verify-foundation` were archived once at
+change close as a single tarball of the whole `results/` tree
+(`~/dpaa2-board-evidence/verify-foundation-2026-08-30.tar.gz`), so every
+entry of that change in `VERDICTS.json` names the same archive; from the
+next change on, each sitting is archived on its own as above.
+Scripts generated from now on also leave `step-N-err.txt`
 per step and `dmesg.txt` from the teardown — committed passed scripts
 predate that and are not rewritten, so regenerate before re-running one
 (as the rule above already says).

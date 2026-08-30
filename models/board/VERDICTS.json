@@ -8,7 +8,7 @@
       "steps": "1/1",
       "source_hash": "fnv1a64:2b361d22e6a86459",
       "hook": "7/8",
-      "archive": null
+      "archive": "~/dpaa2-board-evidence/verify-foundation-2026-08-30.tar.gz"
     },
     "V-CEIL-1-rev2": {
       "pass": false,
@@ -18,7 +18,7 @@
       "steps": "1/1",
       "source_hash": "fnv1a64:2b361d22e6a86459",
       "hook": "8/9",
-      "archive": null
+      "archive": "~/dpaa2-board-evidence/verify-foundation-2026-08-30.tar.gz"
     }
   },
   "V-CONC-1": {
@@ -30,7 +30,7 @@
       "steps": "1/1",
       "source_hash": "fnv1a64:01899470bc399b21",
       "hook": "1/4",
-      "archive": null
+      "archive": "~/dpaa2-board-evidence/verify-foundation-2026-08-30.tar.gz"
     }
   },
   "V-DPAIOP-1": {
@@ -42,7 +42,7 @@
       "steps": "6/6",
       "source_hash": "fnv1a64:7ab27efd7a97ee6e",
       "hook": null,
-      "archive": null
+      "archive": "~/dpaa2-board-evidence/verify-foundation-2026-08-30.tar.gz"
     }
   },
   "V-DPCI-1": {
@@ -54,7 +54,7 @@
       "steps": "6/7",
       "source_hash": "fnv1a64:3f1e53b0881936b4",
       "hook": null,
-      "archive": null
+      "archive": "~/dpaa2-board-evidence/verify-foundation-2026-08-30.tar.gz"
     },
     "V-DPCI-1-rev2": {
       "pass": true,
@@ -64,7 +64,7 @@
       "steps": "7/7",
       "source_hash": "fnv1a64:3f1e53b0881936b4",
       "hook": null,
-      "archive": null
+      "archive": "~/dpaa2-board-evidence/verify-foundation-2026-08-30.tar.gz"
     }
   },
   "V-DPCI-2": {
@@ -76,7 +76,7 @@
       "steps": "20/20",
       "source_hash": "fnv1a64:8aeec1d9590d2d71",
       "hook": "1/1",
-      "archive": null
+      "archive": "~/dpaa2-board-evidence/verify-foundation-2026-08-30.tar.gz"
     }
   },
   "V-DPDBG-1": {
@@ -88,7 +88,7 @@
       "steps": "7/8",
       "source_hash": "fnv1a64:e1d0a725748b1911",
       "hook": null,
-      "archive": null
+      "archive": "~/dpaa2-board-evidence/verify-foundation-2026-08-30.tar.gz"
     },
     "V-DPDBG-1/probes-rev2": {
       "pass": true,
@@ -98,7 +98,7 @@
       "steps": "10/10",
       "source_hash": "fnv1a64:27fe3fb245c42ad3",
       "hook": null,
-      "archive": null
+      "archive": "~/dpaa2-board-evidence/verify-foundation-2026-08-30.tar.gz"
     },
     "V-DPDBG-1/trace": {
       "pass": true,
@@ -108,7 +108,7 @@
       "steps": "3/3",
       "source_hash": "fnv1a64:e13c79ae6b93c80f",
       "hook": null,
-      "archive": null
+      "archive": "~/dpaa2-board-evidence/verify-foundation-2026-08-30.tar.gz"
     }
   },
   "V-DPDMAI-2": {
@@ -120,7 +120,7 @@
       "steps": "1/1",
       "source_hash": "fnv1a64:ea7e956c5ff0549e",
       "hook": null,
-      "archive": null
+      "archive": "~/dpaa2-board-evidence/verify-foundation-2026-08-30.tar.gz"
     }
   },
   "V-DPDMUX-1": {
@@ -132,7 +132,7 @@
       "steps": "6/6",
       "source_hash": "fnv1a64:f913ab6145aa023d",
       "hook": null,
-      "archive": null
+      "archive": "~/dpaa2-board-evidence/verify-foundation-2026-08-30.tar.gz"
     },
     "V-DPDMUX-1-rev2": {
       "pass": true,
@@ -142,7 +142,7 @@
       "steps": "6/6",
       "source_hash": "fnv1a64:f913ab6145aa023d",
       "hook": null,
-      "archive": null
+      "archive": "~/dpaa2-board-evidence/verify-foundation-2026-08-30.tar.gz"
     }
   },
   "V-DPDMUX-2": {
@@ -154,7 +154,7 @@
       "steps": "2/2",
       "source_hash": "fnv1a64:798bae6a77010961",
       "hook": "1/3",
-      "archive": null
+      "archive": "~/dpaa2-board-evidence/verify-foundation-2026-08-30.tar.gz"
     },
     "V-DPDMUX-2-rev2": {
       "pass": false,
@@ -164,7 +164,7 @@
       "steps": "2/2",
       "source_hash": "fnv1a64:798bae6a77010961",
       "hook": "1/3",
-      "archive": null
+      "archive": "~/dpaa2-board-evidence/verify-foundation-2026-08-30.tar.gz"
     },
     "V-DPDMUX-2-rev3": {
       "pass": false,
@@ -174,7 +174,7 @@
       "steps": "2/2",
       "source_hash": "fnv1a64:798bae6a77010961",
       "hook": "4/6",
-      "archive": null
+      "archive": "~/dpaa2-board-evidence/verify-foundation-2026-08-30.tar.gz"
     },
     "V-DPDMUX-2-rev4": {
       "pass": false,
@@ -184,7 +184,7 @@
       "steps": "2/2",
       "source_hash": "fnv1a64:798bae6a77010961",
       "hook": "2/5",
-      "archive": null
+      "archive": "~/dpaa2-board-evidence/verify-foundation-2026-08-30.tar.gz"
     },
     "V-DPDMUX-2-rev5": {
       "pass": false,
@@ -194,7 +194,7 @@
       "steps": "2/2",
       "source_hash": "fnv1a64:798bae6a77010961",
       "hook": "5/6",
-      "archive": null
+      "archive": "~/dpaa2-board-evidence/verify-foundation-2026-08-30.tar.gz"
     }
   },
   "V-DPMAC-1": {
@@ -206,7 +206,7 @@
       "steps": "5/5",
       "source_hash": "fnv1a64:7d71927d0c724e28",
       "hook": null,
-      "archive": null
+      "archive": "~/dpaa2-board-evidence/verify-foundation-2026-08-30.tar.gz"
     }
   },
   "V-DPNI-1": {
@@ -218,7 +218,7 @@
       "steps": "5/5",
       "source_hash": "fnv1a64:f29b6d318d9231ed",
       "hook": null,
-      "archive": null
+      "archive": "~/dpaa2-board-evidence/verify-foundation-2026-08-30.tar.gz"
     }
   },
   "V-DPNI-2": {
@@ -230,7 +230,7 @@
       "steps": "12/12",
       "source_hash": "fnv1a64:85217747a8ad01f9",
       "hook": null,
-      "archive": null
+      "archive": "~/dpaa2-board-evidence/verify-foundation-2026-08-30.tar.gz"
     }
   },
   "V-DPNI-3": {
@@ -242,7 +242,7 @@
       "steps": "9/9",
       "source_hash": "fnv1a64:2642e5bd2b236f1a",
       "hook": "2/4",
-      "archive": null
+      "archive": "~/dpaa2-board-evidence/verify-foundation-2026-08-30.tar.gz"
     }
   },
   "V-DPRC-1": {
@@ -254,7 +254,7 @@
       "steps": "6/13",
       "source_hash": "fnv1a64:205e22e377e68594",
       "hook": null,
-      "archive": null
+      "archive": "~/dpaa2-board-evidence/verify-foundation-2026-08-30.tar.gz"
     },
     "V-DPRC-1-rev2": {
       "pass": false,
@@ -264,7 +264,7 @@
       "steps": "12/13",
       "source_hash": "fnv1a64:205e22e377e68594",
       "hook": null,
-      "archive": null
+      "archive": "~/dpaa2-board-evidence/verify-foundation-2026-08-30.tar.gz"
     },
     "V-DPRC-1-rev3": {
       "pass": true,
@@ -274,7 +274,7 @@
       "steps": "13/13",
       "source_hash": "fnv1a64:205e22e377e68594",
       "hook": null,
-      "archive": null
+      "archive": "~/dpaa2-board-evidence/verify-foundation-2026-08-30.tar.gz"
     }
   },
   "V-DPRC-2-NOALLOC-1": {
@@ -286,7 +286,7 @@
       "steps": "1/2",
       "source_hash": "fnv1a64:ca440b43cdf1f58f",
       "hook": null,
-      "archive": null
+      "archive": "~/dpaa2-board-evidence/verify-foundation-2026-08-30.tar.gz"
     },
     "V-DPRC-2-NOALLOC-1-rev2": {
       "pass": true,
@@ -296,7 +296,7 @@
       "steps": "2/2",
       "source_hash": "fnv1a64:7952bfa5b359f1cd",
       "hook": null,
-      "archive": null
+      "archive": "~/dpaa2-board-evidence/verify-foundation-2026-08-30.tar.gz"
     }
   },
   "V-DPRC-2-NOCREATE-1": {
@@ -308,7 +308,7 @@
       "steps": "1/2",
       "source_hash": "fnv1a64:ab650763409388eb",
       "hook": null,
-      "archive": null
+      "archive": "~/dpaa2-board-evidence/verify-foundation-2026-08-30.tar.gz"
     },
     "V-DPRC-2-NOCREATE-1-rev2": {
       "pass": true,
@@ -318,7 +318,7 @@
       "steps": "2/2",
       "source_hash": "fnv1a64:c307d61757cf9314",
       "hook": null,
-      "archive": null
+      "archive": "~/dpaa2-board-evidence/verify-foundation-2026-08-30.tar.gz"
     }
   },
   "V-DPRC-2-NOSPAWN-1": {
@@ -330,7 +330,7 @@
       "steps": "1/2",
       "source_hash": "fnv1a64:42b7b5f02af56f90",
       "hook": null,
-      "archive": null
+      "archive": "~/dpaa2-board-evidence/verify-foundation-2026-08-30.tar.gz"
     },
     "V-DPRC-2-NOSPAWN-1-rev2": {
       "pass": true,
@@ -340,7 +340,7 @@
       "steps": "2/2",
       "source_hash": "fnv1a64:85226300579397e6",
       "hook": null,
-      "archive": null
+      "archive": "~/dpaa2-board-evidence/verify-foundation-2026-08-30.tar.gz"
     }
   },
   "V-DPRC-2-PL-1": {
@@ -352,7 +352,7 @@
       "steps": "2/2",
       "source_hash": "fnv1a64:0b9fcb91fbe06eb6",
       "hook": "1/1",
-      "archive": null
+      "archive": "~/dpaa2-board-evidence/verify-foundation-2026-08-30.tar.gz"
     }
   },
   "V-DPRC-2-TOPO-1": {
@@ -364,7 +364,7 @@
       "steps": "4/4",
       "source_hash": "fnv1a64:66d69502666d8769",
       "hook": "1/1",
-      "archive": null
+      "archive": "~/dpaa2-board-evidence/verify-foundation-2026-08-30.tar.gz"
     }
   },
   "V-DPRC-3": {
@@ -376,7 +376,7 @@
       "steps": "2/2",
       "source_hash": "fnv1a64:df04d4a3f9e30699",
       "hook": "5/6",
-      "archive": null
+      "archive": "~/dpaa2-board-evidence/verify-foundation-2026-08-30.tar.gz"
     },
     "V-DPRC-3-rev2": {
       "pass": true,
@@ -386,7 +386,7 @@
       "steps": "2/2",
       "source_hash": "fnv1a64:df04d4a3f9e30699",
       "hook": "6/6",
-      "archive": null
+      "archive": "~/dpaa2-board-evidence/verify-foundation-2026-08-30.tar.gz"
     }
   },
   "V-DPRC-4": {
@@ -398,7 +398,7 @@
       "steps": "9/9",
       "source_hash": "fnv1a64:19bb99186f458a25",
       "hook": null,
-      "archive": null
+      "archive": "~/dpaa2-board-evidence/verify-foundation-2026-08-30.tar.gz"
     }
   },
   "V-DPRC-5": {
@@ -410,7 +410,7 @@
       "steps": "3/3",
       "source_hash": "fnv1a64:7e3b82cfab9a03db",
       "hook": "3/3",
-      "archive": null
+      "archive": "~/dpaa2-board-evidence/verify-foundation-2026-08-30.tar.gz"
     }
   },
   "V-DPRC-6": {
@@ -422,7 +422,7 @@
       "steps": "4/4",
       "source_hash": "fnv1a64:e02c5477d9482b90",
       "hook": "3/3",
-      "archive": null
+      "archive": "~/dpaa2-board-evidence/verify-foundation-2026-08-30.tar.gz"
     }
   },
   "V-DPRTC-1": {
@@ -434,7 +434,7 @@
       "steps": "4/4",
       "source_hash": "fnv1a64:2e9316cff7aa095b",
       "hook": null,
-      "archive": null
+      "archive": "~/dpaa2-board-evidence/verify-foundation-2026-08-30.tar.gz"
     }
   },
   "V-DPRTC-2": {
@@ -446,7 +446,7 @@
       "steps": "3/3",
       "source_hash": "fnv1a64:bec473800b16abfb",
       "hook": null,
-      "archive": null
+      "archive": "~/dpaa2-board-evidence/verify-foundation-2026-08-30.tar.gz"
     },
     "V-DPRTC-2/probes-rev2": {
       "pass": true,
@@ -456,7 +456,7 @@
       "steps": "5/5",
       "source_hash": "fnv1a64:000fd04b00a0c7ea",
       "hook": null,
-      "archive": null
+      "archive": "~/dpaa2-board-evidence/verify-foundation-2026-08-30.tar.gz"
     }
   },
   "V-DPRTC-3": {
@@ -468,7 +468,7 @@
       "steps": "5/7",
       "source_hash": "fnv1a64:dc2110c13370d260",
       "hook": null,
-      "archive": null
+      "archive": "~/dpaa2-board-evidence/verify-foundation-2026-08-30.tar.gz"
     },
     "V-DPRTC-3/probes-rev2": {
       "pass": true,
@@ -478,7 +478,7 @@
       "steps": "7/7",
       "source_hash": "fnv1a64:ae51b2a5dcbda664",
       "hook": null,
-      "archive": null
+      "archive": "~/dpaa2-board-evidence/verify-foundation-2026-08-30.tar.gz"
     }
   },
   "V-DPRTC-3-postboot": {
@@ -490,7 +490,7 @@
       "steps": "3/3",
       "source_hash": "fnv1a64:98e94be619f3456e",
       "hook": null,
-      "archive": null
+      "archive": "~/dpaa2-board-evidence/verify-foundation-2026-08-30.tar.gz"
     },
     "V-DPRTC-3/postboot-rev2": {
       "pass": true,
@@ -500,7 +500,7 @@
       "steps": "3/3",
       "source_hash": "fnv1a64:e7bfcd1062c92b71",
       "hook": null,
-      "archive": null
+      "archive": "~/dpaa2-board-evidence/verify-foundation-2026-08-30.tar.gz"
     }
   },
   "V-DPSECI-1": {
@@ -512,7 +512,7 @@
       "steps": "8/8",
       "source_hash": "fnv1a64:76f03f3fe31dee7d",
       "hook": null,
-      "archive": null
+      "archive": "~/dpaa2-board-evidence/verify-foundation-2026-08-30.tar.gz"
     }
   },
   "V-DPSW-1": {
@@ -524,7 +524,7 @@
       "steps": "8/8",
       "source_hash": "fnv1a64:553078714274a081",
       "hook": null,
-      "archive": null
+      "archive": "~/dpaa2-board-evidence/verify-foundation-2026-08-30.tar.gz"
     }
   },
   "V-DPSW-4": {
@@ -536,7 +536,7 @@
       "steps": "7/7",
       "source_hash": "fnv1a64:a7d3f9d6e77cba86",
       "hook": "2/2",
-      "archive": null
+      "archive": "~/dpaa2-board-evidence/verify-foundation-2026-08-30.tar.gz"
     }
   },
   "V-GENDPL-1": {
@@ -548,7 +548,7 @@
       "steps": "4/4",
       "source_hash": "fnv1a64:b4e8149afe780ea0",
       "hook": "1/1",
-      "archive": null
+      "archive": "~/dpaa2-board-evidence/verify-foundation-2026-08-30.tar.gz"
     }
   },
   "V-LIFE-DPDCEI-1": {
@@ -560,7 +560,7 @@
       "steps": "3/5",
       "source_hash": "fnv1a64:be9ce7b3a12d4d03",
       "hook": null,
-      "archive": null
+      "archive": "~/dpaa2-board-evidence/verify-foundation-2026-08-30.tar.gz"
     },
     "V-LIFE-DPDCEI-1-rev2": {
       "pass": true,
@@ -570,7 +570,7 @@
       "steps": "5/5",
       "source_hash": "fnv1a64:be9ce7b3a12d4d03",
       "hook": null,
-      "archive": null
+      "archive": "~/dpaa2-board-evidence/verify-foundation-2026-08-30.tar.gz"
     }
   },
   "V-LIFE-DPDMAI-1": {
@@ -582,7 +582,7 @@
       "steps": "5/5",
       "source_hash": "fnv1a64:caf480f00e9d0512",
       "hook": null,
-      "archive": null
+      "archive": "~/dpaa2-board-evidence/verify-foundation-2026-08-30.tar.gz"
     },
     "V-LIFE-DPDMAI-1-rev2": {
       "pass": true,
@@ -592,7 +592,7 @@
       "steps": "5/5",
       "source_hash": "fnv1a64:caf480f00e9d0512",
       "hook": null,
-      "archive": null
+      "archive": "~/dpaa2-board-evidence/verify-foundation-2026-08-30.tar.gz"
     }
   },
   "V-LIFE-DPIO-1": {
@@ -604,7 +604,7 @@
       "steps": "5/5",
       "source_hash": "fnv1a64:6aa9f9f5571d95cb",
       "hook": null,
-      "archive": null
+      "archive": "~/dpaa2-board-evidence/verify-foundation-2026-08-30.tar.gz"
     },
     "V-LIFE-DPIO-1-rev2": {
       "pass": true,
@@ -614,7 +614,7 @@
       "steps": "5/5",
       "source_hash": "fnv1a64:6aa9f9f5571d95cb",
       "hook": null,
-      "archive": null
+      "archive": "~/dpaa2-board-evidence/verify-foundation-2026-08-30.tar.gz"
     }
   },
   "V-LIFE-DPNI-1": {
@@ -626,7 +626,7 @@
       "steps": "9/9",
       "source_hash": "fnv1a64:d934c05b2a31085f",
       "hook": null,
-      "archive": null
+      "archive": "~/dpaa2-board-evidence/verify-foundation-2026-08-30.tar.gz"
     }
   },
   "V-LIFE-DPSECI-1": {
@@ -638,7 +638,7 @@
       "steps": "4/5",
       "source_hash": "fnv1a64:db461ccd81044a0f",
       "hook": null,
-      "archive": null
+      "archive": "~/dpaa2-board-evidence/verify-foundation-2026-08-30.tar.gz"
     },
     "V-LIFE-DPSECI-1-rev2": {
       "pass": true,
@@ -648,7 +648,7 @@
       "steps": "5/5",
       "source_hash": "fnv1a64:db461ccd81044a0f",
       "hook": null,
-      "archive": null
+      "archive": "~/dpaa2-board-evidence/verify-foundation-2026-08-30.tar.gz"
     }
   },
   "V-LINK-1": {
@@ -660,7 +660,7 @@
       "steps": "4/4",
       "source_hash": "fnv1a64:07a9dd01741ec3f7",
       "hook": null,
-      "archive": null
+      "archive": "~/dpaa2-board-evidence/verify-foundation-2026-08-30.tar.gz"
     }
   },
   "V-LINK-2": {
@@ -672,7 +672,7 @@
       "steps": "14/14",
       "source_hash": "fnv1a64:e6adae995d6cc3d1",
       "hook": null,
-      "archive": null
+      "archive": "~/dpaa2-board-evidence/verify-foundation-2026-08-30.tar.gz"
     }
   },
   "V-LINK-4": {
@@ -684,7 +684,7 @@
       "steps": "12/12",
       "source_hash": "fnv1a64:371d45c19f87cd36",
       "hook": "2/2",
-      "archive": null
+      "archive": "~/dpaa2-board-evidence/verify-foundation-2026-08-30.tar.gz"
     },
     "V-LINK-4-rev2": {
       "pass": true,
@@ -694,7 +694,7 @@
       "steps": "12/12",
       "source_hash": "fnv1a64:371d45c19f87cd36",
       "hook": "3/3",
-      "archive": null
+      "archive": "~/dpaa2-board-evidence/verify-foundation-2026-08-30.tar.gz"
     }
   },
   "V-LINK-5": {
@@ -706,7 +706,7 @@
       "steps": "12/13",
       "source_hash": "fnv1a64:93de6e29b994bb9d",
       "hook": null,
-      "archive": null
+      "archive": "~/dpaa2-board-evidence/verify-foundation-2026-08-30.tar.gz"
     }
   },
   "V-POOL-1": {
@@ -718,7 +718,7 @@
       "steps": "16/16",
       "source_hash": "fnv1a64:62e694ac2c7fb124",
       "hook": "8/8",
-      "archive": null
+      "archive": "~/dpaa2-board-evidence/verify-foundation-2026-08-30.tar.gz"
     },
     "V-POOL-1-rev2": {
       "pass": false,
@@ -728,7 +728,7 @@
       "steps": "16/17",
       "source_hash": "fnv1a64:2f2ee4ea95cad041",
       "hook": "2/2",
-      "archive": null
+      "archive": "~/dpaa2-board-evidence/verify-foundation-2026-08-30.tar.gz"
     }
   },
   "V-POOL-2": {
@@ -740,7 +740,7 @@
       "steps": "16/16",
       "source_hash": "fnv1a64:348f24b32e92cc75",
       "hook": "2/2",
-      "archive": null
+      "archive": "~/dpaa2-board-evidence/verify-foundation-2026-08-30.tar.gz"
     },
     "V-POOL-2-rev2": {
       "pass": false,
@@ -750,7 +750,7 @@
       "steps": "16/17",
       "source_hash": "fnv1a64:232793f9da8dc014",
       "hook": "3/3",
-      "archive": null
+      "archive": "~/dpaa2-board-evidence/verify-foundation-2026-08-30.tar.gz"
     }
   },
   "V-POOL-3": {
@@ -762,7 +762,7 @@
       "steps": "1/1",
       "source_hash": "fnv1a64:d30dd07b28bf97ef",
       "hook": "2/2",
-      "archive": null
+      "archive": "~/dpaa2-board-evidence/verify-foundation-2026-08-30.tar.gz"
     },
     "V-POOL-3-rev2": {
       "pass": true,
@@ -772,7 +772,7 @@
       "steps": "1/1",
       "source_hash": "fnv1a64:d30dd07b28bf97ef",
       "hook": "4/4",
-      "archive": null
+      "archive": "~/dpaa2-board-evidence/verify-foundation-2026-08-30.tar.gz"
     }
   },
   "V-POOL-4": {
@@ -784,7 +784,7 @@
       "steps": "1/1",
       "source_hash": "fnv1a64:cdec97a879f49ed4",
       "hook": "6/8",
-      "archive": null
+      "archive": "~/dpaa2-board-evidence/verify-foundation-2026-08-30.tar.gz"
     },
     "V-POOL-4-rev2": {
       "pass": true,
@@ -794,7 +794,7 @@
       "steps": "1/1",
       "source_hash": "fnv1a64:cdec97a879f49ed4",
       "hook": "8/8",
-      "archive": null
+      "archive": "~/dpaa2-board-evidence/verify-foundation-2026-08-30.tar.gz"
     }
   },
   "V-READBACK-1": {
@@ -806,7 +806,7 @@
       "steps": "6/6",
       "source_hash": "fnv1a64:59d4585de99a0578",
       "hook": "8/10",
-      "archive": null
+      "archive": "~/dpaa2-board-evidence/verify-foundation-2026-08-30.tar.gz"
     },
     "V-READBACK-1-rev2": {
       "pass": true,
@@ -816,7 +816,7 @@
       "steps": "6/6",
       "source_hash": "fnv1a64:59d4585de99a0578",
       "hook": "10/10",
-      "archive": null
+      "archive": "~/dpaa2-board-evidence/verify-foundation-2026-08-30.tar.gz"
     }
   },
   "V-RECOVERY-1": {
@@ -828,7 +828,7 @@
       "steps": "3/3",
       "source_hash": "fnv1a64:8e939f9335d05cb7",
       "hook": null,
-      "archive": null
+      "archive": "~/dpaa2-board-evidence/verify-foundation-2026-08-30.tar.gz"
     }
   },
   "V-TRAF-0": {
@@ -840,7 +840,7 @@
       "steps": "12/12",
       "source_hash": "fnv1a64:d9e786471eaa268a",
       "hook": "2/2",
-      "archive": null
+      "archive": "~/dpaa2-board-evidence/verify-foundation-2026-08-30.tar.gz"
     },
     "V-TRAF-0/probes": {
       "pass": true,
@@ -850,7 +850,7 @@
       "steps": "7/7",
       "source_hash": "fnv1a64:6aa732339671380c",
       "hook": null,
-      "archive": null
+      "archive": "~/dpaa2-board-evidence/verify-foundation-2026-08-30.tar.gz"
     },
     "V-TRAF-0/probes-rev2": {
       "pass": false,
@@ -860,7 +860,7 @@
       "steps": "4/7",
       "source_hash": "fnv1a64:c979512c6c5aa4af",
       "hook": null,
-      "archive": null
+      "archive": "~/dpaa2-board-evidence/verify-foundation-2026-08-30.tar.gz"
     },
     "V-TRAF-0/trace": {
       "pass": true,
@@ -870,7 +870,7 @@
       "steps": "12/12",
       "source_hash": "fnv1a64:45ba151294066b0b",
       "hook": null,
-      "archive": null
+      "archive": "~/dpaa2-board-evidence/verify-foundation-2026-08-30.tar.gz"
     },
     "V-TRAF-0/trace-rev2": {
       "pass": true,
@@ -880,7 +880,7 @@
       "steps": "12/12",
       "source_hash": "fnv1a64:81161ea2e2398661",
       "hook": null,
-      "archive": null
+      "archive": "~/dpaa2-board-evidence/verify-foundation-2026-08-30.tar.gz"
     }
   }
 }
