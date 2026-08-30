@@ -99,6 +99,16 @@ module intent_refuse {
   // ---- rule 3: a fabric member resolves to the fabric's own owner ----
   // A hardware fabric may list its own owner (the kernel's dpni on its own
   // dpsw, figure 5); a software fabric wiring itself is a refusal.
+  // A software fabric listing a same-owner software fabric wires the owner
+  // to itself through the chain. Hoisted out of the match arm: the
+  // quint→Apalache translator (0.56.1) dies without a message on a match
+  // nested inside a match arm next to a constructor-wildcard arm.
+  pure def selfViaChain(intent: Intent, f: Fabric, h: str): bool =
+    match fabricByName(intent, h) {
+      | Some(g) => f.switching == Software and g.switching == Software and g.owner == f.owner
+      | None => false
+    }
+
   pure def selfMemberRefusals(intent: Intent, inv: Inventory): Set[Refusal] =
     intent.fabrics.foldl(Set(), (acc, f) =>
       f.members.foldl(acc, (a2, m) =>
@@ -108,15 +118,10 @@ module intent_refuse {
                 a2.union(Set(SelfMember({ fabric: f.name, member: m })))
               else a2
           | MFabric(h) =>
-              if (h == f.name)
+              if (h == f.name or selfViaChain(intent, f, h))
                 a2.union(Set(SelfMember({ fabric: f.name, member: m })))
-              else match fabricByName(intent, h) {
-                | Some(g) => if (f.switching == Software and g.switching == Software and g.owner == f.owner)
-                               a2.union(Set(SelfMember({ fabric: f.name, member: m })))
-                             else a2
-                | None => a2
-              }
-          | MPort(_) => a2
+              else a2
+          | _ => a2
         }))
 
   // ---- rule 4: the port's dpmac anchor (design D2; ADR-0003 §3; ADR-0001 §4) ----
@@ -160,6 +165,22 @@ module intent_refuse {
     byDpmac.union(byFabric)
 
   // ---- rule 6: fabric steering, port ownership, and unsupported edges (design D4/D5) ----
+  // The two member checks hoisted out of their match arms (same
+  // translator limit as selfViaChain above).
+  pure def portOwnerMismatchOf(intent: Intent, f: Fabric, pn: str): Set[Refusal] =
+    match portByName(intent, pn) {
+      | Some(port) => if (port.owner != f.owner)
+                        Set(PortOwnerMismatch({ fabric: f.name, port: pn, owner: port.owner }))
+                      else Set()
+      | None => Set()
+    }
+
+  pure def memberIsHwFabric(intent: Intent, h: str): bool =
+    match fabricByName(intent, h) {
+      | Some(g) => g.switching == Hardware
+      | None => false
+    }
+
   pure def fabricRulesRefusals(intent: Intent, inv: Inventory): Set[Refusal] =
     intent.fabrics.foldl(Set(), (acc, f) =>
       val notKernel = if (f.switching == Hardware and f.owner != KERNEL)
@@ -167,21 +188,15 @@ module intent_refuse {
                       else Set()
       val mismatches = f.members.foldl(Set(), (a2, m) =>
         match m {
-          | MPort(p) => match portByName(intent, p) {
-              | Some(port) => if (port.owner != f.owner)
-                                a2.union(Set(PortOwnerMismatch({ fabric: f.name, port: p, owner: port.owner })))
-                              else a2
-              | None => a2
-            }
+          | MPort(p) => a2.union(portOwnerMismatchOf(intent, f, p))
           | _ => a2
         })
       val unsupported = if (f.switching == Hardware)
         f.members.foldl(Set(), (a2, m) =>
           match m {
-            | MFabric(h) => match fabricByName(intent, h) {
-                | Some(g) => if (g.switching == Hardware) a2.union(Set(UnsupportedEdge({ fabric: f.name, member: h }))) else a2
-                | None => a2
-              }
+            | MFabric(h) => if (memberIsHwFabric(intent, h))
+                              a2.union(Set(UnsupportedEdge({ fabric: f.name, member: h })))
+                            else a2
             | _ => a2
           })
         else Set()

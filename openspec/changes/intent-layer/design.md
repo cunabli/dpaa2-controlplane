@@ -220,8 +220,12 @@ what an operator would type for the same intent. Quint cannot read
 TOML, so the pairing is by convention in phase 1 and by test in phase
 2: `dpaa2-verify` parses the TOML, compiles it, and asserts the plan
 equals the ITF trace's. The three scenarios and their twins: (1)
-hardware-switched fabric over dpmac.7/8/9 at 10G under `max_cores` = M
-(twin: M below T); (2) virtual fabric between two poll-mode containers
+hardware-switched fabric over dpmac.7/8 at 10G, kernel-steered, with a
+poll-mode router as a consumer member terminating dpmac.9/10 at 2×10G —
+the seeded rate class, so the router's T derives from the table under
+`max_cores` = M (twin: M below the derived T, refused as
+`CoreBudgetExceeded`; the kernel owner's budget never binds, so the
+twin needs the poll-mode member to make the refusal reachable); (2) virtual fabric between two poll-mode containers
 with no dpmac (twin: the same dpbp pool overdrawn by a third
 container); (3) userspace router over N×10G + 1×25G with `crypto_flows`
 ≤ N (twin: a port claimed by two consumers). The reference board's

@@ -52,9 +52,11 @@ the change's only other operator sync point (design D12).
       connect, companions only as consumer derivations, emission order
       per `object-model.md` §5 — each a named invariant citing its
       anchor; `companions.qnt` gains its named invariants
-- [ ] 1.5 Typecheck + simulator green; Apalache marks set on the
+- [x] 1.5 Typecheck + simulator green; Apalache marks set on the
       feasibility and companion-count invariants over the finite intent
-      alphabet; ladder scripts extended to the intent corpus
+      alphabet; ladder scripts extended to the intent corpus (marks are
+      simulator-only: Apalache front-end heap wall accepted 2026-08-30,
+      follow-up bead gqf.26)
 
 ## 2. Scenarios, simulation, fit check, gate
 
@@ -147,3 +149,7 @@ the change's only other operator sync point (design D12).
 - [ ] 5.3 Quality floor: `cargo build | fmt | clippy | clippy --tests |
       doc | test` and the model ladder green; epic closed with every
       child bead through acceptance
+- [ ] 5.4 Disposition of the accepted Apalache gap on `compileLaws`
+      (bead gqf.26): wire `model:verify` if a quint/Apalache upgrade or a
+      compile-once restructure makes it affordable, else seal the gap in
+      ADR-0002's escalation note with the measured costs

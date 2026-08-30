@@ -56,7 +56,11 @@ Cheapest rung first (ADR-0002 §6); a failure stops the validation there.
    Breaking absence-of-assumption witnesses are directed `<ID>Test`
    runs in `main.qnt` instead; candidates not expressible over the
    model state are harness-owned or deferred — `COVERAGE.md` records
-   every disposition.
+   every disposition. The intent corpus rides the same rung: its random
+   simulation grows an intent one construct per step from the finite
+   alphabet of `intent/alphabet.qnt` and checks `intentInvariants`
+   (the compile and plan relationships of `intent/invariants.qnt`) over
+   every reachable intent.
 3. **ITF replay** — frozen traces from `traces/` replay against the
    Rust core in `cargo test` (`crates/dpaa2-verify`), keeping model and
    code honest against each other with no board attached. The replayer
@@ -75,7 +79,18 @@ Cheapest rung first (ADR-0002 §6); a failure stops the validation there.
    `ALL_PARAMS` lives in `families/params.qnt` because the verify-path
    flattener loses sum-type constructors whose only value use is in the
    main module (QNT404), and integer ranges must be constant
-   (`machine.MAX_ENDPOINT_PORTS`).
+   (`machine.MAX_ENDPOINT_PORTS`). The intent corpus's marked subset is
+   `intent/alphabet.qnt` `compileLaws` — feasibleAgainstCeilings and
+   companionCountsByRegime (INTENT_I7/I8) — but it stays simulator-only:
+   the model obeys the constant-range rule (`derive` sizes objects under
+   `MAX_DERIVED_COUNT`) and the 0.56.1 translator crash is worked around
+   (refuse.qnt hoists match-in-arm shapes; quint exits 0 on the server
+   error, a silent false-green), yet Apalache's InlinePass inlines
+   several full copies of the compile/derive call tree and runs out of
+   heap — OOM at 4G and 24G, and 40G passed 12 minutes and ~50G RSS
+   without reaching the checker. The gap is accepted and tracked
+   (bead dpaa2-controlplane-gqf.26); only the core state invariants run
+   under `pnpm model:verify`.
 
 The board itself is never a CI rung (ADR-0003): board suites are
 generated from these models by the `dpaa2-verify` harness (phase 4) and
@@ -121,11 +136,19 @@ models/
 │                         core/ioctl_policy.qnt and docs/baseline/mc-ioctl-policy.md
 │                         from the reference kernel whitelist; intent-inventory.py
 │                         writes intent/inventory.qnt from the board snapshot
-│                         (both byte-identical on rerun)
-├── intent/               change #3: the intent vocabulary and the hardware
-│   ├── types.qnt         inventory as types (design D1/D2); the derivation,
-│   ├── inventory.qnt     refusals, invariants and paired scenarios follow
-│   └── main.qnt          (tasks 1.2–2.5); main.qnt holds its *Test runs
+│                         (both byte-identical on rerun); intent-pairing.py
+│                         fails the typecheck rung on an unpaired scenario
+├── intent/               change #3: the intent compiler as a model
+│   ├── types.qnt         the intent vocabulary and the inventory as types (D1/D2)
+│   ├── inventory.qnt     the reference offer, generated from the board snapshot
+│   ├── derive.qnt        the pure derivation intent+inventory -> plan (D3/D4/D6)
+│   ├── refuse.qnt        the refusal half, so compile() is total (D5)
+│   ├── invariants.qnt    named plan/compile invariants, ids INTENT_I1..I8 (D6)
+│   ├── alphabet.qnt      the finite intent alphabet as a machine — the
+│   │                     simulate/verify target (intentInvariants, compileLaws)
+│   ├── main.qnt          the directed *Test runs (tasks 1.2–1.4)
+│   └── scenarios/        each <name>.qnt sits beside a <name>.toml (task 2.1);
+│                         intent-pairing.py fails the ladder on an orphan
 ├── retro/                reconciler dpni↔dpmac retro-model: directed
 │                         runs mirroring the RestoolMc recipe, epoched
 │                         by the reconciler's observation points
@@ -153,15 +176,24 @@ drift between the two.
 The validation is wired as pnpm scripts (task 3.3; the CI job `model-validation`
 runs the same rungs in the same order):
 
+Each rung now covers the intent corpus alongside core + retro: typecheck
+adds `intent/main.qnt` and `intent/alphabet.qnt` plus the scenario pairing
+check, test adds the `intent/main.qnt` directed runs, and simulate adds the
+`intent/alphabet.qnt` sweep under `intentInvariants`. Verify is core-only
+today — the intent marked subset is Apalache-blocked (rung 4 above).
+
 ```sh
-pnpm model:typecheck   # rung 1: main + retro (silent on success)
-pnpm model:test        # rung 2a: directed runs — lifecycle, refusals, retro
-pnpm model:simulate    # rung 2b: random exploration under stateInvariants
+pnpm model:typecheck   # rung 1: core + retro + intent + scenario pairing
+pnpm model:test        # rung 2a: directed runs — lifecycle, refusals, retro, intent
+pnpm model:simulate    # rung 2b: random exploration — stateInvariants + intentInvariants
 pnpm model:replay      # rung 3: frozen ITF traces vs the reconciler (cargo)
-pnpm model:verify      # rung 4: Apalache on the marked subset (~3 min; JVM)
+pnpm model:verify      # rung 4: Apalache on the core marked subset (~3 min; JVM)
 pnpm model:validation  # all of the above, cheapest first, stop on failure
 
 pnpm model:freeze      # regenerate models/traces/ from the retro runs
+
+# the intent corpus's own directed runs
+pnpm exec quint test models/intent/main.qnt --main=intent_main
 
 # poke at the machine interactively
 pnpm exec quint repl

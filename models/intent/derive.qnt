@@ -407,11 +407,29 @@ module intent_derive {
 
   // ---- objects ----
 
+  // Apalache rejects a symbolic range bound ("Expected a constant integer
+  // expression"), so every sizing fold runs over a constant range filtered to
+  // n — the core model's machine.qnt MAX_ENDPOINT_PORTS pattern. The bound is
+  // the largest count the sizing can produce: the kernel dpcon draw
+  // dpnis·cpus with the reference offer's 6 usable dpmacs and 16 CPUs
+  // (intent/inventory.qnt); a count past it truncates the fold, which
+  // companionsOnlyDerived and keysAreIdentities trip loudly — never a silent
+  // pass.
+  pure val MAX_DERIVED_COUNT: int = 96
+  pure def countRange(n: int): List[int] =
+    range(1, MAX_DERIVED_COUNT + 1).select(i => i <= n)
+  pure def countSet(n: int): Set[int] =
+    1.to(MAX_DERIVED_COUNT).filter(i => i <= n)
+
+  // A set comprehension, not a list fold: Apalache encodes filter/map over
+  // a constant set symbolically, while an unrolled foldl over the 96-element
+  // list multiplies the term at every inline site (the front-end, not Z3,
+  // exhausts the heap).
   pure def sizedObjs(name: str, fam: Family, container: Container, n: int, attrs: Attrs, rule: str): Set[PlanObj] =
-    range(1, n + 1).foldl(Set(), (acc, i) =>
-      acc.union(Set({ key: { consumer: name, family: fam, ordinal: i },
-                      container: container, attrs: attrs,
-                      prov: { consumer: name, rule: rule, construct: "" } })))
+    countSet(n).map(i =>
+      { key: { consumer: name, family: fam, ordinal: i },
+        container: container, attrs: attrs,
+        prov: { consumer: name, rule: rule, construct: "" } })
 
   // Every consumer whose name ≠ KERNEL gets one child DPRC in Root
   // (dprc.md ~line 281); the kernel consumer's objects live in Root.
@@ -464,7 +482,7 @@ module intent_derive {
   // A kernel dpio draws a dpmcp, so dpio precedes dpmcp (ADR-0012).
 
   pure def companionKeys(name: str, fam: Family, n: int): List[Key] =
-    range(1, n + 1).foldl([], (acc, i) => acc.append({ consumer: name, family: fam, ordinal: i }))
+    countRange(n).foldl([], (acc, i) => acc.append({ consumer: name, family: fam, ordinal: i }))
 
   pure def consumerOrder(intent: Intent, s: Sizing): List[Key] =
     (if (s.isKernel) [] else [{ consumer: s.name, family: Dprc, ordinal: 1 }])

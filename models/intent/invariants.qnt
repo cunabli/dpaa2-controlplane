@@ -15,8 +15,11 @@
 // Named invariants: containmentByConsumer … companionCountsByRegime
 //   (ids INTENT_I1..I8, below); planInvariants gathers I1–I6 over any Plan,
 //   compileInvariants gathers I7–I8 over (intent, inventory).
-// Apalache-marked subset: none yet — task 1.5 marks feasibleAgainstCeilings and
-//   companionCountsByRegime (INTENT_I7/I8) over the finite intent alphabet.
+// Apalache-marked subset: feasibleAgainstCeilings and companionCountsByRegime
+//   (INTENT_I7/I8) — collected as intent/alphabet.qnt `compileLaws`, defined
+//   for Apalache but simulator-only today: the translation succeeds, the
+//   front-end heap does not (intent/alphabet.qnt header; bead
+//   dpaa2-controlplane-gqf.26, task 1.5).
 module intent_invariants {
   import types.* from "../core/types"           // Family, Option, Perm, ObjId
   import companions.* from "../core/companions" // Regime, companionDraw (ADR-0012)

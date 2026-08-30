@@ -4,11 +4,15 @@
 //
 //   pnpm exec quint test models/intent/main.qnt --main=intent_main
 //
-// Named invariants: INTENT_I1 … INTENT_I8 in intent/invariants.qnt;
-//   planInvariants / compileInvariants gather them, pinned by the
-//   planInvariantsHoldTest / compileInvariantsHoldTest / invariantsBiteTest
-//   runs below.
-// Apalache-marked subset: none yet (task 1.5).
+// `pnpm model:test` now covers these directed runs alongside the core corpus.
+//
+// Named invariants: containmentByConsumer … companionCountsByRegime
+//   (ids INTENT_I1..I8) in intent/invariants.qnt; planInvariants /
+//   compileInvariants gather them, pinned by the planInvariantsHoldTest /
+//   compileInvariantsHoldTest / invariantsBiteTest runs below.
+// Apalache-marked subset: feasibleAgainstCeilings and companionCountsByRegime
+//   (INTENT_I7/I8) — collected as intent/alphabet.qnt `compileLaws`;
+//   simulator-only today (heap wall — see intent/alphabet.qnt header).
 module intent_main {
   import types.* from "../core/types"
   import companions.* from "../core/companions"
