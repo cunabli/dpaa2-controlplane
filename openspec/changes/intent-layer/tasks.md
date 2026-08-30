@@ -9,7 +9,7 @@ the change's only other operator sync point (design D12).
 
 ## 0. Tracking and housekeeping
 
-- [ ] 0.1 Create the `intent-layer` beads epic and one issue per task
+- [x] 0.1 Create the `intent-layer` beads epic and one issue per task
       below, wiring dependencies (0 → 1 → 2 → gate → 3 → 4 → 5) and
       instantiating the six-point DoD per issue; mark ROADMAP row 3 in
       flight
