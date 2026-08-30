@@ -164,4 +164,4 @@ board task is an operator sitting sync point.
       status cells brought level with the ledger); append
       upstream findings from divergences; quality floor green (cargo
       build/fmt/clippy/doc/test + model ladder)
-- [ ] 7.3 Close beads, validate the change, ready for archive
+- [x] 7.3 Close beads, validate the change, ready for archive
