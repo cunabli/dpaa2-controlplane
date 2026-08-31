@@ -11,6 +11,7 @@
 # plan against object-for-object. Pairing with reference.qnt is by convention
 # until dpaa2-verify's test (task 3.4).
 
+[intent]
 schema = 1
 
 [[tenant]]

@@ -7,6 +7,7 @@
 # dpaa2-verify's test (task 3.4). The twin — max_cores = 4, below the
 # derived T = 5 — is refused as CoreBudgetExceeded.
 
+[intent]
 schema = 1
 
 [[tenant]]

@@ -1,8 +1,9 @@
 ## MODIFIED Requirements
 
 ### Requirement: Declarative topology is keyed by stable DPMAC anchors
-The system SHALL read a declarative topology that opens with a
-mandatory `schema = 1` version key, in which each port is identified by
+The system SHALL read a declarative topology that opens with an
+`[intent]` table whose mandatory `schema` key names the version, in
+which each port is identified by
 its static DPMAC anchor and never by an MC-assigned DPNI index, and in
 which every other object is derived from the constructs the operator
 declares: `[[tenant]]` (name, dataplane, `max_cores`,
@@ -38,8 +39,8 @@ request.
   container
 
 #### Scenario: Missing or unknown schema version
-- **WHEN** the file has no `schema` key or names a version this build
-  does not know
+- **WHEN** the file has no `[intent]` table, no `schema` key, or names a
+  version this build does not know
 - **THEN** the system SHALL reject the config naming the versions it
   accepts
 

@@ -9,6 +9,7 @@
 # claiming dpmac.9, model-only, with no operator file — is refused
 # DoubleClaimed.
 
+[intent]
 schema = 1
 
 [[tenant]]

@@ -89,6 +89,10 @@ the change's only other operator sync point (design D12).
       compiled plan diffed object-for-object against
       `baselines/reference.json`; the 3-vs-1 dpmcp finding and any other
       difference dispositioned (divergence vs override — open question 1)
+- [x] 2.5a The TOML document-level properties anchor in an `[intent]`
+      table, `schema` the first of them (operator decision 2026-08-31):
+      scenario TOMLs and the proposal/design/spec-delta wording amended
+      in lockstep (discovered detour, bead gqf.28)
 - [ ] 2.6 GATE — decision bead *intent vocabulary accepted*: the gate
       artefact is `docs/intent.md` (constructs, inputs, derived
       quantities, refusals, the scenarios as worked examples, the open
@@ -120,7 +124,7 @@ the change's only other operator sync point (design D12).
       `compile` in `dpaa2-verify`, with `quint-connect` evaluated
       against the existing replayer and adopted only if it retires code
 - [ ] 3.3 `dpaa2-config`: schema rewritten to the constructs with the
-      mandatory `schema = 1` key; validation (references resolve,
+      `[intent]` table's mandatory `schema` key; validation (references resolve,
       `kernel` reserved, link ends distinct, fabric members exist, count
       fields rejected, unknown schema version refused); converts to
       `Intent`; `ConfigSource::load` returns `Intent`; README example and

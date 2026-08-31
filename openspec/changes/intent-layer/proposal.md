@@ -108,8 +108,9 @@ every later change (#4 onward) executes a plan this compiler emits.
   resort) are therefore addable later at the plan layer without
   touching the compiler; none is built here.
 - **BREAKING**: the port-only `topology.toml` schema is replaced, not
-  extended; the file gains a mandatory `schema = 1` version key so the
-  next break has a hook; a file with no `[[tenant]]` still parses
+  extended; the file gains an `[intent]` table carrying a mandatory
+  `schema` version key — the anchor for document-level properties — so
+  the next break has a hook; a file with no `[[tenant]]` still parses
   (ports default to the kernel tenant in the root container — today's
   behavior), but the neutral `DesiredTopology` type changes shape and
   nothing preserves the old one. `Refusal` and `Dataplane` are

@@ -69,9 +69,10 @@ tenant that runs the fabric's forwarding plane), crypto (per tenant) —
 and no field for a dpio, dpbp, dpcon, dpmcp, queue or worker count.
 `max_cores` is a budget the derivation must fit under; `crypto_flows` is
 a tenant-visible quantity, not an object count; `rate` is what the port
-must deliver. The file carries a mandatory `schema = 1` key — the
-`apiVersion` idiom — so the next breaking change has a hook this one did
-not. The nouns are the 2026-08-31 taxonomy review's: *tenant* is RFC
+must deliver. The file opens with an `[intent]` table — where
+document-level properties anchor together — carrying a mandatory
+`schema` key, the `apiVersion` idiom, so the next breaking change has a
+hook this one did not. The nouns are the 2026-08-31 taxonomy review's: *tenant* is RFC
 9316's resource-consumer term (a tenant may produce traffic, which
 "consumer" misread); *dataplane* names where the tenant's dataplane runs
 and the delivery mechanism that drives sizing — `userspace-interrupt` is

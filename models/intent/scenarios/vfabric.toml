@@ -9,6 +9,7 @@
 # dpaa2-verify test (task 3.4). The twin — a third tenant routerC, model-only,
 # with no operator file — overdraws the dpbp ceiling and is refused Infeasible.
 
+[intent]
 schema = 1
 
 [[tenant]]
