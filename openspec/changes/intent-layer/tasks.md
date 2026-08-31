@@ -84,7 +84,7 @@ the change's only other operator sync point (design D12).
       invariant on; each counterexample becomes a rule (new invariant +
       scenario twin) or a recorded unknown in the model header; coverage
       of the alphabet counted
-- [ ] 2.5 Fit check: the reference board's provisioning (kernel root
+- [x] 2.5 Fit check: the reference board's provisioning (kernel root
       with dpmac.7/9, the userspace-poll child dprc) as `reference.qnt`/`.toml`;
       compiled plan diffed object-for-object against
       `baselines/reference.json`; the 3-vs-1 dpmcp finding and any other
