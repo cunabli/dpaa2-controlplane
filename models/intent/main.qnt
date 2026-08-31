@@ -6,7 +6,7 @@
 //
 // `pnpm model:test` now covers these directed runs alongside the core corpus.
 //
-// Named invariants: containmentByConsumer … companionCountsByRegime
+// Named invariants: containmentByTenant … companionCountsByRegime
 //   (ids INTENT_I1..I8) in intent/invariants.qnt; planInvariants /
 //   compileInvariants gather them, pinned by the planInvariantsHoldTest /
 //   compileInvariantsHoldTest / invariantsBiteTest runs below.
@@ -15,7 +15,6 @@
 //   simulator-only today (heap wall — see intent/alphabet.qnt header).
 module intent_main {
   import types.* from "../core/types"
-  import companions.* from "../core/companions"
   import intent_types.* from "./types"
   import intent_inventory.* from "./inventory"
   import intent_derive.* from "./derive"
@@ -25,7 +24,7 @@ module intent_main {
   // ---- shared helpers for the derivation runs (task 1.2) ----
 
   pure def objsOfFam(p: Plan, name: str, fam: Family): Set[PlanObj] =
-    p.objs.filter(o => o.key.consumer == name and o.key.family == fam)
+    p.objs.filter(o => o.key.tenant == name and o.key.family == fam)
   pure def countFam(p: Plan, name: str, fam: Family): int =
     objsOfFam(p, name, fam).size()
   // keyIndex (position of a key in the emission order, or -1) comes from
@@ -43,80 +42,91 @@ module intent_main {
     REF_INVENTORY.with("ceilings", REF_INVENTORY.ceilings.put(fam, ceil))
   pure val invWithForeignDpmac7: Inventory =
     REF_INVENTORY.with("dpmacs", REF_INVENTORY.dpmacs.put(7, REF_INVENTORY.dpmacs.get(7).with("avail", Foreign("dpl"))))
+  // dpmac.4 bumped to 40G so a 40G port refuses on the unseeded rate class
+  // alone, not on OverRate — the board has no 40G nic, this is a test fixture.
+  pure val invWith40GMac: Inventory =
+    REF_INVENTORY.with("dpmacs", REF_INVENTORY.dpmacs.put(4, REF_INVENTORY.dpmacs.get(4).with("maxRate", 40000)))
 
   // ---- shared intent fragments ----
 
-  pure val router: Consumer = { name: "router", regime: PollMode, maxCores: 8, cryptoFlows: 4 }
-  pure val kernel16: Consumer = kernelConsumer(16)
-  pure val wan0: Port = { name: "wan0", dpmac: 7, rate: 10000, owner: "router" }
-  pure val wan1: Port = { name: "wan1", dpmac: 8, rate: 10000, owner: "router" }
+  pure val router: Tenant = { name: "router", dataplane: UserspacePoll, maxCores: 8, cryptoFlows: 4 }
+  pure val kernel16: Tenant = kernelTenant(16)
+  pure val wan0: Port = { name: "wan0", dpmac: 7, rate: 10000, tenant: "router" }
+  pure val wan1: Port = { name: "wan1", dpmac: 8, rate: 10000, tenant: "router" }
   pure val routerIntent: Intent =
-    { consumers: [router], ports: [wan0, wan1], links: [], fabrics: [], crypto: Set(), limits: Set() }
+    { tenants: [router], ports: [wan0, wan1], links: [], fabrics: [], crypto: Set(), limits: Set() }
+  // A poll-mode router terminating two 10G ports and one 25G: T = 1 + 2 + 2 +
+  // 5 = 10, a cross-class mix the worker formula prices but flags unmeasured
+  // (design D3). max_cores raised to 16 so T = 10 fits under the budget.
+  pure val wan2: Port = { name: "wan2", dpmac: 4, rate: 25000, tenant: "router" }
+  pure val mixedClassIntent: Intent =
+    { tenants: [router.with("maxCores", 16)], ports: [wan0, wan1, wan2],
+      links: [], fabrics: [], crypto: Set(), limits: Set() }
 
   // The intents the derivation/refusal runs exercise, factored out so the
   // task-1.4 invariant runs can assert planInvariants/compileInvariants on the
   // same plans (the runs' own assertions are unchanged).
   pure val limitIntent: Intent =
-    { consumers: [router], ports: [wan0, wan1], links: [], fabrics: [], crypto: Set(),
-      limits: Set({ consumer: "router", family: Dpio, limit: 12 }) }
+    { tenants: [router], ports: [wan0, wan1], links: [], fabrics: [], crypto: Set(),
+      limits: Set({ tenant: "router", family: Dpio, limit: 12 }) }
   pure val kernelIntent: Intent =
-    { consumers: [kernel16],
-      ports: [{ name: "lan0", dpmac: 9, rate: 10000, owner: "kernel" }],
+    { tenants: [kernel16],
+      ports: [{ name: "lan0", dpmac: 9, rate: 10000, tenant: "kernel" }],
       links: [], fabrics: [], crypto: Set(), limits: Set() }
   pure val fabricCryptoIntent: Intent =
-    { consumers: [kernel16, router],
-      ports: [{ name: "p7", dpmac: 7, rate: 10000, owner: "kernel" },
-              { name: "p8", dpmac: 8, rate: 10000, owner: "kernel" }],
+    { tenants: [kernel16, router],
+      ports: [{ name: "p7", dpmac: 7, rate: 10000, tenant: "kernel" },
+              { name: "p8", dpmac: 8, rate: 10000, tenant: "kernel" }],
       links: [],
-      fabrics: [{ name: "lan", switching: Hardware, owner: "kernel",
-                  members: [MPort("p7"), MPort("p8"), MConsumer("router")] }],
-      crypto: Set({ owner: "router" }),
+      fabrics: [{ name: "lan", switching: Hardware, forwardedBy: "kernel",
+                  members: [MPort("p7"), MPort("p8"), MTenant("router")] }],
+      crypto: Set({ tenant: "router" }),
       limits: Set() }
   pure val softwareFabricIntent: Intent =
-    { consumers: [kernel16, { name: "vpp", regime: PollMode, maxCores: 8, cryptoFlows: 0 }],
-      ports: [{ name: "p7", dpmac: 7, rate: 10000, owner: "vpp" },
-              { name: "p8", dpmac: 8, rate: 10000, owner: "vpp" }],
+    { tenants: [kernel16, { name: "vpp", dataplane: UserspacePoll, maxCores: 8, cryptoFlows: 0 }],
+      ports: [{ name: "p7", dpmac: 7, rate: 10000, tenant: "vpp" },
+              { name: "p8", dpmac: 8, rate: 10000, tenant: "vpp" }],
       links: [],
-      fabrics: [{ name: "br", switching: Software, owner: "vpp",
-                  members: [MPort("p7"), MPort("p8"), MConsumer("kernel")] }],
+      fabrics: [{ name: "br", switching: Software, forwardedBy: "vpp",
+                  members: [MPort("p7"), MPort("p8"), MTenant("kernel")] }],
       crypto: Set(),
       limits: Set() }
   pure val chainIntent: Intent =
-    { consumers: [kernel16, { name: "vpp", regime: PollMode, maxCores: 8, cryptoFlows: 0 }],
-      ports: [{ name: "p7", dpmac: 7, rate: 10000, owner: "vpp" },
-              { name: "p8", dpmac: 8, rate: 10000, owner: "kernel" },
-              { name: "p9", dpmac: 9, rate: 10000, owner: "kernel" },
-              { name: "p10", dpmac: 10, rate: 10000, owner: "vpp" }],
+    { tenants: [kernel16, { name: "vpp", dataplane: UserspacePoll, maxCores: 8, cryptoFlows: 0 }],
+      ports: [{ name: "p7", dpmac: 7, rate: 10000, tenant: "vpp" },
+              { name: "p8", dpmac: 8, rate: 10000, tenant: "kernel" },
+              { name: "p9", dpmac: 9, rate: 10000, tenant: "kernel" },
+              { name: "p10", dpmac: 10, rate: 10000, tenant: "vpp" }],
       links: [],
-      fabrics: [{ name: "hw", switching: Hardware, owner: "kernel",
+      fabrics: [{ name: "hw", switching: Hardware, forwardedBy: "kernel",
                   members: [MPort("p8"), MPort("p9")] },
-                { name: "sw", switching: Software, owner: "vpp",
+                { name: "sw", switching: Software, forwardedBy: "vpp",
                   members: [MPort("p7"), MFabric("hw")] }],
       crypto: Set(),
       limits: Set() }
   pure val hwInHwIntent: Intent =
-    { consumers: [kernel16],
-      ports: [{ name: "p8", dpmac: 8, rate: 10000, owner: "kernel" },
-              { name: "p9", dpmac: 9, rate: 10000, owner: "kernel" }],
+    { tenants: [kernel16],
+      ports: [{ name: "p8", dpmac: 8, rate: 10000, tenant: "kernel" },
+              { name: "p9", dpmac: 9, rate: 10000, tenant: "kernel" }],
       links: [],
-      fabrics: [{ name: "hw1", switching: Hardware, owner: "kernel", members: [MPort("p8")] },
-                { name: "hw2", switching: Hardware, owner: "kernel", members: [MFabric("hw1"), MPort("p9")] }],
+      fabrics: [{ name: "hw1", switching: Hardware, forwardedBy: "kernel", members: [MPort("p8")] },
+                { name: "hw2", switching: Hardware, forwardedBy: "kernel", members: [MFabric("hw1"), MPort("p9")] }],
       crypto: Set(), limits: Set() }
   pure val linkIntent: Intent =
-    { consumers: [{ name: "routerA", regime: PollMode, maxCores: 8, cryptoFlows: 0 },
-                  { name: "routerB", regime: PollMode, maxCores: 8, cryptoFlows: 0 }],
+    { tenants: [{ name: "routerA", dataplane: UserspacePoll, maxCores: 8, cryptoFlows: 0 },
+                  { name: "routerB", dataplane: UserspacePoll, maxCores: 8, cryptoFlows: 0 }],
       ports: [], links: [{ name: "wire", a: "routerA", b: "routerB" }],
       fabrics: [], crypto: Set(), limits: Set() }
   // The refused intents the compile-side runs exercise.
-  pure val coreBudgetIntent: Intent = routerIntent.with("consumers", [router.with("maxCores", 4)])
+  pure val coreBudgetIntent: Intent = routerIntent.with("tenants", [router.with("maxCores", 4)])
   pure val infeasibleIntent: Intent =
-    { consumers: [{ name: "a", regime: PollMode, maxCores: 2, cryptoFlows: 0 },
-                  { name: "b", regime: PollMode, maxCores: 2, cryptoFlows: 0 },
-                  { name: "d", regime: PollMode, maxCores: 2, cryptoFlows: 0 }],
+    { tenants: [{ name: "a", dataplane: UserspacePoll, maxCores: 2, cryptoFlows: 0 },
+                  { name: "b", dataplane: UserspacePoll, maxCores: 2, cryptoFlows: 0 },
+                  { name: "d", dataplane: UserspacePoll, maxCores: 2, cryptoFlows: 0 }],
       ports: [], links: [], fabrics: [], crypto: Set(), limits: Set() }
   pure val allViolationsIntent: Intent =
-    { consumers: [router.with("maxCores", 4), kernel16],
-      ports: [wan0, wan1, { name: "mgmt", dpmac: 17, rate: 1000, owner: "kernel" }],
+    { tenants: [router.with("maxCores", 4), kernel16],
+      ports: [wan0, wan1, { name: "mgmt", dpmac: 17, rate: 1000, tenant: "kernel" }],
       links: [], fabrics: [], crypto: Set(), limits: Set() }
 
   // The reference inventory reads as the spec's "Reserved and foreign
@@ -145,7 +155,7 @@ module intent_main {
     REF_INVENTORY.dpmacs.keys() == Set(3, 4, 5, 6, 7, 8, 9, 10, 17),
     REF_INVENTORY.dpmacs.get(7).maxRate == 10000,
     REF_INVENTORY.dpmacs.get(3).maxRate == 25000,
-    kernelConsumer(16).regime == Kernel,
+    kernelTenant(16).dataplane == Kernel,
   }
 
   // A poll-mode router over two 10G ports: the child DPRC, two dpnis at
@@ -155,8 +165,8 @@ module intent_main {
     val p = derive(routerIntent, REF_INVENTORY)
     all {
       p.objs.filter(o => o.key.family == Dprc) ==
-        Set({ key: { consumer: "router", family: Dprc, ordinal: 1 }, container: Root,
-              attrs: DprcAttrs({ options: DPRC_DEFAULT_OPTIONS }), prov: { consumer: "router", rule: "dprc", construct: "" } }),
+        Set({ key: { tenant: "router", family: Dprc, ordinal: 1 }, container: Root,
+              attrs: DprcAttrs({ options: DPRC_DEFAULT_OPTIONS }), prov: { tenant: "router", rule: "dprc", construct: "" } }),
       countFam(p, "router", Dpni) == 2,
       objsOfFam(p, "router", Dpni).forall(o =>
         o.container == Child("router") and match o.attrs { | DpniAttrs(a) => a.numQueues == 5 | _ => false }),
@@ -164,27 +174,27 @@ module intent_main {
       countFam(p, "router", Dpbp) == 2,
       countFam(p, "router", Dpmcp) == 1,
       countFam(p, "router", Dpcon) == 10,
-      p.objs.filter(o => o.key.consumer == "router" and o.key.family != Dprc).forall(o => o.container == Child("router")),
+      p.objs.filter(o => o.key.tenant == "router" and o.key.family != Dprc).forall(o => o.container == Child("router")),
       objsOfFam(p, "router", Dpio).map(o => o.key.ordinal) == 1.to(10),
-      p.prov.get({ consumer: "router", rule: "dpio", construct: "" }).value == 10,
-      p.prov.get({ consumer: "router", rule: "dpio", construct: "" }).request == 10,
-      p.prov.get({ consumer: "router", rule: "dpio", construct: "" }).limit == None,
-      p.prov.get({ consumer: "router", rule: "dpio", construct: "" }).inputs == Set({ consumer: "router", rule: "T", construct: "" }),
-      p.prov.get({ consumer: "router", rule: "T", construct: "" }).value == 5,
-      p.prov.get({ consumer: "router", rule: "T", construct: "" }).mark == Unmeasured,
-      p.prov.get({ consumer: "router", rule: "T", construct: "" }).constructs == Set("wan0", "wan1"),
+      p.prov.get({ tenant: "router", rule: "dpio", construct: "" }).value == 10,
+      p.prov.get({ tenant: "router", rule: "dpio", construct: "" }).request == 10,
+      p.prov.get({ tenant: "router", rule: "dpio", construct: "" }).limit == None,
+      p.prov.get({ tenant: "router", rule: "dpio", construct: "" }).inputs == Set({ tenant: "router", rule: "T", construct: "" }),
+      p.prov.get({ tenant: "router", rule: "T", construct: "" }).value == 5,
+      p.prov.get({ tenant: "router", rule: "T", construct: "" }).mark == Unmeasured,
+      p.prov.get({ tenant: "router", rule: "T", construct: "" }).constructs == Set("wan0", "wan1"),
       p.edges == Set(
-        { a: ObjEnd({ key: { consumer: "router", family: Dpni, ordinal: 1 }, port: 0 }), b: MacEnd(7),
-          prov: { consumer: "router", rule: "port-edge", construct: "wan0" } },
-        { a: ObjEnd({ key: { consumer: "router", family: Dpni, ordinal: 2 }, port: 0 }), b: MacEnd(8),
-          prov: { consumer: "router", rule: "port-edge", construct: "wan1" } }),
-      keyIndex(p.order, { consumer: "router", family: Dprc, ordinal: 1 }) <
-        keyIndex(p.order, { consumer: "router", family: Dpio, ordinal: 1 }),
-      keyIndex(p.order, { consumer: "router", family: Dpio, ordinal: 10 }) <
-        keyIndex(p.order, { consumer: "router", family: Dpmcp, ordinal: 1 }),
-      keyIndex(p.order, { consumer: "router", family: Dpmcp, ordinal: 1 }) <
-        keyIndex(p.order, { consumer: "router", family: Dpni, ordinal: 1 }),
-      p.order.nth(0) == { consumer: KERNEL, family: Dprtc, ordinal: 1 },
+        { a: ObjEnd({ key: { tenant: "router", family: Dpni, ordinal: 1 }, port: 0 }), b: MacEnd(7),
+          prov: { tenant: "router", rule: "port-edge", construct: "wan0" } },
+        { a: ObjEnd({ key: { tenant: "router", family: Dpni, ordinal: 2 }, port: 0 }), b: MacEnd(8),
+          prov: { tenant: "router", rule: "port-edge", construct: "wan1" } }),
+      keyIndex(p.order, { tenant: "router", family: Dprc, ordinal: 1 }) <
+        keyIndex(p.order, { tenant: "router", family: Dpio, ordinal: 1 }),
+      keyIndex(p.order, { tenant: "router", family: Dpio, ordinal: 10 }) <
+        keyIndex(p.order, { tenant: "router", family: Dpmcp, ordinal: 1 }),
+      keyIndex(p.order, { tenant: "router", family: Dpmcp, ordinal: 1 }) <
+        keyIndex(p.order, { tenant: "router", family: Dpni, ordinal: 1 }),
+      p.order.nth(0) == { tenant: KERNEL, family: Dprtc, ordinal: 1 },
     }
 
   // A per-family limit raises the request (design D5): 12 dpios, provenance
@@ -193,12 +203,12 @@ module intent_main {
     val p = derive(limitIntent, REF_INVENTORY)
     all {
       countFam(p, "router", Dpio) == 12,
-      p.prov.get({ consumer: "router", rule: "dpio", construct: "" }).request == 10,
-      p.prov.get({ consumer: "router", rule: "dpio", construct: "" }).limit == Some(12),
-      p.prov.get({ consumer: "router", rule: "dpio", construct: "" }).value == 12,
+      p.prov.get({ tenant: "router", rule: "dpio", construct: "" }).request == 10,
+      p.prov.get({ tenant: "router", rule: "dpio", construct: "" }).limit == Some(12),
+      p.prov.get({ tenant: "router", rule: "dpio", construct: "" }).value == 12,
     }
 
-  // The kernel regime: no child DPRC, dpio per online CPU, dpmcp cpus+dpnis,
+  // The kernel dataplane: no child DPRC, dpio per online CPU, dpmcp cpus+dpnis,
   // dpbp per dpni, dpcon per polled queue, the pinned dprtc, dpio ≺ dpmcp.
   run kernelDeriveTest =
     val p = derive(kernelIntent, REF_INVENTORY)
@@ -212,24 +222,24 @@ module intent_main {
       objsOfFam(p, "kernel", Dpni).forall(o =>
         o.container == Root and match o.attrs { | DpniAttrs(a) => a.numQueues == 16 | _ => false }),
       p.objs.filter(o => o.key.family == Dprtc) ==
-        Set({ key: { consumer: KERNEL, family: Dprtc, ordinal: 1 }, container: Root, attrs: Unsized,
-              prov: { consumer: KERNEL, rule: "dprtc", construct: "" } }),
-      keyIndex(p.order, { consumer: "kernel", family: Dpio, ordinal: 16 }) <
-        keyIndex(p.order, { consumer: "kernel", family: Dpmcp, ordinal: 1 }),
+        Set({ key: { tenant: KERNEL, family: Dprtc, ordinal: 1 }, container: Root, attrs: Unsized,
+              prov: { tenant: KERNEL, rule: "dprtc", construct: "" } }),
+      keyIndex(p.order, { tenant: "kernel", family: Dpio, ordinal: 16 }) <
+        keyIndex(p.order, { tenant: "kernel", family: Dpmcp, ordinal: 1 }),
     }
 
-  // A hardware-switched fabric (kernel-steered) plus a crypto accelerator:
-  // one dpsw with num_ifs = ports + consumers, the fabric-member ports
+  // A hardware-switched fabric (kernel-forwarded) plus a crypto accelerator:
+  // one dpsw with num_ifs = ports + tenants, the fabric-member ports
   // switched (no dpni, no port-edge) and attached to the dpsw interfaces,
-  // the member consumer joined through one fabric-membership dpni, and one
+  // the member tenant joined through one fabric-membership dpni, and one
   // dpseci sized to the owner's crypto_flows.
   run fabricAndCryptoTest =
     val p = derive(fabricCryptoIntent, REF_INVENTORY)
     all {
       p.objs.filter(o => o.key.family == Dpsw) ==
-        Set({ key: { consumer: "kernel", family: Dpsw, ordinal: 1 }, container: Root,
+        Set({ key: { tenant: "kernel", family: Dpsw, ordinal: 1 }, container: Root,
               attrs: DpswAttrs({ numIfs: 3, maxFdbs: 3, perFdbFlooding: true, perFdbBroadcast: true, ctrlIf: true }),
-              prov: { consumer: "kernel", rule: "dpsw", construct: "lan" } }),
+              prov: { tenant: "kernel", rule: "dpsw", construct: "lan" } }),
       countFam(p, "router", Dpni) == 1,
       objsOfFam(p, "router", Dpni).forall(o => match o.attrs { | DpniAttrs(a) => a.numQueues == 1 | _ => false }),
       countFam(p, "router", Dpio) == 2,
@@ -239,15 +249,15 @@ module intent_main {
       countFam(p, "kernel", Dpbp) == 1,
       countFam(p, "kernel", Dpcon) == 0,
       p.objs.filter(o => o.key.family == Dpseci) ==
-        Set({ key: { consumer: "router", family: Dpseci, ordinal: 1 }, container: Child("router"),
-              attrs: DpseciAttrs({ numQueues: 4, hasCg: true }), prov: { consumer: "router", rule: "dpseci", construct: "" } }),
-      p.edges.contains({ a: ObjEnd({ key: { consumer: "kernel", family: Dpsw, ordinal: 1 }, port: 0 }),
-                         b: MacEnd(7), prov: { consumer: "kernel", rule: "fabric-edge", construct: "lan" } }),
-      p.edges.contains({ a: ObjEnd({ key: { consumer: "kernel", family: Dpsw, ordinal: 1 }, port: 1 }),
-                         b: MacEnd(8), prov: { consumer: "kernel", rule: "fabric-edge", construct: "lan" } }),
-      p.edges.contains({ a: ObjEnd({ key: { consumer: "kernel", family: Dpsw, ordinal: 1 }, port: 2 }),
-                         b: ObjEnd({ key: { consumer: "router", family: Dpni, ordinal: 1 }, port: 0 }),
-                         prov: { consumer: "kernel", rule: "fabric-edge", construct: "lan" } }),
+        Set({ key: { tenant: "router", family: Dpseci, ordinal: 1 }, container: Child("router"),
+              attrs: DpseciAttrs({ numQueues: 4, hasCg: true }), prov: { tenant: "router", rule: "dpseci", construct: "" } }),
+      p.edges.contains({ a: ObjEnd({ key: { tenant: "kernel", family: Dpsw, ordinal: 1 }, port: 0 }),
+                         b: MacEnd(7), prov: { tenant: "kernel", rule: "fabric-edge", construct: "lan" } }),
+      p.edges.contains({ a: ObjEnd({ key: { tenant: "kernel", family: Dpsw, ordinal: 1 }, port: 1 }),
+                         b: MacEnd(8), prov: { tenant: "kernel", rule: "fabric-edge", construct: "lan" } }),
+      p.edges.contains({ a: ObjEnd({ key: { tenant: "kernel", family: Dpsw, ordinal: 1 }, port: 2 }),
+                         b: ObjEnd({ key: { tenant: "router", family: Dpni, ordinal: 1 }, port: 0 }),
+                         prov: { tenant: "kernel", rule: "fabric-edge", construct: "lan" } }),
       p.edges.filter(e => e.prov.rule == "port-edge") == Set(),
     }
 
@@ -264,13 +274,13 @@ module intent_main {
       objsOfFam(p, "vpp", Dpni).forall(o => match o.attrs { | DpniAttrs(a) => a.numQueues == 5 | _ => false }),
       countFam(p, "vpp", Dpio) == 10,
       countFam(p, "kernel", Dpni) == 1,
-      p.edges.contains({ a: ObjEnd({ key: { consumer: "vpp", family: Dpni, ordinal: 1 }, port: 0 }),
-                         b: MacEnd(7), prov: { consumer: "vpp", rule: "port-edge", construct: "p7" } }),
-      p.edges.contains({ a: ObjEnd({ key: { consumer: "vpp", family: Dpni, ordinal: 2 }, port: 0 }),
-                         b: MacEnd(8), prov: { consumer: "vpp", rule: "port-edge", construct: "p8" } }),
-      p.edges.contains({ a: ObjEnd({ key: { consumer: "vpp", family: Dpni, ordinal: 3 }, port: 0 }),
-                         b: ObjEnd({ key: { consumer: "kernel", family: Dpni, ordinal: 1 }, port: 0 }),
-                         prov: { consumer: "vpp", rule: "fabric-wire", construct: "br" } }),
+      p.edges.contains({ a: ObjEnd({ key: { tenant: "vpp", family: Dpni, ordinal: 1 }, port: 0 }),
+                         b: MacEnd(7), prov: { tenant: "vpp", rule: "port-edge", construct: "p7" } }),
+      p.edges.contains({ a: ObjEnd({ key: { tenant: "vpp", family: Dpni, ordinal: 2 }, port: 0 }),
+                         b: MacEnd(8), prov: { tenant: "vpp", rule: "port-edge", construct: "p8" } }),
+      p.edges.contains({ a: ObjEnd({ key: { tenant: "vpp", family: Dpni, ordinal: 3 }, port: 0 }),
+                         b: ObjEnd({ key: { tenant: "kernel", family: Dpni, ordinal: 1 }, port: 0 }),
+                         prov: { tenant: "vpp", rule: "fabric-wire", construct: "br" } }),
     }
 
   // The operator's chain of switches: a hardware fabric (kernel dpsw over two
@@ -278,27 +288,27 @@ module intent_main {
   // port. vpp attaches to the dpsw via a dpni; kernel terminates nothing
   // itself. vpp owns two terminated 10G ports (p7, p10) to keep T seeded ⇒
   // three dpnis, the attach dpni last. No pseudo-wire (both software members
-  // resolve to no peer consumer).
+  // resolve to no peer tenant).
   run chainTest =
     val p = derive(chainIntent, REF_INVENTORY)
     all {
       p.objs.filter(o => o.key.family == Dpsw) ==
-        Set({ key: { consumer: "kernel", family: Dpsw, ordinal: 1 }, container: Root,
+        Set({ key: { tenant: "kernel", family: Dpsw, ordinal: 1 }, container: Root,
               attrs: DpswAttrs({ numIfs: 3, maxFdbs: 3, perFdbFlooding: true, perFdbBroadcast: true, ctrlIf: true }),
-              prov: { consumer: "kernel", rule: "dpsw", construct: "hw" } }),
+              prov: { tenant: "kernel", rule: "dpsw", construct: "hw" } }),
       countFam(p, "vpp", Dpni) == 3,
       countFam(p, "kernel", Dpni) == 0,
       countFam(p, "kernel", Dpmcp) == 17,
       countFam(p, "kernel", Dpbp) == 1,
-      p.edges.contains({ a: ObjEnd({ key: { consumer: "kernel", family: Dpsw, ordinal: 1 }, port: 0 }),
-                         b: MacEnd(8), prov: { consumer: "kernel", rule: "fabric-edge", construct: "hw" } }),
-      p.edges.contains({ a: ObjEnd({ key: { consumer: "kernel", family: Dpsw, ordinal: 1 }, port: 1 }),
-                         b: MacEnd(9), prov: { consumer: "kernel", rule: "fabric-edge", construct: "hw" } }),
-      p.edges.contains({ a: ObjEnd({ key: { consumer: "kernel", family: Dpsw, ordinal: 1 }, port: 2 }),
-                         b: ObjEnd({ key: { consumer: "vpp", family: Dpni, ordinal: 3 }, port: 0 }),
-                         prov: { consumer: "kernel", rule: "fabric-edge", construct: "hw" } }),
-      p.edges.contains({ a: ObjEnd({ key: { consumer: "vpp", family: Dpni, ordinal: 1 }, port: 0 }),
-                         b: MacEnd(7), prov: { consumer: "vpp", rule: "port-edge", construct: "p7" } }),
+      p.edges.contains({ a: ObjEnd({ key: { tenant: "kernel", family: Dpsw, ordinal: 1 }, port: 0 }),
+                         b: MacEnd(8), prov: { tenant: "kernel", rule: "fabric-edge", construct: "hw" } }),
+      p.edges.contains({ a: ObjEnd({ key: { tenant: "kernel", family: Dpsw, ordinal: 1 }, port: 1 }),
+                         b: MacEnd(9), prov: { tenant: "kernel", rule: "fabric-edge", construct: "hw" } }),
+      p.edges.contains({ a: ObjEnd({ key: { tenant: "kernel", family: Dpsw, ordinal: 1 }, port: 2 }),
+                         b: ObjEnd({ key: { tenant: "vpp", family: Dpni, ordinal: 3 }, port: 0 }),
+                         prov: { tenant: "kernel", rule: "fabric-edge", construct: "hw" } }),
+      p.edges.contains({ a: ObjEnd({ key: { tenant: "vpp", family: Dpni, ordinal: 1 }, port: 0 }),
+                         b: MacEnd(7), prov: { tenant: "vpp", rule: "port-edge", construct: "p7" } }),
       p.edges.filter(e => e.prov.rule == "fabric-wire") == Set(),
     }
 
@@ -311,12 +321,12 @@ module intent_main {
       countFam(p, "kernel", Dpsw) == 2,
       objsOfFam(p, "kernel", Dpsw).forall(o => match o.attrs { | DpswAttrs(a) => a.numIfs == 1 | _ => false }),
       // hw2's dpsw (ordinal 2) connects only to its own port, never to hw1's dpsw
-      p.edges.filter(e => match e.a { | ObjEnd(x) => x.key == { consumer: "kernel", family: Dpsw, ordinal: 2 } | _ => false }) ==
-        Set({ a: ObjEnd({ key: { consumer: "kernel", family: Dpsw, ordinal: 2 }, port: 0 }),
-              b: MacEnd(9), prov: { consumer: "kernel", rule: "fabric-edge", construct: "hw2" } }),
+      p.edges.filter(e => match e.a { | ObjEnd(x) => x.key == { tenant: "kernel", family: Dpsw, ordinal: 2 } | _ => false }) ==
+        Set({ a: ObjEnd({ key: { tenant: "kernel", family: Dpsw, ordinal: 2 }, port: 0 }),
+              b: MacEnd(9), prov: { tenant: "kernel", rule: "fabric-edge", construct: "hw2" } }),
     }
 
-  // A virtual fabric: a link between two poll-mode containers, no dpmac —
+  // A virtual fabric: a link between two userspace-poll tenants, no dpmac —
   // each takes one dpni and the pair is the single edge; two child DPRCs.
   run linkTest =
     val p = derive(linkIntent, REF_INVENTORY)
@@ -325,16 +335,18 @@ module intent_main {
       countFam(p, "routerB", Dpni) == 1,
       objsOfFam(p, "routerA", Dpni).forall(o => match o.attrs { | DpniAttrs(a) => a.numQueues == 1 | _ => false }),
       objsOfFam(p, "routerB", Dpni).forall(o => match o.attrs { | DpniAttrs(a) => a.numQueues == 1 | _ => false }),
-      p.edges.contains({ a: ObjEnd({ key: { consumer: "routerA", family: Dpni, ordinal: 1 }, port: 0 }),
-                         b: ObjEnd({ key: { consumer: "routerB", family: Dpni, ordinal: 1 }, port: 0 }),
-                         prov: { consumer: "routerA", rule: "link-edge", construct: "wire" } }),
+      p.edges.contains({ a: ObjEnd({ key: { tenant: "routerA", family: Dpni, ordinal: 1 }, port: 0 }),
+                         b: ObjEnd({ key: { tenant: "routerB", family: Dpni, ordinal: 1 }, port: 0 }),
+                         prov: { tenant: "routerA", rule: "link-edge", construct: "wire" } }),
       p.objs.filter(o => o.key.family == Dprc).size() == 2,
     }
 
-  // The rate table refuses an unseeded class and gives a portless consumer
-  // the main-only thread count.
+  // The worker formula prices the seeded classes (25G ⇒ 1 + 5 = 6), refuses
+  // an unseeded one with None, and gives a portless tenant the main-only
+  // thread count.
   run unknownRateClassTest = all {
-    threadCount([{ name: "x", dpmac: 3, rate: 25000, owner: "c" }]) == None,
+    threadCount([{ name: "x", dpmac: 99, rate: 40000, tenant: "c" }]) == None,
+    threadCount([{ name: "y", dpmac: 4, rate: 25000, tenant: "c" }]) == Some(6),
     threadCount([]) == Some(1),
   }
 
@@ -363,7 +375,7 @@ module intent_main {
   // T = 5 above max_cores = 4 refuses by name and nothing else (design D3).
   run coreBudgetExceededTest =
     refusalSet(compile(coreBudgetIntent, REF_INVENTORY)) ==
-      Set(CoreBudgetExceeded({ consumer: "router", t: 5, maxCores: 4 }))
+      Set(CoreBudgetExceeded({ tenant: "router", t: 5, maxCores: 4 }))
 
   // Two independent violations reported at once (spec.md "All violations at
   // once"): a reserved anchor and an exceeded core budget, and only those.
@@ -372,11 +384,11 @@ module intent_main {
     val c = compile(allViolationsIntent, REF_INVENTORY)
     all {
       refusedWith(c, r => r == ReservedAnchor({ port: "mgmt", dpmac: 17, why: why17 })),
-      refusedWith(c, r => r == CoreBudgetExceeded({ consumer: "router", t: 5, maxCores: 4 })),
+      refusedWith(c, r => r == CoreBudgetExceeded({ tenant: "router", t: 5, maxCores: 4 })),
       refusalSet(c).size() == 2,
     }
 
-  // Three portless poll-mode consumers draw 6 dpbps against a listed pool of
+  // Three portless poll-mode tenants draw 6 dpbps against a listed pool of
   // 5: cross-plan infeasibility named to the family and shortfall (ADR-0011).
   run infeasibleTest =
     refusalSet(compile(infeasibleIntent, invWithCeiling(Dpbp, Counted(5)))) ==
@@ -384,14 +396,14 @@ module intent_main {
 
   // A dpmac claimed by two ports, and a port switched into two fabrics.
   run doubleClaimedTest =
-    val twoPorts = { consumers: [router],
-      ports: [wan0, { name: "wan1", dpmac: 7, rate: 10000, owner: "router" }],
+    val twoPorts = { tenants: [router],
+      ports: [wan0, { name: "wan1", dpmac: 7, rate: 10000, tenant: "router" }],
       links: [], fabrics: [], crypto: Set(), limits: Set() }
-    val twoFabrics = { consumers: [kernel16],
-      ports: [{ name: "p8", dpmac: 8, rate: 10000, owner: "kernel" }],
+    val twoFabrics = { tenants: [kernel16],
+      ports: [{ name: "p8", dpmac: 8, rate: 10000, tenant: "kernel" }],
       links: [],
-      fabrics: [{ name: "f1", switching: Hardware, owner: "kernel", members: [MPort("p8")] },
-                { name: "f2", switching: Hardware, owner: "kernel", members: [MPort("p8")] }],
+      fabrics: [{ name: "f1", switching: Hardware, forwardedBy: "kernel", members: [MPort("p8")] },
+                { name: "f2", switching: Hardware, forwardedBy: "kernel", members: [MPort("p8")] }],
       crypto: Set(), limits: Set() }
     all {
       refusedWith(compile(twoPorts, REF_INVENTORY),
@@ -400,55 +412,84 @@ module intent_main {
         r => r == DoubleClaimed({ dpmac: 8, constructs: Set("f1", "f2") })),
     }
 
-  // A hardware fabric a poll-mode consumer steers, and a kernel fabric that
-  // lists a router-owned port (design D4/D5).
-  run fabricNotKernelSteeredTest =
-    val steered = { consumers: [router],
+  // A hardware fabric a userspace-poll tenant forwards, and a kernel fabric
+  // that lists a router-terminated port (design D4/D5).
+  run fabricNotKernelForwardedTest =
+    val tenantForwarded = { tenants: [router],
       ports: [wan0],
       links: [],
-      fabrics: [{ name: "rsw", switching: Hardware, owner: "router", members: [MPort("wan0")] }],
+      fabrics: [{ name: "rsw", switching: Hardware, forwardedBy: "router", members: [MPort("wan0")] }],
       crypto: Set(), limits: Set() }
-    val mismatch = { consumers: [kernel16, router],
-      ports: [{ name: "px", dpmac: 8, rate: 10000, owner: "router" }],
+    val mismatch = { tenants: [kernel16, router],
+      ports: [{ name: "px", dpmac: 8, rate: 10000, tenant: "router" }],
       links: [],
-      fabrics: [{ name: "ksw", switching: Hardware, owner: "kernel", members: [MPort("px")] }],
+      fabrics: [{ name: "ksw", switching: Hardware, forwardedBy: "kernel", members: [MPort("px")] }],
       crypto: Set(), limits: Set() }
     all {
-      refusedWith(compile(steered, REF_INVENTORY),
-        r => r == FabricNotKernelSteered({ fabric: "rsw", owner: "router" })),
+      refusedWith(compile(tenantForwarded, REF_INVENTORY),
+        r => r == FabricNotKernelForwarded({ fabric: "rsw", forwardedBy: "router" })),
       refusedWith(compile(mismatch, REF_INVENTORY),
-        r => r == PortOwnerMismatch({ fabric: "ksw", port: "px", owner: "router" })),
+        r => r == PortTenantMismatch({ fabric: "ksw", port: "px", tenant: "router" })),
     }
 
   // A limit below its request refuses; a limit on a family whose count is
   // fixed by constructs is never silently ignored (design D5/D7).
   run limitRefusalsTest =
-    val below = routerIntent.with("limits", Set({ consumer: "router", family: Dpbp, limit: 1 }))
-    val notDerived = routerIntent.with("limits", Set({ consumer: "router", family: Dpni, limit: 5 }))
+    val below = routerIntent.with("limits", Set({ tenant: "router", family: Dpbp, limit: 1 }))
+    val notDerived = routerIntent.with("limits", Set({ tenant: "router", family: Dpni, limit: 5 }))
     all {
       refusedWith(compile(below, REF_INVENTORY),
-        r => r == LimitBelowRequest({ consumer: "router", family: Dpbp, request: 2, limit: 1 })),
+        r => r == LimitBelowRequest({ tenant: "router", family: Dpbp, request: 2, limit: 1 })),
       refusedWith(compile(notDerived, REF_INVENTORY),
-        r => r == LimitNotDerived({ consumer: "router", family: Dpni })),
+        r => r == LimitNotDerived({ tenant: "router", family: Dpni })),
     }
 
-  // A 25G port is a rate class the seeded table does not know: refused rather
-  // than extrapolated (design D3; derive.qnt open item (b)).
+  // A 40G port is a rate class the seeded worker table does not know: refused
+  // rather than extrapolated (design D3; derive.qnt open item (b)). The anchor
+  // is a 40G-capable dpmac so OverRate does not fire — UnknownRateClass is the
+  // one refusal.
   run unknownRateClassRefusedTest =
-    val intent = { consumers: [router],
-      ports: [{ name: "w", dpmac: 4, rate: 25000, owner: "router" }],
+    val intent = { tenants: [router],
+      ports: [{ name: "w", dpmac: 4, rate: 40000, tenant: "router" }],
       links: [], fabrics: [], crypto: Set(), limits: Set() }
-    refusedWith(compile(intent, REF_INVENTORY),
-      r => r == UnknownRateClass({ consumer: "router", rates: [25000] }))
+    refusalSet(compile(intent, invWith40GMac)) ==
+      Set(UnknownRateClass({ tenant: "router", rates: [40000] }))
+
+  // Two seeded rate classes on one poll-mode tenant compile: T sums the
+  // per-port workers to 1 + 2 + 2 + 5 = 10 (dpio = 2·T = 20), and the accepted
+  // compile carries an unmeasured-combination warning naming the tenant and
+  // the classes mixed (design D3) — the review's escape-hatch-warns rule.
+  run mixedRateClassWarnsTest =
+    match compile(mixedClassIntent, REF_INVENTORY) {
+      | Ok(res) => all {
+          res.plan.prov.get({ tenant: "router", rule: "T", construct: "" }).value == 10,
+          res.plan.prov.get({ tenant: "router", rule: "T", construct: "" }).mark == Unmeasured,
+          countFam(res.plan, "router", Dpio) == 20,
+          res.warnings.contains(UnmeasuredCombination({ tenant: "router", rates: Set(10000, 25000) })),
+        }
+      | Refused(_) => false
+    }
+
+  // A single seeded class stays T = 5 and carries no mix warning — the flag
+  // fires only on a genuine cross-class combination (design D3).
+  run singleClassNoMixWarnTest =
+    match compile(routerIntent, REF_INVENTORY) {
+      | Ok(res) => all {
+          res.plan.prov.get({ tenant: "router", rule: "T", construct: "" }).value == 5,
+          not(res.warnings.exists(w => match w { | UnmeasuredCombination(_) => true | _ => false })),
+        }
+      | Refused(_) => false
+    }
 
   // An unanchored dpmac, a DPL-foreign anchor, and a rate above the anchor's
-  // maximum (design D2; the last also unseeds T, so assert containment).
+  // maximum (design D2); each asserted by containment (refusedWith), since a
+  // rejected port may also perturb sizing.
   run unanchoredForeignTest =
-    val unanchored = { consumers: [router],
-      ports: [{ name: "w", dpmac: 99, rate: 10000, owner: "router" }],
+    val unanchored = { tenants: [router],
+      ports: [{ name: "w", dpmac: 99, rate: 10000, tenant: "router" }],
       links: [], fabrics: [], crypto: Set(), limits: Set() }
-    val overRate = { consumers: [router],
-      ports: [{ name: "wan0", dpmac: 7, rate: 25000, owner: "router" }],
+    val overRate = { tenants: [router],
+      ports: [{ name: "wan0", dpmac: 7, rate: 25000, tenant: "router" }],
       links: [], fabrics: [], crypto: Set(), limits: Set() }
     all {
       refusedWith(compile(unanchored, REF_INVENTORY),
@@ -462,23 +503,23 @@ module intent_main {
   // A hardware fabric inside a hardware fabric is refused (object-model.md §2;
   // derive.qnt open item (d)): the same intent hwInHwDerivesNothingTest derives.
   run unsupportedEdgeTest =
-    val intent = { consumers: [kernel16],
-      ports: [{ name: "p8", dpmac: 8, rate: 10000, owner: "kernel" },
-              { name: "p9", dpmac: 9, rate: 10000, owner: "kernel" }],
+    val intent = { tenants: [kernel16],
+      ports: [{ name: "p8", dpmac: 8, rate: 10000, tenant: "kernel" },
+              { name: "p9", dpmac: 9, rate: 10000, tenant: "kernel" }],
       links: [],
-      fabrics: [{ name: "hw1", switching: Hardware, owner: "kernel", members: [MPort("p8")] },
-                { name: "hw2", switching: Hardware, owner: "kernel", members: [MFabric("hw1"), MPort("p9")] }],
+      fabrics: [{ name: "hw1", switching: Hardware, forwardedBy: "kernel", members: [MPort("p8")] },
+                { name: "hw2", switching: Hardware, forwardedBy: "kernel", members: [MFabric("hw1"), MPort("p9")] }],
       crypto: Set(), limits: Set() }
     refusedWith(compile(intent, REF_INVENTORY),
       r => r == UnsupportedEdge({ fabric: "hw2", member: "hw1" }))
 
-  // A construct naming a consumer that was never declared (design D5).
-  run consumerAbsentTest =
-    val intent = { consumers: [router],
-      ports: [{ name: "wan0", dpmac: 7, rate: 10000, owner: "ghost" }],
+  // A construct naming a tenant that was never declared (design D5).
+  run tenantAbsentTest =
+    val intent = { tenants: [router],
+      ports: [{ name: "wan0", dpmac: 7, rate: 10000, tenant: "ghost" }],
       links: [], fabrics: [], crypto: Set(), limits: Set() }
     refusedWith(compile(intent, REF_INVENTORY),
-      r => r == ConsumerAbsent({ construct: "wan0", consumer: "ghost" }))
+      r => r == TenantAbsent({ construct: "wan0", tenant: "ghost" }))
 
   // ---- plan relationships as named invariants (task 1.4) ----
 
@@ -497,7 +538,7 @@ module intent_main {
 
   // compileInvariants (INTENT_I7 feasibility, INTENT_I8 companion counts) hold
   // over the same intents and over the refused ones — a refusal set is never
-  // empty, and Ok plans keep every count within its ceiling and regime draw.
+  // empty, and Ok plans keep every count within its ceiling and dataplane draw.
   run compileInvariantsHoldTest = all {
     compileInvariants(routerIntent, REF_INVENTORY),
     compileInvariants(limitIntent, REF_INVENTORY),
@@ -519,17 +560,17 @@ module intent_main {
   run invariantsBiteTest =
     val base = derive(routerIntent, REF_INVENTORY)
     val badEdge = base.with("edges", base.edges.union(Set(
-      { a: MacEnd(7), b: MacEnd(8), prov: { consumer: "router", rule: "mac-mac", construct: "bogus" } })))
+      { a: MacEnd(7), b: MacEnd(8), prov: { tenant: "router", rule: "mac-mac", construct: "bogus" } })))
     val badContainer = base.with("objs", base.objs.map(o =>
       if (o.key.family == Dpio and o.key.ordinal == 1) o.with("container", Root) else o))
     val badOrder = base.with("order", base.order.foldl([], (acc, k) => [k].concat(acc)))
     val badCompanion = base.with("objs", base.objs.union(Set(
-      { key: { consumer: "router", family: Dpio, ordinal: 11 },
+      { key: { tenant: "router", family: Dpio, ordinal: 11 },
         container: Child("router"), attrs: Unsized,
-        prov: { consumer: "router", rule: "dpio", construct: "" } })))
+        prov: { tenant: "router", rule: "dpio", construct: "" } })))
     all {
       not(edgesTypedAndSingle(badEdge)),
-      not(containmentByConsumer(badContainer)),
+      not(containmentByTenant(badContainer)),
       not(emissionOrderLawful(badOrder)),
       not(companionsOnlyDerived(badCompanion)),
     }

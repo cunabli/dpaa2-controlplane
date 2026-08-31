@@ -17,7 +17,7 @@ the change's only other operator sync point (design D12).
       ADR-0012's one-dpmcp-per-process and vendor-neutral wording; the
       dpmcp/dpbp/dpio intent sections cite ADR-0012 for numbers only;
       ADR-0010's "intent layer (#5)" becomes #3; `COVERAGE.md`
-      re-anchors DPDCEI-I1 to this change's consumer-absence rule and
+      re-anchors DPDCEI-I1 to this change's tenant-absence rule and
       the deferred online-driver backlog rows owned by #3 are listed
 - [x] 0.3 Amend ADR-0002: Alloy recorded as a per-model escalation
       trigger beside TLA+, for a relational property that proves awkward
@@ -25,31 +25,32 @@ the change's only other operator sync point (design D12).
 
 ## 1. Intent model (Quint, `models/intent/`)
 
-- [x] 1.1 Vocabulary as types: consumer (name, regime, `max_cores`,
-      `crypto_flows`), port (dpmac, rate, owner), link, fabric, crypto;
-      the reserved `kernel` consumer; the inventory type (dpmacs with
+- [x] 1.1 Vocabulary as types: tenant (name, dataplane, `max_cores`,
+      `crypto_flows`), port (dpmac, rate, tenant), link, fabric, crypto;
+      the reserved `kernel` tenant; the inventory type (dpmacs with
       `max_rate`/`eth_if`/`link_type` and availability free/reserved/
       foreign from the ADR-0003 matrix; three-valued ceilings
       counted/observed/unknown with ADR-0011 provenance) loaded from the
       reference snapshot (design D1, D2)
-- [x] 1.2 Derivation as pure defs: the rate-class → T table (one seeded
-      row, `unmeasured`), `max_cores` bound, companion draws by
+- [x] 1.2 Derivation as pure defs: the per-class workers-per-port table
+      (10G ⇒ 2 seeded, 25G ⇒ 5 declared, `unmeasured`), T = 1 main + Σ
+      workers, `max_cores` bound, companion draws by
       reference to `companions.qnt`, dpcon per polled queue, dpseci and
-      dpsw predicates, one child DPRC per non-kernel consumer, dprtc.0
-      pinned; derived objects keyed (consumer, family, ordinal) with
+      dpsw predicates, one child DPRC per non-kernel tenant, dprtc.0
+      pinned; derived objects keyed (tenant, family, ordinal) with
       labels rendered from the key; provenance as a tree from each
       derived value to its rule, its inputs, the construct and the
       anchor (design D3, D4, D6)
 - [x] 1.3 Refusals as the total function's other half, returned as the
-      complete list: consumer absence, unanchored, reserved, foreign,
-      double-claimed, over-rate, fabric not kernel-steered, core budget
-      exceeded, unknown rate class, limit below request, cross-consumer
+      complete list: tenant absence, unanchored, reserved, foreign,
+      double-claimed, over-rate, fabric not kernel-forwarded, core budget
+      exceeded, unknown rate class, limit below request, cross-tenant
       infeasibility naming
       family/needed/available against counted/observed ceilings and
       warning on unknown (design D5)
 - [x] 1.4 Plan relationships as invariants: one container per object
-      and root never a consumer, typed connect ends and no double
-      connect, companions only as consumer derivations, emission order
+      and root never a tenant, typed connect ends and no double
+      connect, companions only as tenant derivations, emission order
       per `object-model.md` §5 — each a named invariant citing its
       anchor; `companions.qnt` gains its named invariants
 - [x] 1.5 Typecheck + simulator green; Apalache marks set on the
@@ -61,22 +62,30 @@ the change's only other operator sync point (design D12).
 ## 2. Scenarios, simulation, fit check, gate
 
 - [x] 2.1 Scenario (1): hardware-switched fabric over dpmac.7/8 at 10G,
-      kernel-steered, with a poll-mode router member terminating
+      kernel-forwarded, with a userspace-poll router member terminating
       dpmac.9/10 under `max_cores` = M — `fabric.qnt` beside
       `fabric.toml`; twin: M below the derived T refused as
       CoreBudgetExceeded (design D8)
-- [x] 2.2 Scenario (2): virtual fabric between two poll-mode containers,
-      joined by a link, no dpmac — `vfabric.qnt`/`.toml`; twin: a third
-      container overdraws the dpbp ceiling, refused Infeasible
+- [x] 2.2 Scenario (2): virtual fabric between two userspace-poll child
+      dprcs, joined by a link, no dpmac — `vfabric.qnt`/`.toml`; twin: a
+      third child dprc overdraws the dpbp ceiling, refused Infeasible
+- [x] 2.3a Taxonomy decisions from the operator's review (artifact,
+      nine threads, 2026-08-31): consumer → tenant, regime → dataplane
+      (`kernel|userspace-poll|userspace-interrupt`, the third refused
+      as `UnpricedDataplane` until priced), fabric owner →
+      `forwarded_by`, port/crypto owner → tenant; the rate table
+      becomes per-class workers-per-port with T = 1 + Σ workers and
+      the `UnmeasuredCombination` warning; design/proposal/spec deltas
+      amended in lockstep (discovered detour, bead gqf.27)
 - [ ] 2.3 Scenario (3): userspace router over N×10G + 1×25G with
       `crypto_flows` ≤ N — `router.qnt`/`.toml`; twin: a port claimed by
-      two consumers
+      two tenants
 - [ ] 2.4 Random simulation over the finite intent alphabet with every
       invariant on; each counterexample becomes a rule (new invariant +
       scenario twin) or a recorded unknown in the model header; coverage
       of the alphabet counted
 - [ ] 2.5 Fit check: the reference board's provisioning (kernel root
-      with dpmac.7/9, the poll-mode child) as `reference.qnt`/`.toml`;
+      with dpmac.7/9, the userspace-poll child dprc) as `reference.qnt`/`.toml`;
       compiled plan diffed object-for-object against
       `baselines/reference.json`; the 3-vs-1 dpmcp finding and any other
       difference dispositioned (divergence vs override — open question 1)
@@ -95,11 +104,11 @@ the change's only other operator sync point (design D12).
 - [ ] 3.1 `dpaa2-api`: `Intent`, `Inventory`, `Refusal`, and the plan
       types transcribed from the model — constructors take the deriving
       construct as witness; a free-standing companion, a dpmac at a link
-      end, a double connect, a consumer in root do not compile (design
+      end, a double connect, a tenant in root do not compile (design
       D6); `DesiredTopology` reshaped to the plan with provenance; the
       #2 retro-model adapter updated and the ladder re-run in the same
-      bead; objects keyed (consumer, family, ordinal), provenance tree
-      type, `Ceiling` and availability types, `Refusal`/`Regime`
+      bead; objects keyed (tenant, family, ordinal), provenance tree
+      type, `Ceiling` and availability types, `Refusal`/`Dataplane`
       `#[non_exhaustive]`; constructors public so a plan is buildable
       without `Intent` (design D11), covered by one test that builds and
       reconciles a plan by hand
@@ -107,7 +116,7 @@ the change's only other operator sync point (design D12).
       request/limit overrides, provenance trees, the complete refusal
       list; unit tests one per refusal variant and per companion rule;
       `proptest` for determinism, limit ≥ request, companion-before-
-      consumer (design D9); ITF replay of the intent traces through
+      tenant (design D9); ITF replay of the intent traces through
       `compile` in `dpaa2-verify`, with `quint-connect` evaluated
       against the existing replayer and adopted only if it retires code
 - [ ] 3.3 `dpaa2-config`: schema rewritten to the constructs with the

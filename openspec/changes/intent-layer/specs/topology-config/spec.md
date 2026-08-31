@@ -5,18 +5,18 @@ The system SHALL read a declarative topology that opens with a
 mandatory `schema = 1` version key, in which each port is identified by
 its static DPMAC anchor and never by an MC-assigned DPNI index, and in
 which every other object is derived from the constructs the operator
-declares: `[[consumer]]` (name, regime, `max_cores`,
-`crypto_flows`), `[[port]]` (dpmac, name, rate, consumer, MAC and MAC
-mode), `[[link]]` (two consumer ends), `[[fabric]]` (switching
-`hardware|software`, owner, members: ports, consumers, or fabrics), and `[[crypto]]` (consumer). The config SHALL NOT require
+declares: `[[tenant]]` (name, dataplane, `max_cores`,
+`crypto_flows`), `[[port]]` (dpmac, name, rate, tenant, MAC and MAC
+mode), `[[link]]` (two tenant ends), `[[fabric]]` (switching
+`hardware|software`, forwarded_by, members: ports, tenants, or fabrics), and `[[crypto]]` (tenant). The config SHALL NOT require
 or accept the operator naming a DPNI index or any dpio, dpbp, dpcon,
-dpmcp, queue or worker count; per-family limits under a consumer are
+dpmcp, queue or worker count; per-family limits under a tenant are
 the only object-level numbers and MUST NOT fall below the derived
 request.
 
 #### Scenario: Port defined by DPMAC
 - **WHEN** a topology entry specifies `dpmac = "dpmac.7"`, a name, a
-  rate, and an owning consumer
+  rate, and an owning tenant
 - **THEN** the config is accepted and the DPNI index is left
   unspecified
 
@@ -27,14 +27,14 @@ request.
   explaining that DPNI identity is derived from the DPMAC edge
 
 #### Scenario: A count field is rejected
-- **WHEN** a consumer entry attempts `dpio = 10` outside an override
+- **WHEN** a tenant entry attempts `dpio = 10` outside an override
   table, or any entry names a worker count
 - **THEN** the system SHALL reject the config with a validation error
   naming the field and stating that the count is derived
 
-#### Scenario: A port without a consumer belongs to the kernel
-- **WHEN** a `[[port]]` entry names no consumer
-- **THEN** it is owned by the reserved `kernel` consumer in the root
+#### Scenario: A port without a tenant belongs to the kernel
+- **WHEN** a `[[port]]` entry names no tenant
+- **THEN** it is owned by the reserved `kernel` tenant in the root
   container
 
 #### Scenario: Missing or unknown schema version
@@ -64,10 +64,10 @@ gNMI) can produce the same `Intent`. `ConfigSource::load` SHALL return
 ### Requirement: Configuration is validated before use
 The system SHALL validate the topology for structural correctness
 before any compilation or reconciliation, including well-formed DPMAC
-references, unique interface and consumer names, well-formed MAC
-addresses, consumer references that resolve, the reserved `kernel`
-name not declared as a `[[consumer]]`, link ends that name two distinct
-consumers, and fabric members that exist. Validation failures SHALL be
+references, unique interface and tenant names, well-formed MAC
+addresses, tenant references that resolve, the reserved `kernel`
+name not declared as a `[[tenant]]`, link ends that name two distinct
+tenants, and fabric members that exist. Validation failures SHALL be
 reported with actionable messages and SHALL prevent compilation.
 
 #### Scenario: Duplicate interface name
@@ -79,12 +79,12 @@ reported with actionable messages and SHALL prevent compilation.
 - **THEN** validation fails with a message identifying the offending
   port
 
-#### Scenario: Unknown consumer reference
-- **WHEN** a port names `consumer = "router"` and no `[[consumer]]`
+#### Scenario: Unknown tenant reference
+- **WHEN** a port names `tenant = "router"` and no `[[tenant]]`
   named `router` exists
-- **THEN** validation fails naming the port and the missing consumer
+- **THEN** validation fails naming the port and the missing tenant
 
 #### Scenario: Reserved name declared
-- **WHEN** a `[[consumer]]` entry is named `kernel`
+- **WHEN** a `[[tenant]]` entry is named `kernel`
 - **THEN** validation fails stating the name is reserved for the root
-  regime
+  dataplane

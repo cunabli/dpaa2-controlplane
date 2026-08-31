@@ -27,8 +27,8 @@ offending construct, exit non-zero, and change nothing.
   amount needed and the amount available, and exits non-zero
 
 #### Scenario: Provenance names the unmeasured row
-- **WHEN** dry-run prints a poll-mode consumer's dpios
-- **THEN** each entry's tree names the rule, the consumer, ADR-0012,
+- **WHEN** dry-run prints a userspace-poll tenant's dpios
+- **THEN** each entry's tree names the rule, the tenant, ADR-0012,
   and the rate-table row marked `unmeasured` that produced T, down to
   the ports whose rates fed the row
 

@@ -1,7 +1,7 @@
 // The pure derivation `derive(intent, inventory): Plan` (openspec change
 // `intent-layer`, design D3/D4/D6; ADR-0005 §2): intent plus the observed
 // hardware offer become the complete object plan — every object keyed by
-// (consumer, family, ordinal), every derived count carrying its rule, its
+// (tenant, family, ordinal), every derived count carrying its rule, its
 // source construct, and its evidence anchor as a provenance DAG. The
 // numbers live in the ADRs, the family modules, and companions.qnt; they
 // are read here by reference, never restated.
@@ -15,45 +15,48 @@
 // This module assumes an intent the refusals of task 1.3 have not rejected
 // (the total function's other half lands in intent/refuse.qnt): a claimed
 // dpmac is anchored and single-owner, an override never sits below its
-// request, a fabric owner is kernel-steered, a rate class is seeded. The
+// request, a hardware fabric is kernel-forwarded, a rate class is seeded. The
 // derivation of a refused intent is undefined, not wrong.
 //
 // Open items left for 1.3 (refusals) and 3.1 (Rust label rendering):
 //   (a) restool caps set-label at 15 chars (dprc.md), so the rendered
-//       `<consumer>/<family>/<ordinal>` overflows for long consumer names;
+//       `<tenant>/<family>/<ordinal>` overflows for long tenant names;
 //       the Key is the identity, the label a lossy projection (ADR-0010).
-//   (b) a consumer with mixed rate classes, or an unseeded (rate, count)
-//       row, has no thread count — threadCount returns None; 1.3 refuses
-//       it. 1.2 reads None as 0 and never reaches that intent.
-//   (c) a portless poll-mode consumer takes T = 1 by the main-only rule
+//   (b) a tenant terminating an unseeded rate class has no thread count —
+//       threadCount returns None; 1.3 refuses it UnknownRateClass. 1.2 reads
+//       None as 0 and never reaches that intent. A mix of *seeded* classes
+//       does have a thread count (the per-port worker sum) and compiles with
+//       an unmeasured-combination warning (design D3).
+//   (c) a portless poll-mode tenant takes T = 1 by the main-only rule
 //       below (main + workers, no port ⇒ no worker); 1.3 may narrow it.
 //   (d) Hardware-in-Hardware membership (a dpsw interface as another
 //       dpsw's interface) derives nothing; 1.3 refuses it.
-//   (e) a port owner differing from its fabric owner is refused at 1.3.
+//   (e) a member port whose tenant differs from its fabric's forwarding
+//       tenant is refused at 1.3.
 //
 // Named invariants: none here (intent/invariants.qnt, task 1.4).
 // Apalache-marked subset: none.
 module intent_derive {
   import types.* from "../core/types"           // Family, Option, Perm, ObjId
-  import companions.* from "../core/companions" // Regime, companionDraw (ADR-0012)
+  import companions as comp from "../core/companions" // comp::Regime, comp::companionDraw (ADR-0012)
   import dpsw.* from "../families/dpsw"          // dpswParams.draw (kernel census row)
   import dpseci.* from "../families/dpseci"      // dpseciParams.draw (kernel census row)
-  import intent_types.* from "./types"           // Intent, Consumer, Port, …, KERNEL
+  import intent_types.* from "./types"           // Intent, Tenant, Port, …, KERNEL
 
   // ---- the plan's shape (design D6) ----
 
   // A derived object's identity is its key: the label the MC carries is a
   // projection of it (ADR-0010 §4). Ordinals are 1-based positions.
-  type Key = { consumer: str, family: Family, ordinal: int }
+  type Key = { tenant: str, family: Family, ordinal: int }
 
   // The label is a projection of the key; the Rust frontend renders
-  // `<consumer>/<family>/<ordinal>` (task 3.1). Quint has no string ops,
+  // `<tenant>/<family>/<ordinal>` (task 3.1). Quint has no string ops,
   // so the projection is the identity.
   pure def labelOf(k: Key): Key = k
 
   // Where an object lives: Root is dprc.1 (the kernel's own container,
-  // never a consumer); Child(consumer) is that consumer's child DPRC,
-  // itself the key (consumer, Dprc, 1).
+  // never a tenant); Child(tenant) is that tenant's child DPRC,
+  // itself the key (tenant, Dprc, 1).
   type Container = Root | Child(str)
 
   // Per-family create-config the plan carries. Unsized families expose no
@@ -66,12 +69,12 @@ module intent_derive {
     | DpswAttrs({ numIfs: int, maxFdbs: int, perFdbFlooding: bool, perFdbBroadcast: bool, ctrlIf: bool })
     | DprcAttrs({ options: Set[Perm] })
 
-  // A provenance node's address: (consumer, rule, construct). Consumer-level
-  // count rules use construct "" (one node per consumer); per-construct
+  // A provenance node's address: (tenant, rule, construct). Tenant-level
+  // count rules use construct "" (one node per tenant); per-construct
   // rules carry the construct name — the fabric for dpsw/fabric-edge/
   // fabric-wire, the port for port-edge, the link for link-edge — so two
   // fabrics of one owner no longer collide on a single node.
-  type ProvKey = { consumer: str, rule: str, construct: str }
+  type ProvKey = { tenant: str, rule: str, construct: str }
 
   // Whether the value stands on measured evidence or on the declared,
   // visibly unmeasured rate-class table (design D3).
@@ -115,33 +118,36 @@ module intent_derive {
   // reference child (dprc.md ~line 58).
   pure val DPRC_DEFAULT_OPTIONS: Set[Perm] = Set(Spawn, Alloc, ObjCreate, IrqCfg)
 
-  // ---- the rate-class table (design D3) ----
+  // ---- the worker table (design D3) ----
 
-  type RateRow = { rate: int, ports: int, threads: int, mark: Mark }
+  // The per-rate-class worker count, seeded from the reference board and
+  // visibly unmeasured on every T it prices (the T provenance node carries
+  // Mark = Unmeasured). 10G (10000) ⇒ 2 workers: the seed, decomposed from
+  // the verified configuration — two 10G ports in poll-mode ran
+  // T = 5 = 1 main + 2·2 workers, the configuration ADR-0012's companion
+  // numbers were verified against. 25G (25000) ⇒ 5 workers: declared,
+  // linear-in-rate from the 10G row, unmeasured, operator sign-off pending at
+  // the 2.6 gate. A rate class absent here has no worker count, so its
+  // tenant's T is undefined (threadCount None) and intent/refuse.qnt refuses
+  // it UnknownRateClass.
+  pure val WORKER_TABLE: int -> int = Map(10000 -> 2, 25000 -> 5)
 
-  // The one seeded row: the configuration ADR-0012's companion numbers
-  // were verified against — two 10G ports in poll-mode ⇒ T = 5. Printed
-  // *unmeasured*; no extrapolation, a class not here has no thread count.
-  pure val RATE_TABLE: Set[RateRow] =
-    Set({ rate: 10000, ports: 2, threads: 5, mark: Unmeasured })
+  // Workers a single port of the given rate class draws (design D3), or None
+  // for an unseeded class (e.g. a 40G port).
+  pure def workersPerPort(rate: int): Option[int] =
+    if (WORKER_TABLE.keys().contains(rate)) Some(WORKER_TABLE.get(rate)) else None
 
-  // The row whose rate equals every entry and whose port count equals the
-  // length, else None (a mixed or unseeded class).
-  pure def rateRow(rates: List[int]): Option[RateRow] =
-    RATE_TABLE.fold(None, (acc, r) =>
-      if (r.ports == rates.length() and rates.indices().forall(i => rates.nth(i) == r.rate))
-        Some(r)
-      else acc)
-
-  // T = main + workers (ADR-0012). Zero ports ⇒ Some(1): a portless
-  // consumer is main-only (no port ⇒ no worker); still visibly unmeasured.
-  // Otherwise the seeded row's thread count, or None for an unseeded class.
+  // T = 1 main + Σ workers(rate) over the ports the tenant terminates (design
+  // D3, the explicit formula). A portless tenant is main-only ⇒ Some(1) (no
+  // port ⇒ no worker); a port whose rate class has no worker row makes the
+  // whole sum undefined ⇒ None, and refuse.qnt turns that into
+  // UnknownRateClass. Every derived T is visibly unmeasured.
   pure def threadCount(ports: List[Port]): Option[int] =
-    if (ports.length() == 0) Some(1)
-    else match rateRow(ports.foldl([], (acc, p) => acc.append(p.rate))) {
-      | Some(r) => Some(r.threads)
-      | None => None
-    }
+    ports.foldl(Some(1), (acc, p) =>
+      match acc {
+        | None => None
+        | Some(t) => match workersPerPort(p.rate) { | Some(w) => Some(t + w) | None => None }
+      })
 
   pure def imin(a: int, b: int): int = if (a < b) a else b
 
@@ -158,14 +164,14 @@ module intent_derive {
   pure def memberIsFabric(m: Member, fn: str): bool =
     match m { | MFabric(h) => h == fn | _ => false }
 
-  // The consumer a member resolves to: a consumer member, or a software
+  // The tenant a member resolves to: a tenant member, or a software
   // fabric member's owner (its bridging). Ports and hardware fabrics resolve
-  // to no consumer.
-  pure def memberConsumer(intent: Intent, m: Member): Option[str] =
+  // to no tenant.
+  pure def memberTenant(intent: Intent, m: Member): Option[str] =
     match m {
-      | MConsumer(c) => Some(c)
+      | MTenant(c) => Some(c)
       | MFabric(h) => match fabricByName(intent, h) {
-          | Some(f) => match f.switching { | Software => Some(f.owner) | Hardware => None }
+          | Some(f) => match f.switching { | Software => Some(f.forwardedBy) | Hardware => None }
           | None => None
         }
       | MPort(_) => None
@@ -179,18 +185,27 @@ module intent_derive {
       f.switching == Hardware and
       f.members.select(m => memberIsPort(m, portName)).length() > 0).length() > 0
 
-  // The consumer's terminated ports (owned and not switched into a hardware
+  // The tenant's terminated ports (owned and not switched into a hardware
   // fabric), in declaration order.
-  pure def ownedPorts(intent: Intent, name: str): List[Port] =
-    intent.ports.select(p => p.owner == name and not(isHwSwitchedPort(intent, p.name)))
+  pure def terminatedPorts(intent: Intent, name: str): List[Port] =
+    intent.ports.select(p => p.tenant == name and not(isHwSwitchedPort(intent, p.name)))
+
+  // The distinct seeded rate classes a tenant's terminated ports span. A set
+  // larger than one is a cross-class mix: the formula prices it (each port by
+  // its own worker row) but it carries an unmeasured-combination warning
+  // (design D3; the warning is raised in intent/refuse.qnt). An unseeded class
+  // is excluded here — it has no row and is refused UnknownRateClass instead.
+  pure def seededRateClasses(intent: Intent, name: str): Set[int] =
+    terminatedPorts(intent, name).foldl(Set(), (acc, p) =>
+      if (WORKER_TABLE.keys().contains(p.rate)) acc.union(Set(p.rate)) else acc)
 
   // Whether X is attached to Hardware fabric f through f's own members: a
-  // consumer member X, or a software-fabric member owned by X.
+  // tenant member X, or a software-fabric member owned by X.
   pure def ownerAttachedViaMembers(intent: Intent, f: Fabric, x: str): bool =
     f.members.select(m => match m {
-      | MConsumer(c) => c == x
+      | MTenant(c) => c == x
       | MFabric(h) => match fabricByName(intent, h) {
-          | Some(g) => g.switching == Software and g.owner == x
+          | Some(g) => g.switching == Software and g.forwardedBy == x
           | None => false
         }
       | MPort(_) => false
@@ -202,13 +217,13 @@ module intent_derive {
     val viaMembers = ownerAttachedViaMembers(intent, f, x)
     val viaSoftwareChain =
       intent.fabrics.select(g =>
-        g.switching == Software and g.owner == x and
+        g.switching == Software and g.forwardedBy == x and
         g.members.select(m => memberIsFabric(m, f.name)).length() > 0).length() > 0
     viaMembers or viaSoftwareChain
 
   // ---- dpni origins (design D6; object-model.md §2; UM §2.2.2 fig. 6) ----
 
-  // Each dpni a consumer terminates, in the concatenation order that fixes
+  // Each dpni a tenant terminates, in the concatenation order that fixes
   // its ordinal: an owned terminated port (6a), a link end (6b, a self-link
   // yields two), an attachment to a Hardware fabric (a dpsw interface, 6c),
   // the owner's end of a Software fabric's pseudo-wire (6b), or a member's
@@ -232,14 +247,14 @@ module intent_derive {
     match o { | OWireMember(n) => n == g | _ => false }
 
   pure def portOrigins(intent: Intent, name: str): List[Origin] =
-    ownedPorts(intent, name).foldl([], (acc, p) => acc.append(OPort(p)))
+    terminatedPorts(intent, name).foldl([], (acc, p) => acc.append(OPort(p)))
 
   pure def linkOrigins(intent: Intent, name: str): List[Origin] =
     intent.links.foldl([], (acc, l) =>
       val a1 = if (l.a == name) acc.append(OLink({ link: l, side: 0 })) else acc
       if (l.b == name) a1.append(OLink({ link: l, side: 1 })) else a1)
 
-  // One OAttach per Hardware fabric the consumer attaches to, once per
+  // One OAttach per Hardware fabric the tenant attaches to, once per
   // (X, f) however many ways the attachment is implied.
   pure def attachOrigins(intent: Intent, name: str): List[Origin] =
     intent.fabrics.foldl([], (acc, f) =>
@@ -248,12 +263,12 @@ module intent_derive {
       else acc)
 
   // One OWireOwner per member of a Software fabric X owns that resolves to a
-  // consumer C ≠ X — X's end of the 6b pseudo-wire.
+  // tenant C ≠ X — X's end of the 6b pseudo-wire.
   pure def wireOwnerOrigins(intent: Intent, name: str): List[Origin] =
     intent.fabrics.foldl([], (acc, g) =>
-      if (g.switching == Software and g.owner == name)
+      if (g.switching == Software and g.forwardedBy == name)
         g.members.foldl(acc, (a2, m) =>
-          match memberConsumer(intent, m) {
+          match memberTenant(intent, m) {
             | Some(c) => if (c != name) a2.append(OWireOwner({ fabric: g.name, peer: c })) else a2
             | None => a2
           })
@@ -263,12 +278,12 @@ module intent_derive {
   // X's end of the wire.
   pure def wireMemberOrigins(intent: Intent, name: str): List[Origin] =
     intent.fabrics.foldl([], (acc, g) =>
-      if (g.switching == Software and g.owner != name and
-          g.members.select(m => memberConsumer(intent, m) == Some(name)).length() > 0)
+      if (g.switching == Software and g.forwardedBy != name and
+          g.members.select(m => memberTenant(intent, m) == Some(name)).length() > 0)
         acc.append(OWireMember(g.name))
       else acc)
 
-  // The ordered dpni sources of a consumer: terminated ports, link ends,
+  // The ordered dpni sources of a tenant: terminated ports, link ends,
   // hardware-fabric attachments, then software-fabric wire ends (owner then
   // member). Position + 1 is the dpni ordinal.
   pure def originList(intent: Intent, name: str): List[Origin] =
@@ -284,10 +299,10 @@ module intent_derive {
       { i: acc.i + 1,
         found: if (acc.found >= 0) acc.found else if (pred(o)) acc.i else -1 }).found + 1
 
-  pure def ownedPortNames(intent: Intent, name: str): Set[str] =
-    ownedPorts(intent, name).foldl(Set(), (acc, p) => acc.union(Set(p.name)))
+  pure def terminatedPortNames(intent: Intent, name: str): Set[str] =
+    terminatedPorts(intent, name).foldl(Set(), (acc, p) => acc.union(Set(p.name)))
 
-  // The construct names of a consumer's dpnis: a port name, a link name, or
+  // The construct names of a tenant's dpnis: a port name, a link name, or
   // — for a hardware-fabric attachment or either wire end — the fabric name.
   pure def dpniConstructs(intent: Intent, name: str): Set[str] =
     originList(intent, name).foldl(Set(), (acc, o) =>
@@ -301,14 +316,14 @@ module intent_derive {
 
   // ---- hardware-fabric interfaces (dpsw.if numbering, 0-based) ----
 
-  // A dpni endpoint by consumer + attaching fabric: that consumer's OAttach
+  // A dpni endpoint by tenant + attaching fabric: that tenant's OAttach
   // dpni on the fabric's dpsw.
-  pure def attachEnd(intent: Intent, consumer: str, fabricName: str): End =
-    ObjEnd({ key: { consumer: consumer, family: Dpni,
-                    ordinal: ordinalWhere(originList(intent, consumer), o => isAttach(o, fabricName)) }, port: 0 })
+  pure def attachEnd(intent: Intent, tenant: str, fabricName: str): End =
+    ObjEnd({ key: { tenant: tenant, family: Dpni,
+                    ordinal: ordinalWhere(originList(intent, tenant), o => isAttach(o, fabricName)) }, port: 0 })
 
   // The ordered endpoints of a Hardware fabric's dpsw interfaces: f.members
-  // in list order — a member port's dpmac (MacEnd), a member consumer's or
+  // in list order — a member port's dpmac (MacEnd), a member tenant's or
   // member software-fabric-owner's attach dpni (ObjEnd), Hardware-in-
   // Hardware skipped (open item (d), refused at 1.3); then one interface per
   // Software fabric listing f (a chain of switches) whose owner is not
@@ -320,20 +335,20 @@ module intent_derive {
             | Some(port) => acc.append(MacEnd(port.dpmac))
             | None => acc
           }
-        | MConsumer(c) => acc.append(attachEnd(intent, c, f.name))
+        | MTenant(c) => acc.append(attachEnd(intent, c, f.name))
         | MFabric(h) => match fabricByName(intent, h) {
-            | Some(g) => if (g.switching == Software) acc.append(attachEnd(intent, g.owner, f.name)) else acc
+            | Some(g) => if (g.switching == Software) acc.append(attachEnd(intent, g.forwardedBy, f.name)) else acc
             | None => acc
           }
       })
     intent.fabrics.foldl(fromMembers, (acc, g) =>
       if (g.switching == Software and
           g.members.select(m => memberIsFabric(m, f.name)).length() > 0 and
-          not(ownerAttachedViaMembers(intent, f, g.owner)))
-        acc.append(attachEnd(intent, g.owner, f.name))
+          not(ownerAttachedViaMembers(intent, f, g.forwardedBy)))
+        acc.append(attachEnd(intent, g.forwardedBy, f.name))
       else acc)
 
-  // ---- per-consumer sizing (design D3/D4/D5) ----
+  // ---- per-tenant sizing (design D3/D4/D5) ----
 
   type Eff = { request: int, limit: Option[int], value: int }
 
@@ -341,7 +356,7 @@ module intent_derive {
   // the request to its value; else the request stands. Applies to the four
   // companion count families only. (1.3 refuses limit < request.)
   pure def effective(intent: Intent, name: str, fam: Family, request: int): Eff =
-    val ls = intent.limits.filter(l => l.consumer == name and l.family == fam)
+    val ls = intent.limits.filter(l => l.tenant == name and l.family == fam)
     if (ls.size() == 0) { request: request, limit: None, value: request }
     else val lv = ls.fold(0, (_, l) => l.limit)
          { request: request, limit: Some(lv), value: lv }
@@ -350,21 +365,27 @@ module intent_derive {
   // dpnis (open item), so "owned fabrics" for dpsw purposes are the Hardware
   // fabrics owned by X.
   pure def hwOwnedFabrics(intent: Intent, name: str): List[Fabric] =
-    intent.fabrics.select(f => f.switching == Hardware and f.owner == name)
+    intent.fabrics.select(f => f.switching == Hardware and f.forwardedBy == name)
 
   pure def cryptoCount(intent: Intent, name: str): int =
-    intent.crypto.filter(k => k.owner == name).size()
+    intent.crypto.filter(k => k.tenant == name).size()
 
-  pure def containerOf(c: Consumer): Container =
+  pure def containerOf(c: Tenant): Container =
     if (c.name == KERNEL) Root else Child(c.name)
+
+  // ADR-0012 prices only the Kernel and UserspacePoll dataplanes; a
+  // UserspaceInterrupt tenant has no companion draw, so the derivation never
+  // sizes it — compile refuses it (intent/refuse.qnt UnpricedDataplane).
+  pure def hasPricing(c: Tenant): bool =
+    match c.dataplane { | UserspaceInterrupt => false | _ => true }
 
   // The kernel's dpio budget: online CPUs (ADR-0012) or max_cores — the
   // gate picks one (open question 2).
-  pure def kernelCores(inv: Inventory, c: Consumer): int =
+  pure def kernelCores(inv: Inventory, c: Tenant): int =
     if (KERNEL_BUDGET_IS_DPIO_COUNT) c.maxCores else inv.cpus
 
-  pure def tOf(intent: Intent, c: Consumer): int =
-    match threadCount(ownedPorts(intent, c.name)) { | Some(t) => t | None => 0 }
+  pure def tOf(intent: Intent, c: Tenant): int =
+    match threadCount(terminatedPorts(intent, c.name)) { | Some(t) => t | None => 0 }
 
   type Sizing = {
     name: str, isKernel: bool, container: Container,
@@ -380,17 +401,17 @@ module intent_derive {
   // dpsw/dpseci adds its own family census row (families/dpsw.qnt,
   // families/dpseci.qnt draw). dpcon is one per polled queue (dpcon.md,
   // DPCON-I1): poll-mode dpnis·T, kernel imin(cpus, numQueues) per dpni.
-  pure def sizeConsumer(intent: Intent, inv: Inventory, c: Consumer): Sizing =
+  pure def sizeTenant(intent: Intent, inv: Inventory, c: Tenant): Sizing =
     val nm = c.name
-    val isK = c.regime == Kernel
+    val isK = c.dataplane == Kernel
     val dpnis = originList(intent, nm).length()
     val t = tOf(intent, c)
     val cpus = kernelCores(inv, c)
     val numQ = if (isK) cpus else t
     val nDpsw = hwOwnedFabrics(intent, nm).length()
     val nDpseci = cryptoCount(intent, nm)
-    val base = if (isK) companionDraw(Kernel, cpus, 0, 1, dpnis)
-               else companionDraw(PollMode, 0, t, 1, dpnis)
+    val base = if (isK) comp::companionDraw(comp::Kernel, cpus, 0, 1, dpnis)
+               else comp::companionDraw(comp::PollMode, 0, t, 1, dpnis)
     val reqDpio = base.dpio
     val reqDpbp = if (isK) base.dpbp + nDpsw * dpswParams.draw.dpbp + nDpseci * dpseciParams.draw.dpbp
                   else base.dpbp
@@ -412,7 +433,9 @@ module intent_derive {
   // n — the core model's machine.qnt MAX_ENDPOINT_PORTS pattern. The bound is
   // the largest count the sizing can produce: the kernel dpcon draw
   // dpnis·cpus with the reference offer's 6 usable dpmacs and 16 CPUs
-  // (intent/inventory.qnt); a count past it truncates the fold, which
+  // (intent/inventory.qnt). Poll-mode ties, never exceeds, that bound — three
+  // 25G ports give T = 16 = cpus (design D3 worker table), so a poll tenant's
+  // dpnis·T reaches the same 96. A count past it truncates the fold, which
   // companionsOnlyDerived and keysAreIdentities trip loudly — never a silent
   // pass.
   pure val MAX_DERIVED_COUNT: int = 96
@@ -427,17 +450,17 @@ module intent_derive {
   // exhausts the heap).
   pure def sizedObjs(name: str, fam: Family, container: Container, n: int, attrs: Attrs, rule: str): Set[PlanObj] =
     countSet(n).map(i =>
-      { key: { consumer: name, family: fam, ordinal: i },
+      { key: { tenant: name, family: fam, ordinal: i },
         container: container, attrs: attrs,
-        prov: { consumer: name, rule: rule, construct: "" } })
+        prov: { tenant: name, rule: rule, construct: "" } })
 
-  // Every consumer whose name ≠ KERNEL gets one child DPRC in Root
-  // (dprc.md ~line 281); the kernel consumer's objects live in Root.
+  // Every tenant whose name ≠ KERNEL gets one child DPRC in Root
+  // (dprc.md ~line 281); the kernel tenant's objects live in Root.
   pure def dprcObjs(s: Sizing): Set[PlanObj] =
     if (s.isKernel) Set()
-    else Set({ key: { consumer: s.name, family: Dprc, ordinal: 1 },
+    else Set({ key: { tenant: s.name, family: Dprc, ordinal: 1 },
                container: Root, attrs: DprcAttrs({ options: DPRC_DEFAULT_OPTIONS }),
-               prov: { consumer: s.name, rule: "dprc", construct: "" } })
+               prov: { tenant: s.name, rule: "dprc", construct: "" } })
 
   // One dpsw per owned Hardware fabric, ordinal by fabric list position among
   // the owner's Hardware fabrics; the kernel-bindable predicate (dpsw.md,
@@ -450,14 +473,14 @@ module intent_derive {
       val ni = hwFabricEnds(intent, f).length()
       { i: acc.i + 1,
         set: acc.set.union(Set({
-          key: { consumer: s.name, family: Dpsw, ordinal: acc.i + 1 },
+          key: { tenant: s.name, family: Dpsw, ordinal: acc.i + 1 },
           container: s.container,
           attrs: DpswAttrs({ numIfs: ni, maxFdbs: ni,
                              perFdbFlooding: true, perFdbBroadcast: true, ctrlIf: true }),
-          prov: { consumer: s.name, rule: "dpsw", construct: f.name } })) }).set
+          prov: { tenant: s.name, rule: "dpsw", construct: f.name } })) }).set
 
-  pure def consumerObjs(intent: Intent, inv: Inventory, c: Consumer): Set[PlanObj] =
-    val s = sizeConsumer(intent, inv, c)
+  pure def tenantObjs(intent: Intent, inv: Inventory, c: Tenant): Set[PlanObj] =
+    val s = sizeTenant(intent, inv, c)
     dprcObjs(s)
       .union(sizedObjs(s.name, Dpio, s.container, s.effDpio.value, Unsized, "dpio"))
       .union(sizedObjs(s.name, Dpmcp, s.container, s.effDpmcp.value, Unsized, "dpmcp"))
@@ -471,21 +494,22 @@ module intent_derive {
 
   // dprtc.0 is pinned in Root (key ordinal 1), exactly one, kernel-owned (dprtc.md,
   // DPRTC-I1 singleton / DPRTC-I2 kernel-owned). dpdbg is never derived.
-  pure val dprtcKey: Key = { consumer: KERNEL, family: Dprtc, ordinal: 1 }
+  pure val dprtcKey: Key = { tenant: KERNEL, family: Dprtc, ordinal: 1 }
   pure val dprtcObj: PlanObj =
-    { key: dprtcKey, container: Root, attrs: Unsized, prov: { consumer: KERNEL, rule: "dprtc", construct: "" } }
+    { key: dprtcKey, container: Root, attrs: Unsized, prov: { tenant: KERNEL, rule: "dprtc", construct: "" } }
 
   pure def allObjs(intent: Intent, inv: Inventory): Set[PlanObj] =
-    intent.consumers.foldl(Set(dprtcObj), (acc, c) => acc.union(consumerObjs(intent, inv, c)))
+    intent.tenants.foldl(Set(dprtcObj), (acc, c) =>
+      if (hasPricing(c)) acc.union(tenantObjs(intent, inv, c)) else acc)
 
   // ---- emission order (object-model.md §5 step 1) ----
   // A kernel dpio draws a dpmcp, so dpio precedes dpmcp (ADR-0012).
 
   pure def companionKeys(name: str, fam: Family, n: int): List[Key] =
-    countRange(n).foldl([], (acc, i) => acc.append({ consumer: name, family: fam, ordinal: i }))
+    countRange(n).foldl([], (acc, i) => acc.append({ tenant: name, family: fam, ordinal: i }))
 
-  pure def consumerOrder(intent: Intent, s: Sizing): List[Key] =
-    (if (s.isKernel) [] else [{ consumer: s.name, family: Dprc, ordinal: 1 }])
+  pure def tenantOrder(intent: Intent, s: Sizing): List[Key] =
+    (if (s.isKernel) [] else [{ tenant: s.name, family: Dprc, ordinal: 1 }])
       .concat(companionKeys(s.name, Dpio, s.effDpio.value))
       .concat(companionKeys(s.name, Dpmcp, s.effDpmcp.value))
       .concat(companionKeys(s.name, Dpbp, s.effDpbp.value))
@@ -495,29 +519,29 @@ module intent_derive {
       .concat(companionKeys(s.name, Dpsw, s.numDpsw))
 
   pure def fullOrder(intent: Intent, inv: Inventory): List[Key] =
-    [dprtcKey].concat(intent.consumers.foldl([], (acc, c) =>
-      acc.concat(consumerOrder(intent, sizeConsumer(intent, inv, c)))))
+    [dprtcKey].concat(intent.tenants.foldl([], (acc, c) =>
+      if (hasPricing(c)) acc.concat(tenantOrder(intent, sizeTenant(intent, inv, c))) else acc))
 
   // ---- provenance nodes ----
 
   pure def dpioNode(s: Sizing): ProvNode =
     { rule: "dpio", anchor: "ADR-0012 (companions.qnt companionDraw)", mark: Measured,
       request: s.effDpio.request, limit: s.effDpio.limit, value: s.effDpio.value,
-      inputs: Set({ consumer: s.name, rule: if (s.isKernel) "cpus" else "T", construct: "" }), constructs: Set() }
+      inputs: Set({ tenant: s.name, rule: if (s.isKernel) "cpus" else "T", construct: "" }), constructs: Set() }
 
   pure def dpbpNode(s: Sizing): ProvNode =
     { rule: "dpbp",
       anchor: if (s.isKernel) "ADR-0012 (companions.qnt companionDraw); families/dpsw.qnt + dpseci.qnt draw"
               else "ADR-0012 (companions.qnt companionDraw)",
       mark: Measured, request: s.effDpbp.request, limit: s.effDpbp.limit, value: s.effDpbp.value,
-      inputs: if (s.isKernel) Set({ consumer: s.name, rule: "dpnis", construct: "" }) else Set(), constructs: Set() }
+      inputs: if (s.isKernel) Set({ tenant: s.name, rule: "dpnis", construct: "" }) else Set(), constructs: Set() }
 
   pure def dpmcpNode(s: Sizing): ProvNode =
     { rule: "dpmcp",
       anchor: if (s.isKernel) "ADR-0012 (companions.qnt companionDraw); families/dpsw.qnt + dpseci.qnt draw"
               else "companions.qnt: one MC portal per process",
       mark: Measured, request: s.effDpmcp.request, limit: s.effDpmcp.limit, value: s.effDpmcp.value,
-      inputs: if (s.isKernel) Set({ consumer: s.name, rule: "cpus", construct: "" }, { consumer: s.name, rule: "dpnis", construct: "" }) else Set(),
+      inputs: if (s.isKernel) Set({ tenant: s.name, rule: "cpus", construct: "" }, { tenant: s.name, rule: "dpnis", construct: "" }) else Set(),
       constructs: Set() }
 
   pure def dpniQueuesNode(s: Sizing): ProvNode =
@@ -525,12 +549,12 @@ module intent_derive {
       anchor: if (s.isKernel) "dpni.md line 64/226-236: ls-addni injects nproc; DPCON-I1"
               else "ADR-0012: transmit queues >= T",
       mark: Measured, request: s.numQueues, limit: None, value: s.numQueues,
-      inputs: Set({ consumer: s.name, rule: if (s.isKernel) "cpus" else "T", construct: "" }), constructs: Set() }
+      inputs: Set({ tenant: s.name, rule: if (s.isKernel) "cpus" else "T", construct: "" }), constructs: Set() }
 
   pure def dpconNode(s: Sizing): ProvNode =
     { rule: "dpcon", anchor: "dpcon.md DPCON-I1: one dpcon per polled queue", mark: Measured,
       request: s.effDpcon.request, limit: s.effDpcon.limit, value: s.effDpcon.value,
-      inputs: Set({ consumer: s.name, rule: "dpnis", construct: "" }, { consumer: s.name, rule: "dpni-queues", construct: "" }),
+      inputs: Set({ tenant: s.name, rule: "dpnis", construct: "" }, { tenant: s.name, rule: "dpni-queues", construct: "" }),
       constructs: Set() }
 
   // One dpsw node per Hardware fabric, keyed by the fabric name (construct).
@@ -546,12 +570,12 @@ module intent_derive {
   pure def linkEdgeNode(l: Link): ProvNode =
     { rule: "link-edge", anchor: "object-model.md §2, DPNI-I9 pseudo-wire", mark: Measured,
       request: 0, limit: None, value: 0,
-      inputs: Set({ consumer: l.a, rule: "dpnis", construct: "" }, { consumer: l.b, rule: "dpnis", construct: "" }),
+      inputs: Set({ tenant: l.a, rule: "dpnis", construct: "" }, { tenant: l.b, rule: "dpnis", construct: "" }),
       constructs: Set(l.name) }
 
   pure def fabricEdgeNode(f: Fabric): ProvNode =
     { rule: "fabric-edge", anchor: "DPAA2 User Manual §2.2.2 fig. 6c; dpsw.md", mark: Measured,
-      request: 0, limit: None, value: 0, inputs: Set({ consumer: f.owner, rule: "dpsw", construct: f.name }),
+      request: 0, limit: None, value: 0, inputs: Set({ tenant: f.forwardedBy, rule: "dpsw", construct: f.name }),
       constructs: Set(f.name) }
 
   // The owner's end of every 6b pseudo-wire a Software fabric carries; inputs
@@ -559,110 +583,112 @@ module intent_derive {
   pure def fabricWireNode(intent: Intent, g: Fabric): ProvNode =
     { rule: "fabric-wire", anchor: "DPAA2 User Manual §2.2.2 fig. 6b; object-model.md §2 DPNI-I9", mark: Measured,
       request: 0, limit: None, value: 0,
-      inputs: g.members.foldl(Set({ consumer: g.owner, rule: "dpnis", construct: "" }), (acc, m) =>
-        match memberConsumer(intent, m) {
-          | Some(c) => if (c != g.owner) acc.union(Set({ consumer: c, rule: "dpnis", construct: "" })) else acc
+      inputs: g.members.foldl(Set({ tenant: g.forwardedBy, rule: "dpnis", construct: "" }), (acc, m) =>
+        match memberTenant(intent, m) {
+          | Some(c) => if (c != g.forwardedBy) acc.union(Set({ tenant: c, rule: "dpnis", construct: "" })) else acc
           | None => acc
         }),
       constructs: Set(g.name) }
 
-  pure def addConsumerProv(intent: Intent, inv: Inventory, m: ProvKey -> ProvNode, c: Consumer): ProvKey -> ProvNode =
-    val s = sizeConsumer(intent, inv, c)
+  pure def addTenantProv(intent: Intent, inv: Inventory, m: ProvKey -> ProvNode, c: Tenant): ProvKey -> ProvNode =
+    val s = sizeTenant(intent, inv, c)
     val nm = s.name
-    val pn = ownedPortNames(intent, nm)
-    val np = ownedPorts(intent, nm).length()
+    val pn = terminatedPortNames(intent, nm)
+    val np = terminatedPorts(intent, nm).length()
     val m1 = m
-      .put({ consumer: nm, rule: "ports", construct: "" },
+      .put({ tenant: nm, rule: "ports", construct: "" },
            { rule: "ports", anchor: "design D1: declared port constructs", mark: Measured,
              request: np, limit: None, value: np, inputs: Set(), constructs: pn })
-      .put({ consumer: nm, rule: "dpnis", construct: "" },
+      .put({ tenant: nm, rule: "dpnis", construct: "" },
            { rule: "dpnis", anchor: "object-model.md §2: one dpni per terminated port, link end, fabric membership",
              mark: Measured, request: s.dpnis, limit: None, value: s.dpnis, inputs: Set(),
              constructs: dpniConstructs(intent, nm) })
-      .put({ consumer: nm, rule: "dpio", construct: "" }, dpioNode(s))
-      .put({ consumer: nm, rule: "dpbp", construct: "" }, dpbpNode(s))
-      .put({ consumer: nm, rule: "dpmcp", construct: "" }, dpmcpNode(s))
-      .put({ consumer: nm, rule: "dpni-queues", construct: "" }, dpniQueuesNode(s))
-      .put({ consumer: nm, rule: "dpcon", construct: "" }, dpconNode(s))
+      .put({ tenant: nm, rule: "dpio", construct: "" }, dpioNode(s))
+      .put({ tenant: nm, rule: "dpbp", construct: "" }, dpbpNode(s))
+      .put({ tenant: nm, rule: "dpmcp", construct: "" }, dpmcpNode(s))
+      .put({ tenant: nm, rule: "dpni-queues", construct: "" }, dpniQueuesNode(s))
+      .put({ tenant: nm, rule: "dpcon", construct: "" }, dpconNode(s))
     val m2 = if (s.isKernel)
-               m1.put({ consumer: nm, rule: "cpus", construct: "" },
+               m1.put({ tenant: nm, rule: "cpus", construct: "" },
                       { rule: "cpus", anchor: "ADR-0012: one dpio per online CPU", mark: Measured,
                         request: s.cpus, limit: None, value: s.cpus, inputs: Set(), constructs: Set() })
              else
-               m1.put({ consumer: nm, rule: "T", construct: "" },
-                      { rule: "T", anchor: "design D3 rate-class table, unmeasured", mark: Unmeasured,
+               m1.put({ tenant: nm, rule: "T", construct: "" },
+                      { rule: "T",
+                        anchor: "design D3: T = 1 + Σ workers over terminated ports; workers-per-port table (10G⇒2, 25G⇒5), unmeasured",
+                        mark: Unmeasured,
                         request: s.t, limit: None, value: s.t,
-                        inputs: Set({ consumer: nm, rule: "ports", construct: "" }), constructs: pn })
+                        inputs: Set({ tenant: nm, rule: "ports", construct: "" }), constructs: pn })
     val m3 = if (s.isKernel) m2
-             else m2.put({ consumer: nm, rule: "dprc", construct: "" },
+             else m2.put({ tenant: nm, rule: "dprc", construct: "" },
                          { rule: "dprc", anchor: "dprc.md: restool-default child options", mark: Measured,
                            request: 1, limit: None, value: 1, inputs: Set(), constructs: Set(nm) })
     val m4 = if (s.numDpseci > 0)
-               m3.put({ consumer: nm, rule: "dpseci", construct: "" },
+               m3.put({ tenant: nm, rule: "dpseci", construct: "" },
                       { rule: "dpseci", anchor: "dpseci.md: num_queues >= crypto_flows, DPSECI_OPT_HAS_CG",
                         mark: Measured, request: s.cryptoFlows, limit: None, value: s.cryptoFlows,
                         inputs: Set(), constructs: Set(nm) })
              else m3
     // one dpsw node per owned Hardware fabric (keyed by the fabric name)
     val m5 = hwOwnedFabrics(intent, nm).foldl(m4, (mm, f) =>
-      mm.put({ consumer: nm, rule: "dpsw", construct: f.name }, dpswNode(intent, f)))
+      mm.put({ tenant: nm, rule: "dpsw", construct: f.name }, dpswNode(intent, f)))
     // one port-edge node per owned terminated port (keyed by the port name)
-    ownedPorts(intent, nm).foldl(m5, (mm, p) =>
-      mm.put({ consumer: nm, rule: "port-edge", construct: p.name },
+    terminatedPorts(intent, nm).foldl(m5, (mm, p) =>
+      mm.put({ tenant: nm, rule: "port-edge", construct: p.name },
              { rule: "port-edge", anchor: "object-model.md §2: dpni<->dpmac edge", mark: Measured,
                request: 0, limit: None, value: 0,
-               inputs: Set({ consumer: nm, rule: "dpnis", construct: "" }), constructs: Set(p.name) }))
+               inputs: Set({ tenant: nm, rule: "dpnis", construct: "" }), constructs: Set(p.name) }))
 
   pure def fullProv(intent: Intent, inv: Inventory): ProvKey -> ProvNode =
-    val base = Map({ consumer: KERNEL, rule: "dprtc", construct: "" } -> dprtcNode)
-    val withC = intent.consumers.foldl(base, (m, c) => addConsumerProv(intent, inv, m, c))
-    val withL = intent.links.foldl(withC, (m, l) => m.put({ consumer: l.a, rule: "link-edge", construct: l.name }, linkEdgeNode(l)))
+    val base = Map({ tenant: KERNEL, rule: "dprtc", construct: "" } -> dprtcNode)
+    val withC = intent.tenants.foldl(base, (m, c) => if (hasPricing(c)) addTenantProv(intent, inv, m, c) else m)
+    val withL = intent.links.foldl(withC, (m, l) => m.put({ tenant: l.a, rule: "link-edge", construct: l.name }, linkEdgeNode(l)))
     intent.fabrics.foldl(withL, (m, f) =>
       if (f.switching == Hardware)
-        m.put({ consumer: f.owner, rule: "fabric-edge", construct: f.name }, fabricEdgeNode(f))
+        m.put({ tenant: f.forwardedBy, rule: "fabric-edge", construct: f.name }, fabricEdgeNode(f))
       else
-        m.put({ consumer: f.owner, rule: "fabric-wire", construct: f.name }, fabricWireNode(intent, f)))
+        m.put({ tenant: f.forwardedBy, rule: "fabric-wire", construct: f.name }, fabricWireNode(intent, f)))
 
   // ---- edges ----
 
   // Port (6a): the owner's dpni for the port ↔ its dpmac (object-model.md §2).
   pure def portEdges(intent: Intent): Set[Edge] =
-    intent.consumers.foldl(Set(), (acc, c) =>
-      acc.union(ownedPorts(intent, c.name).foldl(Set(), (a2, p) =>
+    intent.tenants.foldl(Set(), (acc, c) =>
+      acc.union(terminatedPorts(intent, c.name).foldl(Set(), (a2, p) =>
         a2.union(Set({
-          a: ObjEnd({ key: { consumer: c.name, family: Dpni,
+          a: ObjEnd({ key: { tenant: c.name, family: Dpni,
                              ordinal: ordinalWhere(originList(intent, c.name), o => isPort(o, p.name)) }, port: 0 }),
           b: MacEnd(p.dpmac),
-          prov: { consumer: c.name, rule: "port-edge", construct: p.name } })))))
+          prov: { tenant: c.name, rule: "port-edge", construct: p.name } })))))
 
   // Link (6b): the two link-end dpnis.
   pure def linkEdges(intent: Intent): Set[Edge] =
     intent.links.foldl(Set(), (acc, l) =>
       acc.union(Set({
-        a: ObjEnd({ key: { consumer: l.a, family: Dpni,
+        a: ObjEnd({ key: { tenant: l.a, family: Dpni,
                            ordinal: ordinalWhere(originList(intent, l.a), o => isLinkSide(o, l.name, 0)) }, port: 0 }),
-        b: ObjEnd({ key: { consumer: l.b, family: Dpni,
+        b: ObjEnd({ key: { tenant: l.b, family: Dpni,
                            ordinal: ordinalWhere(originList(intent, l.b), o => isLinkSide(o, l.name, 1)) }, port: 0 }),
-        prov: { consumer: l.a, rule: "link-edge", construct: l.name } })))
+        prov: { tenant: l.a, rule: "link-edge", construct: l.name } })))
 
   pure def dpswOrdinalOf(intent: Intent, f: Fabric): int =
-    hwOwnedFabrics(intent, f.owner).foldl({ i: 0, found: -1 }, (acc, g) =>
+    hwOwnedFabrics(intent, f.forwardedBy).foldl({ i: 0, found: -1 }, (acc, g) =>
       { i: acc.i + 1, found: if (acc.found >= 0) acc.found else if (g.name == f.name) acc.i else -1 }).found + 1
 
   // Hardware fabric (6c): one edge per dpsw interface, dpsw.if index ↔ the
   // interface endpoint (hwFabricEnds order).
   pure def edgesForHwFabric(intent: Intent, f: Fabric): Set[Edge] =
-    val dpswKey = { consumer: f.owner, family: Dpsw, ordinal: dpswOrdinalOf(intent, f) }
+    val dpswKey = { tenant: f.forwardedBy, family: Dpsw, ordinal: dpswOrdinalOf(intent, f) }
     hwFabricEnds(intent, f).foldl({ ifx: 0, set: Set() }, (acc, endB) =>
       { ifx: acc.ifx + 1,
         set: acc.set.union(Set({ a: ObjEnd({ key: dpswKey, port: acc.ifx }), b: endB,
-                                 prov: { consumer: f.owner, rule: "fabric-edge", construct: f.name } })) }).set
+                                 prov: { tenant: f.forwardedBy, rule: "fabric-edge", construct: f.name } })) }).set
 
   pure def fabricEdges(intent: Intent): Set[Edge] =
     intent.fabrics.foldl(Set(), (acc, f) =>
       if (f.switching == Hardware) acc.union(edgesForHwFabric(intent, f)) else acc)
 
-  // Software fabric (6b): for each member resolving to a consumer C ≠ owner,
+  // Software fabric (6b): for each member resolving to a tenant C ≠ owner,
   // the owner's wire dpni ↔ C's wire dpni. MPort members contribute only
   // their port-edge; MFabric(Hardware) members contribute their fabric-edge
   // on the hardware side.
@@ -670,14 +696,14 @@ module intent_derive {
     intent.fabrics.foldl(Set(), (acc, g) =>
       if (g.switching == Software)
         g.members.foldl(acc, (a2, m) =>
-          match memberConsumer(intent, m) {
-            | Some(c) => if (c != g.owner)
+          match memberTenant(intent, m) {
+            | Some(c) => if (c != g.forwardedBy)
                            a2.union(Set({
-                             a: ObjEnd({ key: { consumer: g.owner, family: Dpni,
-                                                ordinal: ordinalWhere(originList(intent, g.owner), o => isWireOwnerOf(o, g.name, c)) }, port: 0 }),
-                             b: ObjEnd({ key: { consumer: c, family: Dpni,
+                             a: ObjEnd({ key: { tenant: g.forwardedBy, family: Dpni,
+                                                ordinal: ordinalWhere(originList(intent, g.forwardedBy), o => isWireOwnerOf(o, g.name, c)) }, port: 0 }),
+                             b: ObjEnd({ key: { tenant: c, family: Dpni,
                                                 ordinal: ordinalWhere(originList(intent, c), o => isWireMemberOf(o, g.name)) }, port: 0 }),
-                             prov: { consumer: g.owner, rule: "fabric-wire", construct: g.name } }))
+                             prov: { tenant: g.forwardedBy, rule: "fabric-wire", construct: g.name } }))
                          else a2
             | None => a2
           })
@@ -703,12 +729,12 @@ module intent_derive {
     DprcAttrs({ options: Set() }))
   pure val MARKS_USE: Set[Mark] = Set(Measured, Unmeasured)
   pure val ORIGINS_USE: Set[Origin] = Set(
-    OPort({ name: "p", dpmac: 0, rate: 0, owner: "c" }),
+    OPort({ name: "p", dpmac: 0, rate: 0, tenant: "c" }),
     OLink({ link: { name: "l", a: "c", b: "d" }, side: 0 }),
     OAttach("f"),
     OWireOwner({ fabric: "f", peer: "c" }),
     OWireMember("f"))
   pure val ENDS_USE: Set[End] = Set(
-    ObjEnd({ key: { consumer: "c", family: Dpni, ordinal: 0 }, port: 0 }),
+    ObjEnd({ key: { tenant: "c", family: Dpni, ordinal: 0 }, port: 0 }),
     MacEnd(0))
 }

@@ -23,76 +23,83 @@
 // Apalache-marked subset: none.
 module intent_refuse {
   import types.* from "../core/types"           // Family, ObjId
-  import companions.* from "../core/companions" // Regime = Kernel | PollMode
-  import intent_types.* from "./types"           // Intent, Inventory, Availability, DERIVED_FAMILIES
-  import intent_derive.* from "./derive"         // derive, sizeConsumer, ownedPorts, threadCount, …
+  import intent_types.* from "./types"           // Intent, Inventory, Availability, Dataplane, DERIVED_FAMILIES
+  import intent_derive.* from "./derive"         // derive, sizeTenant, terminatedPorts, threadCount, hasPricing, …
 
   // The rule an intent broke, naming the offending construct. One variant per
   // rule (design D5, spec.md "The compiler refuses by name").
   type Refusal =
-    | ConsumerAbsent({ construct: str, consumer: str })         // a construct names a consumer not declared (DPDCEI-I1 generalised)
-    | MemberUnresolved({ fabric: str, member: Member })         // a fabric member names a port/consumer/fabric not declared
+    | TenantAbsent({ construct: str, tenant: str })         // a construct names a tenant not declared (DPDCEI-I1 generalised)
+    | MemberUnresolved({ fabric: str, member: Member })         // a fabric member names a port/tenant/fabric not declared
     | SelfMember({ fabric: str, member: Member })               // a fabric member resolves to the fabric's own owner
     | Unanchored({ port: str, dpmac: int })                     // dpmac not in the inventory
     | ReservedAnchor({ port: str, dpmac: int, why: str })       // ADR-0003 §3 matrix, from Availability (spec name: Reserved)
     | ForeignAnchor({ port: str, dpmac: int, owner: str })      // ADR-0001 §4, from Availability (spec name: Foreign)
     | DoubleClaimed({ dpmac: int, constructs: Set[str] })       // two ports on one dpmac, or one port in two fabrics
     | OverRate({ port: str, rate: int, maxRate: int })          // rate > dpmac maxRate
-    | FabricNotKernelSteered({ fabric: str, owner: str })       // Hardware fabric whose owner != KERNEL (dpsw.md)
-    | PortOwnerMismatch({ fabric: str, port: str, owner: str }) // member port whose owner != fabric owner (types.qnt Port comment)
+    | FabricNotKernelForwarded({ fabric: str, forwardedBy: str })       // Hardware fabric whose forwarding tenant != KERNEL (dpsw.md)
+    | PortTenantMismatch({ fabric: str, port: str, tenant: str }) // member port whose tenant != the fabric's forwarding tenant (types.qnt Port comment)
     | UnsupportedEdge({ fabric: str, member: str })             // Hardware fabric listing a Hardware fabric (object-model.md §2; derive.qnt (d))
-    | UnknownRateClass({ consumer: str, rates: List[int] })     // poll-mode consumer with no seeded (rate, count) row (design D3; derive.qnt (b))
-    | CoreBudgetExceeded({ consumer: str, t: int, maxCores: int }) // poll-mode T > maxCores (design D3; ADR-0012 never rations)
-    | LimitBelowRequest({ consumer: str, family: Family, request: int, limit: int }) // design D5 (D5's OverrideBelowFloor)
-    | LimitNotDerived({ consumer: str, family: Family })        // a limit on a family whose count is fixed by constructs (design D7)
+    | UnknownRateClass({ tenant: str, rates: List[int] })     // userspace-poll tenant terminating a rate class with no seeded worker row (design D3; derive.qnt (b))
+    | CoreBudgetExceeded({ tenant: str, t: int, maxCores: int }) // userspace-poll T > maxCores (design D3; ADR-0012 never rations)
+    | LimitBelowRequest({ tenant: str, family: Family, request: int, limit: int }) // design D5 (D5's OverrideBelowFloor)
+    | LimitNotDerived({ tenant: str, family: Family })        // a limit on a family whose count is fixed by constructs (design D7)
     | Infeasible({ family: Family, needed: int, available: int }) // sum of derived objs of a family > a Counted/Observed ceiling (ADR-0011; design D2)
+    | UnpricedDataplane({ tenant: str, dataplane: Dataplane }) // a tenant whose dataplane ADR-0012 does not price (today UserspaceInterrupt; design D3)
 
-  // A non-fatal note: the ceiling is Unknown, so feasibility could not check
-  // it — warn, never invent a number (ADR-0011).
-  type Warning = UnknownCeiling({ family: Family, needed: int })
+  // A non-fatal note attached to an accepted compile (the review's
+  // escape-hatch-warns rule). UnknownCeiling: the ceiling is Unknown, so
+  // feasibility could not check the family — warn, never invent a number
+  // (ADR-0011; design D2). UnmeasuredCombination: a userspace-poll tenant
+  // terminates more than one seeded rate class, so the worker formula prices
+  // its T over an unmeasured cross-class mix (design D3) — flagged, never
+  // silent, naming the tenant and the classes mixed.
+  type Warning =
+    | UnknownCeiling({ family: Family, needed: int })
+    | UnmeasuredCombination({ tenant: str, rates: Set[int] })
 
   // The compile result: a plan with its warnings, or the complete refusal set.
   type Compiled = Ok({ plan: Plan, warnings: Set[Warning] }) | Refused(Set[Refusal])
 
   // ---- shared lookups ----
 
-  pure def consumerNames(intent: Intent): Set[str] =
-    intent.consumers.foldl(Set(), (acc, c) => acc.union(Set(c.name)))
+  pure def tenantNames(intent: Intent): Set[str] =
+    intent.tenants.foldl(Set(), (acc, c) => acc.union(Set(c.name)))
 
-  pure def consumerByName(intent: Intent, nm: str): Option[Consumer] =
-    intent.consumers.foldl(None, (acc, c) => if (c.name == nm) Some(c) else acc)
+  pure def tenantByName(intent: Intent, nm: str): Option[Tenant] =
+    intent.tenants.foldl(None, (acc, c) => if (c.name == nm) Some(c) else acc)
 
-  // ---- rule 1: a construct names an undeclared consumer (design D5) ----
-  // Generalises DPDCEI-I1's consumer-absence rule to every construct that
-  // names a consumer: port owner, link ends, fabric owner, crypto owner, limit
-  // consumer. crypto and limit carry no name, so the construct field reads the
+  // ---- rule 1: a construct names an undeclared tenant (design D5) ----
+  // Generalises DPDCEI-I1's tenant-absence rule to every construct that
+  // names a tenant: port owner, link ends, fabric owner, crypto owner, limit
+  // tenant. crypto and limit carry no name, so the construct field reads the
   // literal "crypto" / "limit".
-  pure def consumerAbsentRefusals(intent: Intent, inv: Inventory): Set[Refusal] =
-    val names = consumerNames(intent)
+  pure def tenantAbsentRefusals(intent: Intent, inv: Inventory): Set[Refusal] =
+    val names = tenantNames(intent)
     val fromPorts = intent.ports.foldl(Set(), (acc, p) =>
-      if (names.contains(p.owner)) acc
-      else acc.union(Set(ConsumerAbsent({ construct: p.name, consumer: p.owner }))))
+      if (names.contains(p.tenant)) acc
+      else acc.union(Set(TenantAbsent({ construct: p.name, tenant: p.tenant }))))
     val fromLinks = intent.links.foldl(fromPorts, (acc, l) =>
-      val a1 = if (names.contains(l.a)) acc else acc.union(Set(ConsumerAbsent({ construct: l.name, consumer: l.a })))
-      if (names.contains(l.b)) a1 else a1.union(Set(ConsumerAbsent({ construct: l.name, consumer: l.b }))))
+      val a1 = if (names.contains(l.a)) acc else acc.union(Set(TenantAbsent({ construct: l.name, tenant: l.a })))
+      if (names.contains(l.b)) a1 else a1.union(Set(TenantAbsent({ construct: l.name, tenant: l.b }))))
     val fromFabrics = intent.fabrics.foldl(fromLinks, (acc, f) =>
-      if (names.contains(f.owner)) acc
-      else acc.union(Set(ConsumerAbsent({ construct: f.name, consumer: f.owner }))))
+      if (names.contains(f.forwardedBy)) acc
+      else acc.union(Set(TenantAbsent({ construct: f.name, tenant: f.forwardedBy }))))
     val fromCrypto = intent.crypto.fold(fromFabrics, (acc, k) =>
-      if (names.contains(k.owner)) acc
-      else acc.union(Set(ConsumerAbsent({ construct: "crypto", consumer: k.owner }))))
+      if (names.contains(k.tenant)) acc
+      else acc.union(Set(TenantAbsent({ construct: "crypto", tenant: k.tenant }))))
     intent.limits.fold(fromCrypto, (acc, l) =>
-      if (names.contains(l.consumer)) acc
-      else acc.union(Set(ConsumerAbsent({ construct: "limit", consumer: l.consumer }))))
+      if (names.contains(l.tenant)) acc
+      else acc.union(Set(TenantAbsent({ construct: "limit", tenant: l.tenant }))))
 
   // ---- rule 2: a fabric member names something not declared ----
   pure def memberUnresolvedRefusals(intent: Intent, inv: Inventory): Set[Refusal] =
-    val names = consumerNames(intent)
+    val names = tenantNames(intent)
     intent.fabrics.foldl(Set(), (acc, f) =>
       f.members.foldl(acc, (a2, m) =>
         match m {
           | MPort(p) => if (portByName(intent, p) == None) a2.union(Set(MemberUnresolved({ fabric: f.name, member: m }))) else a2
-          | MConsumer(c) => if (not(names.contains(c))) a2.union(Set(MemberUnresolved({ fabric: f.name, member: m }))) else a2
+          | MTenant(c) => if (not(names.contains(c))) a2.union(Set(MemberUnresolved({ fabric: f.name, member: m }))) else a2
           | MFabric(h) => if (fabricByName(intent, h) == None) a2.union(Set(MemberUnresolved({ fabric: f.name, member: m }))) else a2
         }))
 
@@ -105,7 +112,7 @@ module intent_refuse {
   // nested inside a match arm next to a constructor-wildcard arm.
   pure def selfViaChain(intent: Intent, f: Fabric, h: str): bool =
     match fabricByName(intent, h) {
-      | Some(g) => f.switching == Software and g.switching == Software and g.owner == f.owner
+      | Some(g) => f.switching == Software and g.switching == Software and g.forwardedBy == f.forwardedBy
       | None => false
     }
 
@@ -113,8 +120,8 @@ module intent_refuse {
     intent.fabrics.foldl(Set(), (acc, f) =>
       f.members.foldl(acc, (a2, m) =>
         match m {
-          | MConsumer(c) =>
-              if (f.switching == Software and c == f.owner)
+          | MTenant(c) =>
+              if (f.switching == Software and c == f.forwardedBy)
                 a2.union(Set(SelfMember({ fabric: f.name, member: m })))
               else a2
           | MFabric(h) =>
@@ -164,13 +171,13 @@ module intent_refuse {
       .map(pn => DoubleClaimed({ dpmac: dpmacOfPortName(intent, pn), constructs: fabricsNamingPort(intent, pn) }))
     byDpmac.union(byFabric)
 
-  // ---- rule 6: fabric steering, port ownership, and unsupported edges (design D4/D5) ----
+  // ---- rule 6: fabric forwarding, port tenancy, and unsupported edges (design D4/D5) ----
   // The two member checks hoisted out of their match arms (same
   // translator limit as selfViaChain above).
   pure def portOwnerMismatchOf(intent: Intent, f: Fabric, pn: str): Set[Refusal] =
     match portByName(intent, pn) {
-      | Some(port) => if (port.owner != f.owner)
-                        Set(PortOwnerMismatch({ fabric: f.name, port: pn, owner: port.owner }))
+      | Some(port) => if (port.tenant != f.forwardedBy)
+                        Set(PortTenantMismatch({ fabric: f.name, port: pn, tenant: port.tenant }))
                       else Set()
       | None => Set()
     }
@@ -183,8 +190,8 @@ module intent_refuse {
 
   pure def fabricRulesRefusals(intent: Intent, inv: Inventory): Set[Refusal] =
     intent.fabrics.foldl(Set(), (acc, f) =>
-      val notKernel = if (f.switching == Hardware and f.owner != KERNEL)
-                        Set(FabricNotKernelSteered({ fabric: f.name, owner: f.owner }))
+      val notKernel = if (f.switching == Hardware and f.forwardedBy != KERNEL)
+                        Set(FabricNotKernelForwarded({ fabric: f.name, forwardedBy: f.forwardedBy }))
                       else Set()
       val mismatches = f.members.foldl(Set(), (a2, m) =>
         match m {
@@ -202,38 +209,38 @@ module intent_refuse {
         else Set()
       acc.union(notKernel).union(mismatches).union(unsupported))
 
-  // ---- rule 7: poll-mode thread-count sizing (design D3; ADR-0012) ----
-  // Kernel consumers: none. Under the online-CPU reading of open question 2
+  // ---- rule 7: userspace-poll thread-count sizing (design D3; ADR-0012) ----
+  // Kernel tenants: none. Under the online-CPU reading of open question 2
   // (KERNEL_BUDGET_IS_DPIO_COUNT = false), maxCores is not a bound on the
-  // kernel regime, so no CoreBudgetExceeded fires for a kernel consumer.
+  // kernel dataplane, so no CoreBudgetExceeded fires for a kernel tenant.
   pure def sizingRefusals(intent: Intent, inv: Inventory): Set[Refusal] =
-    intent.consumers.foldl(Set(), (acc, c) =>
-      if (c.regime == PollMode)
-        val ports = ownedPorts(intent, c.name)
+    intent.tenants.foldl(Set(), (acc, c) =>
+      if (c.dataplane == UserspacePoll)
+        val ports = terminatedPorts(intent, c.name)
         match threadCount(ports) {
-          | None => acc.union(Set(UnknownRateClass({ consumer: c.name, rates: ports.foldl([], (a, p) => a.append(p.rate)) })))
-          | Some(t) => if (t > c.maxCores) acc.union(Set(CoreBudgetExceeded({ consumer: c.name, t: t, maxCores: c.maxCores }))) else acc
+          | None => acc.union(Set(UnknownRateClass({ tenant: c.name, rates: ports.foldl([], (a, p) => a.append(p.rate)) })))
+          | Some(t) => if (t > c.maxCores) acc.union(Set(CoreBudgetExceeded({ tenant: c.name, t: t, maxCores: c.maxCores }))) else acc
         }
       else acc)
 
   // ---- rule 8: request/limit overrides (design D5/D7) ----
   // A limit on a non-count family is never silently ignored; a limit below its
-  // request refuses. An absent consumer is skipped — ConsumerAbsent fires for
+  // request refuses. An absent tenant is skipped — TenantAbsent fires for
   // it in rule 1.
   pure def limitRefusals(intent: Intent, inv: Inventory): Set[Refusal] =
     intent.limits.fold(Set(), (acc, l) =>
       if (not(Set(Dpio, Dpbp, Dpmcp, Dpcon).contains(l.family)))
-        acc.union(Set(LimitNotDerived({ consumer: l.consumer, family: l.family })))
-      else match consumerByName(intent, l.consumer) {
+        acc.union(Set(LimitNotDerived({ tenant: l.tenant, family: l.family })))
+      else match tenantByName(intent, l.tenant) {
         | None => acc
         | Some(c) =>
-            val s = sizeConsumer(intent, inv, c)
+            val s = sizeTenant(intent, inv, c)
             val request = if (l.family == Dpio) s.effDpio.request
                           else if (l.family == Dpbp) s.effDpbp.request
                           else if (l.family == Dpmcp) s.effDpmcp.request
                           else s.effDpcon.request
             if (l.limit < request)
-              acc.union(Set(LimitBelowRequest({ consumer: l.consumer, family: l.family, request: request, limit: l.limit })))
+              acc.union(Set(LimitBelowRequest({ tenant: l.tenant, family: l.family, request: request, limit: l.limit })))
             else acc
       })
 
@@ -251,9 +258,17 @@ module intent_refuse {
         | Unknown => acc
       })
 
+  // ---- rule 10: a tenant whose dataplane has no companion pricing (design D3; ADR-0012) ----
+  // UserspaceInterrupt has no ADR-0012 draw, so the derivation cannot size it
+  // (intent/derive.qnt hasPricing skips it); the refusal is the answer.
+  pure def unpricedDataplaneRefusals(intent: Intent, inv: Inventory): Set[Refusal] =
+    intent.tenants.foldl(Set(), (acc, c) =>
+      if (hasPricing(c)) acc
+      else acc.union(Set(UnpricedDataplane({ tenant: c.name, dataplane: c.dataplane }))))
+
   // Every rule runs unconditionally; the refusal set is their union.
   pure def refusals(intent: Intent, inv: Inventory): Set[Refusal] =
-    consumerAbsentRefusals(intent, inv)
+    tenantAbsentRefusals(intent, inv)
       .union(memberUnresolvedRefusals(intent, inv))
       .union(selfMemberRefusals(intent, inv))
       .union(anchorRefusals(intent, inv))
@@ -262,17 +277,26 @@ module intent_refuse {
       .union(sizingRefusals(intent, inv))
       .union(limitRefusals(intent, inv))
       .union(feasibilityRefusals(intent, inv))
+      .union(unpricedDataplaneRefusals(intent, inv))
 
   // A warning per derived family whose ceiling is Unknown and whose count is
   // non-zero (ADR-0011: the cap ended, or the family was never measured).
   pure def warnings(intent: Intent, inv: Inventory): Set[Warning] =
     val plan = derive(intent, inv)
-    DERIVED_FAMILIES.fold(Set(), (acc, fam) =>
+    val ceilingWarnings = DERIVED_FAMILIES.fold(Set(), (acc, fam) =>
       val needed = plan.objs.filter(o => o.key.family == fam).size()
       match inv.ceilings.get(fam) {
         | Unknown => if (needed > 0) acc.union(Set(UnknownCeiling({ family: fam, needed: needed }))) else acc
         | _ => acc
       })
+    // one UnmeasuredCombination per userspace-poll tenant whose terminated
+    // ports span more than one seeded rate class (design D3): the formula
+    // prices the mix, but cross-class pricing is unmeasured — flag it, never
+    // pass silently.
+    intent.tenants.foldl(ceilingWarnings, (acc, c) =>
+      if (c.dataplane == UserspacePoll and seededRateClasses(intent, c.name).size() > 1)
+        acc.union(Set(UnmeasuredCombination({ tenant: c.name, rates: seededRateClasses(intent, c.name) })))
+      else acc)
 
   // The total function: an empty refusal set yields the plan and its warnings,
   // else the complete refusal set.
@@ -285,23 +309,26 @@ module intent_refuse {
   // verify-path flattener drops a constructor whose only value use sits in
   // another module (QNT404; see intent/types.qnt ETH_IFS block).
   pure val REFUSALS_USE: Set[Refusal] = Set(
-    ConsumerAbsent({ construct: "c", consumer: "x" }),
+    TenantAbsent({ construct: "c", tenant: "x" }),
     MemberUnresolved({ fabric: "f", member: MPort("p") }),
-    SelfMember({ fabric: "f", member: MConsumer("c") }),
+    SelfMember({ fabric: "f", member: MTenant("c") }),
     Unanchored({ port: "p", dpmac: 0 }),
     ReservedAnchor({ port: "p", dpmac: 0, why: "w" }),
     ForeignAnchor({ port: "p", dpmac: 0, owner: "o" }),
     DoubleClaimed({ dpmac: 0, constructs: Set() }),
     OverRate({ port: "p", rate: 0, maxRate: 0 }),
-    FabricNotKernelSteered({ fabric: "f", owner: "o" }),
-    PortOwnerMismatch({ fabric: "f", port: "p", owner: "o" }),
+    FabricNotKernelForwarded({ fabric: "f", forwardedBy: "o" }),
+    PortTenantMismatch({ fabric: "f", port: "p", tenant: "o" }),
     UnsupportedEdge({ fabric: "f", member: "m" }),
-    UnknownRateClass({ consumer: "c", rates: [] }),
-    CoreBudgetExceeded({ consumer: "c", t: 0, maxCores: 0 }),
-    LimitBelowRequest({ consumer: "c", family: Dpio, request: 0, limit: 0 }),
-    LimitNotDerived({ consumer: "c", family: Dpni }),
-    Infeasible({ family: Dpbp, needed: 0, available: 0 }))
-  pure val WARNINGS_USE: Set[Warning] = Set(UnknownCeiling({ family: Dpio, needed: 0 }))
+    UnknownRateClass({ tenant: "c", rates: [] }),
+    CoreBudgetExceeded({ tenant: "c", t: 0, maxCores: 0 }),
+    LimitBelowRequest({ tenant: "c", family: Dpio, request: 0, limit: 0 }),
+    LimitNotDerived({ tenant: "c", family: Dpni }),
+    Infeasible({ family: Dpbp, needed: 0, available: 0 }),
+    UnpricedDataplane({ tenant: "c", dataplane: UserspaceInterrupt }))
+  pure val WARNINGS_USE: Set[Warning] = Set(
+    UnknownCeiling({ family: Dpio, needed: 0 }),
+    UnmeasuredCombination({ tenant: "c", rates: Set() }))
   pure val COMPILED_USE: Set[Compiled] = Set(
     Ok({ plan: { objs: Set(), edges: Set(), order: [], prov: Map() }, warnings: Set() }),
     Refused(Set()))

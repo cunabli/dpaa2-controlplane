@@ -1,13 +1,13 @@
 // Scenario (1) of the intent gate (openspec change `intent-layer`, design
 // D8; task 2.1): a hardware-switched fabric over dpmac.7/8 at 10G,
-// kernel-steered, with a poll-mode router joined as a consumer member and
+// kernel-forwarded, with a userspace-poll router joined as a tenant member and
 // terminating dpmac.9/10 at 2×10G — the seeded rate class (design D3), so
 // the router's T = 5 derives from the table and `max_cores` = 8 admits it.
 // fabric.toml beside this file is what the operator types for the same
 // intent; the pairing is by convention until dpaa2-verify's test (task 3.4).
 //
 // The twin: the same intent with `max_cores` = 4 sits below the derived
-// T = 5 and is refused as CoreBudgetExceeded naming the consumer, T, and
+// T = 5 and is refused as CoreBudgetExceeded naming the tenant, T, and
 // the budget. The kernel owner's budget never binds under the online-CPU
 // reading of open question 2, so the poll-mode member is what makes the
 // refusal reachable (design D8) — pinned by kernelBudgetNeverBindsTest.
@@ -21,30 +21,29 @@
 //   the marked laws).
 module fabric {
   import types.* from "../../core/types"           // Family
-  import companions.* from "../../core/companions" // Regime = Kernel | PollMode
-  import intent_types.* from "../types"            // Intent, KERNEL, kernelConsumer, …
+  import intent_types.* from "../types"            // Intent, KERNEL, kernelTenant, …
   import intent_inventory.* from "../inventory"    // REF_INVENTORY
   import intent_derive.* from "../derive"          // Plan, PlanObj, End, DpswAttrs, …
   import intent_refuse.* from "../refuse"          // compile, CoreBudgetExceeded
   import intent_invariants.* from "../invariants"  // planInvariants, compileInvariants
 
   pure def objsOfFam(p: Plan, name: str, fam: Family): Set[PlanObj] =
-    p.objs.filter(o => o.key.consumer == name and o.key.family == fam)
+    p.objs.filter(o => o.key.tenant == name and o.key.family == fam)
   pure def countFam(p: Plan, name: str, fam: Family): int =
     objsOfFam(p, name, fam).size()
 
   // The intent fabric.toml states, parameterized on the router's budget so
   // the accepted scenario and its twin differ in `max_cores` alone.
   pure def fabricIntent(m: int): Intent = {
-    consumers: [kernelConsumer(16),
-                { name: "router", regime: PollMode, maxCores: m, cryptoFlows: 0 }],
-    ports: [{ name: "lan0", dpmac: 7, rate: 10000, owner: KERNEL },
-            { name: "lan1", dpmac: 8, rate: 10000, owner: KERNEL },
-            { name: "wan0", dpmac: 9, rate: 10000, owner: "router" },
-            { name: "wan1", dpmac: 10, rate: 10000, owner: "router" }],
+    tenants: [kernelTenant(16),
+                { name: "router", dataplane: UserspacePoll, maxCores: m, cryptoFlows: 0 }],
+    ports: [{ name: "lan0", dpmac: 7, rate: 10000, tenant: KERNEL },
+            { name: "lan1", dpmac: 8, rate: 10000, tenant: KERNEL },
+            { name: "wan0", dpmac: 9, rate: 10000, tenant: "router" },
+            { name: "wan1", dpmac: 10, rate: 10000, tenant: "router" }],
     links: [],
-    fabrics: [{ name: "lan", switching: Hardware, owner: KERNEL,
-                members: [MPort("lan0"), MPort("lan1"), MConsumer("router")] }],
+    fabrics: [{ name: "lan", switching: Hardware, forwardedBy: KERNEL,
+                members: [MPort("lan0"), MPort("lan1"), MTenant("router")] }],
     crypto: Set(),
     limits: Set(),
   }
@@ -64,10 +63,10 @@ module fabric {
           val p = res.plan
           all {
             p.objs.filter(o => o.key.family == Dpsw) ==
-              Set({ key: { consumer: KERNEL, family: Dpsw, ordinal: 1 }, container: Root,
+              Set({ key: { tenant: KERNEL, family: Dpsw, ordinal: 1 }, container: Root,
                     attrs: DpswAttrs({ numIfs: 3, maxFdbs: 3, perFdbFlooding: true,
                                        perFdbBroadcast: true, ctrlIf: true }),
-                    prov: { consumer: KERNEL, rule: "dpsw", construct: "lan" } }),
+                    prov: { tenant: KERNEL, rule: "dpsw", construct: "lan" } }),
             countFam(p, KERNEL, Dpni) == 0,
             countFam(p, "router", Dpni) == 3,
             objsOfFam(p, "router", Dpni).forall(o =>
@@ -78,21 +77,21 @@ module fabric {
             countFam(p, "router", Dpmcp) == 1,
             countFam(p, "router", Dpcon) == 15,  // dpnis · T (DPCON-I1)
             // dpsw interfaces in member order (fig. 6c)
-            p.edges.contains({ a: ObjEnd({ key: { consumer: KERNEL, family: Dpsw, ordinal: 1 }, port: 0 }),
-                               b: MacEnd(7), prov: { consumer: KERNEL, rule: "fabric-edge", construct: "lan" } }),
-            p.edges.contains({ a: ObjEnd({ key: { consumer: KERNEL, family: Dpsw, ordinal: 1 }, port: 1 }),
-                               b: MacEnd(8), prov: { consumer: KERNEL, rule: "fabric-edge", construct: "lan" } }),
-            p.edges.contains({ a: ObjEnd({ key: { consumer: KERNEL, family: Dpsw, ordinal: 1 }, port: 2 }),
-                               b: ObjEnd({ key: { consumer: "router", family: Dpni, ordinal: 3 }, port: 0 }),
-                               prov: { consumer: KERNEL, rule: "fabric-edge", construct: "lan" } }),
+            p.edges.contains({ a: ObjEnd({ key: { tenant: KERNEL, family: Dpsw, ordinal: 1 }, port: 0 }),
+                               b: MacEnd(7), prov: { tenant: KERNEL, rule: "fabric-edge", construct: "lan" } }),
+            p.edges.contains({ a: ObjEnd({ key: { tenant: KERNEL, family: Dpsw, ordinal: 1 }, port: 1 }),
+                               b: MacEnd(8), prov: { tenant: KERNEL, rule: "fabric-edge", construct: "lan" } }),
+            p.edges.contains({ a: ObjEnd({ key: { tenant: KERNEL, family: Dpsw, ordinal: 1 }, port: 2 }),
+                               b: ObjEnd({ key: { tenant: "router", family: Dpni, ordinal: 3 }, port: 0 }),
+                               prov: { tenant: KERNEL, rule: "fabric-edge", construct: "lan" } }),
             // the router's terminated ports (fig. 6a)
-            p.edges.contains({ a: ObjEnd({ key: { consumer: "router", family: Dpni, ordinal: 1 }, port: 0 }),
-                               b: MacEnd(9), prov: { consumer: "router", rule: "port-edge", construct: "wan0" } }),
-            p.edges.contains({ a: ObjEnd({ key: { consumer: "router", family: Dpni, ordinal: 2 }, port: 0 }),
-                               b: MacEnd(10), prov: { consumer: "router", rule: "port-edge", construct: "wan1" } }),
+            p.edges.contains({ a: ObjEnd({ key: { tenant: "router", family: Dpni, ordinal: 1 }, port: 0 }),
+                               b: MacEnd(9), prov: { tenant: "router", rule: "port-edge", construct: "wan0" } }),
+            p.edges.contains({ a: ObjEnd({ key: { tenant: "router", family: Dpni, ordinal: 2 }, port: 0 }),
+                               b: MacEnd(10), prov: { tenant: "router", rule: "port-edge", construct: "wan1" } }),
             p.edges.filter(e => e.prov.rule == "port-edge").size() == 2,
-            p.prov.get({ consumer: "router", rule: "T", construct: "" }).value == 5,
-            p.prov.get({ consumer: "router", rule: "T", construct: "" }).mark == Unmeasured,
+            p.prov.get({ tenant: "router", rule: "T", construct: "" }).value == 5,
+            p.prov.get({ tenant: "router", rule: "T", construct: "" }).mark == Unmeasured,
           }
       | Refused(_) => false
     }
@@ -112,7 +111,7 @@ module fabric {
   // and nothing else — the file's one error, named (design D3/D8).
   run twinCoreBudgetTest =
     match compile(twin, REF_INVENTORY) {
-      | Refused(rs) => rs == Set(CoreBudgetExceeded({ consumer: "router", t: 5, maxCores: 4 }))
+      | Refused(rs) => rs == Set(CoreBudgetExceeded({ tenant: "router", t: 5, maxCores: 4 }))
       | Ok(_) => false
     }
 
@@ -121,9 +120,9 @@ module fabric {
   // owner's budget never binds — the same fabric with a starved kernel
   // budget still compiles (design D8).
   run kernelBudgetNeverBindsTest =
-    val lowKernel = accepted.with("consumers",
-      [kernelConsumer(1),
-       { name: "router", regime: PollMode, maxCores: 8, cryptoFlows: 0 }])
+    val lowKernel = accepted.with("tenants",
+      [kernelTenant(1),
+       { name: "router", dataplane: UserspacePoll, maxCores: 8, cryptoFlows: 0 }])
     match compile(lowKernel, REF_INVENTORY) {
       | Ok(_) => true
       | Refused(_) => false

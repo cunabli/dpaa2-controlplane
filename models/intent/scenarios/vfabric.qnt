@@ -1,7 +1,7 @@
 // Scenario (2) of the intent gate (openspec change `intent-layer`, design
-// D8; task 2.2): a virtual fabric — two poll-mode consumers, routerA and
+// D8; task 2.2): a virtual fabric — two userspace-poll tenants, routerA and
 // routerB, joined by a single link and no dpmac anywhere. No kernel
-// consumer either: the scenario proves child containers and the dpni↔dpni
+// tenant either: the scenario proves child dprcs and the dpni↔dpni
 // pseudo-wire stand on their own, with no port and no hardware to lean on.
 // Portless ⇒ T = 1 (main-only, ADR-0012), so each side takes one dpni with
 // numQueues = 1 and the ADR-0012 poll-mode companion draws at T = 1.
@@ -9,7 +9,7 @@
 // intent; the pairing is by convention until dpaa2-verify's test (task 3.4).
 //
 // The twin (model-only, no operator file): the same intent plus a third
-// container routerC. Each portless poll-mode child draws 2 dpbps (ADR-0012),
+// child dprc routerC. Each portless userspace-poll child draws 2 dpbps (ADR-0012),
 // so three of them need 6; the twin's inventory lowers the dpbp ceiling to
 // Counted(5) and the plan is refused Infeasible naming the family and the
 // shortfall (ADR-0011, decision 1). The same twin against the reference
@@ -25,37 +25,36 @@
 //   the marked laws).
 module vfabric {
   import types.* from "../../core/types"           // Family
-  import companions.* from "../../core/companions" // Regime = Kernel | PollMode
-  import intent_types.* from "../types"            // Intent, KERNEL, kernelConsumer, …
+  import intent_types.* from "../types"            // Intent, KERNEL, kernelTenant, …
   import intent_inventory.* from "../inventory"    // REF_INVENTORY
   import intent_derive.* from "../derive"          // Plan, PlanObj, End, DpniAttrs, …
   import intent_refuse.* from "../refuse"          // compile, Infeasible
   import intent_invariants.* from "../invariants"  // planInvariants, compileInvariants
 
   pure def objsOfFam(p: Plan, name: str, fam: Family): Set[PlanObj] =
-    p.objs.filter(o => o.key.consumer == name and o.key.family == fam)
+    p.objs.filter(o => o.key.tenant == name and o.key.family == fam)
   pure def countFam(p: Plan, name: str, fam: Family): int =
     objsOfFam(p, name, fam).size()
 
-  // The intent vfabric.toml states: two poll-mode consumers wired together,
+  // The intent vfabric.toml states: two poll-mode tenants wired together,
   // no ports, no fabrics — mirrors linkIntent in intent/main.qnt.
   pure val accepted: Intent =
-    { consumers: [{ name: "routerA", regime: PollMode, maxCores: 8, cryptoFlows: 0 },
-                  { name: "routerB", regime: PollMode, maxCores: 8, cryptoFlows: 0 }],
+    { tenants: [{ name: "routerA", dataplane: UserspacePoll, maxCores: 8, cryptoFlows: 0 },
+                  { name: "routerB", dataplane: UserspacePoll, maxCores: 8, cryptoFlows: 0 }],
       ports: [], links: [{ name: "wire", a: "routerA", b: "routerB" }],
       fabrics: [], crypto: Set(), limits: Set() }
 
-  // The twin: the same plus a third portless consumer routerC (model-only).
+  // The twin: the same plus a third portless tenant routerC (model-only).
   pure val twin: Intent =
-    accepted.with("consumers", accepted.consumers.append(
-      { name: "routerC", regime: PollMode, maxCores: 8, cryptoFlows: 0 }))
+    accepted.with("tenants", accepted.tenants.append(
+      { name: "routerC", dataplane: UserspacePoll, maxCores: 8, cryptoFlows: 0 }))
 
   // The twin's inventory lowers the dpbp ceiling below the cross-plan draw:
   // three portless poll-mode children need 6 dpbps against a listed pool of 5.
   pure val twinInventory: Inventory =
     REF_INVENTORY.with("ceilings", REF_INVENTORY.ceilings.put(Dpbp, Counted(5)))
 
-  // The expected plan shape (design D6/D8): two child DPRCs, each consumer at
+  // The expected plan shape (design D6/D8): two child DPRCs, each tenant at
   // T = 1 (portless, main-only) with one dpni and the ADR-0012 poll-mode
   // draws, the pair joined by the single dpni↔dpni pseudo-wire; no dpsw and
   // no dpseci anywhere; T visibly unmeasured (design D3).
@@ -84,11 +83,11 @@ module vfabric {
             p.objs.filter(o => o.key.family == Dpsw) == Set(),
             p.objs.filter(o => o.key.family == Dpseci) == Set(),
             // the single pseudo-wire is the whole edge set (no dpmac, no port)
-            p.edges == Set({ a: ObjEnd({ key: { consumer: "routerA", family: Dpni, ordinal: 1 }, port: 0 }),
-                             b: ObjEnd({ key: { consumer: "routerB", family: Dpni, ordinal: 1 }, port: 0 }),
-                             prov: { consumer: "routerA", rule: "link-edge", construct: "wire" } }),
-            p.prov.get({ consumer: "routerA", rule: "T", construct: "" }).value == 1,
-            p.prov.get({ consumer: "routerA", rule: "T", construct: "" }).mark == Unmeasured,
+            p.edges == Set({ a: ObjEnd({ key: { tenant: "routerA", family: Dpni, ordinal: 1 }, port: 0 }),
+                             b: ObjEnd({ key: { tenant: "routerB", family: Dpni, ordinal: 1 }, port: 0 }),
+                             prov: { tenant: "routerA", rule: "link-edge", construct: "wire" } }),
+            p.prov.get({ tenant: "routerA", rule: "T", construct: "" }).value == 1,
+            p.prov.get({ tenant: "routerA", rule: "T", construct: "" }).mark == Unmeasured,
           }
       | Refused(_) => false
     }

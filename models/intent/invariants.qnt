@@ -1,18 +1,18 @@
 // The plan relationships design D6 wants unrepresentable in Rust, first
 // stated here as named predicates over the derived `Plan` (openspec change
 // `intent-layer`, design D6; spec.md "Plan relationships are unrepresentable
-// if wrong"). D6 locks edges, container memberships, companions, emission
+// if wrong"). D6 locks edges, resource-container (dprc) memberships, companions, emission
 // order, key identity, and provenance closure by construction; the Rust type
 // surface (task 3.1) transcribes what these predicates prove, so a
 // free-standing companion, a dpmac at a pseudo-wire end, a double-connected
-// dpni, or a consumer object in the root container is not a value the plan
+// dpni, or a tenant object in the root dprc is not a value the plan
 // type admits. Each `INTENT_In` cites its evidence anchor and names what the
 // Rust constructor makes unrepresentable.
 //
 // The ids `INTENT_I1..I8` are this change's own; the ledger rows that tie
 // them to the baseline invariants land at task 5.1.
 //
-// Named invariants: containmentByConsumer … companionCountsByRegime
+// Named invariants: containmentByTenant … companionCountsByRegime
 //   (ids INTENT_I1..I8, below); planInvariants gathers I1–I6 over any Plan,
 //   compileInvariants gathers I7–I8 over (intent, inventory).
 // Apalache-marked subset: feasibleAgainstCeilings and companionCountsByRegime
@@ -22,9 +22,9 @@
 //   dpaa2-controlplane-gqf.26, task 1.5).
 module intent_invariants {
   import types.* from "../core/types"           // Family, Option, Perm, ObjId
-  import companions.* from "../core/companions" // Regime, companionDraw (ADR-0012)
+  import companions as comp from "../core/companions" // comp::Regime, comp::companionDraw (ADR-0012)
   import intent_types.* from "./types"           // Intent, Inventory, KERNEL, DERIVED_FAMILIES
-  import intent_derive.* from "./derive"         // Plan, Key, PlanObj, End, Edge, derive, sizeConsumer, dprtcKey
+  import intent_derive.* from "./derive"         // Plan, Key, PlanObj, End, Edge, derive, sizeTenant, dprtcKey
   import intent_refuse.* from "./refuse"         // compile, Compiled, Warning
 
   // ---- helpers ----
@@ -34,11 +34,11 @@ module intent_invariants {
   pure def objByKey(p: Plan, k: Key): Option[PlanObj] =
     p.objs.fold(None, (acc, o) => if (o.key == k) Some(o) else acc)
 
-  pure def countOf(p: Plan, consumer: str, fam: Family): int =
-    p.objs.filter(o => o.key.consumer == consumer and o.key.family == fam).size()
+  pure def countOf(p: Plan, tenant: str, fam: Family): int =
+    p.objs.filter(o => o.key.tenant == tenant and o.key.family == fam).size()
 
-  pure def ordinalsOf(p: Plan, consumer: str, fam: Family): Set[int] =
-    p.objs.filter(o => o.key.consumer == consumer and o.key.family == fam).map(o => o.key.ordinal)
+  pure def ordinalsOf(p: Plan, tenant: str, fam: Family): Set[int] =
+    p.objs.filter(o => o.key.tenant == tenant and o.key.family == fam).map(o => o.key.ordinal)
 
   // Position of a key in the emission order, or -1 if absent (copied from
   // main.qnt to avoid a circular import: main.qnt imports this module).
@@ -87,20 +87,20 @@ module intent_invariants {
         }
     }
 
-  // ---- containmentByConsumer (INTENT_I1): one container per object, root never a consumer ----
-  // object-model.md §1 (the DPRC tree); dprc.md (child DPRC per consumer);
-  // ADR-0001 §4 (dprc.1 is the kernel's, never a named consumer). The Rust
+  // ---- containmentByTenant (INTENT_I1): one resource container (dprc) per object, root never a tenant ----
+  // object-model.md §1 (the DPRC tree); dprc.md (child DPRC per tenant);
+  // ADR-0001 §4 (dprc.1 is the kernel's, never a named tenant). The Rust
   // constructor (task 3.1) places every non-kernel, non-Dprc object in its
-  // consumer's Child container and never renders a dpmac or dpdbg as a
+  // tenant's Child dprc and never renders a dpmac or dpdbg as a
   // derived object.
-  pure def containmentByConsumer(p: Plan): bool =
+  pure def containmentByTenant(p: Plan): bool =
     val ks = objKeys(p)
     p.objs.forall(o => and {
-      (o.key.consumer != KERNEL and o.key.family != Dprc) implies and {
-        o.container == Child(o.key.consumer),
-        ks.contains({ consumer: o.key.consumer, family: Dprc, ordinal: 1 }),
+      (o.key.tenant != KERNEL and o.key.family != Dprc) implies and {
+        o.container == Child(o.key.tenant),
+        ks.contains({ tenant: o.key.tenant, family: Dprc, ordinal: 1 }),
       },
-      (o.key.consumer == KERNEL) implies o.container == Root,
+      (o.key.tenant == KERNEL) implies o.container == Root,
       (o.key.family == Dprc) implies (o.container == Root and o.key.ordinal == 1),
       o.key.family != Dpmac,
       o.key.family != Dpdbg,
@@ -126,24 +126,24 @@ module intent_invariants {
     }),
   }
 
-  // ---- companionsOnlyDerived (INTENT_I3): companions only as a consumer's derivation ----
+  // ---- companionsOnlyDerived (INTENT_I3): companions only as a tenant's derivation ----
   // ADR-0012; design D6. A dpio/dpbp/dpmcp/dpcon exists only as its
-  // consumer's count node, never free-standing; the Rust `Consumer`
+  // tenant's count node, never free-standing; the Rust `Tenant`
   // constructor is the only producer of a companion, and its ordinal run is
   // exactly the node's value.
   pure def companionsOnlyDerived(p: Plan): bool =
     p.objs.forall(o =>
       COMPANION_FAMS.contains(o.key.family) implies
-        val pk = { consumer: o.key.consumer, rule: companionRule(o.key.family), construct: "" }
+        val pk = { tenant: o.key.tenant, rule: companionRule(o.key.family), construct: "" }
         and {
           o.prov == pk,
           p.prov.keys().contains(pk),
-          countOf(p, o.key.consumer, o.key.family) == p.prov.get(pk).value,
-          ordinalsOf(p, o.key.consumer, o.key.family) == 1.to(p.prov.get(pk).value),
+          countOf(p, o.key.tenant, o.key.family) == p.prov.get(pk).value,
+          ordinalsOf(p, o.key.tenant, o.key.family) == 1.to(p.prov.get(pk).value),
         })
 
   // ---- emissionOrderLawful (INTENT_I4): emission order ----
-  // object-model.md §5 step 1 (pool companions before consumer objects);
+  // object-model.md §5 step 1 (pool companions before tenant objects);
   // ADR-0012 (a kernel dpio draws a dpmcp, so dpio precedes dpmcp). Order is
   // a property of the Rust constructors, not a post-hoc sort.
   pure def emissionOrderLawful(p: Plan): bool =
@@ -152,18 +152,18 @@ module intent_invariants {
       p.order.length() == p.objs.size(),
       p.order.foldl(Set(), (acc, k) => acc.union(Set(k))) == ks,
       p.order.nth(0) == dprtcKey,
-      // the child DPRC precedes every other key of its consumer
+      // the child DPRC precedes every other key of its tenant
       ks.forall(k1 => ks.forall(k2 =>
-        (k1.family == Dprc and k2.consumer == k1.consumer and k2 != k1)
+        (k1.family == Dprc and k2.tenant == k1.tenant and k2 != k1)
           implies keyIndex(p.order, k1) < keyIndex(p.order, k2))),
-      // every pool companion precedes the consumer objects that draw it
+      // every pool companion precedes the tenant objects that draw it
       ks.forall(k1 => ks.forall(k2 =>
         (COMPANION_FAMS.contains(k1.family) and Set(Dpni, Dpseci, Dpsw).contains(k2.family)
-         and k2.consumer == k1.consumer)
+         and k2.tenant == k1.tenant)
           implies keyIndex(p.order, k1) < keyIndex(p.order, k2))),
       // in the kernel, every dpio precedes every dpmcp (its forgotten draw)
       ks.forall(k1 => ks.forall(k2 =>
-        (k1.consumer == KERNEL and k1.family == Dpio and k2.consumer == KERNEL and k2.family == Dpmcp)
+        (k1.tenant == KERNEL and k1.family == Dpio and k2.tenant == KERNEL and k2.family == Dpmcp)
           implies keyIndex(p.order, k1) < keyIndex(p.order, k2))),
     }
 
@@ -210,19 +210,19 @@ module intent_invariants {
       | Refused(rs) => rs.size() > 0
     }
 
-  // ---- companionCountsByRegime (INTENT_I8): companion counts by regime ----
-  // ADR-0012 via companionDraw. On a successful compile every consumer's
+  // ---- companionCountsByRegime (INTENT_I8): companion counts by dataplane ----
+  // ADR-0012 via companionDraw. On a successful compile every tenant's
   // companion counts are the sizing's effective values, a limit never lowers
   // a request, the dpio request is exactly companionDraw's field, and every
   // dpni carries at least T (poll-mode) or exactly cpus (kernel) transmit
-  // queues. The Rust `Consumer` constructor draws these numbers, never the
+  // queues. The Rust `Tenant` constructor draws these numbers, never the
   // operator.
   pure def companionCountsByRegime(intent: Intent, inv: Inventory): bool =
     match compile(intent, inv) {
-      | Ok(r) => intent.consumers.foldl(true, (acc, c) =>
-          val s = sizeConsumer(intent, inv, c)
-          val reqDraw = if (c.regime == Kernel) companionDraw(Kernel, s.cpus, 0, 1, s.dpnis)
-                        else companionDraw(PollMode, 0, s.t, 1, s.dpnis)
+      | Ok(r) => intent.tenants.foldl(true, (acc, c) =>
+          val s = sizeTenant(intent, inv, c)
+          val reqDraw = if (c.dataplane == Kernel) comp::companionDraw(comp::Kernel, s.cpus, 0, 1, s.dpnis)
+                        else comp::companionDraw(comp::PollMode, 0, s.t, 1, s.dpnis)
           acc and and {
             countOf(r.plan, c.name, Dpio) == s.effDpio.value,
             countOf(r.plan, c.name, Dpbp) == s.effDpbp.value,
@@ -233,9 +233,9 @@ module intent_invariants {
             s.effDpmcp.value >= s.effDpmcp.request,
             s.effDpcon.value >= s.effDpcon.request,
             s.effDpio.request == reqDraw.dpio,
-            r.plan.objs.forall(o => (o.key.consumer == c.name and o.key.family == Dpni) implies
+            r.plan.objs.forall(o => (o.key.tenant == c.name and o.key.family == Dpni) implies
               match o.attrs {
-                | DpniAttrs(a) => if (c.regime == Kernel) a.numQueues == s.cpus else a.numQueues >= s.t
+                | DpniAttrs(a) => if (c.dataplane == Kernel) a.numQueues == s.cpus else a.numQueues >= s.t
                 | _ => false
               }),
           })
@@ -245,7 +245,7 @@ module intent_invariants {
   // ---- the two rungs ----
 
   pure def planInvariants(p: Plan): bool = and {
-    containmentByConsumer(p), edgesTypedAndSingle(p), companionsOnlyDerived(p), emissionOrderLawful(p), keysAreIdentities(p), provenanceClosed(p),
+    containmentByTenant(p), edgesTypedAndSingle(p), companionsOnlyDerived(p), emissionOrderLawful(p), keysAreIdentities(p), provenanceClosed(p),
   }
   pure def compileInvariants(intent: Intent, inv: Inventory): bool = and {
     feasibleAgainstCeilings(intent, inv), companionCountsByRegime(intent, inv),

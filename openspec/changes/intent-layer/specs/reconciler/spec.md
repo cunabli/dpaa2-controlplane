@@ -37,7 +37,7 @@ derived object as plan-only — present in the desired plan, awaiting
 the change that adds its executor — never as drift, never as an error,
 and never as a reason to refuse the executable subset.
 
-#### Scenario: A poll-mode plan against today's executors
+#### Scenario: A userspace-poll plan against today's executors
 - **WHEN** a compiled plan holds a child DPRC, dpios, dpbps, dpmcps,
   and two dpni↔dpmac ports, and only the dpni↔dpmac executor exists
 - **THEN** the plan contains transitions for the two ports and a
