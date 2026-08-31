@@ -1,0 +1,28 @@
+# Scenario (2) of the intent gate (intent-layer design D8; task 2.2): the
+# operator's file for scenarios/vfabric.qnt — a virtual fabric of two
+# poll-mode consumers joined by a single link, with no dpmac anywhere. No
+# [[port]] and no [[fabric]] appears below: that absence is the point — the
+# scenario proves child containers and the dpni↔dpni pseudo-wire stand on
+# their own, with no hardware to lean on. No dpio, dpbp, dpcon, dpmcp, queue
+# or worker count appears either: every object and count is derived
+# (ADR-0005). Pairing with vfabric.qnt is by convention until dpaa2-verify's
+# test (task 3.4). The twin — a third container routerC, model-only, with no
+# operator file — overdraws the dpbp ceiling and is refused Infeasible.
+
+schema = 1
+
+[[consumer]]
+name = "routerA"
+regime = "poll-mode"
+max_cores = 8            # portless ⇒ T = 1, well under the budget
+
+[[consumer]]
+name = "routerB"
+regime = "poll-mode"
+max_cores = 8
+
+# The virtual fabric: a pseudo-wire between the two containers, no dpmac.
+[[link]]
+name = "wire"
+a = "routerA"
+b = "routerB"

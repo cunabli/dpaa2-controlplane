@@ -65,9 +65,9 @@ the change's only other operator sync point (design D12).
       dpmac.9/10 under `max_cores` = M — `fabric.qnt` beside
       `fabric.toml`; twin: M below the derived T refused as
       CoreBudgetExceeded (design D8)
-- [ ] 2.2 Scenario (2): virtual fabric between two poll-mode containers,
-      no dpmac — `vfabric.qnt`/`.toml`; twin: a third container
-      overdraws the dpbp ceiling
+- [x] 2.2 Scenario (2): virtual fabric between two poll-mode containers,
+      joined by a link, no dpmac — `vfabric.qnt`/`.toml`; twin: a third
+      container overdraws the dpbp ceiling, refused Infeasible
 - [ ] 2.3 Scenario (3): userspace router over N×10G + 1×25G with
       `crypto_flows` ≤ N — `router.qnt`/`.toml`; twin: a port claimed by
       two consumers
