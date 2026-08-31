@@ -159,7 +159,7 @@ Tally: 53 modeled, 48 deferred, 7 board-settled, 0 board-pending — 108 candida
 | DPCI-I3 | modeled | `main.qnt` `DPCI_I3Test` + `families/dpci.qnt` createTriggersRescan=false | simulate | verified 2026-08-29 (V-DPRC-5 rev 1): the create command triggers no rescan, but the BSP's `autorescan=1` makes the dprc driver rescan on the MC's object-added interrupt, so a root-created dpci was bus-visible before the hook's explicit `dprc sync`; the MC law holds and the sysfs lag is a kernel setting to read, not assume → `tier-c-families` (#13) |
 | DPCI-I4 | board-settled | V-DPCI-1 | — | verified 2026-08-23 (V-DPCI-1 rev 2, 7/7): a bare GPP↔GPP pair created in a scratch container connected (issued against the root ancestor) and read back peered at 1 priority each — no platform gate |
 | DPCI-I5 | modeled | `main.qnt` `DPCI_I5Test` (connect sets no link state) | simulate | verified (V-LINK-1: pair reads link-down after connect; consumer enable required) |
-| DPDCEI-I1 | deferred | `intent-layer` (#3): the `ConsumerAbsent` refusal — a compile-time rule of `models/intent/` (task 1.3), not a board probe | — | open: V-DPDCEI-1 probes → `tier-c-families` (#13); the create face landed (V-LIFE-DPDCEI-1) and the API-version half is read: dpdcei reports 2.3, the module is linked into this firmware (V-READBACK-1, 2026-08-25) |
+| DPDCEI-I1 | deferred | `intent-layer` (#3): the `TenantAbsent` refusal — a compile-time rule of `models/intent/` (task 1.3), not a board probe | — | open: V-DPDCEI-1 probes → `tier-c-families` (#13); the create face landed (V-LIFE-DPDCEI-1) and the API-version half is read: dpdcei reports 2.3, the module is linked into this firmware (V-READBACK-1, 2026-08-25) |
 | DPDCEI-I2 | deferred | this change ph.4 generator | — | verified 2026-08-29 (V-GENDPL-1 rev 1, 4/4 + hook 1/1): the emitted dpdcei node carries `engine` only — the create-time priority is write-only, absent from `dpdcei info` and the DPL alike → `dpl-tape-out` (#14) |
 | DPDCEI-I3 | deferred | this change ph.4 adapter (LAW 2; `DPSECI_I8Test` is the class witness) | — | — |
 | DPDCEI-I4 | deferred | `tier-c-families` (#13) | — | — |
@@ -177,3 +177,35 @@ Tally: 53 modeled, 48 deferred, 7 board-settled, 0 board-pending — 108 candida
 | DPDBG-I2 | modeled | structural — no debug-state observable exists in the model (formal-models spec scenario) | typecheck | — |
 | DPDBG-I3 | deferred | this change ph.4 adapter (LAW 2: dump verified by artifact, never exit) | — | anchored 2026-08-24 (V-DPDBG-1): both dumps exit 0 with the artifact only in the MC log |
 | DPDBG-I4 | modeled | `main.qnt` `DPDBG_I4Test` (bus-visible, driver-less, never kernel-bindable) | simulate | `dprc show` face verified 2026-08-24 (V-DPDBG-1 trace 4/4); sysfs face unprobed — needs V-DPRC-5's bus-visibility observation → `dprc-encapsulation` (#4) |
+
+## Intent alphabet coverage (task 2.4)
+
+The `intent-layer` random simulation counts how much of the refusal/warning
+alphabet it reaches, the same honesty mechanism the ledger applies to the
+board: a variant the alphabet cannot reach is a decision on record here, not
+an omission. `pnpm model:coverage` runs `models/intent/alphabet.qnt` under
+every invariant with one witness per outcome and structure dimension; the
+counted run is seed 20260831, 12 steps, 3000 samples, dated 2026-08-31,
+deterministic and reproducible. No invariant violated (the deep hunt found no
+counterexample). Two widenings this counting drove are stated in the model:
+`DPMACS` gained id 99 (absent from the inventory) so an Unanchored port is
+drawable, and `RATES` gained 40000 (no worker row) so UnknownRateClass fires.
+
+- **Reached by the random alphabet** (traces of 3000): every anchor refusal
+  (Unanchored 874, ReservedAnchor 1532, OverRate 1647), every fabric refusal
+  (MemberUnresolved 1570, SelfMember 705, FabricNotKernelForwarded 349,
+  PortTenantMismatch 620, UnsupportedEdge 181), DoubleClaimed 677, the sizing
+  refusals (UnknownRateClass 320, CoreBudgetExceeded 282), the override
+  refusals (LimitBelowRequest 1945, LimitNotDerived 950), UnpricedDataplane
+  2052, and the UnknownCeiling warning 3000; Accepted 3000, Refused 2996.
+- **Alphabet-unreachable, covered elsewhere** (0 traces): `TenantAbsent` —
+  unreachable by construction (owners are drawn from declared tenants),
+  covered by `tenantAbsentTest` (`intent/main.qnt`); `ForeignAnchor` — the
+  inventory marks no dpmac Foreign, covered by `unanchoredForeignTest`
+  (`intent/main.qnt`, `invWithForeignDpmac7`); `Infeasible` — intents this
+  small never sum past a REF_INVENTORY ceiling, covered by the vfabric
+  overdrawn-pool twin (`scenarios/vfabric.qnt` `twinInfeasibleTest`,
+  `Counted(5)`) and `infeasibleTest`. The `UnmeasuredCombination` warning is
+  reachable but unhit in 3000 samples (a clean accepted cross-class mix is a
+  narrow draw — the sole Free 25G dpmac is 4); its shape precursor is counted
+  (`wMixedRates` 454) and the warning is covered by `mixedRateClassWarnsTest`.

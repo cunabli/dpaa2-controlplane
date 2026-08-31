@@ -80,7 +80,7 @@ the change's only other operator sync point (design D12).
 - [x] 2.3 Scenario (3): userspace router over N×10G + 1×25G with
       `crypto_flows` ≤ N — `router.qnt`/`.toml`; twin: a port claimed by
       two tenants
-- [ ] 2.4 Random simulation over the finite intent alphabet with every
+- [x] 2.4 Random simulation over the finite intent alphabet with every
       invariant on; each counterexample becomes a rule (new invariant +
       scenario twin) or a recorded unknown in the model header; coverage
       of the alphabet counted

@@ -23,6 +23,45 @@
 //   Accepted 2026-08-30 for excessive cost (bead dpaa2-controlplane-gqf.26):
 //   compileLaws runs at the simulator rung; revisit on a quint/Apalache
 //   upgrade or a restructure that binds one compile per law.
+//
+// Coverage (task 2.4). `pnpm model:coverage` runs the alphabet under every
+// invariant with the named witnesses below; the counted run is
+//   seed=20260831, --max-steps=12, --max-samples=3000, 2026-08-31,
+// deterministic and reproducible. No invariant violation was found. Two
+// alphabet widenings this counting drove are stated where they land (DPMACS
+// 99 for Unanchored, RATES 40000 for UnknownRateClass) — never silent.
+//
+// Witness counts (traces of 3000 in which the witness held):
+//   wAccepted 3000, wRefused 2996, wUnknownCeiling 3000,
+//   wLimitBelowRequest 1945, wUnpricedDataplane 2052, wOverRate 1647,
+//   wMemberUnresolved 1570, wReservedAnchor 1532, wLimitNotDerived 950,
+//   wUnanchored 874, wSelfMember 705, wDoubleClaimed 677,
+//   wPortTenantMismatch 620, wMixedRates 454,
+//   wFabricNotKernelForwarded 349, wUnknownRateClass 320,
+//   wCoreBudgetExceeded 282, wUnsupportedEdge 181;
+//   structure wCryptoPresent 2872, wLimitPresent 2853, wFabricPresent 2784,
+//   wThreeTenants 2381, wLinkPresent 2309, wInterruptDrawn 2052.
+//
+// Recorded unknowns / alphabet-unreachable (0 traces — where each is covered):
+//   wTenantAbsent — unreachable BY CONSTRUCTION: addPort/addLink/addFabric/
+//     addCrypto/addLimit all draw tenant names from the declared set, so no
+//     construct can name an undeclared tenant. Covered by the directed
+//     tenantAbsentTest (intent/main.qnt).
+//   wForeignAnchor — unreachable: REF_INVENTORY marks only dpni.0 Foreign, no
+//     dpmac; the alphabet never invents a foreign dpmac. Covered by the
+//     directed unanchoredForeignTest (intent/main.qnt, invWithForeignDpmac7).
+//   wInfeasible — unreachable against REF_INVENTORY: intents of <=3 tenants,
+//     <=3 ports, one link and one fabric never sum past a checkable ceiling
+//     (Dpni Observed 18, Dpbp Counted 63, Dpmcp Observed 203). The ceiling
+//     refuses, not the shape: covered by the vfabric overdrawn-pool twin
+//     (scenarios/vfabric.qnt twinInfeasibleTest, Counted(5)) and the directed
+//     infeasibleTest (intent/main.qnt).
+//   wUnmeasuredCombination — reachable but not hit in 3000 samples: the
+//     warning needs an *accepted* poll tenant terminating both seeded classes,
+//     and the sole Free 25G dpmac in the alphabet is 4, so a clean cross-class
+//     mix is a narrow draw. The shape precursor wMixedRates is counted (454);
+//     the warning itself is covered by the directed mixedRateClassWarnsTest
+//     (intent/main.qnt).
 module intent_alphabet {
   import types.* from "../core/types"           // Family, ObjId
   import intent_types.* from "./types"           // Intent, Tenant, Dataplane, …, kernelTenant, SWITCHINGS
@@ -44,9 +83,16 @@ module intent_alphabet {
 
   // A slice of REF_INVENTORY's dpmacs: one reserved 25G (3), one free 25G
   // (4), three free 10G (7, 8, 9), the reserved 1G management nic (17) — so
-  // the anchor rules (Free / Reserved / OverRate) all have a witness.
-  pure val DPMACS: Set[int] = Set(3, 4, 7, 8, 9, 17)
-  pure val RATES: Set[int] = Set(10000, 25000)  // the two rate classes
+  // the anchor rules (Free / Reserved / OverRate) all have a witness. 99 is
+  // absent from REF_INVENTORY: the Unanchored witness (task 2.4 widening —
+  // the alphabet reached no unanchored port until a dpmac with no offer was
+  // drawable).
+  pure val DPMACS: Set[int] = Set(3, 4, 7, 8, 9, 17, 99)
+  // The two seeded rate classes, plus 40000 — the unseeded class, no worker
+  // row (task 2.4 widening for the UnknownRateClass witness). It usually
+  // co-fires with OverRate (no 40G dpmac exists in the alphabet), but the
+  // complete-refusal-list semantics still witness UnknownRateClass in the set.
+  pure val RATES: Set[int] = Set(10000, 25000, 40000)
   pure val CORES: Set[int] = Set(1, 4, 5, 8, 16)
   pure val FLOWS: Set[int] = Set(0, 1, 4)        // crypto_flows demand
   // The userspace dataplanes a non-kernel tenant may run: UserspacePoll is
@@ -176,4 +222,60 @@ module intent_alphabet {
 
   // The simulator rung: both, over the alphabet's reachable intents.
   val intentInvariants = and { compileLaws, acceptedPlanLaws }
+
+  // ---- coverage witnesses (task 2.4) ----
+  // One named predicate per coverage dimension, counted by `pnpm
+  // model:coverage` (--witnesses): the seeded run reports for how many traces
+  // each held. The outcome witnesses read `compile(intent, REF_INVENTORY)` by
+  // Refusal/Warning variant (design D5 refusals, design D2 warnings); the
+  // structure witnesses read the alphabet's shape. A witness at 0 traces is a
+  // recorded unknown, never a silent gap (module header, task 2.4).
+
+  // Does some refusal / warning of the compiled intent match the predicate.
+  def hasRefusal(pred: (Refusal) => bool): bool =
+    match compile(intent, REF_INVENTORY) {
+      | Refused(rs) => rs.exists(pred)
+      | Ok(_) => false
+    }
+  def hasWarning(pred: (Warning) => bool): bool =
+    match compile(intent, REF_INVENTORY) {
+      | Ok(r) => r.warnings.exists(pred)
+      | Refused(_) => false
+    }
+
+  // Outcome (design D5): accepted, refused, and one per Refusal variant.
+  val wAccepted = match compile(intent, REF_INVENTORY) { | Ok(_) => true | Refused(_) => false }
+  val wRefused = hasRefusal(_ => true)
+  val wTenantAbsent = hasRefusal(r => match r { | TenantAbsent(_) => true | _ => false })
+  val wMemberUnresolved = hasRefusal(r => match r { | MemberUnresolved(_) => true | _ => false })
+  val wSelfMember = hasRefusal(r => match r { | SelfMember(_) => true | _ => false })
+  val wUnanchored = hasRefusal(r => match r { | Unanchored(_) => true | _ => false })
+  val wReservedAnchor = hasRefusal(r => match r { | ReservedAnchor(_) => true | _ => false })
+  val wForeignAnchor = hasRefusal(r => match r { | ForeignAnchor(_) => true | _ => false })
+  val wDoubleClaimed = hasRefusal(r => match r { | DoubleClaimed(_) => true | _ => false })
+  val wOverRate = hasRefusal(r => match r { | OverRate(_) => true | _ => false })
+  val wFabricNotKernelForwarded = hasRefusal(r => match r { | FabricNotKernelForwarded(_) => true | _ => false })
+  val wPortTenantMismatch = hasRefusal(r => match r { | PortTenantMismatch(_) => true | _ => false })
+  val wUnsupportedEdge = hasRefusal(r => match r { | UnsupportedEdge(_) => true | _ => false })
+  val wUnknownRateClass = hasRefusal(r => match r { | UnknownRateClass(_) => true | _ => false })
+  val wCoreBudgetExceeded = hasRefusal(r => match r { | CoreBudgetExceeded(_) => true | _ => false })
+  val wLimitBelowRequest = hasRefusal(r => match r { | LimitBelowRequest(_) => true | _ => false })
+  val wLimitNotDerived = hasRefusal(r => match r { | LimitNotDerived(_) => true | _ => false })
+  val wInfeasible = hasRefusal(r => match r { | Infeasible(_) => true | _ => false })
+  val wUnpricedDataplane = hasRefusal(r => match r { | UnpricedDataplane(_) => true | _ => false })
+
+  // Warnings (design D2 ceilings; design D3 cross-class mix).
+  val wUnknownCeiling = hasWarning(w => match w { | UnknownCeiling(_) => true | _ => false })
+  val wUnmeasuredCombination = hasWarning(w => match w { | UnmeasuredCombination(_) => true | _ => false })
+
+  // Alphabet structure: the shapes a trace must reach to exercise the rules.
+  val wThreeTenants = intent.tenants.length() == 3
+  val wLinkPresent = intent.links.length() > 0
+  val wFabricPresent = intent.fabrics.length() > 0
+  val wCryptoPresent = intent.crypto.size() > 0
+  val wLimitPresent = intent.limits.size() > 0
+  val wInterruptDrawn = intent.tenants.select(c => c.dataplane == UserspaceInterrupt).length() > 0
+  // A tenant terminating both seeded rate classes (10G and 25G): the
+  // cross-class mix the worker table prices but flags unmeasured (design D3).
+  val wMixedRates = intent.tenants.select(c => seededRateClasses(intent, c.name).size() > 1).length() > 0
 }
