@@ -77,7 +77,7 @@ the change's only other operator sync point (design D12).
       becomes per-class workers-per-port with T = 1 + Σ workers and
       the `UnmeasuredCombination` warning; design/proposal/spec deltas
       amended in lockstep (discovered detour, bead gqf.27)
-- [ ] 2.3 Scenario (3): userspace router over N×10G + 1×25G with
+- [x] 2.3 Scenario (3): userspace router over N×10G + 1×25G with
       `crypto_flows` ≤ N — `router.qnt`/`.toml`; twin: a port claimed by
       two tenants
 - [ ] 2.4 Random simulation over the finite intent alphabet with every

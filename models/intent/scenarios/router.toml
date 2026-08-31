@@ -1,0 +1,45 @@
+# Scenario (3) of the intent gate (intent-layer design D8; task 2.3): the
+# operator's file for scenarios/router.qnt — a userspace-poll router over
+# 2×10G + 1×25G with an accelerator. No dpio, dpbp, dpcon, dpmcp, dpseci,
+# queue or worker count appears anywhere: every object and count is derived
+# (ADR-0005). The router states crypto_flows (a demand, not a dpseci queue
+# count) and one [[crypto]]; the compiler derives one dpseci with num_queues =
+# crypto_flows and the HAS_CG safety bit. Pairing with router.qnt is by
+# convention until dpaa2-verify's test (task 3.4). The twin — a second tenant
+# claiming dpmac.9, model-only, with no operator file — is refused
+# DoubleClaimed.
+
+schema = 1
+
+[[tenant]]
+name = "router"
+dataplane = "userspace-poll"
+max_cores = 16           # T = 10 = 1 + 2·2 + 5, well under the budget
+crypto_flows = 2         # the accelerator demand, ≤ N = 2 (the 10G port count)
+
+# The two 10G ports: the seeded rate class (10G ⇒ 2 workers each).
+[[port]]
+name = "wan0"
+dpmac = "dpmac.9"
+rate = 10000             # Mbps, the unit `dpmac info` reports maxima in
+tenant = "router"
+
+[[port]]
+name = "wan1"
+dpmac = "dpmac.10"
+rate = 10000
+tenant = "router"
+
+# The 25G uplink: the declared rate class (25G ⇒ 5 workers). Mixing it with
+# the 10G ports prices T over two classes and raises the unmeasured-combination
+# warning — flagged, never silent.
+[[port]]
+name = "up0"
+dpmac = "dpmac.4"
+rate = 25000
+tenant = "router"
+
+# The accelerator for the router: one dpseci, num_queues derived from
+# crypto_flows above.
+[[crypto]]
+tenant = "router"
