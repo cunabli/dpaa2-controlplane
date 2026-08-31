@@ -1,0 +1,45 @@
+# Scenario (1) of the intent gate (intent-layer design D8; task 2.1): the
+# operator's file for scenarios/fabric.qnt — a hardware-switched fabric
+# over dpmac.7/8 at 10G, kernel-steered, with a poll-mode router joined as
+# a member and terminating dpmac.9/10. No dpio, dpbp, dpcon, dpmcp, queue
+# or worker count appears anywhere: every object and count is derived
+# (ADR-0005). Pairing with fabric.qnt is by convention until dpaa2-verify's
+# test (task 3.4). The twin — max_cores = 4, below the derived T = 5 — is
+# refused as CoreBudgetExceeded.
+
+schema = 1
+
+[[consumer]]
+name = "router"
+regime = "poll-mode"
+max_cores = 8            # the budget the derived thread count must fit under
+
+# The fabric's member ports: no consumer named, so the kernel owns them.
+[[port]]
+name = "lan0"
+dpmac = "dpmac.7"
+rate = 10000             # Mbps, the unit `dpmac info` reports maxima in
+
+[[port]]
+name = "lan1"
+dpmac = "dpmac.8"
+rate = 10000
+
+# The router's terminated ports: 2×10G, the seeded rate class (T = 5).
+[[port]]
+name = "wan0"
+dpmac = "dpmac.9"
+rate = 10000
+consumer = "router"
+
+[[port]]
+name = "wan1"
+dpmac = "dpmac.10"
+rate = 10000
+consumer = "router"
+
+[[fabric]]
+name = "lan"
+switching = "hardware"   # a dpsw; only the kernel can steer it
+owner = "kernel"
+members = ["lan0", "lan1", "router"]

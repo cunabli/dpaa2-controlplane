@@ -60,9 +60,11 @@ the change's only other operator sync point (design D12).
 
 ## 2. Scenarios, simulation, fit check, gate
 
-- [ ] 2.1 Scenario (1): hardware-switched fabric over dpmac.7/8/9 at 10G
-      under `max_cores` = M — `fabric.qnt` beside `fabric.toml`; twin:
-      M below T refused (design D8)
+- [x] 2.1 Scenario (1): hardware-switched fabric over dpmac.7/8 at 10G,
+      kernel-steered, with a poll-mode router member terminating
+      dpmac.9/10 under `max_cores` = M — `fabric.qnt` beside
+      `fabric.toml`; twin: M below the derived T refused as
+      CoreBudgetExceeded (design D8)
 - [ ] 2.2 Scenario (2): virtual fabric between two poll-mode containers,
       no dpmac — `vfabric.qnt`/`.toml`; twin: a third container
       overdraws the dpbp ceiling
