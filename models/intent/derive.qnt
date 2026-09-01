@@ -373,23 +373,14 @@ module intent_derive {
   pure def hwOwnedFabrics(intent: Intent, name: str): List[Fabric] =
     intent.fabrics.select(f => f.switching == Hardware and f.forwardedBy == name)
 
-  pure def cryptoCount(intent: Intent, name: str): int =
-    intent.crypto.filter(k => k.tenant == name).size()
+  // A tenant's crypto blocks in declaration order — the list positions that
+  // number its dpseci ordinals (task 2.6e). Each block sizes its own dpseci by
+  // its own `flows`; the retired max-fold ceiling is gone.
+  pure def cryptoBlocksOf(intent: Intent, name: str): List[Crypto] =
+    intent.crypto.select(k => k.tenant == name)
 
-  // The dpseci queue demand of a tenant: the `flows` its Crypto construct
-  // carries (design D1) — provenance bottoms out in the crypto construct, not
-  // the tenant. At most one crypto per tenant in the exercised scenarios and
-  // the alphabet, so this is that single block's flows.
-  // ponytail: uniform sizing — every dpseci of a tenant is sized to the MAX
-  // flows across its crypto blocks (num_queues >= each block's flows), a
-  // deterministic ceiling, never the arbitrary last-wins of a bare fold. Zero
-  // when the tenant has no crypto (cryptoCount is then 0 and no dpseci is
-  // emitted). Upgrade path (2.6b/2.6c): size each dpseci from its own block
-  // with provenance keyed by that block, once a scenario declares two crypto
-  // blocks with distinct flows — needs a crypto identifier and an ordinal
-  // drawn from the (today unordered) crypto set.
-  pure def cryptoFlowsOf(intent: Intent, name: str): int =
-    intent.crypto.filter(k => k.tenant == name).fold(0, (acc, k) => if (k.flows > acc) k.flows else acc)
+  pure def cryptoCount(intent: Intent, name: str): int =
+    cryptoBlocksOf(intent, name).length()
 
   // Where a tenant's objects live (task 2.6c). The reserved kernel is Root; a
   // Restricted tenant draws inside its pool holder's container — the holder's
@@ -420,7 +411,7 @@ module intent_derive {
     name: str, isKernel: bool, isRootKernel: bool, isRestricted: bool, container: Container,
     dpnis: int, t: int, cpus: int, drawCpus: int, numQueues: int,
     effDpio: Eff, effDpbp: Eff, effDpmcp: Eff, effDpcon: Eff,
-    numDpseci: int, cryptoFlows: int, numDpsw: int,
+    numDpseci: int, numDpsw: int,
   }
 
   // Companion draws by reference to companionDraw (ADR-0012). Poll-mode:
@@ -465,7 +456,7 @@ module intent_derive {
       effDpbp: effective(intent, nm, Dpbp, reqDpbp),
       effDpmcp: effective(intent, nm, Dpmcp, reqDpmcp),
       effDpcon: effective(intent, nm, Dpcon, reqDpcon),
-      numDpseci: nDpseci, cryptoFlows: cryptoFlowsOf(intent, nm), numDpsw: nDpsw }
+      numDpseci: nDpseci, numDpsw: nDpsw }
 
   // ---- objects ----
 
@@ -523,6 +514,24 @@ module intent_derive {
                              perFdbFlooding: true, perFdbBroadcast: true, ctrlIf: true }),
           prov: { tenant: s.name, rule: "dpsw", construct: f.name } })) }).set
 
+  // One dpseci per crypto block the tenant declares, ordinal by the block's
+  // list position (task 2.6e); num_queues is that block's own `flows`, so two
+  // blocks of distinct flows yield two differently-sized dpsecis — the retired
+  // max-fold no longer collapses them. The DPSECI_OPT_HAS_CG safety bit
+  // (dpseci.md). Provenance is the tenant's single dpseci node (construct ""):
+  // Quint keys a ProvKey by (tenant, rule, construct) and has no int→string, so
+  // a nameless block cannot yield a distinct construct string; the block a
+  // dpseci came from is named by its ordinal — declaration order — exactly as
+  // fabric interfaces are numbered.
+  pure def dpseciObjs(name: str, container: Container, blocks: List[Crypto]): Set[PlanObj] =
+    blocks.foldl({ i: 0, set: Set() }, (acc, k) =>
+      { i: acc.i + 1,
+        set: acc.set.union(Set({
+          key: { tenant: name, family: Dpseci, ordinal: acc.i + 1 },
+          container: container,
+          attrs: DpseciAttrs({ numQueues: k.flows, hasCg: true }),
+          prov: { tenant: name, rule: "dpseci", construct: "" } })) }).set
+
   pure def tenantObjs(intent: Intent, inv: Inventory, c: Tenant): Set[PlanObj] =
     val s = sizeTenant(intent, inv, c)
     dprcObjs(s)
@@ -531,9 +540,8 @@ module intent_derive {
       .union(sizedObjs(s.name, Dpbp, s.container, s.effDpbp.value, Unsized, "dpbp"))
       .union(sizedObjs(s.name, Dpcon, s.container, s.effDpcon.value, Unsized, "dpcon"))
       .union(sizedObjs(s.name, Dpni, s.container, s.dpnis, DpniAttrs({ numQueues: s.numQueues }), "dpnis"))
-      // one dpseci per Crypto owned by c (dpseci.md): num_queues ≥ the
-      // crypto construct's flows, DPSECI_OPT_HAS_CG safety bit.
-      .union(sizedObjs(s.name, Dpseci, s.container, s.numDpseci, DpseciAttrs({ numQueues: s.cryptoFlows, hasCg: true }), "dpseci"))
+      // one dpseci per crypto block owned by c, each sized by its own flows.
+      .union(dpseciObjs(s.name, s.container, cryptoBlocksOf(intent, s.name)))
       .union(dpswObjs(intent, s))
 
   // dprtc.0 is pinned in Root (key ordinal 1), exactly one, kernel-owned (dprtc.md,
@@ -683,10 +691,15 @@ module intent_derive {
              else m2.put({ tenant: nm, rule: "dprc", construct: "" },
                          { rule: "dprc", anchor: "dprc.md: restool-default child options", mark: Measured,
                            request: 1, extra: None, value: 1, inputs: Set(), constructs: Set(nm) })
+    // The tenant's single dpseci node (task 2.6e): value is the accelerator
+    // count (one dpseci per crypto block), each dpseci's own num_queues = its
+    // block's flows lives in the object's DpseciAttrs, traced to the block by
+    // ordinal. constructs names the crypto-owning tenant (a nameless block has
+    // no string identity to key by).
     val m4 = if (s.numDpseci > 0)
                m3.put({ tenant: nm, rule: "dpseci", construct: "" },
-                      { rule: "dpseci", anchor: "dpseci.md: num_queues >= flows, DPSECI_OPT_HAS_CG",
-                        mark: Measured, request: s.cryptoFlows, extra: None, value: s.cryptoFlows,
+                      { rule: "dpseci", anchor: "dpseci.md: num_queues >= each block's flows, DPSECI_OPT_HAS_CG",
+                        mark: Measured, request: s.numDpseci, extra: None, value: s.numDpseci,
                         inputs: Set(), constructs: Set(nm) })
              else m3
     // one dpsw node per owned Hardware fabric (keyed by the fabric name)

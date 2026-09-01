@@ -48,7 +48,7 @@ module router {
               { name: "up0", dpmac: 4, rate: 25000, tenant: "router" }],
       links: [],
       fabrics: [],
-      crypto: Set({ tenant: "router", flows: 2 }),
+      crypto: [{ tenant: "router", flows: 2 }],
       extras: Set() }
 
   // The twin (model-only): a second poll-mode tenant router2 claims dpmac.9

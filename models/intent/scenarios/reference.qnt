@@ -87,7 +87,7 @@ module reference {
               { name: "wan1", dpmac: 9, rate: 10000, tenant: "router" }],
       links: [],
       fabrics: [],
-      crypto: Set(),
+      crypto: [],
       extras: Set() }
 
   // ---- the recovered boot census (models/board/baselines/reference.json) ----

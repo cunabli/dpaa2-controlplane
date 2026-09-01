@@ -113,8 +113,11 @@ ports) bounded by `max_cores`, and the companion set from the
 dataplane per ADR-0012: userspace-poll per child dprc dpio = 2·T, dpbp =
 2, dpmcp = one per process, dpni transmit queues ≥ T; kernel dpio one
 per online CPU, dpbp and dpmcp one per consuming object plus one dpmcp
-per dpio; dpcon one per polled queue; dpseci `num_queues ≥` the crypto
-construct's `flows`, with `HAS_CG`; dpsw `num_ifs` = port count, `max_fdbs ≥
+per dpio; dpcon one per polled queue; one dpseci per `[[crypto]]` block a
+tenant declares, each with `num_queues ≥` that block's own `flows` and
+`HAS_CG` — a tenant's blocks are ordered, so its Nth block sizes its Nth
+dpseci (ordinal N) and no ceiling folds distinct blocks together; dpsw
+`num_ifs` = port count, `max_fdbs ≥
 num_ifs`, PER_FDB flooding and broadcast, control interface enabled.
 
 #### Scenario: Userspace-poll router derives its companions
@@ -140,7 +143,9 @@ forwarded by a tenant other than the kernel; a member port whose tenant
 is not its fabric's forwarder; a hardware fabric inside a hardware
 fabric; a derived T above the tenant's `max_cores`;
 an extra on a family that is not one of the four companions, or an extra
-whose count is below 1; a crypto block whose flows are below 1; a
+whose count is below 1; a crypto block whose flows are below 1, or above
+one dpseci's 16 queue pairs (`DPSECI_MAX_QUEUE_NUM`) — one block is one
+device, so the demand is refused, not clamped, and split across blocks; a
 userspace-poll tenant terminating a rate class with no
 seeded worker row; a tenant whose dataplane has no companion pricing
 (`userspace-event` today); a pool named on a non-restricted tenant, a
@@ -221,7 +226,21 @@ the affected objects SHALL print both the request and the extra.
 #### Scenario: A crypto block with no flows
 - **WHEN** a `[[crypto]]` block declares `flows = 0`
 - **THEN** compilation is refused with `CryptoFlowsNotPositive` naming the
-  tenant and the flows 0
+  tenant, the block's 1-based declaration ordinal, and the flows 0
+
+#### Scenario: A crypto block over the device ceiling
+- **WHEN** a `[[crypto]]` block declares `flows = 17`
+- **THEN** compilation is refused with `CryptoFlowsOverDevice` naming the
+  tenant, the block's declaration ordinal, the flows 17, and the device
+  maximum 16 — a block at `flows = 16` is accepted, and the remedy for a
+  larger demand is splitting it across blocks
+
+#### Scenario: Two crypto blocks size two dpsecis
+- **WHEN** a tenant declares two `[[crypto]]` blocks with distinct `flows`
+- **THEN** the plan holds two dpsecis, the first block's `flows` sizing
+  the first dpseci (ordinal 1) and the second block's `flows` the second
+  (ordinal 2), each `num_queues` its own block's, with no ceiling folding
+  the two together
 
 ### Requirement: Every derived value carries a provenance tree
 Each object and each sized attribute in the plan SHALL carry a

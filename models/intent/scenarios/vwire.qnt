@@ -69,7 +69,7 @@ module vwire {
               { name: "uplink", interfaceA: "ns1", interfaceB: KERNEL },
               { name: "app", interfaceA: "ns2", interfaceB: "vpp" }],
       fabrics: [],
-      crypto: Set(),
+      crypto: [],
       extras: Set() }
 
   // The twin (model-only): vpp becomes a Restricted userspace-poll drawer

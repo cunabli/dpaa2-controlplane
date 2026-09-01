@@ -44,7 +44,7 @@ module fabric {
     links: [],
     fabrics: [{ name: "lan", switching: Hardware, forwardedBy: KERNEL,
                 members: [MPort("lan0"), MPort("lan1"), MTenant("router")] }],
-    crypto: Set(),
+    crypto: [],
     extras: Set(),
   }
 

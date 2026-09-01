@@ -132,6 +132,26 @@ the change's only other operator sync point (design D12).
       the reserved kernel) refused with exactly { PoolDataplaneMismatch }. Ladder
       green; coverage witnesses unchanged (scenarios feed model:test, not the
       alphabet-only coverage run). (bead gqf.32)
+- [x] 2.6e Crypto identity — ordered blocks, each dpseci sized by its own
+      flows: `Intent.crypto` becomes a `List[Crypto]`, so a `[[crypto]]`
+      array-of-tables' declaration order numbers a tenant's dpseci ordinals
+      (the ports/links/fabric-members convention). The 2.6a/2.6c max-fold
+      ceiling and its `ponytail:` comment are retired — a tenant with two
+      blocks of distinct flows gets two dpsecis, each `num_queues` its own
+      block's, the block traced to a dpseci by ordinal (declaration order).
+      `CryptoFlowsNotPositive` gains the block ordinal so two same-flows bad
+      blocks stay distinct in the refusal set, and a new `CryptoFlowsOverDevice`
+      refuses a block whose flows exceed one dpseci's 16 queue pairs
+      (`DPSECI_MAX_QUEUE_NUM`, cited to the kernel + DPDK trees) — one block is
+      one device, so the demand is refused not clamped, the remedy being to
+      split across blocks. Provenance stays a single
+      per-tenant dpseci node (value = accelerator count): Quint has no
+      int→string, so a nameless block cannot key a distinct prov node, and a
+      fourth `ordinal` ProvKey field would pollute ~105 unrelated construct
+      keys — considered and rejected in design D6. Directed
+      `twoCryptoBlocksTest` asserts the two-dpseci shape directionally; router
+      (single block) unchanged. Ladder green; coverage narrative refreshed to
+      the post-2.6b/2.6c witness list. (bead gqf.33)
 
 ## 3. Rust (gated on 2.6)
 

@@ -26,6 +26,7 @@ module intent_refuse {
   import types.* from "../core/types"           // Family, ObjId
   import intent_types.* from "./types"           // Intent, Inventory, Availability, Dataplane, DERIVED_FAMILIES
   import intent_derive.* from "./derive"         // derive, sizeTenant, terminatedPorts, threadCount, hasPricing, …
+  import dpseci.* from "../families/dpseci"      // DPSECI_MAX_QUEUE_NUM (the one-device queue-pair ceiling)
 
   // The rule an intent broke, naming the offending construct. One variant per
   // rule (design D5, spec.md "The compiler refuses by name").
@@ -45,7 +46,8 @@ module intent_refuse {
     | CoreBudgetExceeded({ tenant: str, t: int, maxCores: int }) // userspace-poll T > maxCores (design D3; ADR-0012 never rations)
     | ExtraNotCompanion({ tenant: str, family: Family })      // an extra on a family that is not one of the four companions (design D5)
     | ExtraNotPositive({ tenant: str, family: Family, count: int }) // an extra whose count is below 1 (design D5)
-    | CryptoFlowsNotPositive({ tenant: str, flows: int })     // a crypto block whose flows are below 1 (design D1; dpseci.md)
+    | CryptoFlowsNotPositive({ tenant: str, ordinal: int, flows: int }) // a crypto block whose flows are below 1 (design D1; dpseci.md); ordinal = the block's 1-based declaration position (task 2.6e)
+    | CryptoFlowsOverDevice({ tenant: str, ordinal: int, flows: int, maxFlows: int }) // a crypto block whose flows exceed one dpseci's DPSECI_MAX_QUEUE_NUM queue pairs — one block is one device, so this cannot be realized; split into blocks (task 2.6e; dpseci.h)
     | Infeasible({ family: Family, needed: int, available: int }) // sum of derived objs of a family > a Counted/Observed ceiling (ADR-0011; design D2)
     | UnpricedDataplane({ tenant: str, dataplane: Dataplane }) // a tenant whose dataplane ADR-0012 does not price (today UserspaceEvent; design D3)
     | PoolWithoutRestricted({ tenant: str, pool: str })       // a pool named on a tenant that is not Restricted — a contradiction (task 2.6c)
@@ -95,7 +97,7 @@ module intent_refuse {
     val fromFabrics = intent.fabrics.foldl(fromLinks, (acc, f) =>
       if (names.contains(f.forwardedBy)) acc
       else acc.union(Set(TenantAbsent({ construct: f.name, tenant: f.forwardedBy }))))
-    val fromCrypto = intent.crypto.fold(fromFabrics, (acc, k) =>
+    val fromCrypto = intent.crypto.foldl(fromFabrics, (acc, k) =>
       if (names.contains(k.tenant)) acc
       else acc.union(Set(TenantAbsent({ construct: "crypto", tenant: k.tenant }))))
     intent.extras.fold(fromCrypto, (acc, e) =>
@@ -249,14 +251,27 @@ module intent_refuse {
                         else Set()
       acc.union(notCompanion).union(notPositive))
 
-  // ---- rule 11: a crypto block with no flows (design D1; dpseci.md) ----
-  // A [[crypto]] block sizes a dpseci to its flows; flows < 1 would size a
-  // zero-queue accelerator — refused, never a silent empty dpseci. An absent
-  // tenant is skipped — TenantAbsent fires for it in rule 1.
+  // ---- rule 11: a crypto block's flows out of the one-device range (design D1; dpseci.md) ----
+  // A [[crypto]] block sizes ONE dpseci to its flows, so its flows must land in
+  // the device's realizable range 1..DPSECI_MAX_QUEUE_NUM: flows < 1 would size
+  // a zero-queue accelerator (CryptoFlowsNotPositive); flows above the ceiling
+  // demands more queue pairs than one dpseci carries (CryptoFlowsOverDevice) —
+  // not clamped, refused, since one block is one device (task 2.6e), and the
+  // operator's remedy is splitting the demand into blocks, which per-block
+  // sizing now makes expressible. maxFlows rides the payload so the message is
+  // self-standing. An absent tenant is skipped — TenantAbsent fires for it in
+  // rule 1. Both refusals name the block's 1-based declaration ordinal (task
+  // 2.6e): two bad blocks of one tenant that share a flows value would
+  // otherwise collapse in the Set to a single refusal, hiding one — the ordinal
+  // keeps each block's refusal distinct (spec.md "all violations at once").
   pure def cryptoRefusals(intent: Intent, inv: Inventory): Set[Refusal] =
-    intent.crypto.fold(Set(), (acc, k) =>
-      if (k.flows < 1) acc.union(Set(CryptoFlowsNotPositive({ tenant: k.tenant, flows: k.flows })))
-      else acc)
+    intent.crypto.foldl({ i: 0, set: Set() }, (acc, k) =>
+      { i: acc.i + 1,
+        set: if (k.flows < 1)
+               acc.set.union(Set(CryptoFlowsNotPositive({ tenant: k.tenant, ordinal: acc.i + 1, flows: k.flows })))
+             else if (k.flows > DPSECI_MAX_QUEUE_NUM)
+               acc.set.union(Set(CryptoFlowsOverDevice({ tenant: k.tenant, ordinal: acc.i + 1, flows: k.flows, maxFlows: DPSECI_MAX_QUEUE_NUM })))
+             else acc.set }).set
 
   // ---- rule 9: cross-plan feasibility against the ceilings (ADR-0011; design D2) ----
   // available = the ceiling's n; whether foreign/DPL objects already on the
@@ -368,7 +383,8 @@ module intent_refuse {
     CoreBudgetExceeded({ tenant: "c", t: 0, maxCores: 0 }),
     ExtraNotCompanion({ tenant: "c", family: Dpni }),
     ExtraNotPositive({ tenant: "c", family: Dpio, count: 0 }),
-    CryptoFlowsNotPositive({ tenant: "c", flows: 0 }),
+    CryptoFlowsNotPositive({ tenant: "c", ordinal: 0, flows: 0 }),
+    CryptoFlowsOverDevice({ tenant: "c", ordinal: 0, flows: 0, maxFlows: 0 }),
     Infeasible({ family: Dpbp, needed: 0, available: 0 }),
     UnpricedDataplane({ tenant: "c", dataplane: UserspaceEvent }),
     PoolWithoutRestricted({ tenant: "c", pool: "h" }),

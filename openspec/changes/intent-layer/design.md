@@ -69,7 +69,12 @@ tenant that runs the fabric's forwarding plane), crypto (per tenant, with
 its own `flows` demand) — and no field for a dpio, dpbp, dpcon, dpmcp,
 queue or worker count. `max_cores` is a budget the derivation must fit
 under; a crypto construct's `flows` is a tenant-visible quantity, not an
-object count; `rate` is what the port must deliver. The file opens with an `[intent]` table — where
+object count; `rate` is what the port must deliver. A tenant may declare
+several crypto blocks, each sizing its own dpseci by its own `flows`
+(no ceiling folds them together); the blocks are ordered — a `[[crypto]]`
+array-of-tables is — so a tenant's Nth block numbers its Nth dpseci
+(ordinal N), the same positional convention the ports, links, and fabric
+members already carry (task 2.6e). The file opens with an `[intent]` table — where
 document-level properties anchor together — carrying a mandatory
 `schema` key, the `apiVersion` idiom, so the next breaking change has a
 hook this one did not. The nouns are the 2026-08-31 taxonomy review's: *tenant* is RFC
@@ -212,10 +217,20 @@ the declared construct and the evidence anchor (`dpio ×10 ← 2·T ← T=5 ← 
 workers-table(10G ⇒ 2, unmeasured) ← ports wan0/wan1 rate=10G`); the
 build-system
 idiom (`nix why-depends`, Bazel `--explain`) that makes a later
-`dry-run --explain <object>` a print, not a feature. The
-Quint model (`models/intent/`) is written first and the Rust type
-surface transcribes what the model proved ergonomic — the session's
-explicit instruction. Per-object lifecycle typestates (created → plugged
+`dry-run --explain <object>` a print, not a feature. A provenance node is
+keyed `(tenant, rule, construct)`; where several sized objects of one
+family need distinct nodes the discriminator is a declared *name* (the
+fabric name keys each dpsw node). Crypto blocks are nameless and Quint has
+no int→string, so a tenant's blocks cannot key distinct nodes by an
+ordinal string; per-block prov keys were considered and rejected on that
+constraint (task 2.6e — a fourth `ordinal` key field would have polluted
+every unrelated construct's key). Instead a tenant carries one dpseci node
+whose value is its accelerator count, and each dpseci's own `num_queues`
+lives on the object; the block a dpseci came from is named by its ordinal
+(declaration order), the operator's trace path (dpseci ordinal N ⇔ the Nth
+`[[crypto]]` block). The Quint model (`models/intent/`) is written first
+and the Rust type surface transcribes what the model proved ergonomic —
+the session's explicit instruction. Per-object lifecycle typestates (created → plugged
 → bound → enabled, VFIO, link-up) stay with #4–#8.
 
 ### D6a. Tenant isolation and pooling: the private-VLAN shape of the container tree

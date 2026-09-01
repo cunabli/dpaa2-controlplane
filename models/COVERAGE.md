@@ -185,27 +185,33 @@ alphabet it reaches, the same honesty mechanism the ledger applies to the
 board: a variant the alphabet cannot reach is a decision on record here, not
 an omission. `pnpm model:coverage` runs `models/intent/alphabet.qnt` under
 every invariant with one witness per outcome and structure dimension; the
-counted run is seed 20260831, 12 steps, 3000 samples, dated 2026-08-31,
+counted run is seed 20260831, 12 steps, 3000 samples, dated 2026-09-01,
 deterministic and reproducible. No invariant violated (the deep hunt found no
-counterexample). Two widenings this counting drove are stated in the model:
+counterexample). Three widenings this counting drove are stated in the model:
 `DPMACS` gained id 99 (absent from the inventory) so an Unanchored port is
-drawable, and `RATES` gained 40000 (no worker row) so UnknownRateClass fires.
+drawable, `RATES` gained 40000 (no worker row) so UnknownRateClass fires, and
+`FLOWS` gained 17 (past one dpseci's 16-queue-pair ceiling) so
+CryptoFlowsOverDevice fires (task 2.6e).
 
 - **Reached by the random alphabet** (traces of 3000): every anchor refusal
-  (Unanchored 874, ReservedAnchor 1532, OverRate 1647), every fabric refusal
-  (MemberUnresolved 1570, SelfMember 705, FabricNotKernelForwarded 349,
-  PortTenantMismatch 620, UnsupportedEdge 181), DoubleClaimed 677, the sizing
-  refusals (UnknownRateClass 320, CoreBudgetExceeded 282), the override
-  refusals (LimitBelowRequest 1945, LimitNotDerived 950), UnpricedDataplane
-  2052, and the UnknownCeiling warning 3000; Accepted 3000, Refused 2996.
-- **Alphabet-unreachable, covered elsewhere** (0 traces): `TenantAbsent` —
-  unreachable by construction (owners are drawn from declared tenants),
-  covered by `tenantAbsentTest` (`intent/main.qnt`); `ForeignAnchor` — the
-  inventory marks no dpmac Foreign, covered by `unanchoredForeignTest`
+  (Unanchored 824, ReservedAnchor 1488, OverRate 1722), every fabric refusal
+  (MemberUnresolved 1629, SelfMember 689, FabricNotKernelForwarded 375,
+  PortTenantMismatch 625, UnsupportedEdge 177), DoubleClaimed 706, the sizing
+  refusals (UnknownRateClass 339, CoreBudgetExceeded 256), the extra refusals
+  (ExtraNotCompanion 979, ExtraNotPositive 1129), both crypto-flows refusals
+  (CryptoFlowsOverDevice 1199, CryptoFlowsNotPositive 1172), UnpricedDataplane
+  2075, every pool/isolation refusal (PoolWithoutRestricted 2087,
+  PoolDataplaneMismatch 654, PoolChain 647, HolderNotPublic 590,
+  RestrictedWithoutPool 400), TenantAbsent 235 (a Restricted tenant may name a
+  pool holder never declared — construct "pool", reachable through
+  `addTenant`), and the UnknownCeiling warning 3000; Accepted 3000, Refused
+  3000.
+- **Alphabet-unreachable, covered elsewhere** (0 traces): `ForeignAnchor` —
+  the inventory marks no dpmac Foreign, covered by `unanchoredForeignTest`
   (`intent/main.qnt`, `invWithForeignDpmac7`); `Infeasible` — intents this
   small never sum past a REF_INVENTORY ceiling, covered by the vfabric
   overdrawn-pool twin (`scenarios/vfabric.qnt` `twinInfeasibleTest`,
   `Counted(5)`) and `infeasibleTest`. The `UnmeasuredCombination` warning is
   reachable but unhit in 3000 samples (a clean accepted cross-class mix is a
   narrow draw — the sole Free 25G dpmac is 4); its shape precursor is counted
-  (`wMixedRates` 454) and the warning is covered by `mixedRateClassWarnsTest`.
+  (`wMixedRates` 444) and the warning is covered by `mixedRateClassWarnsTest`.

@@ -28,24 +28,27 @@
 // Coverage (task 2.4). `pnpm model:coverage` runs the alphabet under every
 // invariant with the named witnesses below; the counted run is
 //   seed=20260831, --max-steps=12, --max-samples=3000, 2026-09-01,
-// deterministic and reproducible. No invariant violation was found. Two
+// deterministic and reproducible. No invariant violation was found. Three
 // alphabet widenings this counting drove are stated where they land (DPMACS
-// 99 for Unanchored, RATES 40000 for UnknownRateClass) — never silent. The
-// counts were re-recorded after the 2.6c widening added the isolation and
-// pool draws to addTenant (two fresh nondets — ISOLATIONS and POOL_NAMES):
-// the RNG stream shifts, so every count is re-taken, not carried. The five
-// pool refusals and the two isolation-structure witnesses take their first
-// values, and — new this run — wTenantAbsent leaves the recorded-unknowns:
-// a Restricted tenant may name a pool holder that was never declared, so
-// TenantAbsent (construct "pool") is now reachable through addTenant.
+// 99 for Unanchored, RATES 40000 for UnknownRateClass, FLOWS 17 for
+// CryptoFlowsOverDevice) — never silent. The 2.6e change (crypto is now a
+// List and FLOWS gained 17, the first value past one dpseci's 16-queue-pair
+// ceiling) leaves every non-crypto count byte-identical to the 2.6c run: the
+// two addCrypto nondets (owner, flows) draw in the same order and consume the
+// same RNG whether crypto is a Set or a List, and widening FLOWS by one
+// element changes only which flows value a draw selects — so only the two
+// crypto-flows witnesses move. CryptoFlowsNotPositive falls (0 is now one of
+// four flows draws, not one of three) and CryptoFlowsOverDevice takes its
+// first values from the new 17 draw.
 //
 // Witness counts (traces of 3000 in which the witness held):
 //   wAccepted 3000, wRefused 3000, wUnknownCeiling 3000, wPublicTenant 3000,
 //   wCryptoPresent 2867, wExtraPresent 2845, wFabricPresent 2791,
 //   wThreeTenants 2354, wLinkPresent 2342, wPoolWithoutRestricted 2087,
 //   wUnpricedDataplane 2075, wInterruptDrawn 2075, wOverRate 1722,
-//   wMemberUnresolved 1629, wCryptoFlowsNotPositive 1505, wRestrictedTenant 1492,
-//   wReservedAnchor 1488, wExtraNotPositive 1129, wExtraNotCompanion 979,
+//   wMemberUnresolved 1629, wRestrictedTenant 1492, wReservedAnchor 1488,
+//   wCryptoFlowsOverDevice 1199, wCryptoFlowsNotPositive 1172,
+//   wExtraNotPositive 1129, wExtraNotCompanion 979,
 //   wUnanchored 824, wDoubleClaimed 706, wSelfMember 689, wPoolDataplaneMismatch 654,
 //   wPoolChain 647, wPortTenantMismatch 625, wHolderNotPublic 590,
 //   wMixedRates 444, wRestrictedWithoutPool 400, wFabricNotKernelForwarded 375,
@@ -65,7 +68,7 @@
 //   wUnmeasuredCombination — reachable but not hit in 3000 samples: the
 //     warning needs an *accepted* poll tenant terminating both seeded classes,
 //     and the sole Free 25G dpmac in the alphabet is 4, so a clean cross-class
-//     mix is a narrow draw. The shape precursor wMixedRates is counted (451);
+//     mix is a narrow draw. The shape precursor wMixedRates is counted (444);
 //     the warning itself is covered by the directed mixedRateClassWarnsTest
 //     (intent/main.qnt).
 module intent_alphabet {
@@ -105,7 +108,12 @@ module intent_alphabet {
   // complete-refusal-list semantics still witness UnknownRateClass in the set.
   pure val RATES: Set[int] = Set(10000, 25000, 40000)
   pure val CORES: Set[int] = Set(1, 4, 5, 8, 16)
-  pure val FLOWS: Set[int] = Set(0, 1, 4)        // the crypto construct's flows demand
+  // The crypto construct's flows demand: 0 witnesses CryptoFlowsNotPositive, 1
+  // and 4 are in-range demands, 17 is the first value past one dpseci's ceiling
+  // (DPSECI_MAX_QUEUE_NUM = 16) — the CryptoFlowsOverDevice witness (task 2.6e).
+  // 17 is the minimal over-ceiling draw, discriminating over-device from
+  // in-range without inventing a larger number.
+  pure val FLOWS: Set[int] = Set(0, 1, 4, 17)
   // The userspace dataplanes a non-kernel tenant may run: UserspacePoll is
   // priced (ADR-0012), UserspaceEvent is not — the latter is a legal
   // draw whose compile is refused UnpricedDataplane (a refusal is a legal
@@ -135,7 +143,7 @@ module intent_alphabet {
 
   action init = intent' = {
     tenants: [kernelTenant(16)], ports: [], links: [], fabrics: [],
-    crypto: Set(), extras: Set(),
+    crypto: [], extras: Set(),
   }
 
   // ---- one construct per step (never a powerset draw) ----
@@ -196,13 +204,15 @@ module intent_alphabet {
 
   // One accelerator per tenant at most: an owner already in crypto is a
   // no-op pick (the guard disables the action, stutter keeps step total). The
-  // flows demand is drawn here (design D1: crypto owns its flows).
+  // flows demand is drawn here (design D1: crypto owns its flows). crypto is a
+  // List now (task 2.6e), so a block is appended; the alphabet never draws two
+  // blocks for one tenant (the directed twoCryptoBlocksTest covers that shape).
   action addCrypto = {
     nondet owner = tenantNames(intent).oneOf()
     nondet flows = FLOWS.oneOf()
     all {
-      not(intent.crypto.map(k => k.tenant).contains(owner)),
-      intent' = intent.with("crypto", intent.crypto.union(Set({ tenant: owner, flows: flows }))),
+      intent.crypto.select(k => k.tenant == owner).length() == 0,
+      intent' = intent.with("crypto", intent.crypto.append({ tenant: owner, flows: flows })),
     }
   }
 
@@ -281,6 +291,7 @@ module intent_alphabet {
   val wExtraNotCompanion = hasRefusal(r => match r { | ExtraNotCompanion(_) => true | _ => false })
   val wExtraNotPositive = hasRefusal(r => match r { | ExtraNotPositive(_) => true | _ => false })
   val wCryptoFlowsNotPositive = hasRefusal(r => match r { | CryptoFlowsNotPositive(_) => true | _ => false })
+  val wCryptoFlowsOverDevice = hasRefusal(r => match r { | CryptoFlowsOverDevice(_) => true | _ => false })
   val wInfeasible = hasRefusal(r => match r { | Infeasible(_) => true | _ => false })
   val wUnpricedDataplane = hasRefusal(r => match r { | UnpricedDataplane(_) => true | _ => false })
   val wPoolWithoutRestricted = hasRefusal(r => match r { | PoolWithoutRestricted(_) => true | _ => false })
@@ -297,7 +308,7 @@ module intent_alphabet {
   val wThreeTenants = intent.tenants.length() == 3
   val wLinkPresent = intent.links.length() > 0
   val wFabricPresent = intent.fabrics.length() > 0
-  val wCryptoPresent = intent.crypto.size() > 0
+  val wCryptoPresent = intent.crypto.length() > 0
   val wExtraPresent = intent.extras.size() > 0
   val wInterruptDrawn = intent.tenants.select(c => c.dataplane == UserspaceEvent).length() > 0
   val wRestrictedTenant = intent.tenants.select(c => c.isolation == Restricted).length() > 0

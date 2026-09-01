@@ -12,7 +12,13 @@ and an optional `pool` naming a holder),
 `[[port]]` (dpmac, name, rate, tenant, MAC and MAC
 mode), `[[link]]` (two tenant ends, `interface_a`/`interface_b`),
 `[[fabric]]` (switching
-`hardware|software`, forwarded_by, members: ports, tenants, or fabrics), and `[[crypto]]` (tenant, flows). The config SHALL NOT require
+`hardware|software`, forwarded_by, members: ports, tenants, or fabrics), and `[[crypto]]` (tenant, flows). A `[[crypto]]`
+array-of-tables is ordered, so a tenant's blocks are read in declaration
+order: the Nth `[[crypto]]` block for a tenant sizes that tenant's Nth
+dpseci (ordinal N), each dpseci by its own block's `flows`. A block's
+`flows` is `1..16` — one dpseci carries at most 16 queue pairs, so a
+larger demand is refused, not clamped, and the remedy is splitting it
+across blocks. The config SHALL NOT require
 or accept the operator naming a DPNI index or any dpio, dpbp, dpcon,
 dpmcp, queue or worker count; per-(tenant, family) `[[extra]]` counts are
 the only object-level numbers, they add on top of the derived request,

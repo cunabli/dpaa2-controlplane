@@ -90,8 +90,11 @@ module intent_types {
 
   // An accelerator for one tenant; its dpseci queue count derives from this
   // construct's own `flows` — a tenant-visible demand, never an object count
-  // (design D1; dpseci.md, task 1.2). Multiple `Crypto` blocks per tenant are
-  // each self-contained; crypto stays matched by tenant, unordered.
+  // (design D1; dpseci.md, task 1.2). A tenant may declare several `Crypto`
+  // blocks: each is self-contained and sizes its own dpseci, and declaration
+  // order numbers a tenant's dpseci ordinals (task 2.6e, the same positional
+  // convention the fabric members and the other lists use). No max-fold ceiling
+  // collapses a tenant's blocks any longer.
   type Crypto = { tenant: str, flows: int }
 
   // An additive extra (design D5): every derived count is a request; a
@@ -105,14 +108,17 @@ module intent_types {
   // object by (tenant, family, ordinal), and a TOML `[[port]]` array is
   // ordered. Quint has no string ordering, so a Set would leave the third
   // dpni's ordinal undefined; the lists carry the positions the derivation
-  // reads (intent/derive.qnt). crypto and extras stay Sets — unordered,
-  // matched by (tenant) / (tenant, family), never by position.
+  // reads (intent/derive.qnt). crypto is a List for the same reason (task
+  // 2.6e): a `[[crypto]]` array-of-tables is ordered, and a tenant's block
+  // positions number its dpseci ordinals — each block sizes its own dpseci.
+  // Only extras stay a Set — unordered, matched by (tenant, family), additive,
+  // never by position.
   type Intent = {
     tenants: List[Tenant],
     ports: List[Port],
     links: List[Link],
     fabrics: List[Fabric],
-    crypto: Set[Crypto],
+    crypto: List[Crypto],
     extras: Set[Extra],
   }
 

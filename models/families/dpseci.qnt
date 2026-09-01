@@ -11,6 +11,15 @@
 module dpseci {
   import types.* from "../core/types"
 
+  // The queue-pair ceiling of one dpseci device: a single object carries at
+  // most 16 Tx/Rx queue pairs, so a crypto block demanding more flows than
+  // this cannot be realized by one device (intent/refuse.qnt refuses it; the
+  // remedy is splitting the demand across blocks). Verified in the NXP trees:
+  //   DPSECI_MAX_QUEUE_NUM == 16 —
+  //   .build/src/linux/drivers/crypto/caam/dpseci.h:25 (kernel),
+  //   .build/src/dpdk/drivers/crypto/dpaa2_sec/mc/fsl_dpseci.h:25 (DPDK MC).
+  pure val DPSECI_MAX_QUEUE_NUM: int = 16
+
   pure val dpseciParams: FamilyParams = {
     creatable: true,
     placement: AnyContainer,
