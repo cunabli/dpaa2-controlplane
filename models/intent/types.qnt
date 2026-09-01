@@ -37,10 +37,28 @@ module intent_types {
   // comp::PollMode) stays the internal pricing key.
   type Dataplane = KernelNetlink | UserspacePoll | UserspaceEvent
 
+  // How a tenant sits in the MC container tree (task 2.6c; the private-VLAN
+  // shape the tree already enforces). Isolated — its own child dprc,
+  // MC-isolated from its siblings (the default the TOML applies when the field
+  // is absent, so every prior intent keeps its shape): both a userspace-poll
+  // process and a declared kernel-netlink network namespace land here, the
+  // latter with a kernel-bound child dprc (drivers/bus/fsl-mc/dprc-driver.c
+  // match_id_table binds any obj_type "dprc" l.882-885, dprc_scan_container
+  // rescans l.746, dprc_add_new_devices adds discovered child dprcs as bus
+  // devices l.202-224). Restricted — community co-residency: the tenant's
+  // objects are created in its `pool` holder's dprc, the concrete case a DPDK
+  // secondary process pooling a userspace-poll primary. Public — a holder that
+  // accepts legal drawers into its own dprc; the reserved kernel is implicitly
+  // public, and a userspace-poll primary may declare it.
+  type Isolation = Public | Restricted | Isolated
+
   // A tenant of hardware capacity. `maxCores` is the budget the derived
   // thread count must fit under (design D3). Crypto demand is not a tenant
   // field: each `Crypto` construct carries its own `flows` (design D1).
-  type Tenant = { name: str, dataplane: Dataplane, maxCores: int }
+  // `isolation` places the tenant in the container tree (default Isolated);
+  // `pool` names the public holder a Restricted tenant draws inside ("" when
+  // absent). The pool legality rules are intent/refuse.qnt (task 2.6c).
+  type Tenant = { name: str, dataplane: Dataplane, maxCores: int, isolation: Isolation, pool: str }
 
   // A port: the dpmac anchor, the rate the port must deliver in Mbps (the
   // unit `dpmac info` reports its maximum in), and the tenant that
@@ -98,8 +116,10 @@ module intent_types {
     extras: Set[Extra],
   }
 
+  // The reserved kernel is implicitly public (task 2.6c): a Restricted tenant
+  // may pool it, and it never itself draws inside another holder.
   pure def kernelTenant(maxCores: int): Tenant =
-    { name: KERNEL, dataplane: KernelNetlink, maxCores: maxCores }
+    { name: KERNEL, dataplane: KernelNetlink, maxCores: maxCores, isolation: Public, pool: "" }
 
   // ---- the inventory: the observed hardware offer (design D2) ----
 
@@ -163,6 +183,7 @@ module intent_types {
   // another module (QNT404; see families/params.qnt, core/companions.qnt).
   pure val ETH_IFS: Set[EthIf] = Set(XFI, CAUI, RGMII)
   pure val DATAPLANES: Set[Dataplane] = Set(KernelNetlink, UserspacePoll, UserspaceEvent)
+  pure val ISOLATIONS: Set[Isolation] = Set(Public, Restricted, Isolated)
   pure val SWITCHINGS: Set[Switching] = Set(Hardware, Software)
   pure val MEMBERS: Set[Member] = Set(MPort("p"), MTenant("c"), MFabric("f"))
   pure val LINK_TYPES: Set[LinkType] = Set(LinkNone, LinkFixed, LinkPhy, LinkBackplane)

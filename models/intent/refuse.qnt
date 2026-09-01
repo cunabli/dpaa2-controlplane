@@ -48,6 +48,11 @@ module intent_refuse {
     | CryptoFlowsNotPositive({ tenant: str, flows: int })     // a crypto block whose flows are below 1 (design D1; dpseci.md)
     | Infeasible({ family: Family, needed: int, available: int }) // sum of derived objs of a family > a Counted/Observed ceiling (ADR-0011; design D2)
     | UnpricedDataplane({ tenant: str, dataplane: Dataplane }) // a tenant whose dataplane ADR-0012 does not price (today UserspaceEvent; design D3)
+    | PoolWithoutRestricted({ tenant: str, pool: str })       // a pool named on a tenant that is not Restricted — a contradiction (task 2.6c)
+    | RestrictedWithoutPool({ tenant: str })                  // a Restricted tenant that names no pool holder (task 2.6c)
+    | HolderNotPublic({ tenant: str, holder: str })           // a Restricted tenant's pool holder is not Public (task 2.6c)
+    | PoolChain({ tenant: str, holder: str })                 // a Restricted tenant's pool holder itself has a pool — no chains (task 2.6c)
+    | PoolDataplaneMismatch({ tenant: str, drawer: Dataplane, holder: Dataplane }) // a Restricted tenant's dataplane differs from its holder's (task 2.6c; reserved kernel counts as kernel-netlink)
 
   // A non-fatal note attached to an accepted compile (the review's
   // escape-hatch-warns rule). UnknownCeiling: the ceiling is Unknown, so
@@ -68,6 +73,9 @@ module intent_refuse {
   pure def tenantNames(intent: Intent): Set[str] =
     intent.tenants.foldl(Set(), (acc, c) => acc.union(Set(c.name)))
 
+  pure def tenantByName(intent: Intent, n: str): Option[Tenant] =
+    intent.tenants.foldl(None, (acc, c) => if (c.name == n) Some(c) else acc)
+
   // ---- rule 1: a construct names an undeclared tenant (design D5) ----
   // Generalises DPDCEI-I1's tenant-absence rule to every construct that
   // names a tenant: port owner, link ends, fabric owner, crypto owner, extra
@@ -78,9 +86,12 @@ module intent_refuse {
     val fromPorts = intent.ports.foldl(Set(), (acc, p) =>
       if (names.contains(p.tenant)) acc
       else acc.union(Set(TenantAbsent({ construct: p.name, tenant: p.tenant }))))
+    // A link end may name the reserved kernel without declaring it (task 2.6c):
+    // the reserved tenant is always available as a pseudo-wire end, so KERNEL is
+    // never absent here (the derivation materialises its dpni, derive.qnt).
     val fromLinks = intent.links.foldl(fromPorts, (acc, l) =>
-      val a1 = if (names.contains(l.interfaceA)) acc else acc.union(Set(TenantAbsent({ construct: l.name, tenant: l.interfaceA })))
-      if (names.contains(l.interfaceB)) a1 else a1.union(Set(TenantAbsent({ construct: l.name, tenant: l.interfaceB }))))
+      val a1 = if (names.contains(l.interfaceA) or l.interfaceA == KERNEL) acc else acc.union(Set(TenantAbsent({ construct: l.name, tenant: l.interfaceA })))
+      if (names.contains(l.interfaceB) or l.interfaceB == KERNEL) a1 else a1.union(Set(TenantAbsent({ construct: l.name, tenant: l.interfaceB }))))
     val fromFabrics = intent.fabrics.foldl(fromLinks, (acc, f) =>
       if (names.contains(f.forwardedBy)) acc
       else acc.union(Set(TenantAbsent({ construct: f.name, tenant: f.forwardedBy }))))
@@ -269,6 +280,34 @@ module intent_refuse {
       if (hasPricing(c)) acc
       else acc.union(Set(UnpricedDataplane({ tenant: c.name, dataplane: c.dataplane }))))
 
+  // ---- rule 12: tenant isolation and pooling (task 2.6c) ----
+  // The private-VLAN shape the MC container tree enforces, stated as a
+  // complete list of contradictions. A `pool` on a non-Restricted tenant is a
+  // contradiction; a Restricted tenant with no pool names no holder; a named
+  // holder must exist (TenantAbsent, construct "pool"), must be Public, and
+  // must not itself have a pool (no chains); and the drawer's dataplane must
+  // equal the holder's — the reserved kernel counting as kernel-netlink, so a
+  // kernel-netlink drawer must pool the kernel and a userspace-poll drawer
+  // pooling the kernel is a mismatch. UnpricedDataplane (rule 10) is untouched.
+  pure def poolRefusals(intent: Intent, inv: Inventory): Set[Refusal] =
+    intent.tenants.foldl(Set(), (acc, c) =>
+      if (c.isolation != Restricted)
+        if (c.pool != "") acc.union(Set(PoolWithoutRestricted({ tenant: c.name, pool: c.pool }))) else acc
+      else if (c.pool == "")
+        acc.union(Set(RestrictedWithoutPool({ tenant: c.name })))
+      else if (c.pool == KERNEL)
+        if (c.dataplane != KernelNetlink)
+          acc.union(Set(PoolDataplaneMismatch({ tenant: c.name, drawer: c.dataplane, holder: KernelNetlink })))
+        else acc
+      else match tenantByName(intent, c.pool) {
+        | None => acc.union(Set(TenantAbsent({ construct: "pool", tenant: c.pool })))
+        | Some(h) =>
+            (if (h.isolation != Public) Set(HolderNotPublic({ tenant: c.name, holder: c.pool })) else Set())
+              .union(if (h.pool != "") Set(PoolChain({ tenant: c.name, holder: c.pool })) else Set())
+              .union(if (c.dataplane != h.dataplane) Set(PoolDataplaneMismatch({ tenant: c.name, drawer: c.dataplane, holder: h.dataplane })) else Set())
+              .union(acc)
+      })
+
   // Every rule runs unconditionally; the refusal set is their union.
   pure def refusals(intent: Intent, inv: Inventory): Set[Refusal] =
     tenantAbsentRefusals(intent, inv)
@@ -282,6 +321,7 @@ module intent_refuse {
       .union(cryptoRefusals(intent, inv))
       .union(feasibilityRefusals(intent, inv))
       .union(unpricedDataplaneRefusals(intent, inv))
+      .union(poolRefusals(intent, inv))
 
   // A warning per derived family whose ceiling is Unknown and whose count is
   // non-zero (ADR-0011: the cap ended, or the family was never measured).
@@ -330,7 +370,12 @@ module intent_refuse {
     ExtraNotPositive({ tenant: "c", family: Dpio, count: 0 }),
     CryptoFlowsNotPositive({ tenant: "c", flows: 0 }),
     Infeasible({ family: Dpbp, needed: 0, available: 0 }),
-    UnpricedDataplane({ tenant: "c", dataplane: UserspaceEvent }))
+    UnpricedDataplane({ tenant: "c", dataplane: UserspaceEvent }),
+    PoolWithoutRestricted({ tenant: "c", pool: "h" }),
+    RestrictedWithoutPool({ tenant: "c" }),
+    HolderNotPublic({ tenant: "c", holder: "h" }),
+    PoolChain({ tenant: "c", holder: "h" }),
+    PoolDataplaneMismatch({ tenant: "c", drawer: UserspacePoll, holder: KernelNetlink }))
   pure val WARNINGS_USE: Set[Warning] = Set(
     UnknownCeiling({ family: Dpio, needed: 0 }),
     UnmeasuredCombination({ tenant: "c", rates: Set() }))

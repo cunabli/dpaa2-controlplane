@@ -218,6 +218,66 @@ surface transcribes what the model proved ergonomic — the session's
 explicit instruction. Per-object lifecycle typestates (created → plugged
 → bound → enabled, VFIO, link-up) stay with #4–#8.
 
+### D6a. Tenant isolation and pooling: the private-VLAN shape of the container tree
+
+(Inserted in flow order after D6, which fixes container membership;
+numbered D6a rather than renumbering D7–D13, whose numbers are cited by
+the frozen board suites and README this change does not touch.)
+
+The MC container tree already enforces a private-VLAN shape, and the
+vocabulary names it. Parent authority is promiscuous (dprc.1 sees and
+drives its whole subtree); sibling child dprcs are MC-isolated from one
+another (portal authority is per-container); co-residency inside one
+dprc is community visibility (a container has no per-object ACL). A
+tenant gains two optional fields — `isolation` (`public` | `restricted`
+| `isolated`, default `isolated`, so every prior intent keeps its shape)
+and `pool` — that map onto it:
+
+- **isolated** — its own child dprc, MC-isolated from siblings. Both a
+  userspace-poll process (as before) and, new, a *declared kernel-netlink
+  namespace* land here. A kernel-owned child dprc is legal and driven by
+  the kernel: `drivers/bus/fsl-mc/dprc-driver.c` binds any obj_type
+  "dprc" (`match_id_table`, l.882-885), rescans it (`dprc_scan_container`,
+  l.746), and adds discovered child dprcs as bus devices
+  (`dprc_add_new_devices`, l.202-224). Its companion draw is the kernel
+  draw with **zero extra dpio** — dpio services are one kernel-global
+  per-CPU list every container shares (`drivers/soc/fsl/dpio/dpio-service.c`
+  l.54) — so it draws `{dpio 0, dpbp per dpni, dpmcp per dpni}` from its
+  parent's pool (`fsl-mc-allocator.c` l.106: a consumer draws companions
+  from its PARENT container's pool), while its dpnis still run cpus
+  transmit queues and price cpus dpcons each. The root kernel keeps its
+  full per-CPU dpio draw.
+- **restricted** — community co-residency: the tenant's objects are
+  created in the `pool` holder's dprc and it derives no dprc of its own,
+  though it keeps its own object keys and its own regime draw (a DPDK
+  secondary process still draws its own dpmcp). Reserved for consumers
+  needing shared mappings; the concrete case is a DPDK secondary pooling
+  a userspace-poll primary. This makes the reference board's third child
+  dpmcp expressible (primary 1 + a restricted secondary 1 + boot residue
+  1), the first Open Question's reading of the 3-vs-1 finding.
+- **public** — a holder that accepts legal drawers into its own dprc.
+  The reserved kernel is implicitly public; a userspace-poll primary may
+  declare it.
+
+Pool legality is a complete list of refusals (`intent/refuse.qnt`, the
+D5 idiom): a pool on a non-restricted tenant is a contradiction; a
+restricted tenant with no pool names no holder; the named holder must
+exist, must be public, and must not itself have a pool (no chains); and
+the drawer's dataplane must equal the holder's — the reserved kernel
+counting as kernel-netlink, so a kernel-netlink drawer must pool the
+kernel and a userspace-poll drawer pooling the kernel is a mismatch.
+
+The container placement rides in the invariants (`intent/invariants.qnt`):
+INTENT_I1 relaxes from "every object in its own child dprc" to "in a real
+container that exists" (a restricted drawer carries its holder's), INTENT_I8
+gains the exact per-tenant placement, and a new INTENT_I9 preserves the old
+guarantee for the default — an isolated tenant's container is sole-tenant,
+never a pool target (a holder must be public). Finally, the reserved kernel
+becomes nameable as a link interface end without being declared: a
+kernel-namespace pseudo-wire names "kernel" at an end and its link-end dpni
+is materialised in Root under the kernel draw rules (only link ends gain
+this; ports keep refusing an undeclared kernel).
+
 ### D7. Model first, hard gate, then Rust
 
 Phase 1 is Quint only: vocabulary as types, derivation as pure defs,

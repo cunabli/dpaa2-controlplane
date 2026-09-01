@@ -3,13 +3,17 @@
 ### Requirement: Intent is a frontend-neutral vocabulary of network constructs
 The `dpaa2-api` crate SHALL define an `Intent` type composed of five
 constructs — tenant (name, dataplane `kernel-netlink`, `userspace-poll`, or
-`userspace-event`, a `max_cores` budget),
+`userspace-event`, a `max_cores` budget, an `isolation` of `public`,
+`restricted`, or `isolated` defaulting to `isolated`, and a `pool` naming
+a holder when `restricted`),
 port (dpmac anchor, rate, owning tenant), link (two tenant ends),
 fabric (members — ports, tenants, or fabrics — and a `switching`
 qualifier, hardware or software), and crypto (per tenant, with a `flows`
 count) — carrying no serialization derives and no field for a dpio, dpbp,
 dpcon, dpmcp, queue or worker count. The tenant name `kernel` SHALL be
-reserved for the root-container `kernel-netlink` dataplane. (ADR-0005 §1, ADR-0012)
+reserved for the root-container `kernel-netlink` dataplane, is implicitly
+`public`, and MAY be named at a link interface end without being declared.
+(ADR-0005 §1, ADR-0012)
 
 #### Scenario: A port without a tenant belongs to the kernel
 - **WHEN** an intent contains a port that names no tenant
@@ -27,6 +31,35 @@ reserved for the root-container `kernel-netlink` dataplane. (ADR-0005 §1, ADR-0
 - **THEN** no construct exposes a dpio, dpbp, dpcon, dpmcp, queue or
   worker count; the only numbers are `max_cores`, a crypto `flows`, and
   port `rate`
+
+#### Scenario: A declared kernel-netlink namespace is child-resident
+- **WHEN** an intent declares an `isolated` `kernel-netlink` tenant other
+  than the reserved kernel
+- **THEN** the plan holds its own kernel-bound child DPRC, its dpnis at
+  cpus transmit queues, and the child-resident kernel draw — dpio 0
+  (the per-CPU dpio service is kernel-global), dpbp and dpmcp one per
+  dpni, dpcon one per online CPU per dpni
+
+#### Scenario: A restricted tenant co-resides in its holder's container
+- **WHEN** an intent declares a `restricted` tenant whose `pool` names a
+  `public` holder of the same dataplane
+- **THEN** the tenant's objects are created in the holder's child DPRC,
+  the tenant derives no DPRC of its own, and it keeps its own regime
+  companion draw
+
+#### Scenario: A pool is refused when its shape is illegal
+- **WHEN** a `pool` is named on a non-restricted tenant, a `restricted`
+  tenant names no pool, or the named holder is absent, not `public`,
+  itself pooled, or of a different dataplane than the drawer
+- **THEN** the compile refuses by name and never derives the drawer into
+  an illegal container
+
+#### Scenario: The kernel is nameable at a link end
+- **WHEN** a link names `kernel` at one end and the intent never declares
+  the kernel tenant
+- **THEN** the compile does not refuse the end as absent, and the
+  kernel's link-end dpni is materialised in the root container at cpus
+  transmit queues
 
 ### Requirement: The inventory is the observed hardware offer
 The compiler SHALL take an `Inventory` value describing what the
@@ -110,7 +143,11 @@ an extra on a family that is not one of the four companions, or an extra
 whose count is below 1; a crypto block whose flows are below 1; a
 userspace-poll tenant terminating a rate class with no
 seeded worker row; a tenant whose dataplane has no companion pricing
-(`userspace-event` today); a construct naming an undeclared tenant,
+(`userspace-event` today); a pool named on a non-restricted tenant, a
+restricted tenant naming no pool, a pool holder that is absent, not
+`public`, or itself pooled (no chains), or a drawer whose dataplane
+differs from its holder's (the reserved kernel counting as
+kernel-netlink); a construct naming an undeclared tenant,
 port or fabric; and cross-tenant infeasibility, where the
 sum of derived draws exceeds a `Counted` or `Observed` ceiling — naming
 the family, the amount needed, and the amount available. An `Unknown`
@@ -220,14 +257,23 @@ desired↔observed matching SHALL be by key, never by object name
 The plan type SHALL admit edges, container memberships, and companions
 only through constructors that take the deriving construct as a
 witness, so that a free-standing companion, a dpmac at a link end, a
-dpni connected twice, or a tenant object in the root container cannot
-be constructed. Emission order SHALL follow `object-model.md` §5 (pool
-companions before tenant objects; a kernel-dataplane dpio before its
-dpmcp) as a property of construction.
+dpni connected twice, or an isolated tenant's object outside its own
+child container cannot be constructed. A restricted tenant's objects
+SHALL carry its holder's container while keeping their own keys, and an
+isolated tenant's container SHALL hold that tenant's objects alone (it
+is never a pool target, since a holder must be public). Emission order
+SHALL follow `object-model.md` §5 (pool companions before tenant
+objects; a kernel-dataplane dpio before its dpmcp) as a property of
+construction.
 
 #### Scenario: No free-standing companion
 - **WHEN** code attempts to add a dpio to a plan without a tenant
 - **THEN** it does not compile
+
+#### Scenario: An isolated container is sole-tenant
+- **WHEN** a plan places an isolated tenant's objects
+- **THEN** they all sit in that tenant's own child container and no
+  other tenant's object appears there
 
 #### Scenario: Order is a property of construction
 - **WHEN** any plan is emitted

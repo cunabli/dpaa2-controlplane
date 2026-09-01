@@ -82,7 +82,7 @@ module reference {
   // appears; every object and count is derived (ADR-0005).
   pure val accepted: Intent =
     { tenants: [kernelTenant(16),
-                { name: "router", dataplane: UserspacePoll, maxCores: 16 }],
+                { name: "router", dataplane: UserspacePoll, maxCores: 16, isolation: Isolated, pool: "" }],
       ports: [{ name: "wan0", dpmac: 7, rate: 10000, tenant: "router" },
               { name: "wan1", dpmac: 9, rate: 10000, tenant: "router" }],
       links: [],

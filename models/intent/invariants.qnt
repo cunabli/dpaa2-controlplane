@@ -5,16 +5,16 @@
 // order, key identity, and provenance closure by construction; the Rust type
 // surface (task 3.1) transcribes what these predicates prove, so a
 // free-standing companion, a dpmac at a pseudo-wire end, a double-connected
-// dpni, or a tenant object in the root dprc is not a value the plan
-// type admits. Each `INTENT_In` cites its evidence anchor and names what the
-// Rust constructor makes unrepresentable.
+// dpni, or an Isolated tenant's object outside its own dprc is not a value the
+// plan type admits. Each `INTENT_In` cites its evidence anchor and names what
+// the Rust constructor makes unrepresentable.
 //
-// The ids `INTENT_I1..I8` are this change's own; the ledger rows that tie
+// The ids `INTENT_I1..I9` are this change's own; the ledger rows that tie
 // them to the baseline invariants land at task 5.1.
 //
-// Named invariants: containmentByTenant … companionCountsByRegime
-//   (ids INTENT_I1..I8, below); planInvariants gathers I1–I6 over any Plan,
-//   compileInvariants gathers I7–I8 over (intent, inventory).
+// Named invariants: containmentByTenant … isolatedContainerPrivate
+//   (ids INTENT_I1..I9, below); planInvariants gathers I1–I6 over any Plan,
+//   compileInvariants gathers I7–I9 over (intent, inventory).
 // Apalache-marked subset: feasibleAgainstCeilings and companionCountsByRegime
 //   (INTENT_I7/I8) — collected as intent/alphabet.qnt `compileLaws`, defined
 //   for Apalache but simulator-only today: the translation succeeds, the
@@ -87,19 +87,29 @@ module intent_invariants {
         }
     }
 
-  // ---- containmentByTenant (INTENT_I1): one resource container (dprc) per object, root never a tenant ----
+  // ---- containmentByTenant (INTENT_I1): every object sits in a real container ----
   // object-model.md §1 (the DPRC tree); dprc.md (child DPRC per tenant);
-  // ADR-0001 §4 (dprc.1 is the kernel's, never a named tenant). The Rust
-  // constructor (task 3.1) places every non-kernel, non-Dprc object in its
-  // tenant's Child dprc and never renders a dpmac or dpdbg as a
-  // derived object.
+  // ADR-0001 §4 (dprc.1 is the kernel's, never a named tenant). Task 2.6c
+  // widened this from "every non-kernel object in its OWN child dprc" to "in
+  // SOME child dprc that exists": a Restricted tenant draws inside its holder's
+  // dprc, so its objects carry the holder's container while keeping their own
+  // key. What every object still obeys, plan-only: the kernel's own objects are
+  // in Root, a child dprc marker is in Root at ordinal 1, no non-kernel object
+  // floats free in Root, and no dpmac or dpdbg is ever a derived object. The
+  // per-tenant correspondence (which container is whose) is the intent-aware
+  // INTENT_I8; the preserved sole-tenancy of an Isolated container is
+  // INTENT_I9. ponytail: a Restricted kernel-netlink drawer pooling the
+  // reserved kernel would place objects in Root and is out of this plan-only
+  // predicate's reach — INTENT_I8 asserts its placement intent-aware, and no
+  // exercised intent (alphabet tenants are never kernel-netlink) derives one.
   pure def containmentByTenant(p: Plan): bool =
     val ks = objKeys(p)
     p.objs.forall(o => and {
-      (o.key.tenant != KERNEL and o.key.family != Dprc) implies and {
-        o.container == Child(o.key.tenant),
-        ks.contains({ tenant: o.key.tenant, family: Dprc, ordinal: 1 }),
-      },
+      (o.key.tenant != KERNEL and o.key.family != Dprc) implies
+        match o.container {
+          | Child(x) => ks.contains({ tenant: x, family: Dprc, ordinal: 1 })
+          | Root => false
+        },
       (o.key.tenant == KERNEL) implies o.container == Root,
       (o.key.family == Dprc) implies (o.container == Root and o.key.ordinal == 1),
       o.key.family != Dpmac,
@@ -214,14 +224,19 @@ module intent_invariants {
   // ADR-0012 via companionDraw. On a successful compile every tenant's
   // companion counts are the sizing's effective values, each effective value
   // is exactly the request plus the declared extra (0 when none), the dpio
-  // request is exactly companionDraw's field, and every dpni carries at least
-  // T (poll-mode) or exactly cpus (kernel) transmit queues. The Rust `Tenant`
-  // constructor draws these numbers, never the operator.
+  // request is exactly companionDraw's field (drawn with drawCpus, which is 0
+  // for a child-resident kernel-netlink namespace and the online CPUs for the
+  // root kernel), and every dpni carries at least T (poll-mode) or exactly cpus
+  // (kernel) transmit queues. Task 2.6c adds container placement: every object
+  // of a tenant (its child dprc marker aside, which always sits in Root) lives
+  // in that tenant's container — a Restricted tenant's in its holder's, every
+  // other's in its own. The Rust `Tenant` constructor draws these numbers and
+  // places these objects, never the operator.
   pure def companionCountsByRegime(intent: Intent, inv: Inventory): bool =
     match compile(intent, inv) {
       | Ok(r) => intent.tenants.foldl(true, (acc, c) =>
           val s = sizeTenant(intent, inv, c)
-          val reqDraw = if (c.dataplane == KernelNetlink) comp::companionDraw(comp::Kernel, s.cpus, 0, 1, s.dpnis)
+          val reqDraw = if (c.dataplane == KernelNetlink) comp::companionDraw(comp::Kernel, s.drawCpus, 0, 1, s.dpnis)
                         else comp::companionDraw(comp::PollMode, 0, s.t, 1, s.dpnis)
           acc and and {
             countOf(r.plan, c.name, Dpio) == s.effDpio.value,
@@ -238,7 +253,29 @@ module intent_invariants {
                 | DpniAttrs(a) => if (c.dataplane == KernelNetlink) a.numQueues == s.cpus else a.numQueues >= s.t
                 | _ => false
               }),
+            r.plan.objs.forall(o => (o.key.tenant == c.name and o.key.family != Dprc) implies
+              o.container == containerOf(c)),
           })
+      | Refused(_) => true
+    }
+
+  // ---- isolatedContainerPrivate (INTENT_I9): an Isolated container is sole-tenant ----
+  // The preserved old guarantee (task 2.6c): before pooling existed, every
+  // tenant owned its child dprc alone. That still holds for the default —
+  // an Isolated tenant's objects live only in its own container, and no other
+  // tenant's objects appear there. Pooling relaxes this for a Public holder's
+  // container (a Restricted drawer co-resides), never for an Isolated one:
+  // a holder must be Public, so an Isolated container is never a pool target.
+  // The Rust `Tenant` constructor keeps an Isolated child dprc private by
+  // construction.
+  pure def isolatedContainerPrivate(intent: Intent, inv: Inventory): bool =
+    match compile(intent, inv) {
+      | Ok(r) => intent.tenants.foldl(true, (acc, c) =>
+          acc and ((c.isolation == Isolated) implies and {
+            r.plan.objs.forall(o => (o.key.tenant == c.name and o.key.family != Dprc)
+              implies o.container == Child(c.name)),
+            r.plan.objs.forall(o => (o.container == Child(c.name)) implies o.key.tenant == c.name),
+          }))
       | Refused(_) => true
     }
 
@@ -248,6 +285,6 @@ module intent_invariants {
     containmentByTenant(p), edgesTypedAndSingle(p), companionsOnlyDerived(p), emissionOrderLawful(p), keysAreIdentities(p), provenanceClosed(p),
   }
   pure def compileInvariants(intent: Intent, inv: Inventory): bool = and {
-    feasibleAgainstCeilings(intent, inv), companionCountsByRegime(intent, inv),
+    feasibleAgainstCeilings(intent, inv), companionCountsByRegime(intent, inv), isolatedContainerPrivate(intent, inv),
   }
 }

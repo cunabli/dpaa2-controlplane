@@ -12,8 +12,9 @@
 //
 // Named invariants: intentInvariants (simulator rung: compileInvariants plus
 //   planInvariants of every accepted plan).
-// Apalache-marked subset: compileLaws — feasibleAgainstCeilings and
-//   companionCountsByRegime (INTENT_I7/I8) — defined but simulator-only.
+// Apalache-marked subset: compileLaws — feasibleAgainstCeilings,
+//   companionCountsByRegime and isolatedContainerPrivate (INTENT_I7/I8/I9) —
+//   defined but simulator-only.
 //   The quint→TLA translation succeeds (refuse.qnt hoists the match shapes
 //   the 0.56.1 translator dies on with quint exiting 0 — a silent
 //   false-green; derive.qnt bounds every sizing range by MAX_DERIVED_COUNT),
@@ -30,30 +31,28 @@
 // deterministic and reproducible. No invariant violation was found. Two
 // alphabet widenings this counting drove are stated where they land (DPMACS
 // 99 for Unanchored, RATES 40000 for UnknownRateClass) — never silent. The
-// counts were re-recorded after the 2.6b swap replaced the [[limit]] draw
-// (addLimit, request/limit refusals) with the additive [[extra]] draw
-// (addExtra, ExtraNotCompanion/ExtraNotPositive) and added the crypto
-// flows<1 refusal: addExtra draws the same three nondets as addLimit did, so
-// the trace stream keeps its shape and most counts are unchanged, while the
-// extra/crypto witnesses take fresh values and every recorded unknown (below)
-// stays at zero.
+// counts were re-recorded after the 2.6c widening added the isolation and
+// pool draws to addTenant (two fresh nondets — ISOLATIONS and POOL_NAMES):
+// the RNG stream shifts, so every count is re-taken, not carried. The five
+// pool refusals and the two isolation-structure witnesses take their first
+// values, and — new this run — wTenantAbsent leaves the recorded-unknowns:
+// a Restricted tenant may name a pool holder that was never declared, so
+// TenantAbsent (construct "pool") is now reachable through addTenant.
 //
 // Witness counts (traces of 3000 in which the witness held):
-//   wAccepted 3000, wRefused 2997, wUnknownCeiling 3000,
-//   wUnpricedDataplane 2053, wOverRate 1656, wMemberUnresolved 1592,
-//   wReservedAnchor 1548, wCryptoFlowsNotPositive 1528, wExtraNotPositive 1168,
-//   wExtraNotCompanion 950, wUnanchored 854, wDoubleClaimed 715,
-//   wPortTenantMismatch 674, wSelfMember 657, wMixedRates 451,
-//   wFabricNotKernelForwarded 386, wUnknownRateClass 318,
-//   wCoreBudgetExceeded 269, wUnsupportedEdge 173;
-//   structure wCryptoPresent 2882, wExtraPresent 2838, wFabricPresent 2786,
-//   wThreeTenants 2391, wLinkPresent 2309, wInterruptDrawn 2053.
+//   wAccepted 3000, wRefused 3000, wUnknownCeiling 3000, wPublicTenant 3000,
+//   wCryptoPresent 2867, wExtraPresent 2845, wFabricPresent 2791,
+//   wThreeTenants 2354, wLinkPresent 2342, wPoolWithoutRestricted 2087,
+//   wUnpricedDataplane 2075, wInterruptDrawn 2075, wOverRate 1722,
+//   wMemberUnresolved 1629, wCryptoFlowsNotPositive 1505, wRestrictedTenant 1492,
+//   wReservedAnchor 1488, wExtraNotPositive 1129, wExtraNotCompanion 979,
+//   wUnanchored 824, wDoubleClaimed 706, wSelfMember 689, wPoolDataplaneMismatch 654,
+//   wPoolChain 647, wPortTenantMismatch 625, wHolderNotPublic 590,
+//   wMixedRates 444, wRestrictedWithoutPool 400, wFabricNotKernelForwarded 375,
+//   wUnknownRateClass 339, wCoreBudgetExceeded 256, wTenantAbsent 235,
+//   wUnsupportedEdge 177.
 //
 // Recorded unknowns / alphabet-unreachable (0 traces — where each is covered):
-//   wTenantAbsent — unreachable BY CONSTRUCTION: addPort/addLink/addFabric/
-//     addCrypto/addExtra all draw tenant names from the declared set, so no
-//     construct can name an undeclared tenant. Covered by the directed
-//     tenantAbsentTest (intent/main.qnt).
 //   wForeignAnchor — unreachable: REF_INVENTORY marks only dpni.0 Foreign, no
 //     dpmac; the alphabet never invents a foreign dpmac. Covered by the
 //     directed unanchoredForeignTest (intent/main.qnt, invWithForeignDpmac7).
@@ -87,6 +86,11 @@ module intent_alphabet {
   pure val PORT_NAMES: List[str] = ["p1", "p2", "p3"]
   pure val LINK_NAMES: List[str] = ["l1"]
   pure val FABRIC_NAMES: List[str] = ["f1"]
+  // The pool a Restricted tenant may name (task 2.6c): "" (none — a
+  // RestrictedWithoutPool witness), the reserved kernel (a PoolDataplaneMismatch
+  // for a userspace-poll drawer), and the two declared tenant names (a Public
+  // holder is the accepted co-residency; an Isolated one a HolderNotPublic).
+  pure val POOL_NAMES: Set[str] = Set("", "kernel", "c1", "c2")
 
   // A slice of REF_INVENTORY's dpmacs: one reserved 25G (3), one free 25G
   // (4), three free 10G (7, 8, 9), the reserved 1G management nic (17) — so
@@ -137,15 +141,19 @@ module intent_alphabet {
   // ---- one construct per step (never a powerset draw) ----
 
   // A userspace tenant named by position among the non-kernel names, its
-  // dataplane drawn from the userspace alphabet.
+  // dataplane, isolation and pool drawn from the alphabet — so the private-VLAN
+  // shape (Public holder / Restricted drawer / Isolated default) and every pool
+  // refusal have a witness (task 2.6c).
   action addTenant = {
     nondet maxCores = CORES.oneOf()
     nondet dataplane = USERSPACE_DATAPLANES.oneOf()
+    nondet isolation = ISOLATIONS.oneOf()
+    nondet pool = POOL_NAMES.oneOf()
     all {
       intent.tenants.length() < 3,
       intent' = intent.with("tenants", intent.tenants.append({
         name: TENANT_NAMES.nth(intent.tenants.length() - 1),
-        dataplane: dataplane, maxCores: maxCores })),
+        dataplane: dataplane, maxCores: maxCores, isolation: isolation, pool: pool })),
     }
   }
 
@@ -275,6 +283,11 @@ module intent_alphabet {
   val wCryptoFlowsNotPositive = hasRefusal(r => match r { | CryptoFlowsNotPositive(_) => true | _ => false })
   val wInfeasible = hasRefusal(r => match r { | Infeasible(_) => true | _ => false })
   val wUnpricedDataplane = hasRefusal(r => match r { | UnpricedDataplane(_) => true | _ => false })
+  val wPoolWithoutRestricted = hasRefusal(r => match r { | PoolWithoutRestricted(_) => true | _ => false })
+  val wRestrictedWithoutPool = hasRefusal(r => match r { | RestrictedWithoutPool(_) => true | _ => false })
+  val wHolderNotPublic = hasRefusal(r => match r { | HolderNotPublic(_) => true | _ => false })
+  val wPoolChain = hasRefusal(r => match r { | PoolChain(_) => true | _ => false })
+  val wPoolDataplaneMismatch = hasRefusal(r => match r { | PoolDataplaneMismatch(_) => true | _ => false })
 
   // Warnings (design D2 ceilings; design D3 cross-class mix).
   val wUnknownCeiling = hasWarning(w => match w { | UnknownCeiling(_) => true | _ => false })
@@ -287,6 +300,8 @@ module intent_alphabet {
   val wCryptoPresent = intent.crypto.size() > 0
   val wExtraPresent = intent.extras.size() > 0
   val wInterruptDrawn = intent.tenants.select(c => c.dataplane == UserspaceEvent).length() > 0
+  val wRestrictedTenant = intent.tenants.select(c => c.isolation == Restricted).length() > 0
+  val wPublicTenant = intent.tenants.select(c => c.isolation == Public).length() > 0
   // A tenant terminating both seeded rate classes (10G and 25G): the
   // cross-class mix the worker table prices but flags unmeasured (design D3).
   val wMixedRates = intent.tenants.select(c => seededRateClasses(intent, c.name).size() > 1).length() > 0

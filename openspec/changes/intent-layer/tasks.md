@@ -113,8 +113,14 @@ the change's only other operator sync point (design D12).
       deltas amended in lockstep (discovered detour, bead gqf.29)
 - [x] 2.6b `[[limit]]` deleted as a construct: the request/limit override
       channel becomes the additive `[[extra]]` channel (design D5 revisited)
-- [ ] 2.6c Tenant isolation and pool: the tenant construct carries its
-      isolation boundary and pool membership
+- [x] 2.6c Tenant isolation and pool: the tenant construct carries its
+      isolation boundary (public/restricted/isolated, default isolated) and
+      pool membership; declared kernel-netlink namespaces are child-resident
+      (dpio 0), a restricted drawer co-resides in its holder's dprc, the
+      reserved kernel is nameable at a link end, pool legality refuses by
+      name, and INTENT_I9 preserves the isolated container's sole-tenancy
+      (design D6a). Crypto per-block dpseci sizing (design item 7) is
+      deferred to a follow-up parcel — the 2.6a max-fold stands until then.
 - [ ] 2.6d Scenario (4): kernel-namespace pseudo-wires — the reserved
       kernel tenant reaching a network namespace over a dpni↔dpni wire
 

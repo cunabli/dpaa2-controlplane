@@ -20,9 +20,12 @@ every later change (#4 onward) executes a plan this compiler emits.
 
 - **The intent vocabulary** — the frontend-neutral intermediate
   representation in `dpaa2-api`: a *tenant* (name, dataplane
-  `kernel-netlink|userspace-poll|userspace-event`, `max_cores` budget), a *port*
+  `kernel-netlink|userspace-poll|userspace-event`, `max_cores` budget, an
+  `isolation` of `public|restricted|isolated` defaulting to `isolated`,
+  and a `pool` holder when `restricted`), a *port*
   (dpmac anchor, rate, owning tenant), a *link* (point-to-point
-  dpni↔dpni pseudo-wire between two tenants), a *fabric*
+  dpni↔dpni pseudo-wire between two tenants, either end nameable as the
+  reserved `kernel`), a *fabric*
   (a forwarding domain over members — ports, tenants, other fabrics —
   switched in hardware by a dpsw or in software by its forwarding tenant), and *crypto*
   (per-tenant accelerator carrying its own `flows` demand). `kernel` is the reserved root-dataplane
@@ -49,10 +52,15 @@ every later change (#4 onward) executes a plan this compiler emits.
   a hardware fabric, a thread count over the core budget, an extra on a
   non-companion family or with a non-positive count, a crypto block with no
   flows, an unseeded rate class, a dataplane with no companion pricing
-  (`userspace-event` today), and cross-tenant infeasibility against a counted or
+  (`userspace-event` today), an illegal pool (a pool on a non-restricted
+  tenant, a restricted tenant with no pool, or a holder that is absent,
+  not public, itself pooled, or of a different dataplane than the
+  drawer), and cross-tenant infeasibility against a counted or
   observed ceiling (an unknown ceiling warns, never refuses).
 - **The plan's relationships are locked by construction**: containment
-  (one container per object, root never a tenant), typed connect edges
+  (every object in a container that exists — an isolated tenant's own
+  child dprc, a restricted tenant's holder's; an isolated container
+  sole-tenant, root never a named isolated tenant), typed connect edges
   (no double connect, no dpmac at a link end), companions obtainable
   only as a tenant's derivation, and lifecycle ordering
   (`object-model.md` §5) as a property of how the plan is built, not a

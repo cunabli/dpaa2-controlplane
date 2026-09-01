@@ -391,8 +391,16 @@ module intent_derive {
   pure def cryptoFlowsOf(intent: Intent, name: str): int =
     intent.crypto.filter(k => k.tenant == name).fold(0, (acc, k) => if (k.flows > acc) k.flows else acc)
 
+  // Where a tenant's objects live (task 2.6c). The reserved kernel is Root; a
+  // Restricted tenant draws inside its pool holder's container — the holder's
+  // child dprc, or Root when the holder is the reserved kernel (fsl-mc-
+  // allocator.c l.106: a consumer draws companions from its PARENT container's
+  // pool, so a co-resident's objects sit in the holder's dprc); every other
+  // tenant (Isolated or a Public holder) keeps its own child dprc.
   pure def containerOf(c: Tenant): Container =
-    if (c.name == KERNEL) Root else Child(c.name)
+    if (c.name == KERNEL) Root
+    else if (c.pool != "") (if (c.pool == KERNEL) Root else Child(c.pool))
+    else Child(c.name)
 
   // ADR-0012 prices only the KernelNetlink and UserspacePoll dataplanes; a
   // UserspaceEvent tenant has no companion draw, so the derivation never
@@ -409,8 +417,8 @@ module intent_derive {
     match threadCount(terminatedPorts(intent, c.name)) { | Some(t) => t | None => 0 }
 
   type Sizing = {
-    name: str, isKernel: bool, container: Container,
-    dpnis: int, t: int, cpus: int, numQueues: int,
+    name: str, isKernel: bool, isRootKernel: bool, isRestricted: bool, container: Container,
+    dpnis: int, t: int, cpus: int, drawCpus: int, numQueues: int,
     effDpio: Eff, effDpbp: Eff, effDpmcp: Eff, effDpcon: Eff,
     numDpseci: int, cryptoFlows: int, numDpsw: int,
   }
@@ -422,16 +430,28 @@ module intent_derive {
   // dpsw/dpseci adds its own family census row (families/dpsw.qnt,
   // families/dpseci.qnt draw). dpcon is one per polled queue (dpcon.md,
   // DPCON-I1): poll-mode dpnis·T, kernel imin(cpus, numQueues) per dpni.
+  //
+  // A declared kernel-netlink tenant (a network namespace, name != KERNEL) is
+  // child-resident: it draws ZERO extra dpio, because dpio services are one
+  // kernel-global per-CPU list every container shares (drivers/soc/fsl/dpio/
+  // dpio-service.c l.54). So its companion draw calls companionDraw(Kernel, …)
+  // with drawCpus = 0 — yielding {dpio 0, dpbp dpnis, dpmcp dpnis} — while its
+  // dpnis still run cpus transmit queues and price cpus dpcons each (the online
+  // CPUs are still there to poll). The implicit root kernel keeps drawCpus =
+  // online CPUs, its full per-CPU dpio draw unchanged.
   pure def sizeTenant(intent: Intent, inv: Inventory, c: Tenant): Sizing =
     val nm = c.name
     val isK = c.dataplane == KernelNetlink
+    val isRoot = c.name == KERNEL
+    val isRestr = c.pool != ""
     val dpnis = originList(intent, nm).length()
     val t = tOf(intent, c)
     val cpus = kernelCores(inv, c)
+    val drawCpus = if (isRoot) cpus else 0
     val numQ = if (isK) cpus else t
     val nDpsw = hwOwnedFabrics(intent, nm).length()
     val nDpseci = cryptoCount(intent, nm)
-    val base = if (isK) comp::companionDraw(comp::Kernel, cpus, 0, 1, dpnis)
+    val base = if (isK) comp::companionDraw(comp::Kernel, drawCpus, 0, 1, dpnis)
                else comp::companionDraw(comp::PollMode, 0, t, 1, dpnis)
     val reqDpio = base.dpio
     val reqDpbp = if (isK) base.dpbp + nDpsw * dpswParams.draw.dpbp + nDpseci * dpseciParams.draw.dpbp
@@ -439,8 +459,8 @@ module intent_derive {
     val reqDpmcp = if (isK) base.dpmcp + nDpsw * dpswParams.draw.dpmcp + nDpseci * dpseciParams.draw.dpmcp
                    else base.dpmcp
     val reqDpcon = if (isK) dpnis * imin(cpus, numQ) else dpnis * t
-    { name: nm, isKernel: isK, container: containerOf(c),
-      dpnis: dpnis, t: t, cpus: cpus, numQueues: numQ,
+    { name: nm, isKernel: isK, isRootKernel: isRoot, isRestricted: isRestr, container: containerOf(c),
+      dpnis: dpnis, t: t, cpus: cpus, drawCpus: drawCpus, numQueues: numQ,
       effDpio: effective(intent, nm, Dpio, reqDpio),
       effDpbp: effective(intent, nm, Dpbp, reqDpbp),
       effDpmcp: effective(intent, nm, Dpmcp, reqDpmcp),
@@ -475,10 +495,13 @@ module intent_derive {
         container: container, attrs: attrs,
         prov: { tenant: name, rule: rule, construct: "" } })
 
-  // Every tenant whose name ≠ KERNEL gets one child DPRC in Root
-  // (dprc.md ~line 281); the kernel tenant's objects live in Root.
+  // A child DPRC in Root (dprc.md ~line 281) for every tenant that owns one:
+  // an Isolated tenant (userspace-poll or a declared kernel-netlink namespace,
+  // which is kernel-bound but still its own container) or a Public holder. The
+  // reserved root kernel lives in Root itself, and a Restricted tenant draws
+  // inside its holder's dprc, so neither derives one of its own.
   pure def dprcObjs(s: Sizing): Set[PlanObj] =
-    if (s.isKernel) Set()
+    if (s.isRootKernel or s.isRestricted) Set()
     else Set({ key: { tenant: s.name, family: Dprc, ordinal: 1 },
                container: Root, attrs: DprcAttrs({ options: DPRC_DEFAULT_OPTIONS }),
                prov: { tenant: s.name, rule: "dprc", construct: "" } })
@@ -519,8 +542,24 @@ module intent_derive {
   pure val dprtcObj: PlanObj =
     { key: dprtcKey, container: Root, attrs: Unsized, prov: { tenant: KERNEL, rule: "dprtc", construct: "" } }
 
+  // The reserved kernel is nameable as a link interface end without being
+  // declared (task 2.6c): a kernel-namespace pseudo-wire names "kernel" at an
+  // end, and its link-end dpni lands in Root under the kernel draw rules. When
+  // a link names the kernel but the intent never declared it, the derivation
+  // materialises the reserved kernel so its dpni exists; a declared kernel is
+  // left untouched. Ports naming the kernel are refused as before (only link
+  // ends gain this).
+  pure def kernelDeclared(intent: Intent): bool =
+    intent.tenants.select(c => c.name == KERNEL).length() > 0
+  pure def linkNamesKernel(intent: Intent): bool =
+    intent.links.select(l => l.interfaceA == KERNEL or l.interfaceB == KERNEL).length() > 0
+  pure def effectiveTenants(intent: Intent, inv: Inventory): List[Tenant] =
+    if (linkNamesKernel(intent) and not(kernelDeclared(intent)))
+      intent.tenants.append(kernelTenant(inv.cpus))
+    else intent.tenants
+
   pure def allObjs(intent: Intent, inv: Inventory): Set[PlanObj] =
-    intent.tenants.foldl(Set(dprtcObj), (acc, c) =>
+    effectiveTenants(intent, inv).foldl(Set(dprtcObj), (acc, c) =>
       if (hasPricing(c)) acc.union(tenantObjs(intent, inv, c)) else acc)
 
   // ---- emission order (object-model.md §5 step 1) ----
@@ -530,7 +569,7 @@ module intent_derive {
     countRange(n).foldl([], (acc, i) => acc.append({ tenant: name, family: fam, ordinal: i }))
 
   pure def tenantOrder(intent: Intent, s: Sizing): List[Key] =
-    (if (s.isKernel) [] else [{ tenant: s.name, family: Dprc, ordinal: 1 }])
+    (if (s.isRootKernel or s.isRestricted) [] else [{ tenant: s.name, family: Dprc, ordinal: 1 }])
       .concat(companionKeys(s.name, Dpio, s.effDpio.value))
       .concat(companionKeys(s.name, Dpmcp, s.effDpmcp.value))
       .concat(companionKeys(s.name, Dpbp, s.effDpbp.value))
@@ -540,7 +579,7 @@ module intent_derive {
       .concat(companionKeys(s.name, Dpsw, s.numDpsw))
 
   pure def fullOrder(intent: Intent, inv: Inventory): List[Key] =
-    [dprtcKey].concat(intent.tenants.foldl([], (acc, c) =>
+    [dprtcKey].concat(effectiveTenants(intent, inv).foldl([], (acc, c) =>
       if (hasPricing(c)) acc.concat(tenantOrder(intent, sizeTenant(intent, inv, c))) else acc))
 
   // ---- provenance nodes ----
@@ -640,7 +679,7 @@ module intent_derive {
                         mark: Unmeasured,
                         request: s.t, extra: None, value: s.t,
                         inputs: Set({ tenant: nm, rule: "ports", construct: "" }), constructs: pn })
-    val m3 = if (s.isKernel) m2
+    val m3 = if (s.isRootKernel or s.isRestricted) m2
              else m2.put({ tenant: nm, rule: "dprc", construct: "" },
                          { rule: "dprc", anchor: "dprc.md: restool-default child options", mark: Measured,
                            request: 1, extra: None, value: 1, inputs: Set(), constructs: Set(nm) })
@@ -662,7 +701,7 @@ module intent_derive {
 
   pure def fullProv(intent: Intent, inv: Inventory): ProvKey -> ProvNode =
     val base = Map({ tenant: KERNEL, rule: "dprtc", construct: "" } -> dprtcNode)
-    val withC = intent.tenants.foldl(base, (m, c) => if (hasPricing(c)) addTenantProv(intent, inv, m, c) else m)
+    val withC = effectiveTenants(intent, inv).foldl(base, (m, c) => if (hasPricing(c)) addTenantProv(intent, inv, m, c) else m)
     val withL = intent.links.foldl(withC, (m, l) => m.put({ tenant: l.interfaceA, rule: "link-edge", construct: l.name }, linkEdgeNode(l)))
     intent.fabrics.foldl(withL, (m, f) =>
       if (f.switching == Hardware)

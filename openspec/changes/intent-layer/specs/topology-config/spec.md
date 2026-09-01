@@ -6,7 +6,9 @@ The system SHALL read a declarative topology that opens with an
 which each port is identified by
 its static DPMAC anchor and never by an MC-assigned DPNI index, and in
 which every other object is derived from the constructs the operator
-declares: `[[tenant]]` (name, dataplane, `max_cores`),
+declares: `[[tenant]]` (name, dataplane, `max_cores`, an optional
+`isolation` of `public|restricted|isolated` defaulting to `isolated`,
+and an optional `pool` naming a holder),
 `[[port]]` (dpmac, name, rate, tenant, MAC and MAC
 mode), `[[link]]` (two tenant ends, `interface_a`/`interface_b`),
 `[[fabric]]` (switching
@@ -68,10 +70,13 @@ gNMI) can produce the same `Intent`. `ConfigSource::load` SHALL return
 The system SHALL validate the topology for structural correctness
 before any compilation or reconciliation, including well-formed DPMAC
 references, unique interface and tenant names, well-formed MAC
-addresses, tenant references that resolve, the reserved `kernel`
-name not declared as a `[[tenant]]`, link ends that name two distinct
-tenants, and fabric members that exist. Validation failures SHALL be
-reported with actionable messages and SHALL prevent compilation.
+addresses, tenant references that resolve — the reserved `kernel`
+resolving at a `[[link]]` end without being declared — the reserved
+`kernel` name not declared as a `[[tenant]]`, link ends that name two
+distinct tenants, and fabric members that exist. A `restricted` tenant
+SHALL name a `pool`, and a `pool` SHALL be named only on a `restricted`
+tenant. Validation failures SHALL be reported with actionable messages
+and SHALL prevent compilation.
 
 #### Scenario: Duplicate interface name
 - **WHEN** two ports request the same interface name

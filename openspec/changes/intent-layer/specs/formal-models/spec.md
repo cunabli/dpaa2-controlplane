@@ -22,5 +22,7 @@ frozen ITF trace carries.
 
 #### Scenario: Derivation rules are marked for Apalache
 - **WHEN** the Apalache rung runs on the intent corpus
-- **THEN** it checks the feasibility and companion-count invariants
-  marked in `models/intent/` headers over the finite intent alphabet
+- **THEN** it checks the feasibility, companion-count, and
+  isolated-container invariants marked in `models/intent/` headers over
+  the finite intent alphabet, the alphabet drawing tenant isolation and
+  pool so the private-VLAN shape and every pool refusal are exercised
