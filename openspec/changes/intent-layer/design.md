@@ -308,7 +308,7 @@ expected plan shape, and the invariant run; `<name>.toml` beside it is
 what an operator would type for the same intent. Quint cannot read
 TOML, so the pairing is by convention in phase 1 and by test in phase
 2: `dpaa2-verify` parses the TOML, compiles it, and asserts the plan
-equals the ITF trace's. The three scenarios and their twins: (1)
+equals the ITF trace's. The four scenarios and their twins: (1)
 hardware-switched fabric over dpmac.7/8 at 10G, kernel-forwarded, with a
 userspace-poll router as a tenant member terminating dpmac.9/10 at
 2×10G — the seeded rate class, so the router's T derives from the table
@@ -318,10 +318,15 @@ twin needs the userspace member to make the refusal reachable); (2)
 virtual fabric between two userspace-poll tenants
 with no dpmac (twin: the same dpbp pool overdrawn by a third
 tenant); (3) userspace router over N×10G + 1×25G with a crypto `flows`
-≤ N (twin: a port claimed by two tenants). The reference board's
-actual provisioning — kernel root with dpmac.7/9 and the userspace-poll
-child
-— is the fourth scenario, whose compiled plan is diffed object-for-object
+≤ N (twin: a port claimed by two tenants); (4) kernel-namespace
+pseudo-wires — one intent over all three link shapes (ns↔ns veth pair,
+ns↔reserved-kernel uplink, ns↔userspace app wire), the first to witness
+the child-resident kernel draw at dpio 0 with each namespace sole-tenant
+in its own kernel-bound child dprc (twin: a userspace-poll drawer pooling
+the reserved kernel, refused `PoolDataplaneMismatch`). The reference
+board's actual provisioning — kernel root with dpmac.7/9 and the
+userspace-poll child
+— is the fifth scenario, whose compiled plan is diffed object-for-object
 against the snapshot; the 3-vs-1 dpmcp is the expected finding.
 
 ### D9. Rust tests beside the model: property, snapshot, and trace replay

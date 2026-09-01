@@ -121,8 +121,17 @@ the change's only other operator sync point (design D12).
       name, and INTENT_I9 preserves the isolated container's sole-tenancy
       (design D6a). Crypto per-block dpseci sizing (design item 7) is
       deferred to a follow-up parcel — the 2.6a max-fold stands until then.
-- [ ] 2.6d Scenario (4): kernel-namespace pseudo-wires — the reserved
-      kernel tenant reaching a network namespace over a dpni↔dpni wire
+- [x] 2.6d Scenario (4): kernel-namespace pseudo-wires — one intent over all
+      three link shapes (ns↔ns veth pair, ns↔reserved-kernel uplink, ns↔
+      userspace app wire), the FIRST scenario to witness the child-resident
+      kernel draw (a declared kernel-netlink namespace contributes dpio 0, dpbp/
+      dpmcp one per dpni, dpcon dpnis·cpus, numQueues = cpus, in its own
+      kernel-bound child dprc), the undeclared reserved kernel materialised in
+      Root with the full per-CPU draw, and the portless poll-mode tenant at
+      T = 1. Paired `scenarios/vwire.qnt` + `vwire.toml`; the twin (vpp pooling
+      the reserved kernel) refused with exactly { PoolDataplaneMismatch }. Ladder
+      green; coverage witnesses unchanged (scenarios feed model:test, not the
+      alphabet-only coverage run). (bead gqf.32)
 
 ## 3. Rust (gated on 2.6)
 

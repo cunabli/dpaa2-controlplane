@@ -1,0 +1,54 @@
+# Scenario (4) of the intent gate (intent-layer design D1/D6a; task 2.6d): the
+# operator's file for scenarios/vwire.qnt — the kernel-namespace pseudo-wires.
+# One intent, three link shapes: the veth pair (ns1 <-> ns2), the uplink to the
+# reserved kernel (ns1 <-> kernel), and the app wire (ns2 <-> vpp). Each
+# kernel-netlink namespace is child-resident and contributes ZERO dpio (dpio
+# services are one kernel-global per-CPU list every container shares), while its
+# dpnis still run the online CPUs' transmit queues; the reserved kernel is
+# implicit (design D1), named at a link end but never written, and it carries
+# the full per-CPU kernel draw. No dpio, dpbp, dpcon, dpmcp, queue or worker
+# count appears: every object and count is derived (ADR-0005). Pairing with
+# vwire.qnt is by convention until dpaa2-verify's test (task 3.4). The twin — vpp
+# turned into a userspace-poll drawer pooling the kernel, model-only, with no
+# operator file — is refused PoolDataplaneMismatch.
+
+[intent]
+schema = 1
+
+# The two network namespaces: kernel-netlink, each its own kernel-bound child
+# dprc. max_cores is small — under the online-CPU reading of open question 2 the
+# kernel-netlink budget never binds, so the derived 16-queue dpnis still fit.
+[[tenant]]
+name = "ns1"
+dataplane = "kernel-netlink"
+max_cores = 2
+
+[[tenant]]
+name = "ns2"
+dataplane = "kernel-netlink"
+max_cores = 2
+
+# The userspace tenant reached by the app wire: portless, so T = 1.
+[[tenant]]
+name = "vpp"
+dataplane = "userspace-poll"
+max_cores = 8
+
+# The veth pair: a pseudo-wire between the two namespaces, no dpmac.
+[[link]]
+name = "veth"
+interface_a = "ns1"
+interface_b = "ns2"
+
+# The uplink: a pseudo-wire from ns1 to the reserved kernel. The kernel is
+# never declared as a tenant — naming it at a link end is enough (design D1).
+[[link]]
+name = "uplink"
+interface_a = "ns1"
+interface_b = "kernel"
+
+# The app wire: ns2 to the userspace-poll tenant, child <-> child.
+[[link]]
+name = "app"
+interface_a = "ns2"
+interface_b = "vpp"
