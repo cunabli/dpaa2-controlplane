@@ -42,7 +42,7 @@ module vfabric {
     { tenants: [{ name: "routerA", dataplane: UserspacePoll, maxCores: 8 },
                   { name: "routerB", dataplane: UserspacePoll, maxCores: 8 }],
       ports: [], links: [{ name: "wire", interfaceA: "routerA", interfaceB: "routerB" }],
-      fabrics: [], crypto: Set(), limits: Set() }
+      fabrics: [], crypto: Set(), extras: Set() }
 
   // The twin: the same plus a third portless tenant routerC (model-only).
   pure val twin: Intent =

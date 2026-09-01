@@ -14,8 +14,9 @@
 //
 // This module assumes an intent the refusals of task 1.3 have not rejected
 // (the total function's other half lands in intent/refuse.qnt): a claimed
-// dpmac is anchored and single-owner, an override never sits below its
-// request, a hardware fabric is kernel-forwarded, a rate class is seeded. The
+// dpmac is anchored and single-owner, an extra is a companion family with a
+// positive count, a hardware fabric is kernel-forwarded, a rate class is
+// seeded. The
 // derivation of a refused intent is undefined, not wrong.
 //
 // Open items left for 1.3 (refusals) and 3.1 (Rust label rendering):
@@ -82,12 +83,12 @@ module intent_derive {
 
   // A node of the provenance DAG (design D6): `inputs` are the ProvKeys it
   // consumed, `constructs` the declared construct names it bottoms out in,
-  // `anchor` the ADR/baseline section the rule cites. The request/limit
-  // idiom (design D5): `value = limit` when a limit exists else `request`;
-  // for a non-count node request = value and limit = None.
+  // `anchor` the ADR/baseline section the rule cites. The request/extra
+  // idiom (design D5): `value = request + extra` when an extra exists else
+  // `request`; for a non-count node request = value and extra = None.
   type ProvNode = {
     rule: str, anchor: str, mark: Mark,
-    request: int, limit: Option[int], value: int,
+    request: int, extra: Option[int], value: int,
     inputs: Set[ProvKey], constructs: Set[str],
   }
 
@@ -350,16 +351,21 @@ module intent_derive {
 
   // ---- per-tenant sizing (design D3/D4/D5) ----
 
-  type Eff = { request: int, limit: Option[int], value: int }
+  type Eff = { request: int, extra: Option[int], value: int }
 
-  // The request/limit idiom (design D5): a matching per-family Limit raises
-  // the request to its value; else the request stands. Applies to the four
-  // companion count families only. (1.3 refuses limit < request.)
+  // The extra count declared for (tenant, family), 0 when none (design D5).
+  // Extras are matched by (tenant, family) and additive, so several extras on
+  // one pair sum; a valid extra carries count >= 1 (1.3 refuses count < 1).
+  pure def extraOf(intent: Intent, name: str, fam: Family): int =
+    intent.extras.filter(e => e.tenant == name and e.family == fam).fold(0, (acc, e) => acc + e.count)
+
+  // The request/extra idiom (design D5): a matching per-(tenant, family) Extra
+  // adds its count to the request; else the request stands. Applies to the
+  // four companion count families only.
   pure def effective(intent: Intent, name: str, fam: Family, request: int): Eff =
-    val ls = intent.limits.filter(l => l.tenant == name and l.family == fam)
-    if (ls.size() == 0) { request: request, limit: None, value: request }
-    else val lv = ls.fold(0, (_, l) => l.limit)
-         { request: request, limit: Some(lv), value: lv }
+    val ev = extraOf(intent, name, fam)
+    if (ev == 0) { request: request, extra: None, value: request }
+    else { request: request, extra: Some(ev), value: request + ev }
 
   // Only Hardware fabrics emit a dpsw; the software owner bridges its own
   // dpnis (open item), so "owned fabrics" for dpsw purposes are the Hardware
@@ -411,7 +417,7 @@ module intent_derive {
 
   // Companion draws by reference to companionDraw (ADR-0012). Poll-mode:
   // dpio 2·T, dpbp 2, dpmcp one per process (the primary; a secondary is a
-  // dpmcp limit); dpni transmit queues ≥ T. KernelNetlink: dpio one per online
+  // dpmcp extra); dpni transmit queues ≥ T. KernelNetlink: dpio one per online
   // CPU, dpbp/dpmcp one per consuming object plus one per dpio, and each
   // dpsw/dpseci adds its own family census row (families/dpsw.qnt,
   // families/dpseci.qnt draw). dpcon is one per polled queue (dpcon.md,
@@ -541,21 +547,21 @@ module intent_derive {
 
   pure def dpioNode(s: Sizing): ProvNode =
     { rule: "dpio", anchor: "ADR-0012 (companions.qnt companionDraw)", mark: Measured,
-      request: s.effDpio.request, limit: s.effDpio.limit, value: s.effDpio.value,
+      request: s.effDpio.request, extra: s.effDpio.extra, value: s.effDpio.value,
       inputs: Set({ tenant: s.name, rule: if (s.isKernel) "cpus" else "T", construct: "" }), constructs: Set() }
 
   pure def dpbpNode(s: Sizing): ProvNode =
     { rule: "dpbp",
       anchor: if (s.isKernel) "ADR-0012 (companions.qnt companionDraw); families/dpsw.qnt + dpseci.qnt draw"
               else "ADR-0012 (companions.qnt companionDraw)",
-      mark: Measured, request: s.effDpbp.request, limit: s.effDpbp.limit, value: s.effDpbp.value,
+      mark: Measured, request: s.effDpbp.request, extra: s.effDpbp.extra, value: s.effDpbp.value,
       inputs: if (s.isKernel) Set({ tenant: s.name, rule: "dpnis", construct: "" }) else Set(), constructs: Set() }
 
   pure def dpmcpNode(s: Sizing): ProvNode =
     { rule: "dpmcp",
       anchor: if (s.isKernel) "ADR-0012 (companions.qnt companionDraw); families/dpsw.qnt + dpseci.qnt draw"
               else "companions.qnt: one MC portal per process",
-      mark: Measured, request: s.effDpmcp.request, limit: s.effDpmcp.limit, value: s.effDpmcp.value,
+      mark: Measured, request: s.effDpmcp.request, extra: s.effDpmcp.extra, value: s.effDpmcp.value,
       inputs: if (s.isKernel) Set({ tenant: s.name, rule: "cpus", construct: "" }, { tenant: s.name, rule: "dpnis", construct: "" }) else Set(),
       constructs: Set() }
 
@@ -563,12 +569,12 @@ module intent_derive {
     { rule: "dpni-queues",
       anchor: if (s.isKernel) "dpni.md line 64/226-236: ls-addni injects nproc; DPCON-I1"
               else "ADR-0012: transmit queues >= T",
-      mark: Measured, request: s.numQueues, limit: None, value: s.numQueues,
+      mark: Measured, request: s.numQueues, extra: None, value: s.numQueues,
       inputs: Set({ tenant: s.name, rule: if (s.isKernel) "cpus" else "T", construct: "" }), constructs: Set() }
 
   pure def dpconNode(s: Sizing): ProvNode =
     { rule: "dpcon", anchor: "dpcon.md DPCON-I1: one dpcon per polled queue", mark: Measured,
-      request: s.effDpcon.request, limit: s.effDpcon.limit, value: s.effDpcon.value,
+      request: s.effDpcon.request, extra: s.effDpcon.extra, value: s.effDpcon.value,
       inputs: Set({ tenant: s.name, rule: "dpnis", construct: "" }, { tenant: s.name, rule: "dpni-queues", construct: "" }),
       constructs: Set() }
 
@@ -576,28 +582,28 @@ module intent_derive {
   pure def dpswNode(intent: Intent, f: Fabric): ProvNode =
     val ni = hwFabricEnds(intent, f).length()
     { rule: "dpsw", anchor: "dpsw.md kernel bindability predicate (read-not-verified)", mark: Measured,
-      request: ni, limit: None, value: ni, inputs: Set(), constructs: Set(f.name) }
+      request: ni, extra: None, value: ni, inputs: Set(), constructs: Set(f.name) }
 
   pure val dprtcNode: ProvNode =
     { rule: "dprtc", anchor: "DPRTC-I1 singleton, DPRTC-I2 kernel-owned", mark: Measured,
-      request: 1, limit: None, value: 1, inputs: Set(), constructs: Set() }
+      request: 1, extra: None, value: 1, inputs: Set(), constructs: Set() }
 
   pure def linkEdgeNode(l: Link): ProvNode =
     { rule: "link-edge", anchor: "object-model.md §2, DPNI-I9 pseudo-wire", mark: Measured,
-      request: 0, limit: None, value: 0,
+      request: 0, extra: None, value: 0,
       inputs: Set({ tenant: l.interfaceA, rule: "dpnis", construct: "" }, { tenant: l.interfaceB, rule: "dpnis", construct: "" }),
       constructs: Set(l.name) }
 
   pure def fabricEdgeNode(f: Fabric): ProvNode =
     { rule: "fabric-edge", anchor: "DPAA2 User Manual §2.2.2 fig. 6c; dpsw.md", mark: Measured,
-      request: 0, limit: None, value: 0, inputs: Set({ tenant: f.forwardedBy, rule: "dpsw", construct: f.name }),
+      request: 0, extra: None, value: 0, inputs: Set({ tenant: f.forwardedBy, rule: "dpsw", construct: f.name }),
       constructs: Set(f.name) }
 
   // The owner's end of every 6b pseudo-wire a Software fabric carries; inputs
   // are the owner's and each wired peer's dpnis.
   pure def fabricWireNode(intent: Intent, g: Fabric): ProvNode =
     { rule: "fabric-wire", anchor: "DPAA2 User Manual §2.2.2 fig. 6b; object-model.md §2 DPNI-I9", mark: Measured,
-      request: 0, limit: None, value: 0,
+      request: 0, extra: None, value: 0,
       inputs: g.members.foldl(Set({ tenant: g.forwardedBy, rule: "dpnis", construct: "" }), (acc, m) =>
         match memberTenant(intent, m) {
           | Some(c) => if (c != g.forwardedBy) acc.union(Set({ tenant: c, rule: "dpnis", construct: "" })) else acc
@@ -613,10 +619,10 @@ module intent_derive {
     val m1 = m
       .put({ tenant: nm, rule: "ports", construct: "" },
            { rule: "ports", anchor: "design D1: declared port constructs", mark: Measured,
-             request: np, limit: None, value: np, inputs: Set(), constructs: pn })
+             request: np, extra: None, value: np, inputs: Set(), constructs: pn })
       .put({ tenant: nm, rule: "dpnis", construct: "" },
            { rule: "dpnis", anchor: "object-model.md §2: one dpni per terminated port, link end, fabric membership",
-             mark: Measured, request: s.dpnis, limit: None, value: s.dpnis, inputs: Set(),
+             mark: Measured, request: s.dpnis, extra: None, value: s.dpnis, inputs: Set(),
              constructs: dpniConstructs(intent, nm) })
       .put({ tenant: nm, rule: "dpio", construct: "" }, dpioNode(s))
       .put({ tenant: nm, rule: "dpbp", construct: "" }, dpbpNode(s))
@@ -626,22 +632,22 @@ module intent_derive {
     val m2 = if (s.isKernel)
                m1.put({ tenant: nm, rule: "cpus", construct: "" },
                       { rule: "cpus", anchor: "ADR-0012: one dpio per online CPU", mark: Measured,
-                        request: s.cpus, limit: None, value: s.cpus, inputs: Set(), constructs: Set() })
+                        request: s.cpus, extra: None, value: s.cpus, inputs: Set(), constructs: Set() })
              else
                m1.put({ tenant: nm, rule: "T", construct: "" },
                       { rule: "T",
                         anchor: "design D3: T = 1 + Σ workers over terminated ports; workers-per-port table (10G⇒2, 25G⇒5), unmeasured",
                         mark: Unmeasured,
-                        request: s.t, limit: None, value: s.t,
+                        request: s.t, extra: None, value: s.t,
                         inputs: Set({ tenant: nm, rule: "ports", construct: "" }), constructs: pn })
     val m3 = if (s.isKernel) m2
              else m2.put({ tenant: nm, rule: "dprc", construct: "" },
                          { rule: "dprc", anchor: "dprc.md: restool-default child options", mark: Measured,
-                           request: 1, limit: None, value: 1, inputs: Set(), constructs: Set(nm) })
+                           request: 1, extra: None, value: 1, inputs: Set(), constructs: Set(nm) })
     val m4 = if (s.numDpseci > 0)
                m3.put({ tenant: nm, rule: "dpseci", construct: "" },
                       { rule: "dpseci", anchor: "dpseci.md: num_queues >= flows, DPSECI_OPT_HAS_CG",
-                        mark: Measured, request: s.cryptoFlows, limit: None, value: s.cryptoFlows,
+                        mark: Measured, request: s.cryptoFlows, extra: None, value: s.cryptoFlows,
                         inputs: Set(), constructs: Set(nm) })
              else m3
     // one dpsw node per owned Hardware fabric (keyed by the fabric name)
@@ -651,7 +657,7 @@ module intent_derive {
     terminatedPorts(intent, nm).foldl(m5, (mm, p) =>
       mm.put({ tenant: nm, rule: "port-edge", construct: p.name },
              { rule: "port-edge", anchor: "object-model.md §2: dpni<->dpmac edge", mark: Measured,
-               request: 0, limit: None, value: 0,
+               request: 0, extra: None, value: 0,
                inputs: Set({ tenant: nm, rule: "dpnis", construct: "" }), constructs: Set(p.name) }))
 
   pure def fullProv(intent: Intent, inv: Inventory): ProvKey -> ProvNode =

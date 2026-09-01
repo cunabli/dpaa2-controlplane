@@ -49,7 +49,7 @@ module router {
       links: [],
       fabrics: [],
       crypto: Set({ tenant: "router", flows: 2 }),
-      limits: Set() }
+      extras: Set() }
 
   // The twin (model-only): a second poll-mode tenant router2 claims dpmac.9
   // with its own port clash0 — the double claim. router2 is otherwise valid

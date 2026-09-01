@@ -46,8 +46,9 @@ every later change (#4 onward) executes a plan this compiler emits.
   complete list of violations, not the first — tenant absence
   (DPDCEI-I1, deferred here from #2), an unanchored, reserved, foreign or
   double-claimed dpmac, an over-rate port, a userspace-poll tenant forwarding
-  a hardware fabric, a thread count over the core budget, a limit below its
-  request, an unseeded rate class, a dataplane with no companion pricing
+  a hardware fabric, a thread count over the core budget, an extra on a
+  non-companion family or with a non-positive count, a crypto block with no
+  flows, an unseeded rate class, a dataplane with no companion pricing
   (`userspace-event` today), and cross-tenant infeasibility against a counted or
   observed ceiling (an unknown ceiling warns, never refuses).
 - **The plan's relationships are locked by construction**: containment
@@ -57,12 +58,14 @@ every later change (#4 onward) executes a plan this compiler emits.
   (`object-model.md` §5) as a property of how the plan is built, not a
   sort applied afterwards. Per-object lifecycle typestates stay with
   changes #4–#8.
-- **Derived floors are requests; overrides are limits** — the
-  Kubernetes/cgroups idiom: every derived count is a request, a
-  per-family override under the tenant is a limit, and limit ≥ request
-  is the rule; provenance prints both. A policy-expression language for
-  limits (CEL, as Kubernetes uses for validation rules) is recorded as a
-  revisit trigger, not built.
+- **Derived counts are requests; extras add on top** — every derived
+  count is a request; a per-(tenant, family) `[[extra]]` adds its `count`,
+  so the effective count is request + count, raise-only by construction.
+  Only the four companion families dpio/dpbp/dpmcp/dpcon accept an extra;
+  any other family, or a count below 1, refuses; provenance prints both
+  the request and the extra. A policy-expression language for extras (CEL,
+  as Kubernetes uses for validation rules) is recorded as a revisit
+  trigger, not built.
 - **The thread-count rule is declared, not measured**: T derives from a
   per-class workers-per-port table seeded from the reference board (10G ⇒
   2 workers; two 10G ports in poll-mode ran T = 1 + 2·2 = 5);
@@ -136,7 +139,7 @@ every later change (#4 onward) executes a plan this compiler emits.
 - `intent-compiler`: the frontend-neutral intent vocabulary, the
   observed hardware inventory (availability and three-valued ceilings),
   the pure derivation from intent to the complete object plan with keyed
-  identities, provenance trees and request/limit overrides, the complete
+  identities, provenance trees and additive extras, the complete
   named refusals, the by-construction plan relationships, the additive
   layering over api/mc/hal, and the executable Quint model
   (`models/intent/`) with its paired scenarios, the user manual as the
@@ -153,7 +156,7 @@ every later change (#4 onward) executes a plan this compiler emits.
   derived object with provenance; reconciliation executes the objects it
   has executors for and reports the rest as plan-only, never as drift.
 - `provisioning-cli`: `dry-run` prints the derived plan with per-object
-  provenance (rule, source construct, evidence anchor, override marks)
+  provenance (rule, source construct, evidence anchor, extra marks)
   and prints a refusal with its named rule instead of a plan; `ensure`
   reads the inventory before compiling.
 - `formal-models`: the model corpus gains `models/intent/` under the
@@ -178,7 +181,7 @@ every later change (#4 onward) executes a plan this compiler emits.
   reference manual); ADR-0005 amended (vocabulary as accepted at the
   gate; capacity model gap and trigger; Alloy escalation; external
   anchors RFC 9315/9316 and the ONOS intent framework as the
-  compile/installer precedent; CEL as the override-policy revisit
+  compile/installer precedent; CEL as the extra-policy revisit
   trigger); ADR-0010 reference fixed;
   `docs/baseline/object-model.md` §4 and the dpmcp/dpbp/dpio intent
   sections aligned to ADR-0012; `docs/ROADMAP.md` row 3 marked in

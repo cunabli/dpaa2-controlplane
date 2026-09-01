@@ -106,8 +106,9 @@ constructs; a port rate above its dpmac's `max_rate`; a hardware fabric
 forwarded by a tenant other than the kernel; a member port whose tenant
 is not its fabric's forwarder; a hardware fabric inside a hardware
 fabric; a derived T above the tenant's `max_cores`;
-a limit below its request; a limit on a family whose count the
-constructs fix; a userspace-poll tenant terminating a rate class with no
+an extra on a family that is not one of the four companions, or an extra
+whose count is below 1; a crypto block whose flows are below 1; a
+userspace-poll tenant terminating a rate class with no
 seeded worker row; a tenant whose dataplane has no companion pricing
 (`userspace-event` today); a construct naming an undeclared tenant,
 port or fabric; and cross-tenant infeasibility, where the
@@ -157,21 +158,33 @@ live-census refusal.
 - **THEN** the refusal list holds both `Reserved` and
   `CoreBudgetExceeded`
 
-### Requirement: Derived counts are requests; overrides are limits
-Every derived count SHALL be a *request*; an override, declared per
-family under a tenant, SHALL be a *limit*; `limit ≥ request` SHALL
-hold, and provenance for the affected objects SHALL print both values.
+### Requirement: Derived counts are requests; extras add on top
+Every derived count SHALL be a *request*; an `[[extra]]`, declared per
+(tenant, family), SHALL add its `count` on top, so the effective count
+SHALL be request + count — raise-only by construction. Only the four
+companion families dpio/dpbp/dpmcp/dpcon SHALL accept an extra; any other
+family SHALL be refused, and `count` SHALL be at least 1. Provenance for
+the affected objects SHALL print both the request and the extra.
 
-#### Scenario: A limit above the request
-- **WHEN** a userspace-poll tenant with T = 5 declares the limit `dpio =
-  12`
-- **THEN** the plan holds 12 dpios whose provenance reads request 10,
-  limit 12
+#### Scenario: An extra adds to the request
+- **WHEN** a userspace-poll tenant with T = 5 (dpio request 10) declares
+  the extra `dpio += 4`
+- **THEN** the plan holds 14 dpios whose provenance reads request 10,
+  extra 4
 
-#### Scenario: A limit below the request
-- **WHEN** the same tenant declares the limit `dpbp = 1`
-- **THEN** compilation is refused with `LimitBelowRequest` naming dpbp,
-  request 2, limit 1
+#### Scenario: An extra on a non-companion family
+- **WHEN** the same tenant declares an extra on `dpni`
+- **THEN** compilation is refused with `ExtraNotCompanion` naming dpni
+
+#### Scenario: An extra with a non-positive count
+- **WHEN** the same tenant declares the extra `dpio += 0`
+- **THEN** compilation is refused with `ExtraNotPositive` naming dpio and
+  the count 0
+
+#### Scenario: A crypto block with no flows
+- **WHEN** a `[[crypto]]` block declares `flows = 0`
+- **THEN** compilation is refused with `CryptoFlowsNotPositive` naming the
+  tenant and the flows 0
 
 ### Requirement: Every derived value carries a provenance tree
 Each object and each sized attribute in the plan SHALL carry a

@@ -7,8 +7,9 @@
 // ops), so computing feasibility on an otherwise-refused intent is safe; the
 // derivation of a refused intent is defined, not wrong (derive.qnt).
 //
-// Overrides follow the request/limit idiom (design D5): a derived count is a
-// request, a per-family limit raises it, a limit below the request refuses.
+// Extras follow the request/extra idiom (design D5): a derived count is a
+// request, a per-(tenant, family) extra adds its count on top (raise-only); an
+// extra on a non-companion family, or one whose count is below 1, refuses.
 // Ceilings follow ADR-0011's three values (design D2): feasibility refuses
 // against Counted and Observed and warns on Unknown, never inventing a number.
 //
@@ -42,8 +43,9 @@ module intent_refuse {
     | UnsupportedEdge({ fabric: str, member: str })             // Hardware fabric listing a Hardware fabric (object-model.md §2; derive.qnt (d))
     | UnknownRateClass({ tenant: str, rates: List[int] })     // userspace-poll tenant terminating a rate class with no seeded worker row (design D3; derive.qnt (b))
     | CoreBudgetExceeded({ tenant: str, t: int, maxCores: int }) // userspace-poll T > maxCores (design D3; ADR-0012 never rations)
-    | LimitBelowRequest({ tenant: str, family: Family, request: int, limit: int }) // design D5 (D5's OverrideBelowFloor)
-    | LimitNotDerived({ tenant: str, family: Family })        // a limit on a family whose count is fixed by constructs (design D7)
+    | ExtraNotCompanion({ tenant: str, family: Family })      // an extra on a family that is not one of the four companions (design D5)
+    | ExtraNotPositive({ tenant: str, family: Family, count: int }) // an extra whose count is below 1 (design D5)
+    | CryptoFlowsNotPositive({ tenant: str, flows: int })     // a crypto block whose flows are below 1 (design D1; dpseci.md)
     | Infeasible({ family: Family, needed: int, available: int }) // sum of derived objs of a family > a Counted/Observed ceiling (ADR-0011; design D2)
     | UnpricedDataplane({ tenant: str, dataplane: Dataplane }) // a tenant whose dataplane ADR-0012 does not price (today UserspaceEvent; design D3)
 
@@ -66,14 +68,11 @@ module intent_refuse {
   pure def tenantNames(intent: Intent): Set[str] =
     intent.tenants.foldl(Set(), (acc, c) => acc.union(Set(c.name)))
 
-  pure def tenantByName(intent: Intent, nm: str): Option[Tenant] =
-    intent.tenants.foldl(None, (acc, c) => if (c.name == nm) Some(c) else acc)
-
   // ---- rule 1: a construct names an undeclared tenant (design D5) ----
   // Generalises DPDCEI-I1's tenant-absence rule to every construct that
-  // names a tenant: port owner, link ends, fabric owner, crypto owner, limit
-  // tenant. crypto and limit carry no name, so the construct field reads the
-  // literal "crypto" / "limit".
+  // names a tenant: port owner, link ends, fabric owner, crypto owner, extra
+  // tenant. crypto and extra carry no name, so the construct field reads the
+  // literal "crypto" / "extra".
   pure def tenantAbsentRefusals(intent: Intent, inv: Inventory): Set[Refusal] =
     val names = tenantNames(intent)
     val fromPorts = intent.ports.foldl(Set(), (acc, p) =>
@@ -88,9 +87,9 @@ module intent_refuse {
     val fromCrypto = intent.crypto.fold(fromFabrics, (acc, k) =>
       if (names.contains(k.tenant)) acc
       else acc.union(Set(TenantAbsent({ construct: "crypto", tenant: k.tenant }))))
-    intent.limits.fold(fromCrypto, (acc, l) =>
-      if (names.contains(l.tenant)) acc
-      else acc.union(Set(TenantAbsent({ construct: "limit", tenant: l.tenant }))))
+    intent.extras.fold(fromCrypto, (acc, e) =>
+      if (names.contains(e.tenant)) acc
+      else acc.union(Set(TenantAbsent({ construct: "extra", tenant: e.tenant }))))
 
   // ---- rule 2: a fabric member names something not declared ----
   pure def memberUnresolvedRefusals(intent: Intent, inv: Inventory): Set[Refusal] =
@@ -223,26 +222,30 @@ module intent_refuse {
         }
       else acc)
 
-  // ---- rule 8: request/limit overrides (design D5/D7) ----
-  // A limit on a non-count family is never silently ignored; a limit below its
-  // request refuses. An absent tenant is skipped — TenantAbsent fires for
-  // it in rule 1.
-  pure def limitRefusals(intent: Intent, inv: Inventory): Set[Refusal] =
-    intent.limits.fold(Set(), (acc, l) =>
-      if (not(Set(Dpio, Dpbp, Dpmcp, Dpcon).contains(l.family)))
-        acc.union(Set(LimitNotDerived({ tenant: l.tenant, family: l.family })))
-      else match tenantByName(intent, l.tenant) {
-        | None => acc
-        | Some(c) =>
-            val s = sizeTenant(intent, inv, c)
-            val request = if (l.family == Dpio) s.effDpio.request
-                          else if (l.family == Dpbp) s.effDpbp.request
-                          else if (l.family == Dpmcp) s.effDpmcp.request
-                          else s.effDpcon.request
-            if (l.limit < request)
-              acc.union(Set(LimitBelowRequest({ tenant: l.tenant, family: l.family, request: request, limit: l.limit })))
-            else acc
-      })
+  // ---- rule 8: additive extras (design D5) ----
+  // An extra on a non-companion family is never silently ignored; an extra
+  // whose count is below 1 (a no-op or a lowering) refuses. Both checks are
+  // independent — an extra can trip both. Extras are additive, matched by
+  // (tenant, family), so there is no request comparison. An absent tenant is
+  // skipped — TenantAbsent fires for it in rule 1.
+  pure def extraRefusals(intent: Intent, inv: Inventory): Set[Refusal] =
+    intent.extras.fold(Set(), (acc, e) =>
+      val notCompanion = if (not(Set(Dpio, Dpbp, Dpmcp, Dpcon).contains(e.family)))
+                           Set(ExtraNotCompanion({ tenant: e.tenant, family: e.family }))
+                         else Set()
+      val notPositive = if (e.count < 1)
+                          Set(ExtraNotPositive({ tenant: e.tenant, family: e.family, count: e.count }))
+                        else Set()
+      acc.union(notCompanion).union(notPositive))
+
+  // ---- rule 11: a crypto block with no flows (design D1; dpseci.md) ----
+  // A [[crypto]] block sizes a dpseci to its flows; flows < 1 would size a
+  // zero-queue accelerator — refused, never a silent empty dpseci. An absent
+  // tenant is skipped — TenantAbsent fires for it in rule 1.
+  pure def cryptoRefusals(intent: Intent, inv: Inventory): Set[Refusal] =
+    intent.crypto.fold(Set(), (acc, k) =>
+      if (k.flows < 1) acc.union(Set(CryptoFlowsNotPositive({ tenant: k.tenant, flows: k.flows })))
+      else acc)
 
   // ---- rule 9: cross-plan feasibility against the ceilings (ADR-0011; design D2) ----
   // available = the ceiling's n; whether foreign/DPL objects already on the
@@ -275,7 +278,8 @@ module intent_refuse {
       .union(doubleClaimedRefusals(intent, inv))
       .union(fabricRulesRefusals(intent, inv))
       .union(sizingRefusals(intent, inv))
-      .union(limitRefusals(intent, inv))
+      .union(extraRefusals(intent, inv))
+      .union(cryptoRefusals(intent, inv))
       .union(feasibilityRefusals(intent, inv))
       .union(unpricedDataplaneRefusals(intent, inv))
 
@@ -322,8 +326,9 @@ module intent_refuse {
     UnsupportedEdge({ fabric: "f", member: "m" }),
     UnknownRateClass({ tenant: "c", rates: [] }),
     CoreBudgetExceeded({ tenant: "c", t: 0, maxCores: 0 }),
-    LimitBelowRequest({ tenant: "c", family: Dpio, request: 0, limit: 0 }),
-    LimitNotDerived({ tenant: "c", family: Dpni }),
+    ExtraNotCompanion({ tenant: "c", family: Dpni }),
+    ExtraNotPositive({ tenant: "c", family: Dpio, count: 0 }),
+    CryptoFlowsNotPositive({ tenant: "c", flows: 0 }),
     Infeasible({ family: Dpbp, needed: 0, available: 0 }),
     UnpricedDataplane({ tenant: "c", dataplane: UserspaceEvent }))
   pure val WARNINGS_USE: Set[Warning] = Set(

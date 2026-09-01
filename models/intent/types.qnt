@@ -76,16 +76,18 @@ module intent_types {
   // each self-contained; crypto stays matched by tenant, unordered.
   type Crypto = { tenant: str, flows: int }
 
-  // A request/limit override (design D5): every derived count is a
-  // request, a per-family limit under a tenant raises it; a limit below
-  // the request is a refusal (task 1.3).
-  type Limit = { tenant: str, family: Family, limit: int }
+  // An additive extra (design D5): every derived count is a request; a
+  // per-(tenant, family) extra adds its `count` on top, so the effective
+  // count is request + count — raise-only by construction. Only the four
+  // companion families dpio/dpbp/dpmcp/dpcon accept an extra; any other
+  // family is refused (task 1.3), and `count` must be >= 1.
+  type Extra = { tenant: str, family: Family, count: int }
 
   // Declaration order is the ordinal source: design D6 keys every derived
   // object by (tenant, family, ordinal), and a TOML `[[port]]` array is
   // ordered. Quint has no string ordering, so a Set would leave the third
   // dpni's ordinal undefined; the lists carry the positions the derivation
-  // reads (intent/derive.qnt). crypto and limits stay Sets — unordered,
+  // reads (intent/derive.qnt). crypto and extras stay Sets — unordered,
   // matched by (tenant) / (tenant, family), never by position.
   type Intent = {
     tenants: List[Tenant],
@@ -93,7 +95,7 @@ module intent_types {
     links: List[Link],
     fabrics: List[Fabric],
     crypto: Set[Crypto],
-    limits: Set[Limit],
+    extras: Set[Extra],
   }
 
   pure def kernelTenant(maxCores: int): Tenant =
@@ -141,7 +143,7 @@ module intent_types {
   }
 
   // The families the derivation emits (design D4): the ceilings map's
-  // domain and the request/limit families.
+  // domain and the request/extra families.
   pure val DERIVED_FAMILIES: Set[Family] =
     Set(Dprc, Dpni, Dpbp, Dpio, Dpcon, Dpmcp, Dpseci, Dpsw)
 

@@ -11,7 +11,7 @@ silently wrong for the poll-mode child (ADR-0012's opening finding).
 ADR-0005 fixed the shape of the answer on 2026-08-22: operators declare
 network constructs anchored in hardware; a pure compiler derives the
 object plan; each rule is a model invariant; dry-run shows provenance;
-overrides are per object and visible. The 2026-08-30 proposal session
+extras are per (tenant, family) and visible. The 2026-08-30 proposal session
 sharpened what the operator actually states — *capacity at L1 and who
 consumes it*, never a count — and added the inventory as the compiler's
 second input and a hard model-review gate before any Rust. The decisions
@@ -83,7 +83,7 @@ Alternatives rejected in session: `workers`/`threads`/`processes` as
 inputs (implementation numbers smuggled into intent — the operator
 knows them only because a script once told them), and a raw-object
 escape hatch as a first-class construct (ADR-0005 §5: raw objects are
-the last resort, expressed here only as raise-only overrides).
+the last resort, expressed here only as additive, raise-only extras).
 
 ### D2. Two inputs: intent and inventory; inventory is observed, never written
 
@@ -171,21 +171,25 @@ member port whose tenant is not its fabric's forwarder),
 tenant terminating a rate class with no seeded worker row — D3 refuses
 unseeded classes; a new row enters through a scenario that needs it),
 `UnpricedDataplane` (a tenant whose dataplane has no companion pricing —
-`userspace-event` today), `LimitBelowRequest`, `LimitNotDerived` (a
-limit on a family whose count the constructs fix — never silently
-ignored, D7), `MemberUnresolved`, `SelfMember`, and `Reserved`,
+`userspace-event` today), `ExtraNotCompanion` (an extra on a family that
+is not one of the four companions — never silently ignored, D5),
+`ExtraNotPositive` (an extra whose count is below 1),
+`CryptoFlowsNotPositive` (a crypto block whose flows are below 1),
+`MemberUnresolved`, `SelfMember`, and `Reserved`,
 `Foreign`, and `Infeasible { family, needed, available }`.
 `compile` returns *every* violation, not the first — the compiler idiom:
 the operator fixes a file in one pass — so the error side is a non-empty
 `Refusals` list. `Refusal` and `Dataplane` are `#[non_exhaustive]`: a
 `PoolShortfall` variant is reserved for `reconcile` (#6), and a
 passthrough value (a VFIO child whose guest dataplane the host cannot
-see) is #4's. Overrides follow the Kubernetes/cgroups request/limit idiom:
-every derived count is a *request*, a per-family override under the
-consumer is a *limit*, `limit ≥ request` is the rule, and provenance
-prints both. A policy-expression language for limits (CEL, as
-Kubernetes uses for validation rules) is recorded as a revisit trigger
-in the ADR-0005 amendment and not built.
+see) is #4's. Extras follow an additive idiom: every derived count is a
+*request*, a per-(tenant, family) `[[extra]]` adds its `count` on top, so
+the effective count is request + count — raise-only by construction, with
+no floor comparison to get wrong. Only the four companion families accept
+an extra; any other family, or a count below 1, refuses; and provenance
+prints both the request and the extra. A policy-expression language for
+extras (CEL, as Kubernetes uses for validation rules) is recorded as a
+revisit trigger in the ADR-0005 amendment and not built.
 
 ### D6. Plan relationships are locked by construction; types follow the model
 
@@ -264,8 +268,8 @@ against the snapshot; the 3-vs-1 dpmcp is the expected finding.
 
 Quint's random simulation is the oracle; three laws are cheap enough to
 restate in Rust with `proptest` (dev-dependency) so the transcription
-stays honest: `compile` is deterministic, a limit never lowers a
-request, every companion precedes the consumer that draws it. The
+stays honest: `compile` is deterministic, an extra only ever raises a
+count, every companion precedes the consumer that draws it. The
 dry-run text — provenance trees included — is snapshotted with `insta`.
 Trace replay stays on the ITF replayer #2 built; `quint-connect`
 (Informal's Rust MBT crate that drives a Rust driver from Quint traces)
@@ -363,7 +367,7 @@ artifacts, then one commit per standing law or module with the
 
 - Whether the fit check's 3-vs-1 dpmcp finding is reported as a
   divergence of the board from intent (the board carries two idle
-  portals) or as an override in the reference intent — decided at the
+  portals) or as an extra in the reference intent — decided at the
   gate, recorded in the ADR-0005 amendment.
 - Whether the kernel tenant's `max_cores` means online CPUs (the
   dpio ceiling) or a budget below it; the model carries both readings

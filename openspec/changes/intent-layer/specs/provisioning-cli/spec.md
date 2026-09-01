@@ -9,7 +9,7 @@ applying them (`dry-run`). It SHALL also expose the MC-readiness probe
 read the hardware inventory, compile the intent, and then reconcile;
 `dry-run` SHALL print the derived plan with per-object provenance
 trees — rule, inputs, source construct, evidence anchor, and
-request/limit values — before
+request/extra values — before
 the transitions it would execute and the plan-only report, and SHALL be
 the exact plan that `ensure` would execute. When compilation is
 refused, both SHALL print every refusal with its named rule and the

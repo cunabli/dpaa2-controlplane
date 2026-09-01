@@ -44,7 +44,8 @@ the change's only other operator sync point (design D12).
 - [x] 1.3 Refusals as the total function's other half, returned as the
       complete list: tenant absence, unanchored, reserved, foreign,
       double-claimed, over-rate, fabric not kernel-forwarded, core budget
-      exceeded, unknown rate class, limit below request, cross-tenant
+      exceeded, unknown rate class, extra on a non-companion family or
+      with a non-positive count, crypto without flows, cross-tenant
       infeasibility naming
       family/needed/available against counted/observed ceilings and
       warning on unknown (design D5)
@@ -88,7 +89,7 @@ the change's only other operator sync point (design D12).
       with dpmac.7/9, the userspace-poll child dprc) as `reference.qnt`/`.toml`;
       compiled plan diffed object-for-object against
       `baselines/reference.json`; the 3-vs-1 dpmcp finding and any other
-      difference dispositioned (divergence vs override — open question 1)
+      difference dispositioned (divergence vs extra — open question 1)
 - [x] 2.5a The TOML document-level properties anchor in an `[intent]`
       table, `schema` the first of them (operator decision 2026-08-31):
       scenario TOMLs and the proposal/design/spec-delta wording amended
@@ -110,7 +111,7 @@ the change's only other operator sync point (design D12).
       owns its `flows` (moved off `[[tenant]]` onto `[[crypto]]`, each block
       self-contained). Model, scenario TOMLs, and the proposal/design/spec
       deltas amended in lockstep (discovered detour, bead gqf.29)
-- [ ] 2.6b `[[limit]]` deleted as a construct: the request/limit override
+- [x] 2.6b `[[limit]]` deleted as a construct: the request/limit override
       channel becomes the additive `[[extra]]` channel (design D5 revisited)
 - [ ] 2.6c Tenant isolation and pool: the tenant construct carries its
       isolation boundary and pool membership
@@ -131,9 +132,9 @@ the change's only other operator sync point (design D12).
       without `Intent` (design D11), covered by one test that builds and
       reconciles a plan by hand
 - [ ] 3.2 `dpaa2-api`: `compile(intent, inventory)` — derivation,
-      request/limit overrides, provenance trees, the complete refusal
+      additive extras, provenance trees, the complete refusal
       list; unit tests one per refusal variant and per companion rule;
-      `proptest` for determinism, limit ≥ request, companion-before-
+      `proptest` for determinism, extras only raise a count, companion-before-
       tenant (design D9); ITF replay of the intent traces through
       `compile` in `dpaa2-verify`, with `quint-connect` evaluated
       against the existing replayer and adopted only if it retires code

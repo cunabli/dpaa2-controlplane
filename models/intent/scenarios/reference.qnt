@@ -46,9 +46,10 @@
 //       Two readings, neither taken here:
 //         divergence — the model is right; the board's two extra dpmcps are
 //           over-provisioned residue the diff reports as explained divergence.
-//         override — an operator could legitimately provision 3 for a
+//         extra — an operator could legitimately provision 3 for a
 //           secondary process; the intent vocabulary stays silent and the
-//           request/limit override channel (design D5) would carry it.
+//           additive `[[extra]]` channel (design D5) would carry it — a
+//           dpmcp extra of count 2 on the kernel raises the derived 1 to 3.
 //
 // Anchors: ADR-0012 companion draws; ADR-0011 ceilings; ADR-0001 §4 DPL
 // ownership; ADR-0003 §3 reserved dpmacs; design D4/D8/D12; DPMCP-I6
@@ -76,7 +77,7 @@ module reference {
   // The board's deployed intent (design D1/D8): the reserved kernel tenant
   // (its budget never binds under the online-CPU reading of open question 2)
   // and one userspace-poll tenant terminating the two cabled 10G ports. No
-  // fabric, no link, no crypto, no limit — the historical userspace-poll
+  // fabric, no link, no crypto, no extra — the historical userspace-poll
   // deployment was exactly this. No dpio/dpbp/dpcon/dpmcp/queue/worker count
   // appears; every object and count is derived (ADR-0005).
   pure val accepted: Intent =
@@ -87,7 +88,7 @@ module reference {
       links: [],
       fabrics: [],
       crypto: Set(),
-      limits: Set() }
+      extras: Set() }
 
   // ---- the recovered boot census (models/board/baselines/reference.json) ----
 

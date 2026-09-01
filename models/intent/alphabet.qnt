@@ -30,25 +30,28 @@
 // deterministic and reproducible. No invariant violation was found. Two
 // alphabet widenings this counting drove are stated where they land (DPMACS
 // 99 for Unanchored, RATES 40000 for UnknownRateClass) — never silent. The
-// counts were re-recorded after the 2.6a vocabulary rename moved the FLOWS
-// draw from addTenant to addCrypto (crypto owns its flows): the trace stream
-// shifts, so the numbers differ from the 2026-08-31 run while every recorded
-// unknown (below) stays at zero.
+// counts were re-recorded after the 2.6b swap replaced the [[limit]] draw
+// (addLimit, request/limit refusals) with the additive [[extra]] draw
+// (addExtra, ExtraNotCompanion/ExtraNotPositive) and added the crypto
+// flows<1 refusal: addExtra draws the same three nondets as addLimit did, so
+// the trace stream keeps its shape and most counts are unchanged, while the
+// extra/crypto witnesses take fresh values and every recorded unknown (below)
+// stays at zero.
 //
 // Witness counts (traces of 3000 in which the witness held):
 //   wAccepted 3000, wRefused 2997, wUnknownCeiling 3000,
-//   wLimitBelowRequest 1891, wUnpricedDataplane 2053, wOverRate 1656,
-//   wMemberUnresolved 1592, wReservedAnchor 1548, wLimitNotDerived 950,
-//   wUnanchored 854, wSelfMember 657, wDoubleClaimed 715,
-//   wPortTenantMismatch 674, wMixedRates 451,
+//   wUnpricedDataplane 2053, wOverRate 1656, wMemberUnresolved 1592,
+//   wReservedAnchor 1548, wCryptoFlowsNotPositive 1528, wExtraNotPositive 1168,
+//   wExtraNotCompanion 950, wUnanchored 854, wDoubleClaimed 715,
+//   wPortTenantMismatch 674, wSelfMember 657, wMixedRates 451,
 //   wFabricNotKernelForwarded 386, wUnknownRateClass 318,
 //   wCoreBudgetExceeded 269, wUnsupportedEdge 173;
-//   structure wCryptoPresent 2882, wLimitPresent 2838, wFabricPresent 2786,
+//   structure wCryptoPresent 2882, wExtraPresent 2838, wFabricPresent 2786,
 //   wThreeTenants 2391, wLinkPresent 2309, wInterruptDrawn 2053.
 //
 // Recorded unknowns / alphabet-unreachable (0 traces — where each is covered):
 //   wTenantAbsent — unreachable BY CONSTRUCTION: addPort/addLink/addFabric/
-//     addCrypto/addLimit all draw tenant names from the declared set, so no
+//     addCrypto/addExtra all draw tenant names from the declared set, so no
 //     construct can name an undeclared tenant. Covered by the directed
 //     tenantAbsentTest (intent/main.qnt).
 //   wForeignAnchor — unreachable: REF_INVENTORY marks only dpni.0 Foreign, no
@@ -63,7 +66,7 @@
 //   wUnmeasuredCombination — reachable but not hit in 3000 samples: the
 //     warning needs an *accepted* poll tenant terminating both seeded classes,
 //     and the sole Free 25G dpmac in the alphabet is 4, so a clean cross-class
-//     mix is a narrow draw. The shape precursor wMixedRates is counted (454);
+//     mix is a narrow draw. The shape precursor wMixedRates is counted (451);
 //     the warning itself is covered by the directed mixedRateClassWarnsTest
 //     (intent/main.qnt).
 module intent_alphabet {
@@ -104,8 +107,11 @@ module intent_alphabet {
   // draw whose compile is refused UnpricedDataplane (a refusal is a legal
   // outcome, so the rung stays green).
   pure val USERSPACE_DATAPLANES: Set[Dataplane] = Set(UserspacePoll, UserspaceEvent)
-  pure val LIMIT_VALUES: Set[int] = Set(1, 2, 10, 12)
-  pure val LIMIT_FAMILIES: Set[Family] = Set(Dpio, Dpbp, Dpmcp, Dpcon, Dpni)
+  // The extra count draw: 0 witnesses ExtraNotPositive (a no-op raise), the
+  // positives witness the additive raise. The family draw includes Dpni, a
+  // non-companion, to witness ExtraNotCompanion.
+  pure val EXTRA_COUNTS: Set[int] = Set(0, 1, 2, 4)
+  pure val EXTRA_FAMILIES: Set[Family] = Set(Dpio, Dpbp, Dpmcp, Dpcon, Dpni)
 
   // A hand-enumerated slice of the member-list space: ports, tenants, a
   // self-member fabric (MFabric("f1"), the only fabric), a member resolving
@@ -125,7 +131,7 @@ module intent_alphabet {
 
   action init = intent' = {
     tenants: [kernelTenant(16)], ports: [], links: [], fabrics: [],
-    crypto: Set(), limits: Set(),
+    crypto: Set(), extras: Set(),
   }
 
   // ---- one construct per step (never a powerset draw) ----
@@ -192,22 +198,22 @@ module intent_alphabet {
     }
   }
 
-  // A per-family limit override, at most two.
-  action addLimit = {
+  // A per-(tenant, family) additive extra, at most two.
+  action addExtra = {
     nondet tenant = tenantNames(intent).oneOf()
-    nondet family = LIMIT_FAMILIES.oneOf()
-    nondet limit = LIMIT_VALUES.oneOf()
+    nondet family = EXTRA_FAMILIES.oneOf()
+    nondet count = EXTRA_COUNTS.oneOf()
     all {
-      intent.limits.size() < 2,
-      intent' = intent.with("limits",
-        intent.limits.union(Set({ tenant: tenant, family: family, limit: limit }))),
+      intent.extras.size() < 2,
+      intent' = intent.with("extras",
+        intent.extras.union(Set({ tenant: tenant, family: family, count: count }))),
     }
   }
 
   action stutter = intent' = intent
 
   action step = any {
-    addTenant, addPort, addLink, addFabric, addCrypto, addLimit, stutter,
+    addTenant, addPort, addLink, addFabric, addCrypto, addExtra, stutter,
   }
 
   // ---- the two rungs (design Risks; intent/invariants.qnt) ----
@@ -264,8 +270,9 @@ module intent_alphabet {
   val wUnsupportedEdge = hasRefusal(r => match r { | UnsupportedEdge(_) => true | _ => false })
   val wUnknownRateClass = hasRefusal(r => match r { | UnknownRateClass(_) => true | _ => false })
   val wCoreBudgetExceeded = hasRefusal(r => match r { | CoreBudgetExceeded(_) => true | _ => false })
-  val wLimitBelowRequest = hasRefusal(r => match r { | LimitBelowRequest(_) => true | _ => false })
-  val wLimitNotDerived = hasRefusal(r => match r { | LimitNotDerived(_) => true | _ => false })
+  val wExtraNotCompanion = hasRefusal(r => match r { | ExtraNotCompanion(_) => true | _ => false })
+  val wExtraNotPositive = hasRefusal(r => match r { | ExtraNotPositive(_) => true | _ => false })
+  val wCryptoFlowsNotPositive = hasRefusal(r => match r { | CryptoFlowsNotPositive(_) => true | _ => false })
   val wInfeasible = hasRefusal(r => match r { | Infeasible(_) => true | _ => false })
   val wUnpricedDataplane = hasRefusal(r => match r { | UnpricedDataplane(_) => true | _ => false })
 
@@ -278,7 +285,7 @@ module intent_alphabet {
   val wLinkPresent = intent.links.length() > 0
   val wFabricPresent = intent.fabrics.length() > 0
   val wCryptoPresent = intent.crypto.size() > 0
-  val wLimitPresent = intent.limits.size() > 0
+  val wExtraPresent = intent.extras.size() > 0
   val wInterruptDrawn = intent.tenants.select(c => c.dataplane == UserspaceEvent).length() > 0
   // A tenant terminating both seeded rate classes (10G and 25G): the
   // cross-class mix the worker table prices but flags unmeasured (design D3).

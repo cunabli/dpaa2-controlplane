@@ -45,7 +45,7 @@ module fabric {
     fabrics: [{ name: "lan", switching: Hardware, forwardedBy: KERNEL,
                 members: [MPort("lan0"), MPort("lan1"), MTenant("router")] }],
     crypto: Set(),
-    limits: Set(),
+    extras: Set(),
   }
 
   pure val accepted: Intent = fabricIntent(8)  // fabric.toml's max_cores

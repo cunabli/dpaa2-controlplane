@@ -212,11 +212,11 @@ module intent_invariants {
 
   // ---- companionCountsByRegime (INTENT_I8): companion counts by dataplane ----
   // ADR-0012 via companionDraw. On a successful compile every tenant's
-  // companion counts are the sizing's effective values, a limit never lowers
-  // a request, the dpio request is exactly companionDraw's field, and every
-  // dpni carries at least T (poll-mode) or exactly cpus (kernel) transmit
-  // queues. The Rust `Tenant` constructor draws these numbers, never the
-  // operator.
+  // companion counts are the sizing's effective values, each effective value
+  // is exactly the request plus the declared extra (0 when none), the dpio
+  // request is exactly companionDraw's field, and every dpni carries at least
+  // T (poll-mode) or exactly cpus (kernel) transmit queues. The Rust `Tenant`
+  // constructor draws these numbers, never the operator.
   pure def companionCountsByRegime(intent: Intent, inv: Inventory): bool =
     match compile(intent, inv) {
       | Ok(r) => intent.tenants.foldl(true, (acc, c) =>
@@ -228,10 +228,10 @@ module intent_invariants {
             countOf(r.plan, c.name, Dpbp) == s.effDpbp.value,
             countOf(r.plan, c.name, Dpmcp) == s.effDpmcp.value,
             countOf(r.plan, c.name, Dpcon) == s.effDpcon.value,
-            s.effDpio.value >= s.effDpio.request,
-            s.effDpbp.value >= s.effDpbp.request,
-            s.effDpmcp.value >= s.effDpmcp.request,
-            s.effDpcon.value >= s.effDpcon.request,
+            s.effDpio.value == s.effDpio.request + extraOf(intent, c.name, Dpio),
+            s.effDpbp.value == s.effDpbp.request + extraOf(intent, c.name, Dpbp),
+            s.effDpmcp.value == s.effDpmcp.request + extraOf(intent, c.name, Dpmcp),
+            s.effDpcon.value == s.effDpcon.request + extraOf(intent, c.name, Dpcon),
             s.effDpio.request == reqDraw.dpio,
             r.plan.objs.forall(o => (o.key.tenant == c.name and o.key.family == Dpni) implies
               match o.attrs {

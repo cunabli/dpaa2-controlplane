@@ -12,9 +12,10 @@ mode), `[[link]]` (two tenant ends, `interface_a`/`interface_b`),
 `[[fabric]]` (switching
 `hardware|software`, forwarded_by, members: ports, tenants, or fabrics), and `[[crypto]]` (tenant, flows). The config SHALL NOT require
 or accept the operator naming a DPNI index or any dpio, dpbp, dpcon,
-dpmcp, queue or worker count; per-family limits under a tenant are
-the only object-level numbers and MUST NOT fall below the derived
-request.
+dpmcp, queue or worker count; per-(tenant, family) `[[extra]]` counts are
+the only object-level numbers, they add on top of the derived request,
+and they are accepted only for the four companion families dpio/dpbp/
+dpmcp/dpcon with a `count` of at least 1.
 
 #### Scenario: Port defined by DPMAC
 - **WHEN** a topology entry specifies `dpmac = "dpmac.7"`, a name, a
@@ -29,7 +30,7 @@ request.
   explaining that DPNI identity is derived from the DPMAC edge
 
 #### Scenario: A count field is rejected
-- **WHEN** a tenant entry attempts `dpio = 10` outside an override
+- **WHEN** a tenant entry attempts `dpio = 10` outside an `[[extra]]`
   table, or any entry names a worker count
 - **THEN** the system SHALL reject the config with a validation error
   naming the field and stating that the count is derived
