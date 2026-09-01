@@ -17,7 +17,7 @@ Two operating modes frame the whole series (design D8):
 ## The series
 
 | # | Change | Delivers | Depends on | Status |
-|---|--------|----------|------------|
+|---|--------|----------|------------|--------|
 | 1 | `restool-baseline` | `docs/baseline/` for all 16 object families; `object-model.md` relationship map; traffic inventory; pinned reference environment (MC 10.39.0 + Linux 6.6.52 + restool v2.4); this roadmap; ADRs 0002–0006 | — | archived 2026-08-22 |
 | 2 | `verify-foundation` | `models/` + Quint CI ladder (typecheck → simulate → ITF replay → Apalache on marked invariants); `dpaa2-verify` crate (MBT adapter, batch-suite generator, online driver, ITF replayer); retro-models of the already-validated reconciler and dpni/dpmac flow, validated by the first board batch suite — proving the method on known ground; **verifies the recovery guarantee** (reboot restores the DPL baseline) before any mutating suite runs | 1 | archived 2026-08-30 |
 | 3 | `intent-layer` | Network-construct intent schema in `dpaa2-config`; pure derivation compiler in `dpaa2-api` codifying the sizing rules (DPIO ≥ 2·(1+workers), two-DPBP, DPCON per queue, DPMCP companions); Quint derivation invariants; dry-run with per-object rule provenance; per-object override escape hatch | 1, 2 | **in flight** since 2026-08-30 |

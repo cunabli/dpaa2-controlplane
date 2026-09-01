@@ -26,21 +26,25 @@
 //
 // Coverage (task 2.4). `pnpm model:coverage` runs the alphabet under every
 // invariant with the named witnesses below; the counted run is
-//   seed=20260831, --max-steps=12, --max-samples=3000, 2026-08-31,
+//   seed=20260831, --max-steps=12, --max-samples=3000, 2026-09-01,
 // deterministic and reproducible. No invariant violation was found. Two
 // alphabet widenings this counting drove are stated where they land (DPMACS
-// 99 for Unanchored, RATES 40000 for UnknownRateClass) — never silent.
+// 99 for Unanchored, RATES 40000 for UnknownRateClass) — never silent. The
+// counts were re-recorded after the 2.6a vocabulary rename moved the FLOWS
+// draw from addTenant to addCrypto (crypto owns its flows): the trace stream
+// shifts, so the numbers differ from the 2026-08-31 run while every recorded
+// unknown (below) stays at zero.
 //
 // Witness counts (traces of 3000 in which the witness held):
-//   wAccepted 3000, wRefused 2996, wUnknownCeiling 3000,
-//   wLimitBelowRequest 1945, wUnpricedDataplane 2052, wOverRate 1647,
-//   wMemberUnresolved 1570, wReservedAnchor 1532, wLimitNotDerived 950,
-//   wUnanchored 874, wSelfMember 705, wDoubleClaimed 677,
-//   wPortTenantMismatch 620, wMixedRates 454,
-//   wFabricNotKernelForwarded 349, wUnknownRateClass 320,
-//   wCoreBudgetExceeded 282, wUnsupportedEdge 181;
-//   structure wCryptoPresent 2872, wLimitPresent 2853, wFabricPresent 2784,
-//   wThreeTenants 2381, wLinkPresent 2309, wInterruptDrawn 2052.
+//   wAccepted 3000, wRefused 2997, wUnknownCeiling 3000,
+//   wLimitBelowRequest 1891, wUnpricedDataplane 2053, wOverRate 1656,
+//   wMemberUnresolved 1592, wReservedAnchor 1548, wLimitNotDerived 950,
+//   wUnanchored 854, wSelfMember 657, wDoubleClaimed 715,
+//   wPortTenantMismatch 674, wMixedRates 451,
+//   wFabricNotKernelForwarded 386, wUnknownRateClass 318,
+//   wCoreBudgetExceeded 269, wUnsupportedEdge 173;
+//   structure wCryptoPresent 2882, wLimitPresent 2838, wFabricPresent 2786,
+//   wThreeTenants 2391, wLinkPresent 2309, wInterruptDrawn 2053.
 //
 // Recorded unknowns / alphabet-unreachable (0 traces — where each is covered):
 //   wTenantAbsent — unreachable BY CONSTRUCTION: addPort/addLink/addFabric/
@@ -94,12 +98,12 @@ module intent_alphabet {
   // complete-refusal-list semantics still witness UnknownRateClass in the set.
   pure val RATES: Set[int] = Set(10000, 25000, 40000)
   pure val CORES: Set[int] = Set(1, 4, 5, 8, 16)
-  pure val FLOWS: Set[int] = Set(0, 1, 4)        // crypto_flows demand
+  pure val FLOWS: Set[int] = Set(0, 1, 4)        // the crypto construct's flows demand
   // The userspace dataplanes a non-kernel tenant may run: UserspacePoll is
-  // priced (ADR-0012), UserspaceInterrupt is not — the latter is a legal
+  // priced (ADR-0012), UserspaceEvent is not — the latter is a legal
   // draw whose compile is refused UnpricedDataplane (a refusal is a legal
   // outcome, so the rung stays green).
-  pure val USERSPACE_DATAPLANES: Set[Dataplane] = Set(UserspacePoll, UserspaceInterrupt)
+  pure val USERSPACE_DATAPLANES: Set[Dataplane] = Set(UserspacePoll, UserspaceEvent)
   pure val LIMIT_VALUES: Set[int] = Set(1, 2, 10, 12)
   pure val LIMIT_FAMILIES: Set[Family] = Set(Dpio, Dpbp, Dpmcp, Dpcon, Dpni)
 
@@ -130,13 +134,12 @@ module intent_alphabet {
   // dataplane drawn from the userspace alphabet.
   action addTenant = {
     nondet maxCores = CORES.oneOf()
-    nondet cryptoFlows = FLOWS.oneOf()
     nondet dataplane = USERSPACE_DATAPLANES.oneOf()
     all {
       intent.tenants.length() < 3,
       intent' = intent.with("tenants", intent.tenants.append({
         name: TENANT_NAMES.nth(intent.tenants.length() - 1),
-        dataplane: dataplane, maxCores: maxCores, cryptoFlows: cryptoFlows })),
+        dataplane: dataplane, maxCores: maxCores })),
     }
   }
 
@@ -161,7 +164,7 @@ module intent_alphabet {
     all {
       intent.links.length() == 0,
       intent.tenants.length() >= 2,
-      intent' = intent.with("links", intent.links.append({ name: "l1", a: a, b: b })),
+      intent' = intent.with("links", intent.links.append({ name: "l1", interfaceA: a, interfaceB: b })),
     }
   }
 
@@ -178,12 +181,14 @@ module intent_alphabet {
   }
 
   // One accelerator per tenant at most: an owner already in crypto is a
-  // no-op pick (the guard disables the action, stutter keeps step total).
+  // no-op pick (the guard disables the action, stutter keeps step total). The
+  // flows demand is drawn here (design D1: crypto owns its flows).
   action addCrypto = {
     nondet owner = tenantNames(intent).oneOf()
+    nondet flows = FLOWS.oneOf()
     all {
       not(intent.crypto.map(k => k.tenant).contains(owner)),
-      intent' = intent.with("crypto", intent.crypto.union(Set({ tenant: owner }))),
+      intent' = intent.with("crypto", intent.crypto.union(Set({ tenant: owner, flows: flows }))),
     }
   }
 
@@ -274,7 +279,7 @@ module intent_alphabet {
   val wFabricPresent = intent.fabrics.length() > 0
   val wCryptoPresent = intent.crypto.size() > 0
   val wLimitPresent = intent.limits.size() > 0
-  val wInterruptDrawn = intent.tenants.select(c => c.dataplane == UserspaceInterrupt).length() > 0
+  val wInterruptDrawn = intent.tenants.select(c => c.dataplane == UserspaceEvent).length() > 0
   // A tenant terminating both seeded rate classes (10G and 25G): the
   // cross-class mix the worker table prices but flags unmeasured (design D3).
   val wMixedRates = intent.tenants.select(c => seededRateClasses(intent, c.name).size() > 1).length() > 0

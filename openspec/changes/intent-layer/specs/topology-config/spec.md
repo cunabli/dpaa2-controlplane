@@ -6,10 +6,11 @@ The system SHALL read a declarative topology that opens with an
 which each port is identified by
 its static DPMAC anchor and never by an MC-assigned DPNI index, and in
 which every other object is derived from the constructs the operator
-declares: `[[tenant]]` (name, dataplane, `max_cores`,
-`crypto_flows`), `[[port]]` (dpmac, name, rate, tenant, MAC and MAC
-mode), `[[link]]` (two tenant ends), `[[fabric]]` (switching
-`hardware|software`, forwarded_by, members: ports, tenants, or fabrics), and `[[crypto]]` (tenant). The config SHALL NOT require
+declares: `[[tenant]]` (name, dataplane, `max_cores`),
+`[[port]]` (dpmac, name, rate, tenant, MAC and MAC
+mode), `[[link]]` (two tenant ends, `interface_a`/`interface_b`),
+`[[fabric]]` (switching
+`hardware|software`, forwarded_by, members: ports, tenants, or fabrics), and `[[crypto]]` (tenant, flows). The config SHALL NOT require
 or accept the operator naming a DPNI index or any dpio, dpbp, dpcon,
 dpmcp, queue or worker count; per-family limits under a tenant are
 the only object-level numbers and MUST NOT fall below the derived

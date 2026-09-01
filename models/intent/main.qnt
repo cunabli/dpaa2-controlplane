@@ -49,7 +49,7 @@ module intent_main {
 
   // ---- shared intent fragments ----
 
-  pure val router: Tenant = { name: "router", dataplane: UserspacePoll, maxCores: 8, cryptoFlows: 4 }
+  pure val router: Tenant = { name: "router", dataplane: UserspacePoll, maxCores: 8 }
   pure val kernel16: Tenant = kernelTenant(16)
   pure val wan0: Port = { name: "wan0", dpmac: 7, rate: 10000, tenant: "router" }
   pure val wan1: Port = { name: "wan1", dpmac: 8, rate: 10000, tenant: "router" }
@@ -80,10 +80,10 @@ module intent_main {
       links: [],
       fabrics: [{ name: "lan", switching: Hardware, forwardedBy: "kernel",
                   members: [MPort("p7"), MPort("p8"), MTenant("router")] }],
-      crypto: Set({ tenant: "router" }),
+      crypto: Set({ tenant: "router", flows: 4 }),
       limits: Set() }
   pure val softwareFabricIntent: Intent =
-    { tenants: [kernel16, { name: "vpp", dataplane: UserspacePoll, maxCores: 8, cryptoFlows: 0 }],
+    { tenants: [kernel16, { name: "vpp", dataplane: UserspacePoll, maxCores: 8 }],
       ports: [{ name: "p7", dpmac: 7, rate: 10000, tenant: "vpp" },
               { name: "p8", dpmac: 8, rate: 10000, tenant: "vpp" }],
       links: [],
@@ -92,7 +92,7 @@ module intent_main {
       crypto: Set(),
       limits: Set() }
   pure val chainIntent: Intent =
-    { tenants: [kernel16, { name: "vpp", dataplane: UserspacePoll, maxCores: 8, cryptoFlows: 0 }],
+    { tenants: [kernel16, { name: "vpp", dataplane: UserspacePoll, maxCores: 8 }],
       ports: [{ name: "p7", dpmac: 7, rate: 10000, tenant: "vpp" },
               { name: "p8", dpmac: 8, rate: 10000, tenant: "kernel" },
               { name: "p9", dpmac: 9, rate: 10000, tenant: "kernel" },
@@ -113,16 +113,16 @@ module intent_main {
                 { name: "hw2", switching: Hardware, forwardedBy: "kernel", members: [MFabric("hw1"), MPort("p9")] }],
       crypto: Set(), limits: Set() }
   pure val linkIntent: Intent =
-    { tenants: [{ name: "routerA", dataplane: UserspacePoll, maxCores: 8, cryptoFlows: 0 },
-                  { name: "routerB", dataplane: UserspacePoll, maxCores: 8, cryptoFlows: 0 }],
-      ports: [], links: [{ name: "wire", a: "routerA", b: "routerB" }],
+    { tenants: [{ name: "routerA", dataplane: UserspacePoll, maxCores: 8 },
+                  { name: "routerB", dataplane: UserspacePoll, maxCores: 8 }],
+      ports: [], links: [{ name: "wire", interfaceA: "routerA", interfaceB: "routerB" }],
       fabrics: [], crypto: Set(), limits: Set() }
   // The refused intents the compile-side runs exercise.
   pure val coreBudgetIntent: Intent = routerIntent.with("tenants", [router.with("maxCores", 4)])
   pure val infeasibleIntent: Intent =
-    { tenants: [{ name: "a", dataplane: UserspacePoll, maxCores: 2, cryptoFlows: 0 },
-                  { name: "b", dataplane: UserspacePoll, maxCores: 2, cryptoFlows: 0 },
-                  { name: "d", dataplane: UserspacePoll, maxCores: 2, cryptoFlows: 0 }],
+    { tenants: [{ name: "a", dataplane: UserspacePoll, maxCores: 2 },
+                  { name: "b", dataplane: UserspacePoll, maxCores: 2 },
+                  { name: "d", dataplane: UserspacePoll, maxCores: 2 }],
       ports: [], links: [], fabrics: [], crypto: Set(), limits: Set() }
   pure val allViolationsIntent: Intent =
     { tenants: [router.with("maxCores", 4), kernel16],
@@ -155,7 +155,7 @@ module intent_main {
     REF_INVENTORY.dpmacs.keys() == Set(3, 4, 5, 6, 7, 8, 9, 10, 17),
     REF_INVENTORY.dpmacs.get(7).maxRate == 10000,
     REF_INVENTORY.dpmacs.get(3).maxRate == 25000,
-    kernelTenant(16).dataplane == Kernel,
+    kernelTenant(16).dataplane == KernelNetlink,
   }
 
   // A poll-mode router over two 10G ports: the child DPRC, two dpnis at
@@ -232,7 +232,7 @@ module intent_main {
   // one dpsw with num_ifs = ports + tenants, the fabric-member ports
   // switched (no dpni, no port-edge) and attached to the dpsw interfaces,
   // the member tenant joined through one fabric-membership dpni, and one
-  // dpseci sized to the owner's crypto_flows.
+  // dpseci sized to the crypto construct's flows.
   run fabricAndCryptoTest =
     val p = derive(fabricCryptoIntent, REF_INVENTORY)
     all {

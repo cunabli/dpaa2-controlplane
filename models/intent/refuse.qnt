@@ -45,7 +45,7 @@ module intent_refuse {
     | LimitBelowRequest({ tenant: str, family: Family, request: int, limit: int }) // design D5 (D5's OverrideBelowFloor)
     | LimitNotDerived({ tenant: str, family: Family })        // a limit on a family whose count is fixed by constructs (design D7)
     | Infeasible({ family: Family, needed: int, available: int }) // sum of derived objs of a family > a Counted/Observed ceiling (ADR-0011; design D2)
-    | UnpricedDataplane({ tenant: str, dataplane: Dataplane }) // a tenant whose dataplane ADR-0012 does not price (today UserspaceInterrupt; design D3)
+    | UnpricedDataplane({ tenant: str, dataplane: Dataplane }) // a tenant whose dataplane ADR-0012 does not price (today UserspaceEvent; design D3)
 
   // A non-fatal note attached to an accepted compile (the review's
   // escape-hatch-warns rule). UnknownCeiling: the ceiling is Unknown, so
@@ -80,8 +80,8 @@ module intent_refuse {
       if (names.contains(p.tenant)) acc
       else acc.union(Set(TenantAbsent({ construct: p.name, tenant: p.tenant }))))
     val fromLinks = intent.links.foldl(fromPorts, (acc, l) =>
-      val a1 = if (names.contains(l.a)) acc else acc.union(Set(TenantAbsent({ construct: l.name, tenant: l.a })))
-      if (names.contains(l.b)) a1 else a1.union(Set(TenantAbsent({ construct: l.name, tenant: l.b }))))
+      val a1 = if (names.contains(l.interfaceA)) acc else acc.union(Set(TenantAbsent({ construct: l.name, tenant: l.interfaceA })))
+      if (names.contains(l.interfaceB)) a1 else a1.union(Set(TenantAbsent({ construct: l.name, tenant: l.interfaceB }))))
     val fromFabrics = intent.fabrics.foldl(fromLinks, (acc, f) =>
       if (names.contains(f.forwardedBy)) acc
       else acc.union(Set(TenantAbsent({ construct: f.name, tenant: f.forwardedBy }))))
@@ -210,7 +210,7 @@ module intent_refuse {
       acc.union(notKernel).union(mismatches).union(unsupported))
 
   // ---- rule 7: userspace-poll thread-count sizing (design D3; ADR-0012) ----
-  // Kernel tenants: none. Under the online-CPU reading of open question 2
+  // KernelNetlink tenants: none. Under the online-CPU reading of open question 2
   // (KERNEL_BUDGET_IS_DPIO_COUNT = false), maxCores is not a bound on the
   // kernel dataplane, so no CoreBudgetExceeded fires for a kernel tenant.
   pure def sizingRefusals(intent: Intent, inv: Inventory): Set[Refusal] =
@@ -259,7 +259,7 @@ module intent_refuse {
       })
 
   // ---- rule 10: a tenant whose dataplane has no companion pricing (design D3; ADR-0012) ----
-  // UserspaceInterrupt has no ADR-0012 draw, so the derivation cannot size it
+  // UserspaceEvent has no ADR-0012 draw, so the derivation cannot size it
   // (intent/derive.qnt hasPricing skips it); the refusal is the answer.
   pure def unpricedDataplaneRefusals(intent: Intent, inv: Inventory): Set[Refusal] =
     intent.tenants.foldl(Set(), (acc, c) =>
@@ -325,7 +325,7 @@ module intent_refuse {
     LimitBelowRequest({ tenant: "c", family: Dpio, request: 0, limit: 0 }),
     LimitNotDerived({ tenant: "c", family: Dpni }),
     Infeasible({ family: Dpbp, needed: 0, available: 0 }),
-    UnpricedDataplane({ tenant: "c", dataplane: UserspaceInterrupt }))
+    UnpricedDataplane({ tenant: "c", dataplane: UserspaceEvent }))
   pure val WARNINGS_USE: Set[Warning] = Set(
     UnknownCeiling({ family: Dpio, needed: 0 }),
     UnmeasuredCombination({ tenant: "c", rates: Set() }))

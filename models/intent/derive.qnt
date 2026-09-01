@@ -251,8 +251,8 @@ module intent_derive {
 
   pure def linkOrigins(intent: Intent, name: str): List[Origin] =
     intent.links.foldl([], (acc, l) =>
-      val a1 = if (l.a == name) acc.append(OLink({ link: l, side: 0 })) else acc
-      if (l.b == name) a1.append(OLink({ link: l, side: 1 })) else a1)
+      val a1 = if (l.interfaceA == name) acc.append(OLink({ link: l, side: 0 })) else acc
+      if (l.interfaceB == name) a1.append(OLink({ link: l, side: 1 })) else a1)
 
   // One OAttach per Hardware fabric the tenant attaches to, once per
   // (X, f) however many ways the attachment is implied.
@@ -370,14 +370,29 @@ module intent_derive {
   pure def cryptoCount(intent: Intent, name: str): int =
     intent.crypto.filter(k => k.tenant == name).size()
 
+  // The dpseci queue demand of a tenant: the `flows` its Crypto construct
+  // carries (design D1) — provenance bottoms out in the crypto construct, not
+  // the tenant. At most one crypto per tenant in the exercised scenarios and
+  // the alphabet, so this is that single block's flows.
+  // ponytail: uniform sizing — every dpseci of a tenant is sized to the MAX
+  // flows across its crypto blocks (num_queues >= each block's flows), a
+  // deterministic ceiling, never the arbitrary last-wins of a bare fold. Zero
+  // when the tenant has no crypto (cryptoCount is then 0 and no dpseci is
+  // emitted). Upgrade path (2.6b/2.6c): size each dpseci from its own block
+  // with provenance keyed by that block, once a scenario declares two crypto
+  // blocks with distinct flows — needs a crypto identifier and an ordinal
+  // drawn from the (today unordered) crypto set.
+  pure def cryptoFlowsOf(intent: Intent, name: str): int =
+    intent.crypto.filter(k => k.tenant == name).fold(0, (acc, k) => if (k.flows > acc) k.flows else acc)
+
   pure def containerOf(c: Tenant): Container =
     if (c.name == KERNEL) Root else Child(c.name)
 
-  // ADR-0012 prices only the Kernel and UserspacePoll dataplanes; a
-  // UserspaceInterrupt tenant has no companion draw, so the derivation never
+  // ADR-0012 prices only the KernelNetlink and UserspacePoll dataplanes; a
+  // UserspaceEvent tenant has no companion draw, so the derivation never
   // sizes it — compile refuses it (intent/refuse.qnt UnpricedDataplane).
   pure def hasPricing(c: Tenant): bool =
-    match c.dataplane { | UserspaceInterrupt => false | _ => true }
+    match c.dataplane { | UserspaceEvent => false | _ => true }
 
   // The kernel's dpio budget: online CPUs (ADR-0012) or max_cores — the
   // gate picks one (open question 2).
@@ -396,14 +411,14 @@ module intent_derive {
 
   // Companion draws by reference to companionDraw (ADR-0012). Poll-mode:
   // dpio 2·T, dpbp 2, dpmcp one per process (the primary; a secondary is a
-  // dpmcp limit); dpni transmit queues ≥ T. Kernel: dpio one per online
+  // dpmcp limit); dpni transmit queues ≥ T. KernelNetlink: dpio one per online
   // CPU, dpbp/dpmcp one per consuming object plus one per dpio, and each
   // dpsw/dpseci adds its own family census row (families/dpsw.qnt,
   // families/dpseci.qnt draw). dpcon is one per polled queue (dpcon.md,
   // DPCON-I1): poll-mode dpnis·T, kernel imin(cpus, numQueues) per dpni.
   pure def sizeTenant(intent: Intent, inv: Inventory, c: Tenant): Sizing =
     val nm = c.name
-    val isK = c.dataplane == Kernel
+    val isK = c.dataplane == KernelNetlink
     val dpnis = originList(intent, nm).length()
     val t = tOf(intent, c)
     val cpus = kernelCores(inv, c)
@@ -424,7 +439,7 @@ module intent_derive {
       effDpbp: effective(intent, nm, Dpbp, reqDpbp),
       effDpmcp: effective(intent, nm, Dpmcp, reqDpmcp),
       effDpcon: effective(intent, nm, Dpcon, reqDpcon),
-      numDpseci: nDpseci, cryptoFlows: c.cryptoFlows, numDpsw: nDpsw }
+      numDpseci: nDpseci, cryptoFlows: cryptoFlowsOf(intent, nm), numDpsw: nDpsw }
 
   // ---- objects ----
 
@@ -487,8 +502,8 @@ module intent_derive {
       .union(sizedObjs(s.name, Dpbp, s.container, s.effDpbp.value, Unsized, "dpbp"))
       .union(sizedObjs(s.name, Dpcon, s.container, s.effDpcon.value, Unsized, "dpcon"))
       .union(sizedObjs(s.name, Dpni, s.container, s.dpnis, DpniAttrs({ numQueues: s.numQueues }), "dpnis"))
-      // one dpseci per Crypto owned by c (dpseci.md): num_queues ≥
-      // crypto_flows, DPSECI_OPT_HAS_CG safety bit.
+      // one dpseci per Crypto owned by c (dpseci.md): num_queues ≥ the
+      // crypto construct's flows, DPSECI_OPT_HAS_CG safety bit.
       .union(sizedObjs(s.name, Dpseci, s.container, s.numDpseci, DpseciAttrs({ numQueues: s.cryptoFlows, hasCg: true }), "dpseci"))
       .union(dpswObjs(intent, s))
 
@@ -570,7 +585,7 @@ module intent_derive {
   pure def linkEdgeNode(l: Link): ProvNode =
     { rule: "link-edge", anchor: "object-model.md §2, DPNI-I9 pseudo-wire", mark: Measured,
       request: 0, limit: None, value: 0,
-      inputs: Set({ tenant: l.a, rule: "dpnis", construct: "" }, { tenant: l.b, rule: "dpnis", construct: "" }),
+      inputs: Set({ tenant: l.interfaceA, rule: "dpnis", construct: "" }, { tenant: l.interfaceB, rule: "dpnis", construct: "" }),
       constructs: Set(l.name) }
 
   pure def fabricEdgeNode(f: Fabric): ProvNode =
@@ -625,7 +640,7 @@ module intent_derive {
                            request: 1, limit: None, value: 1, inputs: Set(), constructs: Set(nm) })
     val m4 = if (s.numDpseci > 0)
                m3.put({ tenant: nm, rule: "dpseci", construct: "" },
-                      { rule: "dpseci", anchor: "dpseci.md: num_queues >= crypto_flows, DPSECI_OPT_HAS_CG",
+                      { rule: "dpseci", anchor: "dpseci.md: num_queues >= flows, DPSECI_OPT_HAS_CG",
                         mark: Measured, request: s.cryptoFlows, limit: None, value: s.cryptoFlows,
                         inputs: Set(), constructs: Set(nm) })
              else m3
@@ -642,7 +657,7 @@ module intent_derive {
   pure def fullProv(intent: Intent, inv: Inventory): ProvKey -> ProvNode =
     val base = Map({ tenant: KERNEL, rule: "dprtc", construct: "" } -> dprtcNode)
     val withC = intent.tenants.foldl(base, (m, c) => if (hasPricing(c)) addTenantProv(intent, inv, m, c) else m)
-    val withL = intent.links.foldl(withC, (m, l) => m.put({ tenant: l.a, rule: "link-edge", construct: l.name }, linkEdgeNode(l)))
+    val withL = intent.links.foldl(withC, (m, l) => m.put({ tenant: l.interfaceA, rule: "link-edge", construct: l.name }, linkEdgeNode(l)))
     intent.fabrics.foldl(withL, (m, f) =>
       if (f.switching == Hardware)
         m.put({ tenant: f.forwardedBy, rule: "fabric-edge", construct: f.name }, fabricEdgeNode(f))
@@ -665,11 +680,11 @@ module intent_derive {
   pure def linkEdges(intent: Intent): Set[Edge] =
     intent.links.foldl(Set(), (acc, l) =>
       acc.union(Set({
-        a: ObjEnd({ key: { tenant: l.a, family: Dpni,
-                           ordinal: ordinalWhere(originList(intent, l.a), o => isLinkSide(o, l.name, 0)) }, port: 0 }),
-        b: ObjEnd({ key: { tenant: l.b, family: Dpni,
-                           ordinal: ordinalWhere(originList(intent, l.b), o => isLinkSide(o, l.name, 1)) }, port: 0 }),
-        prov: { tenant: l.a, rule: "link-edge", construct: l.name } })))
+        a: ObjEnd({ key: { tenant: l.interfaceA, family: Dpni,
+                           ordinal: ordinalWhere(originList(intent, l.interfaceA), o => isLinkSide(o, l.name, 0)) }, port: 0 }),
+        b: ObjEnd({ key: { tenant: l.interfaceB, family: Dpni,
+                           ordinal: ordinalWhere(originList(intent, l.interfaceB), o => isLinkSide(o, l.name, 1)) }, port: 0 }),
+        prov: { tenant: l.interfaceA, rule: "link-edge", construct: l.name } })))
 
   pure def dpswOrdinalOf(intent: Intent, f: Fabric): int =
     hwOwnedFabrics(intent, f.forwardedBy).foldl({ i: 0, found: -1 }, (acc, g) =>
@@ -730,7 +745,7 @@ module intent_derive {
   pure val MARKS_USE: Set[Mark] = Set(Measured, Unmeasured)
   pure val ORIGINS_USE: Set[Origin] = Set(
     OPort({ name: "p", dpmac: 0, rate: 0, tenant: "c" }),
-    OLink({ link: { name: "l", a: "c", b: "d" }, side: 0 }),
+    OLink({ link: { name: "l", interfaceA: "c", interfaceB: "d" }, side: 0 }),
     OAttach("f"),
     OWireOwner({ fabric: "f", peer: "c" }),
     OWireMember("f"))

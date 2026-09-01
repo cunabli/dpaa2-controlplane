@@ -2,14 +2,14 @@
 
 ### Requirement: Intent is a frontend-neutral vocabulary of network constructs
 The `dpaa2-api` crate SHALL define an `Intent` type composed of five
-constructs — tenant (name, dataplane `kernel`, `userspace-poll`, or
-`userspace-interrupt`, a `max_cores` budget, a `crypto_flows` count),
+constructs — tenant (name, dataplane `kernel-netlink`, `userspace-poll`, or
+`userspace-event`, a `max_cores` budget),
 port (dpmac anchor, rate, owning tenant), link (two tenant ends),
 fabric (members — ports, tenants, or fabrics — and a `switching`
-qualifier, hardware or software), and crypto (per tenant) — carrying no
-serialization derives and no field for a dpio, dpbp, dpcon, dpmcp,
-queue or worker count. The tenant name `kernel` SHALL be reserved for
-the root-container kernel dataplane. (ADR-0005 §1, ADR-0012)
+qualifier, hardware or software), and crypto (per tenant, with a `flows`
+count) — carrying no serialization derives and no field for a dpio, dpbp,
+dpcon, dpmcp, queue or worker count. The tenant name `kernel` SHALL be
+reserved for the root-container `kernel-netlink` dataplane. (ADR-0005 §1, ADR-0012)
 
 #### Scenario: A port without a tenant belongs to the kernel
 - **WHEN** an intent contains a port that names no tenant
@@ -25,7 +25,7 @@ the root-container kernel dataplane. (ADR-0005 §1, ADR-0012)
 #### Scenario: No count field exists
 - **WHEN** the `Intent` type is inspected
 - **THEN** no construct exposes a dpio, dpbp, dpcon, dpmcp, queue or
-  worker count; the only numbers are `max_cores`, `crypto_flows`, and
+  worker count; the only numbers are `max_cores`, a crypto `flows`, and
   port `rate`
 
 ### Requirement: The inventory is the observed hardware offer
@@ -80,8 +80,8 @@ ports) bounded by `max_cores`, and the companion set from the
 dataplane per ADR-0012: userspace-poll per child dprc dpio = 2·T, dpbp =
 2, dpmcp = one per process, dpni transmit queues ≥ T; kernel dpio one
 per online CPU, dpbp and dpmcp one per consuming object plus one dpmcp
-per dpio; dpcon one per polled queue; dpseci `num_queues ≥
-crypto_flows` with `HAS_CG`; dpsw `num_ifs` = port count, `max_fdbs ≥
+per dpio; dpcon one per polled queue; dpseci `num_queues ≥` the crypto
+construct's `flows`, with `HAS_CG`; dpsw `num_ifs` = port count, `max_fdbs ≥
 num_ifs`, PER_FDB flooding and broadcast, control interface enabled.
 
 #### Scenario: Userspace-poll router derives its companions
@@ -109,7 +109,7 @@ fabric; a derived T above the tenant's `max_cores`;
 a limit below its request; a limit on a family whose count the
 constructs fix; a userspace-poll tenant terminating a rate class with no
 seeded worker row; a tenant whose dataplane has no companion pricing
-(`userspace-interrupt` today); a construct naming an undeclared tenant,
+(`userspace-event` today); a construct naming an undeclared tenant,
 port or fabric; and cross-tenant infeasibility, where the
 sum of derived draws exceeds a `Counted` or `Observed` ceiling — naming
 the family, the amount needed, and the amount available. An `Unknown`

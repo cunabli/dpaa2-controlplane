@@ -1,7 +1,7 @@
 // Scenario (3) of the intent gate (openspec change `intent-layer`, design
 // D8; task 2.3): a userspace-poll router over N×10G + 1×25G with an
 // accelerator, terminating dpmac.9/10 at 2×10G (N = 2) and dpmac.4 at 25G.
-// crypto_flows = 2 ≤ N. It is the scenario that exercises the rate table
+// flows = 2 ≤ N. It is the scenario that exercises the rate table
 // across two seeded classes: T = 1 + 2·workers(10G) + workers(25G) =
 // 1 + 2·2 + 5 = 10 (design D3), and the 10G+25G mix carries the
 // UnmeasuredCombination warning — flagged, never silent. `max_cores` = 16 is
@@ -15,7 +15,7 @@
 // is exactly DoubleClaimed naming the dpmac and the two claiming ports (design
 // D5), and nothing else.
 //
-// Anchors: dpseci.md num_queues ≥ crypto_flows + DPSECI_OPT_HAS_CG; DPMAC-I3
+// Anchors: dpseci.md num_queues ≥ flows + DPSECI_OPT_HAS_CG; DPMAC-I3
 // the immutable 25G rate class read by `dpmac info`; design D3 worker table
 // (10G⇒2, 25G⇒5, unmeasured); ADR-0012 poll-mode companion draws; DPAA2 User
 // Manual §2.2.2 fig. 6a the dpni↔dpmac port.
@@ -38,17 +38,17 @@ module router {
     objsOfFam(p, name, fam).size()
 
   // The intent router.toml states: one poll-mode tenant terminating two 10G
-  // ports and one 25G port, with crypto_flows = 2 (≤ N = 2) and one crypto
+  // ports and one 25G port, with flows = 2 (≤ N = 2) and one crypto
   // accelerator. No dpio, dpbp, dpcon, dpmcp, dpseci, queue or worker count
   // appears — every object and count is derived (ADR-0005).
   pure val accepted: Intent =
-    { tenants: [{ name: "router", dataplane: UserspacePoll, maxCores: 16, cryptoFlows: 2 }],
+    { tenants: [{ name: "router", dataplane: UserspacePoll, maxCores: 16 }],
       ports: [{ name: "wan0", dpmac: 9, rate: 10000, tenant: "router" },
               { name: "wan1", dpmac: 10, rate: 10000, tenant: "router" },
               { name: "up0", dpmac: 4, rate: 25000, tenant: "router" }],
       links: [],
       fabrics: [],
-      crypto: Set({ tenant: "router" }),
+      crypto: Set({ tenant: "router", flows: 2 }),
       limits: Set() }
 
   // The twin (model-only): a second poll-mode tenant router2 claims dpmac.9
@@ -58,14 +58,14 @@ module router {
   pure val twin: Intent =
     accepted
       .with("tenants", accepted.tenants.append(
-        { name: "router2", dataplane: UserspacePoll, maxCores: 16, cryptoFlows: 0 }))
+        { name: "router2", dataplane: UserspacePoll, maxCores: 16 }))
       .with("ports", accepted.ports.append(
         { name: "clash0", dpmac: 9, rate: 10000, tenant: "router2" }))
 
   // The expected plan shape (design D3/D4/D6): three dpnis (one per port) at
   // T = 10 transmit queues with the ADR-0012 poll-mode draws — dpio = 2·T =
   // 20, dpbp = 2, dpmcp = 1, dpcon = dpnis·T = 30 — one dpseci with
-  // num_queues = crypto_flows = 2 and the DPSECI_OPT_HAS_CG bit, no dpsw, the
+  // num_queues = flows = 2 and the DPSECI_OPT_HAS_CG bit, no dpsw, the
   // three port edges as the whole edge set, and T visibly unmeasured (design
   // D3).
   run routerPlanShapeTest =
@@ -81,7 +81,7 @@ module router {
             countFam(p, "router", Dpbp) == 2,
             countFam(p, "router", Dpmcp) == 1,
             countFam(p, "router", Dpcon) == 30,  // dpnis · T (DPCON-I1)
-            // one dpseci: num_queues = crypto_flows = 2 (≥ crypto_flows) with
+            // one dpseci: num_queues = flows = 2 (≥ flows) with
             // the DPSECI_OPT_HAS_CG safety bit (dpseci.md)
             objsOfFam(p, "router", Dpseci) == Set(
               { key: { tenant: "router", family: Dpseci, ordinal: 1 }, container: Child("router"),

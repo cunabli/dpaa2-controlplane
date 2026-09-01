@@ -58,24 +58,24 @@ below record that session so tasks transcribe rather than re-litigate.
 ### D1. The operator states capacity and tenants, never counts
 
 The schema carries five constructs — tenant (name, dataplane
-`kernel|userspace-poll|userspace-interrupt`, `max_cores`,
-`crypto_flows`), port (dpmac, rate, tenant), link (two tenant ends),
+`kernel-netlink|userspace-poll|userspace-event`, `max_cores`), port
+(dpmac, rate, tenant), link (two tenant ends),
 fabric (members — ports, tenants, or other fabrics — with a `switching`
 qualifier: `hardware`, a dpsw only the kernel can drive, or `software`,
 the forwarding tenant bridging its own dpnis, which the MC never sees; a
 chain of switches is a software fabric that lists a hardware fabric as a
 member — DPAA2 User Manual §2.2.2 figure 6a–c; `forwarded_by` names the
-tenant that runs the fabric's forwarding plane), crypto (per tenant) —
-and no field for a dpio, dpbp, dpcon, dpmcp, queue or worker count.
-`max_cores` is a budget the derivation must fit under; `crypto_flows` is
-a tenant-visible quantity, not an object count; `rate` is what the port
-must deliver. The file opens with an `[intent]` table — where
+tenant that runs the fabric's forwarding plane), crypto (per tenant, with
+its own `flows` demand) — and no field for a dpio, dpbp, dpcon, dpmcp,
+queue or worker count. `max_cores` is a budget the derivation must fit
+under; a crypto construct's `flows` is a tenant-visible quantity, not an
+object count; `rate` is what the port must deliver. The file opens with an `[intent]` table — where
 document-level properties anchor together — carrying a mandatory
 `schema` key, the `apiVersion` idiom, so the next breaking change has a
 hook this one did not. The nouns are the 2026-08-31 taxonomy review's: *tenant* is RFC
 9316's resource-consumer term (a tenant may produce traffic, which
 "consumer" misread); *dataplane* names where the tenant's dataplane runs
-and the delivery mechanism that drives sizing — `userspace-interrupt` is
+and the delivery mechanism that drives sizing — `userspace-event` is
 declared but refused (`UnpricedDataplane`) until a scenario prices its
 companion draws; *forwarded_by* replaces the second "owner" — switching
 and routing are not the same, forwarding covers both.
@@ -141,7 +141,7 @@ Userspace-poll per child dprc: dpio = 2·T, dpbp = 2, dpmcp = one per
 process (the primary; a secondary adds one), dpni transmit queues ≥ T;
 kernel: dpio one per online CPU, dpbp and dpmcp one per consuming
 object plus one per dpio (ADR-0012, `companions.qnt`); dpcon one per
-polled queue (`dpcon.md`); dpseci `num_queues ≥ crypto_flows` with the
+polled queue (`dpcon.md`); dpseci `num_queues ≥` the crypto construct's `flows`, with the
 `HAS_CG` safety bit (`dpseci.md`); dpsw for a hardware fabric
 only, `num_ifs` = its interface count (member ports as dpmac endpoints,
 member tenants and attached software fabrics as dpni endpoints —
@@ -171,7 +171,7 @@ member port whose tenant is not its fabric's forwarder),
 tenant terminating a rate class with no seeded worker row — D3 refuses
 unseeded classes; a new row enters through a scenario that needs it),
 `UnpricedDataplane` (a tenant whose dataplane has no companion pricing —
-`userspace-interrupt` today), `LimitBelowRequest`, `LimitNotDerived` (a
+`userspace-event` today), `LimitBelowRequest`, `LimitNotDerived` (a
 limit on a family whose count the constructs fix — never silently
 ignored, D7), `MemberUnresolved`, `SelfMember`, and `Reserved`,
 `Foreign`, and `Infeasible { family, needed, available }`.
@@ -253,7 +253,7 @@ under `max_cores` = M (twin: M below the derived T, refused as
 twin needs the userspace member to make the refusal reachable); (2)
 virtual fabric between two userspace-poll tenants
 with no dpmac (twin: the same dpbp pool overdrawn by a third
-tenant); (3) userspace router over N×10G + 1×25G with `crypto_flows`
+tenant); (3) userspace router over N×10G + 1×25G with a crypto `flows`
 ≤ N (twin: a port claimed by two tenants). The reference board's
 actual provisioning — kernel root with dpmac.7/9 and the userspace-poll
 child

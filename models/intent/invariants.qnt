@@ -221,7 +221,7 @@ module intent_invariants {
     match compile(intent, inv) {
       | Ok(r) => intent.tenants.foldl(true, (acc, c) =>
           val s = sizeTenant(intent, inv, c)
-          val reqDraw = if (c.dataplane == Kernel) comp::companionDraw(comp::Kernel, s.cpus, 0, 1, s.dpnis)
+          val reqDraw = if (c.dataplane == KernelNetlink) comp::companionDraw(comp::Kernel, s.cpus, 0, 1, s.dpnis)
                         else comp::companionDraw(comp::PollMode, 0, s.t, 1, s.dpnis)
           acc and and {
             countOf(r.plan, c.name, Dpio) == s.effDpio.value,
@@ -235,7 +235,7 @@ module intent_invariants {
             s.effDpio.request == reqDraw.dpio,
             r.plan.objs.forall(o => (o.key.tenant == c.name and o.key.family == Dpni) implies
               match o.attrs {
-                | DpniAttrs(a) => if (c.dataplane == Kernel) a.numQueues == s.cpus else a.numQueues >= s.t
+                | DpniAttrs(a) => if (c.dataplane == KernelNetlink) a.numQueues == s.cpus else a.numQueues >= s.t
                 | _ => false
               }),
           })

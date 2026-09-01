@@ -102,6 +102,20 @@ the change's only other operator sync point (design D12).
       gap and its trigger, the fit check's disposition, the external
       anchors (RFC 9315/9316, ONOS intents) and the CEL revisit trigger
       (design D3, D5, D7)
+- [x] 2.6a Vocabulary renames decided at the 2.6 gate review: dataplane
+      values `kernel` → `kernel-netlink` and `userspace-interrupt` →
+      `userspace-event` (the value names the ownership mechanism, leaving
+      room for kernel XDP/BPF); link ends `a`/`b` → `interface_a`/
+      `interface_b` (an end names a tenant's interface, not a port); crypto
+      owns its `flows` (moved off `[[tenant]]` onto `[[crypto]]`, each block
+      self-contained). Model, scenario TOMLs, and the proposal/design/spec
+      deltas amended in lockstep (discovered detour, bead gqf.29)
+- [ ] 2.6b `[[limit]]` deleted as a construct: the request/limit override
+      channel becomes the additive `[[extra]]` channel (design D5 revisited)
+- [ ] 2.6c Tenant isolation and pool: the tenant construct carries its
+      isolation boundary and pool membership
+- [ ] 2.6d Scenario (4): kernel-namespace pseudo-wires — the reserved
+      kernel tenant reaching a network namespace over a dpni↔dpni wire
 
 ## 3. Rust (gated on 2.6)
 

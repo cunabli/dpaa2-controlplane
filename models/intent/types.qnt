@@ -25,19 +25,22 @@ module intent_types {
   // in dprc.1. A port that names no tenant is the kernel's port.
   pure val KERNEL: str = "kernel"
 
-  // The dataplane a tenant runs (design D1; ADR-0012 pricing): Kernel — the
-  // kernel's own driver; UserspacePoll — a userspace poll-mode process (VPP,
-  // DPDK); UserspaceInterrupt — a userspace interrupt-driven process, which
-  // ADR-0012 does not price, so compile refuses it (intent/refuse.qnt). The
-  // intent Kernel maps to core's Kernel draws and UserspacePoll to core's
-  // PollMode draws (intent/derive.qnt); the core Regime stays the internal
-  // pricing key.
-  type Dataplane = Kernel | UserspacePoll | UserspaceInterrupt
+  // The dataplane a tenant runs (design D1; ADR-0012 pricing): KernelNetlink
+  // — the kernel's own driver, configured over netlink; UserspacePoll — a
+  // userspace poll-mode process (VPP, DPDK); UserspaceEvent — a userspace
+  // event-driven process, which ADR-0012 does not price, so compile refuses
+  // it (intent/refuse.qnt). The value names the ownership mechanism, not just
+  // "kernel/userspace", so a future kernel dataplane (XDP/BPF) has room beside
+  // KernelNetlink; UserspaceEvent replaces the earlier interrupt-naming. The
+  // intent KernelNetlink maps to core's Kernel draws and UserspacePoll to
+  // core's PollMode draws (intent/derive.qnt); the core Regime (comp::Kernel /
+  // comp::PollMode) stays the internal pricing key.
+  type Dataplane = KernelNetlink | UserspacePoll | UserspaceEvent
 
   // A tenant of hardware capacity. `maxCores` is the budget the derived
-  // thread count must fit under (design D3); `cryptoFlows` is a
-  // tenant-visible demand, never an object count (design D1).
-  type Tenant = { name: str, dataplane: Dataplane, maxCores: int, cryptoFlows: int }
+  // thread count must fit under (design D3). Crypto demand is not a tenant
+  // field: each `Crypto` construct carries its own `flows` (design D1).
+  type Tenant = { name: str, dataplane: Dataplane, maxCores: int }
 
   // A port: the dpmac anchor, the rate the port must deliver in Mbps (the
   // unit `dpmac info` reports its maximum in), and the tenant that
@@ -46,8 +49,9 @@ module intent_types {
   type Port = { name: str, dpmac: int, rate: int, tenant: str }
 
   // A link: point-to-point dpni↔dpni pseudo-wire between two tenants
-  // (object-model.md §2, DPNI-I9), ends named by tenant.
-  type Link = { name: str, a: str, b: str }
+  // (object-model.md §2, DPNI-I9); each end names the tenant whose interface
+  // terminates the wire (interfaces, not ports — leaves room for tunnels).
+  type Link = { name: str, interfaceA: str, interfaceB: str }
 
   // Who forwards between the members: Hardware — a DPSW (figure 6c), which
   // only the kernel can drive (dpsw.md: DPDK has no claim path); Software —
@@ -66,9 +70,11 @@ module intent_types {
   // lists).
   type Fabric = { name: str, switching: Switching, forwardedBy: str, members: List[Member] }
 
-  // An accelerator for one tenant; its queue count derives from the
-  // tenant's `cryptoFlows` (dpseci.md, task 1.2).
-  type Crypto = { tenant: str }
+  // An accelerator for one tenant; its dpseci queue count derives from this
+  // construct's own `flows` — a tenant-visible demand, never an object count
+  // (design D1; dpseci.md, task 1.2). Multiple `Crypto` blocks per tenant are
+  // each self-contained; crypto stays matched by tenant, unordered.
+  type Crypto = { tenant: str, flows: int }
 
   // A request/limit override (design D5): every derived count is a
   // request, a per-family limit under a tenant raises it; a limit below
@@ -91,7 +97,7 @@ module intent_types {
   }
 
   pure def kernelTenant(maxCores: int): Tenant =
-    { name: KERNEL, dataplane: Kernel, maxCores: maxCores, cryptoFlows: 0 }
+    { name: KERNEL, dataplane: KernelNetlink, maxCores: maxCores }
 
   // ---- the inventory: the observed hardware offer (design D2) ----
 
@@ -154,7 +160,7 @@ module intent_types {
   // flattener drops a sum-type constructor whose only value use sits in
   // another module (QNT404; see families/params.qnt, core/companions.qnt).
   pure val ETH_IFS: Set[EthIf] = Set(XFI, CAUI, RGMII)
-  pure val DATAPLANES: Set[Dataplane] = Set(Kernel, UserspacePoll, UserspaceInterrupt)
+  pure val DATAPLANES: Set[Dataplane] = Set(KernelNetlink, UserspacePoll, UserspaceEvent)
   pure val SWITCHINGS: Set[Switching] = Set(Hardware, Software)
   pure val MEMBERS: Set[Member] = Set(MPort("p"), MTenant("c"), MFabric("f"))
   pure val LINK_TYPES: Set[LinkType] = Set(LinkNone, LinkFixed, LinkPhy, LinkBackplane)

@@ -23,7 +23,8 @@ dataplane = "userspace-poll"
 max_cores = 8
 
 # The virtual fabric: a pseudo-wire between the two child dprcs, no dpmac.
+# Each end names the tenant whose interface terminates the wire.
 [[link]]
 name = "wire"
-a = "routerA"
-b = "routerB"
+interface_a = "routerA"
+interface_b = "routerB"

@@ -20,13 +20,12 @@ every later change (#4 onward) executes a plan this compiler emits.
 
 - **The intent vocabulary** — the frontend-neutral intermediate
   representation in `dpaa2-api`: a *tenant* (name, dataplane
-  `kernel|userspace-poll|userspace-interrupt`, `max_cores` budget,
-  `crypto_flows`), a *port*
+  `kernel-netlink|userspace-poll|userspace-event`, `max_cores` budget), a *port*
   (dpmac anchor, rate, owning tenant), a *link* (point-to-point
   dpni↔dpni pseudo-wire between two tenants), a *fabric*
   (a forwarding domain over members — ports, tenants, other fabrics —
   switched in hardware by a dpsw or in software by its forwarding tenant), and *crypto*
-  (per-tenant accelerator). `kernel` is the reserved root-dataplane
+  (per-tenant accelerator carrying its own `flows` demand). `kernel` is the reserved root-dataplane
   tenant; dprtc.0 is pinned and never derived; dpdbg is not a
   construct. The operator states capacity and who consumes it — never a
   dpio, dpbp, dpcon, dpmcp, queue or worker count.
@@ -49,7 +48,7 @@ every later change (#4 onward) executes a plan this compiler emits.
   double-claimed dpmac, an over-rate port, a userspace-poll tenant forwarding
   a hardware fabric, a thread count over the core budget, a limit below its
   request, an unseeded rate class, a dataplane with no companion pricing
-  (`userspace-interrupt` today), and cross-tenant infeasibility against a counted or
+  (`userspace-event` today), and cross-tenant infeasibility against a counted or
   observed ceiling (an unknown ceiling warns, never refuses).
 - **The plan's relationships are locked by construction**: containment
   (one container per object, root never a tenant), typed connect edges
