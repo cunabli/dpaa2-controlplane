@@ -118,7 +118,7 @@ would contradict).
 The one derivation the corpus cannot anchor is capacity → thread count.
 T — the thread count of a userspace tenant's dataplane — and the
 per-port worker count are named quantities of the taxonomy itself
-(`docs/intent.md` defines them; they are not ADR archaeology), and the
+(`docs/adr/0013-accepted-intent-vocabulary.md` defines them; they are not ADR archaeology), and the
 formula is explicit: T = 1 main + Σ workers(rate) over the ports the
 tenant terminates. The compiler carries a `rate-class →
 workers-per-port` table seeded from the reference board: 10G ⇒ 2
@@ -299,8 +299,8 @@ Phase 1 is Quint only: vocabulary as types, derivation as pure defs,
 every rule a named invariant, three scenarios written as intent with a
 negative twin each, random simulation over the intent space, and the
 reference-board fit check. It ends in a decision bead — *intent
-vocabulary accepted* — that the operator closes after reviewing the gate
-artefact, which is the user manual itself: `docs/intent.md` (constructs,
+vocabulary accepted* — closed at gate review of the artefact, which is
+the user manual itself: `docs/adr/0013-accepted-intent-vocabulary.md` (constructs,
 inputs, derived quantities, refusals, the scenarios as worked examples)
 and the rewritten README example, written before any Rust — working
 backwards from the operator's experience, and shipping the reviewed

@@ -16,8 +16,10 @@ failed run self-heals on the next one and interface names never drift from inten
 
 ## How it works
 
-- **Intent in, convergence out.** `topology.toml` declares ports keyed by their stable
-  DPMAC anchor; `dpaa2ctl ensure` drives the board toward it and is safe to re-run.
+- **Intent in, convergence out.** `topology.toml` declares network constructs — tenants
+  (a dataplane with a core budget), ports keyed by their stable DPMAC anchor, links,
+  fabrics, crypto engines — never MC object counts; `dpaa2ctl ensure` compiles that
+  intent into the full object plan and drives the board toward it, safe to re-run.
 - **Identity by connection edge, not index.** A managed interface is matched by its
   DPMAC edge, so an MC-reassigned DPNI index across reboots still resolves correctly.
 - **Pure core, thin adapters.** A hardware-free reconciler (`reconcile(desired,
@@ -25,6 +27,61 @@ failed run self-heals on the next one and interface names never drift from inten
   swappable adapters — so the whole loop is testable without a board.
 - **Stable naming via stock `systemd.link`.** Names are generated at runtime and applied
   during early boot; no custom udev helpers, no marker files.
+
+## Example
+
+A `topology.toml` states capacity and who consumes it — never a dpio, dpbp, dpcon,
+dpmcp, queue, or worker count. The compiler derives every MC object and size, and
+`dpaa2ctl dry-run` prints each one with the rule and construct it came from.
+
+```toml
+[intent]
+schema = 1                 # the version hook; the only document-level property today
+
+# A userspace poll-mode dataplane (VPP/DPDK) in its own isolated container.
+[[tenant]]
+name = "router"
+dataplane = "userspace-poll"   # kernel-netlink | userspace-poll | userspace-event
+max_cores = 16                 # a budget the derived thread count must fit under
+isolation = "isolated"         # public | restricted | isolated (default isolated)
+
+# Two 10G ports the router terminates, each anchored on a stable DPMAC.
+[[port]]
+name = "wan0"
+dpmac = "dpmac.9"
+rate = 10000                   # Mbps, the unit `dpmac info` reports maxima in
+tenant = "router"
+
+[[port]]
+name = "wan1"
+dpmac = "dpmac.10"
+rate = 10000
+tenant = "router"
+
+# A management port with no tenant: the kernel's own driver terminates it.
+[[port]]
+name = "mgmt"
+dpmac = "dpmac.7"
+rate = 10000
+
+# One crypto accelerator for the router; `flows` is a demand, not a queue count.
+[[crypto]]
+tenant = "router"
+flows = 2
+
+# The raise-only escape hatch: add companions on top of the derived request.
+[[extra]]
+tenant = "router"
+family = "dpio"
+count = 2
+```
+
+From this the compiler derives the router's child DPRC, its dpni per port, its
+companion pool (dpio, dpbp, dpcon, dpmcp) sized by the poll-mode regime and thread
+count, one dpseci sized to `flows`, and the kernel-terminated `mgmt` port — or, if a
+request cannot fit the board, the complete list of refusals naming each one. The full
+vocabulary, its derived quantities, and its refusals are
+[ADR-0013](docs/adr/0013-accepted-intent-vocabulary.md).
 
 ## Workspace
 

@@ -127,8 +127,8 @@ module intent_derive {
   // the verified configuration — two 10G ports in poll-mode ran
   // T = 5 = 1 main + 2·2 workers, the configuration ADR-0012's companion
   // numbers were verified against. 25G (25000) ⇒ 5 workers: declared,
-  // linear-in-rate from the 10G row, unmeasured, operator sign-off pending at
-  // the 2.6 gate. A rate class absent here has no worker count, so its
+  // linear-in-rate from the 10G row, unmeasured, signed off at gate close
+  // (ADR-0013 §8). A rate class absent here has no worker count, so its
   // tenant's T is undefined (threadCount None) and intent/refuse.qnt refuses
   // it UnknownRateClass.
   pure val WORKER_TABLE: int -> int = Map(10000 -> 2, 25000 -> 5)

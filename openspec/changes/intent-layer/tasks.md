@@ -3,8 +3,8 @@
 Entry point only (design D13): granular tasks, dependencies, and
 acceptance criteria live as bd issues under the `intent-layer` epic;
 one bead at a time through acceptance. Phase 1 is Quint only and ends
-at the gate (2.6); nothing in phase 3 is ready until the operator closes
-it (design D7). The single board task (4.2) is a read-only sitting and
+at the gate (2.6); nothing in phase 3 is ready until the gate closes
+(design D7). The single board task (4.2) is a read-only sitting and
 the change's only other operator sync point (design D12).
 
 ## 0. Tracking and housekeeping
@@ -70,7 +70,7 @@ the change's only other operator sync point (design D12).
 - [x] 2.2 Scenario (2): virtual fabric between two userspace-poll child
       dprcs, joined by a link, no dpmac — `vfabric.qnt`/`.toml`; twin: a
       third child dprc overdraws the dpbp ceiling, refused Infeasible
-- [x] 2.3a Taxonomy decisions from the operator's review (artifact,
+- [x] 2.3a Taxonomy decisions from the taxonomy review (artifact,
       nine threads, 2026-08-31): consumer → tenant, regime → dataplane
       (`kernel|userspace-poll|userspace-interrupt`, the third refused
       as `UnpricedDataplane` until priced), fabric owner →
@@ -94,15 +94,18 @@ the change's only other operator sync point (design D12).
       table, `schema` the first of them (operator decision 2026-08-31):
       scenario TOMLs and the proposal/design/spec-delta wording amended
       in lockstep (discovered detour, bead gqf.28)
-- [ ] 2.6 GATE — decision bead *intent vocabulary accepted*: the gate
-      artefact is `docs/intent.md` (constructs, inputs, derived
-      quantities, refusals, the scenarios as worked examples, the open
-      questions decided) plus the rewritten README example, written
-      before any Rust; the operator reviews and closes the bead;
-      ADR-0005 amended with the accepted vocabulary, the capacity-model
-      gap and its trigger, the fit check's disposition, the external
-      anchors (RFC 9315/9316, ONOS intents) and the CEL revisit trigger
-      (design D3, D5, D7)
+- [x] 2.6 GATE — decision bead *intent vocabulary accepted*: the gate
+      artefact is `docs/adr/0013-accepted-intent-vocabulary.md`
+      (constructs, inputs, derived quantities, the 24 refusals, INTENT_I1–I9,
+      the five scenarios as worked witnesses, the open questions presented,
+      the honest relaxations and the revisit shapes) plus the rewritten README
+      example and ADR-0005 shrunk to a pointer at ADR-0013 — written before
+      any Rust. The gate decision on the accepted vocabulary, the
+      capacity-model gap and its trigger, the fit check's disposition, the
+      external anchors (RFC 9315/9316, ONOS intents) and the CEL revisit
+      trigger is carried by ADR-0013 (§§8–10). ADR-0013, ADR-0005, README, and
+      the ROADMAP row-3 pointer are landed; gate review closes
+      the bead (design D3, D5, D7)
 - [x] 2.6a Vocabulary renames decided at the 2.6 gate review: dataplane
       values `kernel` → `kernel-netlink` and `userspace-interrupt` →
       `userspace-event` (the value names the ownership mechanism, leaving
@@ -178,7 +181,7 @@ the change's only other operator sync point (design D12).
       `kernel` reserved, link ends distinct, fabric members exist, count
       fields rejected, unknown schema version refused); converts to
       `Intent`; `ConfigSource::load` returns `Intent`; README example and
-      `docs/intent.md` re-checked against the shipped parser
+      ADR-0013's construct examples re-checked against the shipped parser
 - [ ] 3.4 `dpaa2-verify`: the pairing test — every `scenarios/<name>.toml`
       parses, compiles against the snapshot inventory, and equals its
       `<name>.itf.json` plan; the ladder fails on an unpaired scenario

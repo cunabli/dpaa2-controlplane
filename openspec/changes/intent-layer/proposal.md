@@ -96,7 +96,7 @@ every later change (#4 onward) executes a plan this compiler emits.
   against the #2 snapshot. The gate artefact is the user manual:
   `docs/intent.md` (constructs, inputs, derived quantities, refusals,
   worked examples from the scenarios) and the README example are written
-  before any Rust and are what the operator reviews; a decision bead —
+  before any Rust and are what the gate review covers; a decision bead —
   *intent vocabulary accepted* — closed after that review gates every
   Rust task, and the reviewed document ships as the reference.
 - **The pipeline** becomes `topology.toml → Intent (dpaa2-config) →

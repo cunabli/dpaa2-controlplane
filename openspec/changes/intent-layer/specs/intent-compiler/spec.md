@@ -328,8 +328,8 @@ as a fit-check scenario diffed against the snapshot. The gate artefact
 SHALL be `docs/intent.md` — constructs, inputs, derived quantities,
 refusals, the scenarios as worked examples — and the README example,
 written before any Rust; a decision bead *intent vocabulary accepted*
-SHALL gate every Rust task and SHALL be closed by the operator after
-reviewing that document, which then ships as the reference; the
+SHALL gate every Rust task and SHALL be closed at gate review of that
+document, which then ships as the reference; the
 decision is recorded as an ADR-0005 amendment.
 
 #### Scenario: A negative twin is refused in the model
