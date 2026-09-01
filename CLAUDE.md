@@ -46,6 +46,7 @@ The repository also contains:
 - Git commits messages are conventional and include assistance authorship, reference to spec phase, and describe why the change takes place succinctly and simple words
 - Git commit content is self standing, it is amendable until sealed, and branches may be forked off to help reordering commits for independent review
 - docs/{adr,ROADMAP.md} are always kept up to date after changes
+- Tables that restate rules from a source of truth are linted (ADR-0014); a change that adds or edits such a table extends the lint or files its bead in the same change.
 
 
 <!-- BEGIN BEADS INTEGRATION v:1 profile:minimal hash:6cd5cc61 -->

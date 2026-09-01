@@ -325,7 +325,7 @@ a core budget; virtual fabric between two child dprcs; userspace router
 with crypto flows) each with a refused negative twin, a random-simulation
 run over a finite intent alphabet, and the reference board's provisioning
 as a fit-check scenario diffed against the snapshot. The gate artefact
-SHALL be `docs/intent.md` — constructs, inputs, derived quantities,
+SHALL be `docs/adr/0013-accepted-intent-vocabulary.md` — constructs, inputs, derived quantities,
 refusals, the scenarios as worked examples — and the README example,
 written before any Rust; a decision bead *intent vocabulary accepted*
 SHALL gate every Rust task and SHALL be closed at gate review of that
@@ -349,5 +349,5 @@ decision is recorded as an ADR-0005 amendment.
 
 #### Scenario: The manual is the reviewed artefact
 - **WHEN** the gate bead is closed
-- **THEN** `docs/intent.md` exists, every scenario in it matches a
+- **THEN** `docs/adr/0013-accepted-intent-vocabulary.md` exists, every scenario in it matches a
   `scenarios/<name>.toml`, and the ADR-0005 amendment cites it

@@ -94,7 +94,7 @@ every later change (#4 onward) executes a plan this compiler emits.
   recorded unknowns; a fit check writes the reference board's real
   provisioning as intent and diffs the compiled plan object-for-object
   against the #2 snapshot. The gate artefact is the user manual:
-  `docs/intent.md` (constructs, inputs, derived quantities, refusals,
+  `docs/adr/0013-accepted-intent-vocabulary.md` (constructs, inputs, derived quantities, refusals,
   worked examples from the scenarios) and the README example are written
   before any Rust and are what the gate review covers; a decision bead —
   *intent vocabulary accepted* — closed after that review gates every
@@ -185,7 +185,7 @@ every later change (#4 onward) executes a plan this compiler emits.
 - Models: new `models/intent/` (vocabulary, derivation, invariants,
   scenarios with paired TOML); `models/core/companions.qnt` gains named
   invariants; `models/COVERAGE.md` and the ladder scripts extended.
-- Docs: new `docs/intent.md` (the gate artefact, shipped as the
+- Docs: new `docs/adr/0013-accepted-intent-vocabulary.md` (the gate artefact, shipped as the
   reference manual); ADR-0005 amended (vocabulary as accepted at the
   gate; capacity model gap and trigger; Alloy escalation; external
   anchors RFC 9315/9316 and the ONOS intent framework as the
