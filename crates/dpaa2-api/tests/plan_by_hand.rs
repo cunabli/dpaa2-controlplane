@@ -59,7 +59,8 @@ fn hand_built_plan_reconciles_and_locks_relationships() {
 
     // The hand-built plan reconciles like any port-only one: create, connect, bind.
     let desired =
-        DesiredTopology::from_parts(plan, vec![DesiredPort::new(DpmacId::new(7), "lan0")]);
+        DesiredTopology::from_parts(plan, vec![DesiredPort::new(DpmacId::new(7), "lan0")])
+            .expect("plan port-edge and port agree on dpmac.7");
     assert_eq!(desired.plan().objects.len(), 2, "dpni + dpio");
     assert_eq!(desired.plan().edges.len(), 1, "the port-edge");
 

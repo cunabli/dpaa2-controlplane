@@ -186,7 +186,7 @@ the change's only other operator sync point (design D12).
       D10) and/or extend `intent_lint` with a Rust-copy leg, so neither
       enumeration can drift unlinted (ADR-0014; architecture review of
       3.1, bead gqf.36)
-- [ ] 3.1b `dpaa2-api`: `from_parts` coherence — the D11 seam either
+- [x] 3.1b `dpaa2-api`: `from_parts` coherence — the D11 seam either
       checks the plan/ports facets agree (every `DesiredPort` has its
       port-edge and vice versa) or stops doc-claiming non-drift for that
       path; lands before 3.6's plan-only reporting (architecture review

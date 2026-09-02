@@ -6,7 +6,7 @@
 //! is `{ tenant, rule, construct }`, a [`Refusal`](crate::refuse::Refusal) payload
 //! sets a `tenant` beside a `construct` — and a bare `String` in each slot lets a
 //! tenant name be passed where a construct name is meant with no compiler word. The
-//! [`name_type!`] macro mints a newtype per slot so the wrong name is a type error,
+//! [`resource_name!`] macro mints a newtype per slot so the wrong name is a type error,
 //! not a silent swap; every type derives the same ordering/hashing surface (so it
 //! keys the same `BTreeSet`/`BTreeMap` a `String` did) and the same string-facing
 //! conveniences (so call sites and tests stay terse). No `Deref<Target = str>`: a
@@ -23,7 +23,7 @@
 /// construction terse), and `as_str`/`is_empty` accessors. It deliberately omits
 /// `Deref`, so a value of one name type never coerces into another or into a raw
 /// `&str` argument.
-macro_rules! name_type {
+macro_rules! resource_name {
     ($(#[$meta:meta])* $name:ident) => {
         $(#[$meta])*
         #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -79,7 +79,7 @@ macro_rules! name_type {
     };
 }
 
-name_type! {
+resource_name! {
     /// A tenant's name: the key namespace of every object a tenant draws, and the
     /// thing a port, link end, fabric owner, crypto block, extra or `pool` names
     /// when it refers to a tenant (design D1; `types.qnt` `Tenant`). Distinct from
@@ -89,7 +89,7 @@ name_type! {
     TenantName
 }
 
-name_type! {
+resource_name! {
     /// A declared construct's name: a port, link or fabric identity, and the
     /// polymorphic `construct` a derived value bottoms out in — a tenant-level count
     /// carries the empty name, a per-construct rule the port/fabric/link name
@@ -101,7 +101,7 @@ name_type! {
     ConstructName
 }
 
-name_type! {
+resource_name! {
     /// A derivation rule's name: the token a [`ProvenanceNode`](crate::compiled::ProvenanceNode)
     /// and its [`ProvenanceKey`](crate::compiled::ProvenanceKey) address it by
     /// (`"dpio"`, `"T"`, `"port-edge"`, …; design D6). Distinct from the tenant and

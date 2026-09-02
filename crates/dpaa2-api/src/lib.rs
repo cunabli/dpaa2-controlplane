@@ -16,11 +16,11 @@ pub mod family;
 pub mod intent;
 pub mod inventory;
 pub mod model;
-pub mod names;
 pub mod plan;
 pub mod port;
 pub mod reconcile;
 pub mod refuse;
+pub mod types;
 
 #[cfg(any(test, feature = "testkit"))]
 pub mod fake;
@@ -37,10 +37,10 @@ pub use intent::{
 };
 pub use inventory::{Availability, Ceiling, DpmacLinkType, DpmacOffer, EthInterface, Inventory};
 pub use model::{
-    DesiredPort, DesiredTopology, DpmacId, DpniId, Lifecycle, LinkType, MacAddr, MacMode,
-    MacParseError, ObjectKind, ObservedDpmac, ObservedDpni, ObservedTopology, Presence,
+    DesiredPort, DesiredTopology, DpmacId, DpniId, FacetMismatch, Lifecycle, LinkType, MacAddr,
+    MacMode, MacParseError, ObjectKind, ObservedDpmac, ObservedDpni, ObservedTopology, Presence,
 };
-pub use names::{ConstructName, RuleName, TenantName};
+pub use types::{ConstructName, RuleName, TenantName};
 pub use plan::{AssertMismatch, DriftReport, Plan, Transition};
 pub use port::{ConfigSource, KernelControl, McControl};
 pub use reconcile::{ReconcileOptions, reconcile, reconcile_with};

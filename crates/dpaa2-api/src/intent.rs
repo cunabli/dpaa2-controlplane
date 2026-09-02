@@ -15,7 +15,7 @@ use std::collections::BTreeSet;
 
 use crate::family::Family;
 use crate::model::DpmacId;
-use crate::names::{ConstructName, TenantName};
+use crate::types::{ConstructName, TenantName};
 
 /// The reserved kernel tenant (design D1; `types.qnt` `KERNEL`): the kernel's own
 /// network driver in dprc.1. A port that names no tenant is the kernel's port, and

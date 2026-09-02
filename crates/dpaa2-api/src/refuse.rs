@@ -16,7 +16,7 @@
 use crate::family::Family;
 use crate::intent::{Dataplane, Member};
 use crate::model::DpmacId;
-use crate::names::{ConstructName, TenantName};
+use crate::types::{ConstructName, TenantName};
 
 /// The rule an intent broke, naming the offending construct (design D5; ADR-0013
 /// §5). All 24 variants of `refuse.qnt`.

@@ -27,7 +27,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use crate::family::{Family, Permission};
 use crate::intent::{Fabric, Link, Port, Tenant};
 use crate::model::DpmacId;
-use crate::names::{ConstructName, RuleName, TenantName};
+use crate::types::{ConstructName, RuleName, TenantName};
 
 /// A derived object's identity (design D6; `derive.qnt` `ObjectKey`). The label the MC
 /// carries is a projection of it (ADR-0010: names are not identities). Ordinals are

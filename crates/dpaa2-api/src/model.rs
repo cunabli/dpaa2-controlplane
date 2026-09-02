@@ -11,9 +11,12 @@
 
 use core::fmt;
 use core::str::FromStr;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
-use crate::compiled::CompiledPlan;
+use thiserror::Error;
+
+use crate::compiled::{AttachPoint, CompiledPlan, Edge};
+use crate::family::Family;
 use crate::intent::kernel_tenant;
 
 /// A 48-bit Ethernet MAC address.
@@ -292,8 +295,10 @@ impl DesiredPort {
 /// — the dpni↔dpmac port subset — and (from task 3.6) reports the rest as
 /// plan-only, so the actuation attributes it needs per port (name, MAC, mode,
 /// presence, immutable) ride on the [`DesiredPort`] projection, which the abstract
-/// plan cannot express. The two facets never drift: [`from_ports`](Self::from_ports)
-/// builds the plan facet from the ports.
+/// plan cannot express. The two facets cannot drift on any public path:
+/// [`from_ports`](Self::from_ports) and [`push`](Self::push) build the plan facet
+/// from the ports by construction, and [`from_parts`](Self::from_parts) refuses a
+/// pairing whose plan port-edges and ports disagree ([`FacetMismatch`]).
 ///
 /// It carries no serialization derives (config spec); the northbound
 /// [`crate::ConfigSource`] parses into it. The plan's witness-taking constructors
@@ -303,6 +308,33 @@ impl DesiredPort {
 pub struct DesiredTopology {
     plan: CompiledPlan,
     ports: Vec<DesiredPort>,
+}
+
+/// Refusal from [`DesiredTopology::from_parts`] when the plan facet and the port
+/// projection disagree — the pairing would let the two facets drift (design D11).
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+pub enum FacetMismatch {
+    /// A [`DesiredPort`] whose dpmac has no dpni↔dpmac port-edge in the plan.
+    #[error("port on {0} has no matching port-edge in the plan")]
+    PortWithoutEdge(DpmacId),
+    /// A dpni↔dpmac port-edge in the plan whose dpmac has no [`DesiredPort`].
+    #[error("port-edge on {0} has no matching port in the projection")]
+    EdgeWithoutPort(DpmacId),
+}
+
+/// The dpmac a dpni↔dpmac port-edge connects, or `None` for any other edge (a
+/// dpni↔dpni link-edge, a dpsw↔dpmac fabric-edge): the port projection actuates
+/// exactly these edges, so they are the ones [`DesiredTopology::from_parts`] matches.
+fn port_edge_mac(edge: &Edge) -> Option<DpmacId> {
+    match (edge.a(), edge.b()) {
+        (AttachPoint::Object { key, .. }, AttachPoint::Mac(dpmac))
+        | (AttachPoint::Mac(dpmac), AttachPoint::Object { key, .. })
+            if key.family == Family::Dpni =>
+        {
+            Some(*dpmac)
+        }
+        _ => None,
+    }
 }
 
 impl DesiredTopology {
@@ -330,9 +362,27 @@ impl DesiredTopology {
     /// Builds a desired topology from an already-compiled plan and its port-family
     /// actuation projection (design D11): the seam a compiler or a library user
     /// fills through the plan's witness constructors.
-    #[must_use]
-    pub fn from_parts(plan: CompiledPlan, ports: Vec<DesiredPort>) -> Self {
-        Self { plan, ports }
+    ///
+    /// The two facets must agree, so this constructor is fallible where
+    /// [`from_ports`](Self::from_ports) is not: it refuses a pairing in which a
+    /// [`DesiredPort`] has no dpni↔dpmac port-edge in the plan, or a plan port-edge
+    /// has no port in the projection ([`FacetMismatch`]). Without the check task
+    /// 3.6's plan-only reporting could disagree with what `reconcile` actuates.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`FacetMismatch`] when the plan's port-edges and the ports do not
+    /// name the same set of dpmacs.
+    pub fn from_parts(plan: CompiledPlan, ports: Vec<DesiredPort>) -> Result<Self, FacetMismatch> {
+        let edge_macs: BTreeSet<DpmacId> = plan.edges.iter().filter_map(port_edge_mac).collect();
+        if let Some(port) = ports.iter().find(|p| !edge_macs.contains(&p.dpmac)) {
+            return Err(FacetMismatch::PortWithoutEdge(port.dpmac));
+        }
+        let port_macs: BTreeSet<DpmacId> = ports.iter().map(|p| p.dpmac).collect();
+        if let Some(&dpmac) = edge_macs.iter().find(|m| !port_macs.contains(m)) {
+            return Err(FacetMismatch::EdgeWithoutPort(dpmac));
+        }
+        Ok(Self { plan, ports })
     }
 
     /// Appends a port, extending the plan facet with the kernel dpni and port-edge
@@ -437,5 +487,46 @@ impl ObservedTopology {
     #[must_use]
     pub fn dpmac(&self, dpmac: DpmacId) -> Option<&ObservedDpmac> {
         self.dpmacs.iter().find(|m| m.id == dpmac)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A plan carrying a single kernel dpni terminating a port-edge to `dpmac`.
+    fn plan_with_port_edge(dpmac: DpmacId) -> CompiledPlan {
+        let kernel = kernel_tenant(1);
+        let (dpni, iface) = kernel.dpni(1, 0);
+        let mut plan = CompiledPlan::default();
+        plan.order.push(dpni.key().clone());
+        plan.objects.insert(dpni);
+        plan.edges.insert(iface.into_port_edge(dpmac));
+        plan
+    }
+
+    #[test]
+    fn from_parts_accepts_agreeing_facets() {
+        let plan = plan_with_port_edge(DpmacId::new(7));
+        let ports = vec![DesiredPort::new(DpmacId::new(7), "lan0")];
+        let topology = DesiredTopology::from_parts(plan, ports).expect("facets agree on dpmac.7");
+        assert_eq!(topology.plan().edges.len(), 1);
+        assert_eq!(topology.ports().len(), 1);
+    }
+
+    #[test]
+    fn from_parts_refuses_a_port_without_its_edge() {
+        // The plan facet has no port-edge, so the lone port cannot be actuated.
+        let ports = vec![DesiredPort::new(DpmacId::new(7), "lan0")];
+        let err = DesiredTopology::from_parts(CompiledPlan::default(), ports).unwrap_err();
+        assert_eq!(err, FacetMismatch::PortWithoutEdge(DpmacId::new(7)));
+    }
+
+    #[test]
+    fn from_parts_refuses_an_edge_without_its_port() {
+        // The plan facet carries a port-edge no port in the projection names.
+        let plan = plan_with_port_edge(DpmacId::new(7));
+        let err = DesiredTopology::from_parts(plan, Vec::new()).unwrap_err();
+        assert_eq!(err, FacetMismatch::EdgeWithoutPort(DpmacId::new(7)));
     }
 }
