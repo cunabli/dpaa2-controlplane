@@ -169,7 +169,7 @@ the change's only other operator sync point (design D12).
       toml→plan pairing stays in 3.4. COVERAGE.md's INTENT rows land at
       5.1 (invariants.qnt records this), so R12's coverage leg waits
       there. (bead gqf.34)
-- [ ] 3.1 `dpaa2-api`: `Intent`, `Inventory`, `Refusal`, and the plan
+- [x] 3.1 `dpaa2-api`: `Intent`, `Inventory`, `Refusal`, and the plan
       types transcribed from the model — constructors take the deriving
       construct as witness; a free-standing companion, a dpmac at a link
       end, a double connect, a tenant in root do not compile (design
@@ -180,6 +180,17 @@ the change's only other operator sync point (design D12).
       `#[non_exhaustive]`; constructors public so a plan is buildable
       without `Intent` (design D11), covered by one test that builds and
       reconciles a plan by hand
+- [ ] 3.1a `dpaa2-verify`: the Rust `Family`/`Refusal` copies tied to the
+      model — fold `adapter.rs`'s sibling `Family` onto `dpaa2_api::Family`
+      (serde/tag impls stay local to verify; api stays serde-free, design
+      D10) and/or extend `intent_lint` with a Rust-copy leg, so neither
+      enumeration can drift unlinted (ADR-0014; architecture review of
+      3.1, bead gqf.36)
+- [ ] 3.1b `dpaa2-api`: `from_parts` coherence — the D11 seam either
+      checks the plan/ports facets agree (every `DesiredPort` has its
+      port-edge and vice versa) or stops doc-claiming non-drift for that
+      path; lands before 3.6's plan-only reporting (architecture review
+      of 3.1, bead gqf.37)
 - [ ] 3.2 `dpaa2-api`: `compile(intent, inventory)` — derivation,
       additive extras, provenance trees, the complete refusal
       list; unit tests one per refusal variant and per companion rule;

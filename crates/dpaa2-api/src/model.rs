@@ -13,6 +13,9 @@ use core::fmt;
 use core::str::FromStr;
 use std::collections::BTreeMap;
 
+use crate::compiled::CompiledPlan;
+use crate::intent::kernel_tenant;
+
 /// A 48-bit Ethernet MAC address.
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct MacAddr([u8; 6]);
@@ -280,13 +283,25 @@ impl DesiredPort {
     }
 }
 
-/// The operator's declared intent: a set of ports keyed by DPMAC anchor.
+/// The reconciler's input: the compiled object plan plus the port-family
+/// actuation projection that `reconcile` drives (design D10).
 ///
-/// This is the neutral model produced by any northbound config source (TOML now,
-/// gNMI later) and consumed by [`crate::reconcile()`]. It carries no serialization
-/// derives (config spec).
+/// This is the reshaped desired value the compiler produces (design D6): a
+/// [`CompiledPlan`] of objects keyed `(tenant, family, ordinal)`, edges, emission
+/// order and provenance. `reconcile` executes the one family it has an executor for
+/// — the dpni↔dpmac port subset — and (from task 3.6) reports the rest as
+/// plan-only, so the actuation attributes it needs per port (name, MAC, mode,
+/// presence, immutable) ride on the [`DesiredPort`] projection, which the abstract
+/// plan cannot express. The two facets never drift: [`from_ports`](Self::from_ports)
+/// builds the plan facet from the ports.
+///
+/// It carries no serialization derives (config spec); the northbound
+/// [`crate::ConfigSource`] parses into it. The plan's witness-taking constructors
+/// are public, so a library user builds one programmatically without an
+/// [`crate::intent::Intent`] and reconciles it (design D11).
 #[derive(Clone, PartialEq, Eq, Debug, Default)]
 pub struct DesiredTopology {
+    plan: CompiledPlan,
     ports: Vec<DesiredPort>,
 }
 
@@ -298,22 +313,52 @@ impl DesiredTopology {
     }
 
     /// Builds a desired topology from an iterator of ports.
+    ///
+    /// A port-only file defaults every port to the kernel tenant in root (design
+    /// D10): each port terminates a kernel dpni whose dpni↔dpmac edge is emitted
+    /// through the [`crate::intent::Port`] witness path, so the plan facet is built,
+    /// not fabricated.
     #[must_use]
     pub fn from_ports(ports: impl IntoIterator<Item = DesiredPort>) -> Self {
-        Self {
-            ports: ports.into_iter().collect(),
+        let mut topology = Self::new();
+        for port in ports {
+            topology.push(port);
         }
+        topology
     }
 
-    /// Appends a port.
+    /// Builds a desired topology from an already-compiled plan and its port-family
+    /// actuation projection (design D11): the seam a compiler or a library user
+    /// fills through the plan's witness constructors.
+    #[must_use]
+    pub fn from_parts(plan: CompiledPlan, ports: Vec<DesiredPort>) -> Self {
+        Self { plan, ports }
+    }
+
+    /// Appends a port, extending the plan facet with the kernel dpni and port-edge
+    /// it terminates (design D10; the port-only projection).
     pub fn push(&mut self, port: DesiredPort) {
+        let ordinal = u32::try_from(self.ports.len() + 1).unwrap_or(u32::MAX);
+        // ponytail: num_queues 0 in the port-only projection — real sizing is the
+        // compiler's (task 3.2); reconcile reads it from `ports`, not the plan.
+        let kernel = kernel_tenant(0);
+        let (dpni, iface) = kernel.dpni(ordinal, 0);
+        self.plan.order.push(dpni.key().clone());
+        self.plan.objects.insert(dpni);
+        self.plan.edges.insert(iface.into_port_edge(port.dpmac));
         self.ports.push(port);
     }
 
-    /// All declared ports.
+    /// All declared ports (the actuation projection `reconcile` drives).
     #[must_use]
     pub fn ports(&self) -> &[DesiredPort] {
         &self.ports
+    }
+
+    /// The compiled object plan (design D6): objects, edges, order, provenance.
+    #[must_use]
+    pub fn plan(&self) -> &CompiledPlan {
+        &self.plan
     }
 
     /// Returns `true` if `dpmac` is a configured anchor (i.e. within our subgraph).

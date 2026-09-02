@@ -10,20 +10,38 @@
 //! (northbound), and `dpaa2-tools` (the imperative shell) all depend on it, while it
 //! depends on none of them.
 
+pub mod compiled;
 pub mod error;
+pub mod family;
+pub mod intent;
+pub mod inventory;
 pub mod model;
+pub mod names;
 pub mod plan;
 pub mod port;
 pub mod reconcile;
+pub mod refuse;
 
 #[cfg(any(test, feature = "testkit"))]
 pub mod fake;
 
+pub use compiled::{
+    AttachPoint, Attributes, CompiledPlan, Container, Edge, Interface, Measurement, ObjectKey,
+    PlannedObject, ProvenanceKey, ProvenanceNode,
+};
 pub use error::Error;
+pub use family::{DERIVED_FAMILIES, Family, Permission};
+pub use intent::{
+    Crypto, Dataplane, Extra, Fabric, Intent, Isolation, KERNEL, Link, Member, Port, Switching,
+    Tenant, kernel_tenant,
+};
+pub use inventory::{Availability, Ceiling, DpmacLinkType, DpmacOffer, EthInterface, Inventory};
 pub use model::{
     DesiredPort, DesiredTopology, DpmacId, DpniId, Lifecycle, LinkType, MacAddr, MacMode,
     MacParseError, ObjectKind, ObservedDpmac, ObservedDpni, ObservedTopology, Presence,
 };
+pub use names::{ConstructName, RuleName, TenantName};
 pub use plan::{AssertMismatch, DriftReport, Plan, Transition};
 pub use port::{ConfigSource, KernelControl, McControl};
 pub use reconcile::{ReconcileOptions, reconcile, reconcile_with};
+pub use refuse::{Refusal, Warning};
