@@ -825,6 +825,318 @@ fn r10_register(input: &LintInput<'_>, out: &mut Vec<String>) {
     }
 }
 
+// ===================== intent-layer copies (ADR-0014 D9) =====================
+// The `models/intent/` model is the source of truth (ADR-0002 §2): every
+// enumeration that restates it — a witness list, a ledger narrative, an ADR
+// section — is a linted copy, never a sibling (ADR-0014). ADR-0013 is the
+// accepted-vocabulary record whose §5 (refusals), §6 (invariants) and §7
+// (scenarios) are exactly such copies, and its own Consequences note says
+// they "drift ... exactly this way" and belong under this lint. R11–R13
+// cross-check those copies against the model so a drift fails in CI, the same
+// design-D9 mechanism R1–R10 apply to the board ledgers. Parsing is pure over
+// `&str`; the scenario file set arrives as two stem lists the harness reads.
+
+/// The body of the markdown/Quint section whose heading line first starts with
+/// `heading` (the heading line excluded), up to the next `## ` / `### `
+/// heading or end of document.
+fn md_section(text: &str, heading: &str) -> String {
+    text.lines()
+        .skip_while(|l| !l.trim_start().starts_with(heading))
+        .skip(1)
+        .take_while(|l| !(l.starts_with("## ") || l.starts_with("### ")))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// The ADR spells the anchor refusals `Reserved` / `Foreign`; the model spells
+/// them `ReservedAnchor` / `ForeignAnchor` (refuse.qnt DEVIATION; ADR-0013
+/// §11). Canonicalise an ADR §5 name to the model spelling before comparing.
+fn model_spelling(adr_name: &str) -> &str {
+    match adr_name {
+        "Reserved" => "ReservedAnchor",
+        "Foreign" => "ForeignAnchor",
+        other => other,
+    }
+}
+
+/// The constructor names of `refuse.qnt`'s `type Refusal =` sum type, in
+/// declaration order — the source of truth for the refusal vocabulary.
+fn parse_refusal_variants(refuse_qnt: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut in_block = false;
+    for line in refuse_qnt.lines() {
+        if line.trim_start().starts_with("type Refusal =") {
+            in_block = true;
+            continue;
+        }
+        if in_block {
+            let Some(rest) = line.trim().strip_prefix("| ") else {
+                break; // the first non-`|` line closes the sum type
+            };
+            let name: String = rest
+                .chars()
+                .take_while(char::is_ascii_alphanumeric)
+                .collect();
+            if !name.is_empty() {
+                out.push(name);
+            }
+        }
+    }
+    out
+}
+
+/// The refusal witnesses of `alphabet.qnt` as `(def name, matched variant)`:
+/// every `val w<X> = hasRefusal(r => match r { | <Y>(_) => …`. The `wRefused`
+/// catch-all (no `match`) and the non-refusal witnesses (`wAccepted`, the
+/// warning and structure ones) do not match this shape and are skipped.
+fn parse_refusal_witnesses(alphabet_qnt: &str) -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    for line in alphabet_qnt.lines() {
+        let Some(rest) = line.trim_start().strip_prefix("val w") else {
+            continue;
+        };
+        let Some((tail, body)) = rest.split_once('=') else {
+            continue;
+        };
+        let def = format!("w{}", tail.trim());
+        let Some(after) = body.trim_start().strip_prefix("hasRefusal(") else {
+            continue;
+        };
+        let Some(arm) = after
+            .find("match r {")
+            .map(|i| &after[i + "match r {".len()..])
+        else {
+            continue;
+        };
+        let Some(cons) = arm.trim_start().strip_prefix("| ") else {
+            continue;
+        };
+        let variant: String = cons
+            .chars()
+            .take_while(char::is_ascii_alphanumeric)
+            .collect();
+        if !variant.is_empty() {
+            out.push((def, variant));
+        }
+    }
+    out
+}
+
+/// The `` - `Name` — … `` bullets of an ADR section — the shape §5 lists a
+/// refusal variant in. Only uppercase-led all-alphanumeric names qualify, so
+/// prose back-ticks (`` `pool` ``, `` `userspace-event` ``) are ignored.
+fn parse_adr_backtick_bullets(section: &str) -> Vec<String> {
+    section
+        .lines()
+        .filter_map(|l| {
+            let rest = l.trim_start().strip_prefix("- `")?;
+            let name: String = rest.chars().take_while(|&c| c != '`').collect();
+            let ok = name.chars().next().is_some_and(|c| c.is_ascii_uppercase())
+                && name.chars().all(|c| c.is_ascii_alphanumeric());
+            ok.then_some(name)
+        })
+        .collect()
+}
+
+/// The `` - **INTENT_I<n> `name`** — … `` bullets of ADR §6, as `(n, name)`.
+fn parse_adr_invariants(section: &str) -> Vec<(u32, String)> {
+    section
+        .lines()
+        .filter_map(|l| {
+            let rest = l.trim_start().strip_prefix("- **INTENT_I")?;
+            let (num, tail) = rest.split_once(' ')?;
+            let n: u32 = num.parse().ok()?;
+            let name: String = tail
+                .trim_start_matches('`')
+                .chars()
+                .take_while(|&c| c != '`')
+                .collect();
+            Some((n, name))
+        })
+        .collect()
+}
+
+/// The `// ---- <name> (INTENT_I<n>): …` section headers of `invariants.qnt`,
+/// as `(n, name)` — the source of truth for the plan invariants. The
+/// non-invariant `---- helpers ----` / `---- the two rungs ----` headers carry
+/// no `(INTENT_I` and are skipped.
+fn parse_intent_invariants(invariants_qnt: &str) -> Vec<(u32, String)> {
+    invariants_qnt
+        .lines()
+        .filter_map(|l| {
+            let rest = l.trim_start().strip_prefix("// ---- ")?;
+            let (name, after) = rest.split_once(" (INTENT_I")?;
+            let num: String = after.chars().take_while(char::is_ascii_digit).collect();
+            Some((num.parse().ok()?, name.to_owned()))
+        })
+        .collect()
+}
+
+/// The `- **<name>**` scenario bullets of ADR §7.
+fn parse_adr_scenarios(section: &str) -> Vec<String> {
+    section
+        .lines()
+        .filter_map(|l| {
+            let rest = l.trim_start().strip_prefix("- **")?;
+            let name: String = rest.chars().take_while(|&c| c != '*' && c != ' ').collect();
+            (!name.is_empty()).then_some(name)
+        })
+        .collect()
+}
+
+/// R11: the refusal vocabulary agrees across its three copies and the model.
+/// `refuse.qnt`'s `type Refusal =` is the truth; `alphabet.qnt`'s witnesses
+/// (bijective with the variants — every variant witnessed, no witness naming a
+/// phantom), ADR-0013 §5 (with the `Reserved`/`Foreign` spelling alias), and
+/// COVERAGE.md's intent-coverage section (which must name every variant) are
+/// the copies.
+fn r11_refusals(
+    refuse_qnt: &str,
+    alphabet_qnt: &str,
+    coverage_md: &str,
+    adr_md: &str,
+    out: &mut Vec<String>,
+) {
+    let variants = parse_refusal_variants(refuse_qnt);
+    let is_variant = |v: &str| variants.iter().any(|x| x == v);
+
+    // (a1) witnesses ⟺ variants, bijectively.
+    let witnesses = parse_refusal_witnesses(alphabet_qnt);
+    for (def, variant) in &witnesses {
+        if !is_variant(variant) {
+            out.push(format!(
+                "R11 refusals: alphabet.qnt witness {def} names {variant}, not a refuse.qnt Refusal variant"
+            ));
+        } else if def != &format!("w{variant}") {
+            out.push(format!(
+                "R11 refusals: alphabet.qnt witness {def} matches variant {variant} — the def name should be w{variant}"
+            ));
+        }
+    }
+    for v in &variants {
+        if !witnesses.iter().any(|(_, w)| w == v) {
+            out.push(format!(
+                "R11 refusals: Refusal variant {v} has no w{v} witness in alphabet.qnt"
+            ));
+        }
+    }
+
+    // (a2) ADR §5 ⟺ variants, applying the anchor-name alias.
+    let adr: Vec<String> = parse_adr_backtick_bullets(&md_section(adr_md, "### 5."));
+    for v in &variants {
+        if !adr.iter().any(|a| model_spelling(a) == v) {
+            out.push(format!(
+                "R11 refusals: Refusal variant {v} is absent from ADR-0013 §5"
+            ));
+        }
+    }
+    for a in &adr {
+        if !is_variant(model_spelling(a)) {
+            out.push(format!(
+                "R11 refusals: ADR-0013 §5 lists `{a}`, not a refuse.qnt Refusal variant"
+            ));
+        }
+    }
+
+    // (a3) COVERAGE.md's intent section names every variant (model spelling).
+    let section = md_section(coverage_md, "## Intent alphabet coverage");
+    let tokens: Vec<&str> = section
+        .split(|c: char| !c.is_ascii_alphanumeric())
+        .filter(|t| !t.is_empty())
+        .collect();
+    for v in &variants {
+        if !tokens.contains(&v.as_str()) {
+            out.push(format!(
+                "R11 refusals: Refusal variant {v} is not named in COVERAGE.md's intent-coverage section"
+            ));
+        }
+    }
+}
+
+/// R12: the plan invariants agree between `invariants.qnt` (truth) and
+/// ADR-0013 §6 (copy), by id and name. `COVERAGE.md` carries no `INTENT_I`
+/// rows yet — the ledger rows that tie `INTENT_I1..I9` to the baseline ids
+/// land at a later task (`invariants.qnt` header) — so there is no COVERAGE
+/// leg to check.
+fn r12_invariants(invariants_qnt: &str, adr_md: &str, out: &mut Vec<String>) {
+    let model = parse_intent_invariants(invariants_qnt);
+    let adr = parse_adr_invariants(&md_section(adr_md, "### 6."));
+    for (n, name) in &model {
+        match adr.iter().find(|(m, _)| m == n) {
+            None => out.push(format!(
+                "R12 invariants: INTENT_I{n} `{name}` (invariants.qnt) is absent from ADR-0013 §6"
+            )),
+            Some((_, aname)) if aname != name => out.push(format!(
+                "R12 invariants: INTENT_I{n} is `{name}` in invariants.qnt but `{aname}` in ADR-0013 §6"
+            )),
+            Some(_) => {}
+        }
+    }
+    for (n, aname) in &adr {
+        if !model.iter().any(|(m, _)| m == n) {
+            out.push(format!(
+                "R12 invariants: ADR-0013 §6 lists INTENT_I{n} `{aname}`, absent from invariants.qnt"
+            ));
+        }
+    }
+}
+
+/// R13: every scenario `.qnt` has a same-stem `.toml` and vice versa (the
+/// file-level pairing; the semantic toml→plan equality is task 3.4), and the
+/// scenario set equals ADR-0013 §7's five worked witnesses.
+fn r13_scenarios(qnt_stems: &[String], toml_stems: &[String], adr_md: &str, out: &mut Vec<String>) {
+    for s in qnt_stems {
+        if !toml_stems.contains(s) {
+            out.push(format!(
+                "R13 scenarios: scenarios/{s}.qnt has no same-stem scenarios/{s}.toml"
+            ));
+        }
+    }
+    for s in toml_stems {
+        if !qnt_stems.contains(s) {
+            out.push(format!(
+                "R13 scenarios: scenarios/{s}.toml has no same-stem scenarios/{s}.qnt"
+            ));
+        }
+    }
+    let adr = parse_adr_scenarios(&md_section(adr_md, "### 7."));
+    for s in qnt_stems {
+        if !adr.contains(s) {
+            out.push(format!(
+                "R13 scenarios: scenario {s} is absent from ADR-0013 §7"
+            ));
+        }
+    }
+    for s in &adr {
+        if !qnt_stems.contains(s) {
+            out.push(format!(
+                "R13 scenarios: ADR-0013 §7 lists {s}, which has no scenarios/{s}.qnt"
+            ));
+        }
+    }
+}
+
+/// Runs the intent-layer cross-checks (R11–R13) over the `models/intent/`
+/// copies and returns one finding per drift; an empty vector is the green
+/// verdict. Distinct from [`lint`] because it reads a different document set
+/// (the model files and ADR-0013, not the board ledgers).
+#[must_use]
+pub fn intent_lint(
+    refuse_qnt: &str,
+    alphabet_qnt: &str,
+    invariants_qnt: &str,
+    coverage_md: &str,
+    adr_md: &str,
+    scenario_qnt_stems: &[String],
+    scenario_toml_stems: &[String],
+) -> Vec<String> {
+    let mut out = Vec::new();
+    r11_refusals(refuse_qnt, alphabet_qnt, coverage_md, adr_md, &mut out);
+    r12_invariants(invariants_qnt, adr_md, &mut out);
+    r13_scenarios(scenario_qnt_stems, scenario_toml_stems, adr_md, &mut out);
+    out
+}
+
 /// Runs every rule and returns one human-readable finding per violation;
 /// an empty vector is the green verdict.
 #[must_use]
@@ -1438,5 +1750,182 @@ Tally: 1 modeled, 1 deferred, 0 board-settled, 0 board-pending — 2 candidates.
         let mut ok = Vec::new();
         r10_register(&reg_input(&cov, &index, &good, &dir), &mut ok);
         assert!(ok.is_empty(), "{ok:?}");
+    }
+
+    // --- intent-layer copies (R11–R13) ---
+
+    /// A three-variant refuse.qnt slice: one plain, one aliased anchor, and a
+    /// Warning block after it the parser must not fold in.
+    const REFUSE: &str = "\
+module intent_refuse {
+  type Refusal =
+    | TenantAbsent({ construct: str, tenant: str })   // rule 1
+    | ReservedAnchor({ port: str, dpmac: int })       // spec name Reserved
+    | Infeasible({ family: Family, needed: int })     // feasibility
+
+  type Warning =
+    | UnknownCeiling({ family: Family, needed: int })
+}";
+    const ALPHABET: &str = "\
+  val wAccepted = match compile(intent, REF_INVENTORY) { | Ok(_) => true | Refused(_) => false }
+  val wRefused = hasRefusal(_ => true)
+  val wTenantAbsent = hasRefusal(r => match r { | TenantAbsent(_) => true | _ => false })
+  val wReservedAnchor = hasRefusal(r => match r { | ReservedAnchor(_) => true | _ => false })
+  val wInfeasible = hasRefusal(r => match r { | Infeasible(_) => true | _ => false })
+  val wUnknownCeiling = hasWarning(w => match w { | UnknownCeiling(_) => true | _ => false })
+  val wThreeTenants = intent.tenants.length() == 3";
+    const ADR5: &str = "\
+### 5. The refusal vocabulary
+
+All 3 variants of `refuse.qnt`, grouped by rule.
+
+- `TenantAbsent` — a construct names a tenant not declared → declare it.
+- `Reserved` — the dpmac is Reserved by the safety matrix → pick another.
+- `Infeasible` — the summed count exceeds a ceiling.
+
+Two warnings attach: `UnknownCeiling` (…).
+
+### 6. The invariants
+";
+    const COV_INTENT: &str = "\
+## Intent alphabet coverage (task 2.4)
+
+- **Reached** (traces of 3000): TenantAbsent 235, ReservedAnchor 1488.
+- **Unreachable, covered elsewhere** (0 traces): `Infeasible`.
+";
+
+    #[test]
+    fn parses_refusal_variants_and_witnesses() {
+        assert_eq!(
+            parse_refusal_variants(REFUSE),
+            vec!["TenantAbsent", "ReservedAnchor", "Infeasible"]
+        );
+        // The catch-all, wAccepted and the warning/structure witnesses drop out.
+        assert_eq!(
+            parse_refusal_witnesses(ALPHABET),
+            vec![
+                ("wTenantAbsent".to_owned(), "TenantAbsent".to_owned()),
+                ("wReservedAnchor".to_owned(), "ReservedAnchor".to_owned()),
+                ("wInfeasible".to_owned(), "Infeasible".to_owned()),
+            ]
+        );
+    }
+
+    #[test]
+    fn r11_passes_when_every_copy_agrees() {
+        let mut out = Vec::new();
+        r11_refusals(REFUSE, ALPHABET, COV_INTENT, ADR5, &mut out);
+        assert!(out.is_empty(), "{out:?}");
+    }
+
+    #[test]
+    fn r11_flags_a_renamed_adr_variant_and_a_deleted_coverage_variant() {
+        // The deliberate-drift negative test: ADR §5 renames `Infeasible`, and
+        // COVERAGE.md drops `ReservedAnchor` — both mutations are in memory.
+        let adr_bad = ADR5.replace("`Infeasible`", "`Infeasable`");
+        let cov_bad = COV_INTENT.replace("ReservedAnchor 1488", "");
+        let mut out = Vec::new();
+        r11_refusals(REFUSE, ALPHABET, &cov_bad, &adr_bad, &mut out);
+        // Infeasible: missing from ADR + the phantom `Infeasable` ADR lists.
+        assert!(
+            out.iter()
+                .any(|m| m.contains("Infeasible is absent from ADR-0013 §5")),
+            "{out:?}"
+        );
+        assert!(
+            out.iter()
+                .any(|m| m.contains("ADR-0013 §5 lists `Infeasable`")),
+            "{out:?}"
+        );
+        // ReservedAnchor: gone from COVERAGE.
+        assert!(
+            out.iter()
+                .any(|m| m.contains("ReservedAnchor is not named in COVERAGE.md")),
+            "{out:?}"
+        );
+    }
+
+    #[test]
+    fn r11_flags_a_witness_without_a_variant_and_a_variant_without_a_witness() {
+        // Drop the wInfeasible witness and add one naming a phantom variant.
+        let alpha_bad = ALPHABET
+            .replace(
+                "  val wInfeasible = hasRefusal(r => match r { | Infeasible(_) => true | _ => false })\n",
+                "  val wPhantom = hasRefusal(r => match r { | Phantom(_) => true | _ => false })\n",
+            );
+        let mut out = Vec::new();
+        r11_refusals(REFUSE, &alpha_bad, COV_INTENT, ADR5, &mut out);
+        assert!(
+            out.iter()
+                .any(|m| m.contains("witness wPhantom names Phantom, not a refuse.qnt")),
+            "{out:?}"
+        );
+        assert!(
+            out.iter()
+                .any(|m| m.contains("Infeasible has no wInfeasible witness")),
+            "{out:?}"
+        );
+    }
+
+    const INV_QNT: &str = "\
+module intent_invariants {
+  // ---- helpers ----
+  // ---- containmentByTenant (INTENT_I1): every object sits in a container ----
+  // ---- edgesTypedAndSingle (INTENT_I2): typed connect ends ----
+  // ---- the two rungs ----
+}";
+    const ADR6: &str = "\
+### 6. The invariants the plan type makes unrepresentable
+
+- **INTENT_I1 `containmentByTenant`** — every object sits in a real container.
+- **INTENT_I2 `edgesTypedAndSingle`** — typed connect ends, no double connect.
+
+### 7. The scenarios
+";
+
+    #[test]
+    fn r12_passes_then_flags_a_renamed_invariant() {
+        let mut ok = Vec::new();
+        r12_invariants(INV_QNT, ADR6, &mut ok);
+        assert!(ok.is_empty(), "{ok:?}");
+
+        let adr_bad = ADR6.replace("`edgesTypedAndSingle`", "`edgesTypedAndDouble`");
+        let mut out = Vec::new();
+        r12_invariants(INV_QNT, &adr_bad, &mut out);
+        assert_eq!(out.len(), 1, "{out:?}");
+        assert!(out[0].contains("INTENT_I2"), "{out:?}");
+    }
+
+    #[test]
+    fn r13_pairs_scenarios_and_matches_the_adr() {
+        let adr7 = "\
+### 7. The scenarios as worked witnesses
+
+- **fabric** (`scenarios/fabric.*`) — a hardware fabric.
+- **vwire** (`scenarios/vwire.*`) — pseudo-wires.
+
+## Consequences
+";
+        let qnt = vec!["fabric".to_owned(), "vwire".to_owned()];
+        let toml = vec!["fabric".to_owned(), "vwire".to_owned()];
+        let mut ok = Vec::new();
+        r13_scenarios(&qnt, &toml, adr7, &mut ok);
+        assert!(ok.is_empty(), "{ok:?}");
+
+        // A .qnt with no .toml, and an ADR scenario with no file.
+        let qnt_bad = vec!["fabric".to_owned(), "vwire".to_owned(), "orphan".to_owned()];
+        let adr7_bad = adr7.replace("**vwire**", "**ghost**");
+        let mut out = Vec::new();
+        r13_scenarios(&qnt_bad, &toml, &adr7_bad, &mut out);
+        assert!(
+            out.iter().any(|m| m.contains("orphan.qnt has no")),
+            "{out:?}"
+        );
+        assert!(
+            out.iter()
+                .any(|m| m.contains("orphan is absent from ADR-0013 §7")),
+            "{out:?}"
+        );
+        assert!(out.iter().any(|m| m.contains("lists ghost")), "{out:?}");
     }
 }

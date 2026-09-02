@@ -158,6 +158,17 @@ the change's only other operator sync point (design D12).
 
 ## 3. Rust (gated on 2.6)
 
+- [x] 3.0 `dpaa2-verify`: the intent enumerations become linted copies
+      (ADR-0014) — ledger rules R11 (refuse.qnt's 24 `Refusal` variants ⇄
+      alphabet.qnt witnesses bijectively, and named by ADR-0013 §5 and
+      COVERAGE.md's intent section), R12 (INTENT_I1–I9 ⇄ ADR-0013 §6),
+      R13 (scenarios/*.qnt ⇄ *.toml stems ⇄ ADR-0013 §7), plus
+      deliberate-drift negative tests over in-memory mutations. Runs
+      first in phase 3 so model amendments found while transcribing
+      (3.1/3.2) cannot drift the copies unguarded; the semantic
+      toml→plan pairing stays in 3.4. COVERAGE.md's INTENT rows land at
+      5.1 (invariants.qnt records this), so R12's coverage leg waits
+      there. (bead gqf.34)
 - [ ] 3.1 `dpaa2-api`: `Intent`, `Inventory`, `Refusal`, and the plan
       types transcribed from the model — constructors take the deriving
       construct as witness; a free-standing companion, a dpmac at a link

@@ -10,8 +10,8 @@
 use std::path::{Path, PathBuf};
 
 use dpaa2_verify::ledger::{
-    Coverage, LintInput, lint, parse_baseline_table, parse_coverage, parse_register, parse_roadmap,
-    parse_scenario_ids, parse_suite_ledger,
+    Coverage, LintInput, intent_lint, lint, parse_baseline_table, parse_coverage, parse_register,
+    parse_roadmap, parse_scenario_ids, parse_suite_ledger,
 };
 use dpaa2_verify::verdict::{Index, parse_index};
 
@@ -80,6 +80,55 @@ fn the_four_ledgers_agree() {
     assert!(
         findings.is_empty(),
         "ledger lint found {} disagreement(s):\n{}",
+        findings.len(),
+        findings.join("\n")
+    );
+}
+
+/// The intent-layer copies (design-D9 for `models/intent/`): the `refuse.qnt`
+/// refusal vocabulary, the `invariants.qnt` plan invariants, and the scenario
+/// file set are the truth; `alphabet.qnt`'s witnesses, `COVERAGE.md`'s intent
+/// section, ADR-0013 §5/§6/§7, and the `.qnt`/`.toml` pairing are copies that
+/// drift, so a disagreement fails here (ADR-0014, ADR-0002 §2).
+#[test]
+fn the_intent_copies_agree() {
+    let root = repo_root();
+
+    let refuse = read(&root, "models/intent/refuse.qnt");
+    let alphabet = read(&root, "models/intent/alphabet.qnt");
+    let invariants = read(&root, "models/intent/invariants.qnt");
+    let coverage = read(&root, "models/COVERAGE.md");
+    let adr = read(&root, "docs/adr/0013-accepted-intent-vocabulary.md");
+
+    // The scenario file set, as same-stem `.qnt` / `.toml` lists.
+    let mut qnt_stems: Vec<String> = Vec::new();
+    let mut toml_stems: Vec<String> = Vec::new();
+    for entry in std::fs::read_dir(root.join("models/intent/scenarios")).expect("scenarios") {
+        let path = entry.expect("entry").path();
+        let stem = path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or_default()
+            .to_owned();
+        match path.extension().and_then(|e| e.to_str()) {
+            Some("qnt") => qnt_stems.push(stem),
+            Some("toml") => toml_stems.push(stem),
+            _ => {}
+        }
+    }
+
+    let findings = intent_lint(
+        &refuse,
+        &alphabet,
+        &invariants,
+        &coverage,
+        &adr,
+        &qnt_stems,
+        &toml_stems,
+    );
+    assert!(
+        findings.is_empty(),
+        "intent copy lint found {} disagreement(s):\n{}",
         findings.len(),
         findings.join("\n")
     );
