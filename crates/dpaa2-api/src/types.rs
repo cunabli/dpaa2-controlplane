@@ -6,7 +6,7 @@
 //! is `{ tenant, rule, construct }`, a [`Refusal`](crate::refuse::Refusal) payload
 //! sets a `tenant` beside a `construct` — and a bare `String` in each slot lets a
 //! tenant name be passed where a construct name is meant with no compiler word. The
-//! [`resource_name!`] macro mints a newtype per slot so the wrong name is a type error,
+//! `resource_name!` macro mints a newtype per slot so the wrong name is a type error,
 //! not a silent swap; every type derives the same ordering/hashing surface (so it
 //! keys the same `BTreeSet`/`BTreeMap` a `String` did) and the same string-facing
 //! conveniences (so call sites and tests stay terse). No `Deref<Target = str>`: a

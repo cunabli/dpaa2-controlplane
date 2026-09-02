@@ -60,8 +60,19 @@ pub fn parse_trace(json: &str) -> Result<Vec<ModelView>, String> {
         .collect()
 }
 
-/// The `#bigint`-encoded integer of an ITF value.
-fn num(v: &Value) -> Result<u32, String> {
+/// The `#bigint`-encoded integer of an ITF value, as a `u32` (object numbers,
+/// ordinals, ports). Shared with the intent replayer ([`crate::intent_itf`]).
+pub(crate) fn num(v: &Value) -> Result<u32, String> {
+    v["#bigint"]
+        .as_str()
+        .ok_or_else(|| format!("not a #bigint: {v}"))?
+        .parse()
+        .map_err(|e| format!("bad integer: {e}"))
+}
+
+/// The `#bigint`-encoded integer of an ITF value, as an `i64` (rates, counts,
+/// derived request/value — the intent model's wider integers).
+pub(crate) fn int64(v: &Value) -> Result<i64, String> {
     v["#bigint"]
         .as_str()
         .ok_or_else(|| format!("not a #bigint: {v}"))?
@@ -70,7 +81,8 @@ fn num(v: &Value) -> Result<u32, String> {
 }
 
 /// The constructor tag of an ITF sum-type value (e.g. `Dpni`, `Unbound`).
-fn tag(v: &Value) -> Result<&str, String> {
+/// Shared with the intent replayer ([`crate::intent_itf`]).
+pub(crate) fn tag(v: &Value) -> Result<&str, String> {
     v["tag"]
         .as_str()
         .ok_or_else(|| format!("not a variant: {v}"))

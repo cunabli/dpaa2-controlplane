@@ -48,7 +48,12 @@ fn hand_built_plan_reconciles_and_locks_relationships() {
     // A link between two tenant interfaces is dpni<->dpni: both ends are objects.
     let (_va, va_if) = vpp.dpni(1, 0);
     let (_kb, kb_if) = kernel.dpni(2, 4);
-    let wire = Link::wire(va_if, kb_if);
+    let link = Link {
+        name: "wire".into(),
+        interface_a: "vpp".into(),
+        interface_b: "kernel".into(),
+    };
+    let wire = link.wire(va_if, kb_if);
     assert!(
         matches!(
             (wire.a(), wire.b()),

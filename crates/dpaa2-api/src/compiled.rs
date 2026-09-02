@@ -286,11 +286,12 @@ impl AttachPoint {
 /// ```compile_fail
 /// use dpaa2_api::{kernel_tenant, Link};
 /// let k = kernel_tenant(1);
+/// let l = Link { name: "w".to_owned(), interface_a: "kernel".to_owned(), interface_b: "kernel".to_owned() };
 /// let (_o1, ia) = k.dpni(1, 0);
 /// let (_o2, ib) = k.dpni(2, 0);
 /// let (_o3, ic) = k.dpni(3, 0);
-/// let _e1 = Link::wire(ia, ib);
-/// let _e2 = Link::wire(ia, ic); // error: use of moved value `ia`
+/// let _e1 = l.wire(ia, ib);
+/// let _e2 = l.wire(ia, ic); // error: use of moved value `ia`
 /// ```
 #[derive(Debug)]
 pub struct Interface {
@@ -459,6 +460,25 @@ impl Tenant {
         };
         (obj, Interface { key, port: 0 })
     }
+
+    /// One dpseci object for a crypto block (design D6; `derive.qnt` `dpseciObjs`):
+    /// sized by the block's own `flows` with the `DPSECI_OPT_HAS_CG` safety bit, in
+    /// the tenant's own container. The sole constructor of a dpseci — like a
+    /// companion, it cannot stand free of a tenant, so it can never land in
+    /// [`Container::Root`] for a non-kernel tenant. The block a dpseci came from is
+    /// named by its `ordinal` (declaration order, task 2.6e).
+    #[must_use]
+    pub fn dpseci(&self, ordinal: u32, num_queues: u32) -> PlannedObject {
+        PlannedObject {
+            key: ObjectKey::new(self.name.clone(), Family::Dpseci, ordinal),
+            container: self.container(),
+            attributes: Attributes::Dpseci {
+                num_queues,
+                has_cg: true,
+            },
+            provenance: ProvenanceKey::new(self.name.clone(), "dpseci", ""),
+        }
+    }
 }
 
 impl Port {
@@ -498,17 +518,22 @@ impl Link {
     /// use dpaa2_api::{kernel_tenant, DpmacId, Link};
     /// use dpaa2_api::compiled::AttachPoint;
     /// let k = kernel_tenant(1);
+    /// let l = Link { name: "w".to_owned(), interface_a: "kernel".to_owned(), interface_b: "kernel".to_owned() };
     /// let (_o, ia) = k.dpni(1, 0);
     /// // `wire` takes `Interface`, so a bare dpmac end is a type error:
-    /// let _e = Link::wire(AttachPoint::mac(DpmacId::new(7)), ia);
+    /// let _e = l.wire(AttachPoint::mac(DpmacId::new(7)), ia);
     /// ```
+    ///
+    /// The link end `a` is the [`Link::interface_a`] side, so its dpni's tenant keys
+    /// the edge's provenance (`derive.qnt` `linkEdges`); `construct` is the link's
+    /// own name, so the edge points at the [`ProvenanceNode`] the compiler emits for it.
     // Both interfaces are taken by value on purpose: consuming them is the
     // double-connect lock (an `Interface` wired once cannot be wired again).
     #[allow(clippy::needless_pass_by_value)]
     #[must_use]
-    pub fn wire(a: Interface, b: Interface) -> Edge {
+    pub fn wire(&self, a: Interface, b: Interface) -> Edge {
         Edge {
-            provenance: ProvenanceKey::new(a.key.tenant.clone(), "link-edge", ""),
+            provenance: ProvenanceKey::new(a.key.tenant.clone(), "link-edge", self.name.clone()),
             a: a.attach_point(),
             b: b.attach_point(),
         }
@@ -560,6 +585,26 @@ impl Fabric {
                 "fabric-edge",
                 self.name.clone(),
             ),
+        }
+    }
+
+    /// A software-fabric pseudo-wire (design D6; `object-model.md` §2, figure 6b;
+    /// `derive.qnt` `wireEdges`): the forwarding tenant's dpni ↔ a member tenant's
+    /// dpni, the boundary connector a software switch bridges without a dpsw. Like
+    /// [`Link::wire`] it consumes both [`Interface`]s (the double-connect lock); the
+    /// interface `a` is the forwarder's side, and `construct` is the fabric's own
+    /// name.
+    #[allow(clippy::needless_pass_by_value)]
+    #[must_use]
+    pub fn wire(&self, a: Interface, b: Interface) -> Edge {
+        Edge {
+            provenance: ProvenanceKey::new(
+                self.forwarded_by.clone(),
+                "fabric-wire",
+                self.name.clone(),
+            ),
+            a: a.attach_point(),
+            b: b.attach_point(),
         }
     }
 }

@@ -11,6 +11,7 @@
 //! depends on none of them.
 
 pub mod compiled;
+mod derive;
 pub mod error;
 pub mod family;
 pub mod intent;
@@ -40,8 +41,8 @@ pub use model::{
     DesiredPort, DesiredTopology, DpmacId, DpniId, FacetMismatch, Lifecycle, LinkType, MacAddr,
     MacMode, MacParseError, ObjectKind, ObservedDpmac, ObservedDpni, ObservedTopology, Presence,
 };
-pub use types::{ConstructName, RuleName, TenantName};
 pub use plan::{AssertMismatch, DriftReport, Plan, Transition};
 pub use port::{ConfigSource, KernelControl, McControl};
 pub use reconcile::{ReconcileOptions, reconcile, reconcile_with};
-pub use refuse::{REFUSAL_VARIANTS, Refusal, Warning};
+pub use refuse::{Compiled, REFUSAL_VARIANTS, Refusal, Warning, compile};
+pub use types::{ConstructName, RuleName, TenantName};

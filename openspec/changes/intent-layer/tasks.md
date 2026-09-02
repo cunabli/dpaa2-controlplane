@@ -191,13 +191,17 @@ the change's only other operator sync point (design D12).
       port-edge and vice versa) or stops doc-claiming non-drift for that
       path; lands before 3.6's plan-only reporting (architecture review
       of 3.1, bead gqf.37)
-- [ ] 3.2 `dpaa2-api`: `compile(intent, inventory)` — derivation,
+- [x] 3.2 `dpaa2-api`: `compile(intent, inventory)` — derivation,
       additive extras, provenance trees, the complete refusal
       list; unit tests one per refusal variant and per companion rule;
       `proptest` for determinism, extras only raise a count, companion-before-
       tenant (design D9); ITF replay of the intent traces through
       `compile` in `dpaa2-verify`, with `quint-connect` evaluated
       against the existing replayer and adopted only if it retires code
+      (evaluated and NOT adopted, audit upheld: step-driver paradigm
+      fits neither the pure single-state intent leg nor the retro leg's
+      coarser-than-action epochs, and its serde mapping would force an
+      ADR-0014 mirror vocabulary; revisit triggers in `intent_itf.rs`)
 - [ ] 3.3 `dpaa2-config`: schema rewritten to the constructs with the
       `[intent]` table's mandatory `schema` key; validation (references resolve,
       `kernel` reserved, link ends distinct, fabric members exist, count

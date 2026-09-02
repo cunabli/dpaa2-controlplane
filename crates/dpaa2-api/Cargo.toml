@@ -10,6 +10,12 @@ rust-version.workspace = true
 [dependencies]
 thiserror.workspace = true
 
+[dev-dependencies]
+# Property tests for `compile` and the witness-built plan surface (design D9, task
+# 3.2): determinism, extras-only-raise, companion-before-tenant, totality, and the
+# nine INTENT_I* invariants as runtime predicates.
+proptest.workspace = true
+
 [features]
 # Exposes the in-memory fake backend (D10) so downstream crates can unit-test
 # the observe -> reconcile -> act loop with no hardware.

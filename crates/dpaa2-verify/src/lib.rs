@@ -9,6 +9,7 @@
 pub mod adapter;
 pub mod driver;
 pub mod generate;
+pub mod intent_itf;
 /// The fsl-mc ioctl command-id policy as code (task 6.5).
 pub mod ioctlpolicy;
 pub mod itf;
