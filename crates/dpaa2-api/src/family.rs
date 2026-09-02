@@ -73,7 +73,64 @@ impl Family {
             Self::Dpdbg => "dpdbg",
         }
     }
+
+    /// The variant name as `models/core/types.qnt` spells it (`"Dprc"`,
+    /// `"Dpni"`, …) — the capitalised `type Family =` constructor, distinct
+    /// from the lowercase restool [`Family::as_str`]. It is the token the ITF
+    /// trace tags carry and the token the batch plan/snapshot files serialise
+    /// (`"fam": "Dprc"`), so the verify adapter's serde and the model lint both
+    /// key on it (ADR-0014: this projection is the tie between the Rust copy and
+    /// the model, checked by `intent_lint` R14).
+    ///
+    /// The exhaustive `match` is that tie's teeth: a variant added, removed, or
+    /// renamed cannot compile until this arm and [`ALL_FAMILIES`] change with it.
+    #[must_use]
+    pub const fn variant_name(self) -> &'static str {
+        match self {
+            Self::Dprc => "Dprc",
+            Self::Dpni => "Dpni",
+            Self::Dpmac => "Dpmac",
+            Self::Dpbp => "Dpbp",
+            Self::Dpio => "Dpio",
+            Self::Dpcon => "Dpcon",
+            Self::Dpmcp => "Dpmcp",
+            Self::Dpseci => "Dpseci",
+            Self::Dpsw => "Dpsw",
+            Self::Dpdmux => "Dpdmux",
+            Self::Dpaiop => "Dpaiop",
+            Self::Dpci => "Dpci",
+            Self::Dpdcei => "Dpdcei",
+            Self::Dpdmai => "Dpdmai",
+            Self::Dprtc => "Dprtc",
+            Self::Dpdbg => "Dpdbg",
+        }
+    }
 }
+
+/// Every family, in `types.qnt` declaration order (`FAMILIES`). The full space
+/// an object key ranges over (design D6), so a caller with only a name — the
+/// verify adapter deserialising `"fam": "Dprc"`, the model lint enumerating the
+/// Rust copy — recovers the value by scanning it. Length-pinned to 16: a
+/// seventeenth family cannot land here without the pin, [`Family::variant_name`],
+/// and the model all moving together (ADR-0014).
+pub const ALL_FAMILIES: [Family; 16] = [
+    Family::Dprc,
+    Family::Dpni,
+    Family::Dpmac,
+    Family::Dpbp,
+    Family::Dpio,
+    Family::Dpcon,
+    Family::Dpmcp,
+    Family::Dpseci,
+    Family::Dpsw,
+    Family::Dpdmux,
+    Family::Dpaiop,
+    Family::Dpci,
+    Family::Dpdcei,
+    Family::Dpdmai,
+    Family::Dprtc,
+    Family::Dpdbg,
+];
 
 impl fmt::Display for Family {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

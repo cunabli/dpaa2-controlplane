@@ -230,6 +230,77 @@ pub enum Refusal {
     },
 }
 
+/// The 24 `Refusal` variant names, in declaration order — the Rust copy of the
+/// `refuse.qnt` refusal vocabulary as a `&str` list the model lint can read
+/// (ADR-0014: an enumeration that restates the model is a linted copy, tied back
+/// to it by `intent_lint` R14; `Reserved`/`Foreign` carry the accepted ADR-0013
+/// §5 spelling, aliased to the model's anchor names in the lint). `Refusal` is
+/// payload-carrying, so it cannot be iterated like [`crate::ALL_FAMILIES`]; this
+/// list stands in, kept honest by the exhaustive `match` in [`Refusal::name`].
+pub const REFUSAL_VARIANTS: [&str; 24] = [
+    "TenantAbsent",
+    "MemberUnresolved",
+    "SelfMember",
+    "Unanchored",
+    "Reserved",
+    "Foreign",
+    "DoubleClaimed",
+    "OverRate",
+    "FabricNotKernelForwarded",
+    "PortTenantMismatch",
+    "UnsupportedEdge",
+    "UnknownRateClass",
+    "CoreBudgetExceeded",
+    "ExtraNotCompanion",
+    "ExtraNotPositive",
+    "CryptoFlowsNotPositive",
+    "CryptoFlowsOverDevice",
+    "Infeasible",
+    "UnpricedDataplane",
+    "PoolWithoutRestricted",
+    "RestrictedWithoutPool",
+    "HolderNotPublic",
+    "PoolChain",
+    "PoolDataplaneMismatch",
+];
+
+impl Refusal {
+    /// This variant's name, the same token [`REFUSAL_VARIANTS`] lists. The
+    /// exhaustive `match` is what ties that list to the enum (ADR-0014): a
+    /// variant added, removed, or renamed forces this arm — and so the adjacent
+    /// list — to change, and each arm returns a name the list must also carry.
+    /// `#[non_exhaustive]` does not bite here, inside the defining crate.
+    #[must_use]
+    pub fn name(&self) -> &'static str {
+        match self {
+            Self::TenantAbsent { .. } => "TenantAbsent",
+            Self::MemberUnresolved { .. } => "MemberUnresolved",
+            Self::SelfMember { .. } => "SelfMember",
+            Self::Unanchored { .. } => "Unanchored",
+            Self::Reserved { .. } => "Reserved",
+            Self::Foreign { .. } => "Foreign",
+            Self::DoubleClaimed { .. } => "DoubleClaimed",
+            Self::OverRate { .. } => "OverRate",
+            Self::FabricNotKernelForwarded { .. } => "FabricNotKernelForwarded",
+            Self::PortTenantMismatch { .. } => "PortTenantMismatch",
+            Self::UnsupportedEdge { .. } => "UnsupportedEdge",
+            Self::UnknownRateClass { .. } => "UnknownRateClass",
+            Self::CoreBudgetExceeded { .. } => "CoreBudgetExceeded",
+            Self::ExtraNotCompanion { .. } => "ExtraNotCompanion",
+            Self::ExtraNotPositive { .. } => "ExtraNotPositive",
+            Self::CryptoFlowsNotPositive { .. } => "CryptoFlowsNotPositive",
+            Self::CryptoFlowsOverDevice { .. } => "CryptoFlowsOverDevice",
+            Self::Infeasible { .. } => "Infeasible",
+            Self::UnpricedDataplane { .. } => "UnpricedDataplane",
+            Self::PoolWithoutRestricted { .. } => "PoolWithoutRestricted",
+            Self::RestrictedWithoutPool { .. } => "RestrictedWithoutPool",
+            Self::HolderNotPublic { .. } => "HolderNotPublic",
+            Self::PoolChain { .. } => "PoolChain",
+            Self::PoolDataplaneMismatch { .. } => "PoolDataplaneMismatch",
+        }
+    }
+}
+
 /// A non-fatal note attached to an accepted compile (design D2/D3; ADR-0013 §5).
 ///
 /// The review's escape-hatch-warns rule: the compiler flags what it prices on
@@ -252,4 +323,26 @@ pub enum Warning {
         /// The rate classes mixed.
         rates: Vec<i64>,
     },
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The list and the enum name a variant the same way, and the list is a
+    /// duplicate-free 24 — the runtime half of the tie the exhaustive
+    /// [`Refusal::name`] match makes at compile time (ADR-0014).
+    #[test]
+    fn refusal_variants_match_the_enum() {
+        let sample = Refusal::TenantAbsent {
+            construct: "port `p`".into(),
+            tenant: "t".into(),
+        };
+        assert!(REFUSAL_VARIANTS.contains(&sample.name()));
+
+        let mut seen = REFUSAL_VARIANTS.to_vec();
+        seen.sort_unstable();
+        seen.dedup();
+        assert_eq!(seen.len(), REFUSAL_VARIANTS.len(), "duplicate variant name");
+    }
 }

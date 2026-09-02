@@ -180,7 +180,7 @@ the change's only other operator sync point (design D12).
       `#[non_exhaustive]`; constructors public so a plan is buildable
       without `Intent` (design D11), covered by one test that builds and
       reconciles a plan by hand
-- [ ] 3.1a `dpaa2-verify`: the Rust `Family`/`Refusal` copies tied to the
+- [x] 3.1a `dpaa2-verify`: the Rust `Family`/`Refusal` copies tied to the
       model — fold `adapter.rs`'s sibling `Family` onto `dpaa2_api::Family`
       (serde/tag impls stay local to verify; api stays serde-free, design
       D10) and/or extend `intent_lint` with a Rust-copy leg, so neither

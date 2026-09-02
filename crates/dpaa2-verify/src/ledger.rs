@@ -831,10 +831,13 @@ fn r10_register(input: &LintInput<'_>, out: &mut Vec<String>) {
 // section — is a linted copy, never a sibling (ADR-0014). ADR-0013 is the
 // accepted-vocabulary record whose §5 (refusals), §6 (invariants) and §7
 // (scenarios) are exactly such copies, and its own Consequences note says
-// they "drift ... exactly this way" and belong under this lint. R11–R13
+// they "drift ... exactly this way" and belong under this lint. R11–R14
 // cross-check those copies against the model so a drift fails in CI, the same
-// design-D9 mechanism R1–R10 apply to the board ledgers. Parsing is pure over
-// `&str`; the scenario file set arrives as two stem lists the harness reads.
+// design-D9 mechanism R1–R10 apply to the board ledgers. R14 extends the reach
+// to the Rust domain enums (`dpaa2_api::Refusal`, `dpaa2_api::Family`), which
+// restate `refuse.qnt`/`types.qnt` and so are linted copies too (ADR-0014).
+// Parsing is pure over `&str`; the scenario file set arrives as two stem lists
+// and the Rust variant sets as two name lists the harness reads.
 
 /// The body of the markdown/Quint section whose heading line first starts with
 /// `heading` (the heading line excluded), up to the next `## ` / `### `
@@ -879,6 +882,38 @@ fn parse_refusal_variants(refuse_qnt: &str) -> Vec<String> {
                 .collect();
             if !name.is_empty() {
                 out.push(name);
+            }
+        }
+    }
+    out
+}
+
+/// The constructor names of `types.qnt`'s `type Family =` sum type. Unlike the
+/// one-per-line refusals, families are several to a line (`| Dprc | Dpni | …`),
+/// so this splits every `|`-led line of the block and takes each segment's
+/// leading identifier — the source of truth for the family vocabulary.
+fn parse_family_variants(types_qnt: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut in_block = false;
+    for line in types_qnt.lines() {
+        if line.trim_start().starts_with("type Family =") {
+            in_block = true;
+            continue;
+        }
+        if in_block {
+            let t = line.trim();
+            if !t.starts_with('|') {
+                break; // the first non-`|` line closes the sum type
+            }
+            for seg in t.split('|') {
+                let name: String = seg
+                    .trim()
+                    .chars()
+                    .take_while(char::is_ascii_alphanumeric)
+                    .collect();
+                if !name.is_empty() {
+                    out.push(name);
+                }
             }
         }
     }
@@ -1116,24 +1151,90 @@ fn r13_scenarios(qnt_stems: &[String], toml_stems: &[String], adr_md: &str, out:
     }
 }
 
-/// Runs the intent-layer cross-checks (R11–R13) over the `models/intent/`
-/// copies and returns one finding per drift; an empty vector is the green
-/// verdict. Distinct from [`lint`] because it reads a different document set
-/// (the model files and ADR-0013, not the board ledgers).
+/// R14: the Rust domain copies agree with the model. `refuse.qnt`'s
+/// `type Refusal =` and `types.qnt`'s `type Family =` are the truth; the
+/// `dpaa2_api::Refusal` variant list ([`dpaa2_api::REFUSAL_VARIANTS`]) and the
+/// `dpaa2_api::Family` variant set (from [`dpaa2_api::Family::variant_name`] over
+/// [`dpaa2_api::ALL_FAMILIES`]) are the copies (ADR-0014: a Rust enum that
+/// restates the model is a linted copy, tied back here). Refusal names apply the
+/// same `Reserved`/`Foreign` anchor alias as the ADR §5 copy (R11). Adding,
+/// removing, or renaming a variant on either side — model or Rust — breaks this
+/// leg; the Rust list-vs-enum tie is the crate-local exhaustive `match`
+/// (`Refusal::name`, `Family::variant_name`) that will not compile until the
+/// list moves with the enum.
+fn r14_rust_copies(
+    refuse_qnt: &str,
+    types_qnt: &str,
+    rust_refusals: &[&str],
+    rust_families: &[&str],
+    out: &mut Vec<String>,
+) {
+    // Refusals: model spelling (ReservedAnchor/ForeignAnchor) is canonical; map
+    // each Rust name through the anchor alias before comparing.
+    let model_refusals = parse_refusal_variants(refuse_qnt);
+    for v in &model_refusals {
+        if !rust_refusals.iter().any(|r| model_spelling(r) == v) {
+            out.push(format!(
+                "R14 rust: refuse.qnt Refusal variant {v} has no dpaa2_api::Refusal counterpart"
+            ));
+        }
+    }
+    for r in rust_refusals {
+        if !model_refusals.iter().any(|v| v == model_spelling(r)) {
+            out.push(format!(
+                "R14 rust: dpaa2_api::Refusal variant {r} is absent from refuse.qnt"
+            ));
+        }
+    }
+
+    // Families: names identical on both sides.
+    let model_families = parse_family_variants(types_qnt);
+    for v in &model_families {
+        if !rust_families.contains(&v.as_str()) {
+            out.push(format!(
+                "R14 rust: types.qnt Family {v} has no dpaa2_api::Family counterpart"
+            ));
+        }
+    }
+    for f in rust_families {
+        if !model_families.iter().any(|v| v == f) {
+            out.push(format!(
+                "R14 rust: dpaa2_api::Family {f} is absent from types.qnt"
+            ));
+        }
+    }
+}
+
+/// Runs the intent-layer cross-checks (R11–R14) over the `models/intent/` and
+/// `models/core/` copies and returns one finding per drift; an empty vector is
+/// the green verdict. Distinct from [`lint`] because it reads a different
+/// document set (the model files, ADR-0013, and the `dpaa2_api` domain enums,
+/// not the board ledgers).
 #[must_use]
+#[allow(clippy::too_many_arguments)] // one &str per copy, all read-only
 pub fn intent_lint(
     refuse_qnt: &str,
+    types_qnt: &str,
     alphabet_qnt: &str,
     invariants_qnt: &str,
     coverage_md: &str,
     adr_md: &str,
     scenario_qnt_stems: &[String],
     scenario_toml_stems: &[String],
+    rust_refusals: &[&str],
+    rust_families: &[&str],
 ) -> Vec<String> {
     let mut out = Vec::new();
     r11_refusals(refuse_qnt, alphabet_qnt, coverage_md, adr_md, &mut out);
     r12_invariants(invariants_qnt, adr_md, &mut out);
     r13_scenarios(scenario_qnt_stems, scenario_toml_stems, adr_md, &mut out);
+    r14_rust_copies(
+        refuse_qnt,
+        types_qnt,
+        rust_refusals,
+        rust_families,
+        &mut out,
+    );
     out
 }
 
@@ -1927,5 +2028,87 @@ module intent_invariants {
             "{out:?}"
         );
         assert!(out.iter().any(|m| m.contains("lists ghost")), "{out:?}");
+    }
+
+    /// A `types.qnt` slice: the several-to-a-line `type Family =` block and a
+    /// following declaration the parser must not fold in.
+    const TYPES: &str = "\
+module core_types {
+  type Family =
+    | Dprc | Dpni
+    | Dpmac
+
+  type ObjId = { fam: Family, num: int }
+}";
+
+    #[test]
+    fn parses_family_variants_across_lines() {
+        assert_eq!(parse_family_variants(TYPES), vec!["Dprc", "Dpni", "Dpmac"]);
+    }
+
+    #[test]
+    fn r14_passes_when_the_rust_copies_match_the_model() {
+        // REFUSE names the anchor `ReservedAnchor`; the Rust copy carries the
+        // accepted `Reserved` spelling, so the alias must bridge them.
+        let refusals = ["TenantAbsent", "Reserved", "Infeasible"];
+        let families = ["Dprc", "Dpni", "Dpmac"];
+        let mut out = Vec::new();
+        r14_rust_copies(REFUSE, TYPES, &refusals, &families, &mut out);
+        assert!(out.is_empty(), "{out:?}");
+    }
+
+    #[test]
+    fn r14_flags_a_dropped_refusal_and_a_renamed_family() {
+        // The deliberate-drift negative test, both directions: the Rust copies
+        // drop a refusal (`Infeasible`) and rename a family (`Dpmac` → `Dpmax`),
+        // all in memory.
+        let refusals_bad = ["TenantAbsent", "Reserved"]; // Infeasible gone
+        let families_bad = ["Dprc", "Dpni", "Dpmax"]; // renamed
+        let mut out = Vec::new();
+        r14_rust_copies(REFUSE, TYPES, &refusals_bad, &families_bad, &mut out);
+        // Model has Infeasible, the Rust copy does not.
+        assert!(
+            out.iter()
+                .any(|m| m
+                    .contains("refuse.qnt Refusal variant Infeasible has no dpaa2_api::Refusal")),
+            "{out:?}"
+        );
+        // Model has Dpmac, the Rust copy does not.
+        assert!(
+            out.iter()
+                .any(|m| m.contains("types.qnt Family Dpmac has no dpaa2_api::Family")),
+            "{out:?}"
+        );
+        // The Rust copy's Dpmax has no model family.
+        assert!(
+            out.iter()
+                .any(|m| m.contains("dpaa2_api::Family Dpmax is absent from types.qnt")),
+            "{out:?}"
+        );
+    }
+
+    /// The real crate enums agree with the real model files — the same check the
+    /// integration test runs, kept here so a `dpaa2_api` edit fails the unit
+    /// suite too (ADR-0014).
+    #[test]
+    fn r14_ties_the_live_dpaa2_api_enums_to_the_model() {
+        let root = format!("{}/../..", env!("CARGO_MANIFEST_DIR"));
+        let refuse = std::fs::read_to_string(format!("{root}/models/intent/refuse.qnt"))
+            .expect("read refuse.qnt");
+        let types = std::fs::read_to_string(format!("{root}/models/core/types.qnt"))
+            .expect("read types.qnt");
+        let families: Vec<&str> = dpaa2_api::ALL_FAMILIES
+            .iter()
+            .map(|f| f.variant_name())
+            .collect();
+        let mut out = Vec::new();
+        r14_rust_copies(
+            &refuse,
+            &types,
+            &dpaa2_api::REFUSAL_VARIANTS,
+            &families,
+            &mut out,
+        );
+        assert!(out.is_empty(), "{out:?}");
     }
 }

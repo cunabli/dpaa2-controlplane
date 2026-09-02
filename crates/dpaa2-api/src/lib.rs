@@ -30,7 +30,7 @@ pub use compiled::{
     PlannedObject, ProvenanceKey, ProvenanceNode,
 };
 pub use error::Error;
-pub use family::{DERIVED_FAMILIES, Family, Permission};
+pub use family::{ALL_FAMILIES, DERIVED_FAMILIES, Family, Permission};
 pub use intent::{
     Crypto, Dataplane, Extra, Fabric, Intent, Isolation, KERNEL, Link, Member, Port, Switching,
     Tenant, kernel_tenant,
@@ -44,4 +44,4 @@ pub use names::{ConstructName, RuleName, TenantName};
 pub use plan::{AssertMismatch, DriftReport, Plan, Transition};
 pub use port::{ConfigSource, KernelControl, McControl};
 pub use reconcile::{ReconcileOptions, reconcile, reconcile_with};
-pub use refuse::{Refusal, Warning};
+pub use refuse::{REFUSAL_VARIANTS, Refusal, Warning};

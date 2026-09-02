@@ -95,6 +95,7 @@ fn the_intent_copies_agree() {
     let root = repo_root();
 
     let refuse = read(&root, "models/intent/refuse.qnt");
+    let types = read(&root, "models/core/types.qnt");
     let alphabet = read(&root, "models/intent/alphabet.qnt");
     let invariants = read(&root, "models/intent/invariants.qnt");
     let coverage = read(&root, "models/COVERAGE.md");
@@ -117,14 +118,24 @@ fn the_intent_copies_agree() {
         }
     }
 
+    // The Rust domain copies: the `dpaa2_api::Refusal` name list and the
+    // `dpaa2_api::Family` variant set (ADR-0014 R14).
+    let rust_families: Vec<&str> = dpaa2_api::ALL_FAMILIES
+        .iter()
+        .map(|f| f.variant_name())
+        .collect();
+
     let findings = intent_lint(
         &refuse,
+        &types,
         &alphabet,
         &invariants,
         &coverage,
         &adr,
         &qnt_stems,
         &toml_stems,
+        &dpaa2_api::REFUSAL_VARIANTS,
+        &rust_families,
     );
     assert!(
         findings.is_empty(),

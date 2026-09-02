@@ -32,105 +32,60 @@ use std::fmt;
 use serde_json::Value;
 
 /// The 16 MC object families (object-model.md §3).
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
-)]
-#[allow(missing_docs)]
-pub enum Family {
-    Dprc,
-    Dpni,
-    Dpmac,
-    Dpbp,
-    Dpio,
-    Dpcon,
-    Dpmcp,
-    Dpseci,
-    Dpsw,
-    Dpdmux,
-    Dpaiop,
-    Dpci,
-    Dpdcei,
-    Dpdmai,
-    Dprtc,
-    Dpdbg,
+///
+/// The domain type is [`dpaa2_api::Family`], not a sibling copy: one Rust
+/// transcription of `models/core/types.qnt`, tied to the model by `intent_lint`
+/// R14 (ADR-0014, ADR-0013 §5). This adapter keeps only the ITF/serde plumbing
+/// that stays local because `dpaa2-api` carries no serde (design D10): the
+/// variant-name serde (`family_serde`), the ITF-tag and restool-name parsers
+/// (`family_from_tag`, `family_from_str`).
+pub use dpaa2_api::Family;
+
+/// The family whose `variant_name` is `tag` — the ITF constructor tag
+/// (`"Dpni"`, `"Dprc"`, …), the same token the batch plan serialises.
+fn family_from_variant(tag: &str) -> Option<Family> {
+    dpaa2_api::ALL_FAMILIES
+        .into_iter()
+        .find(|f| f.variant_name() == tag)
 }
 
-impl Family {
-    /// The restool type name (`dpni`, `dprc`, …).
-    #[must_use]
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Dprc => "dprc",
-            Self::Dpni => "dpni",
-            Self::Dpmac => "dpmac",
-            Self::Dpbp => "dpbp",
-            Self::Dpio => "dpio",
-            Self::Dpcon => "dpcon",
-            Self::Dpmcp => "dpmcp",
-            Self::Dpseci => "dpseci",
-            Self::Dpsw => "dpsw",
-            Self::Dpdmux => "dpdmux",
-            Self::Dpaiop => "dpaiop",
-            Self::Dpci => "dpci",
-            Self::Dpdcei => "dpdcei",
-            Self::Dpdmai => "dpdmai",
-            Self::Dprtc => "dprtc",
-            Self::Dpdbg => "dpdbg",
-        }
-    }
-
-    /// Parses the ITF constructor tag (`"Dpni"`, `"Dprc"`, …).
-    fn from_tag(tag: &str) -> Result<Self, String> {
-        Ok(match tag {
-            "Dprc" => Self::Dprc,
-            "Dpni" => Self::Dpni,
-            "Dpmac" => Self::Dpmac,
-            "Dpbp" => Self::Dpbp,
-            "Dpio" => Self::Dpio,
-            "Dpcon" => Self::Dpcon,
-            "Dpmcp" => Self::Dpmcp,
-            "Dpseci" => Self::Dpseci,
-            "Dpsw" => Self::Dpsw,
-            "Dpdmux" => Self::Dpdmux,
-            "Dpaiop" => Self::Dpaiop,
-            "Dpci" => Self::Dpci,
-            "Dpdcei" => Self::Dpdcei,
-            "Dpdmai" => Self::Dpdmai,
-            "Dprtc" => Self::Dprtc,
-            "Dpdbg" => Self::Dpdbg,
-            other => return Err(format!("unknown family tag `{other}`")),
-        })
-    }
+/// Parses the ITF constructor tag (`"Dpni"`, `"Dprc"`, …).
+fn family_from_tag(tag: &str) -> Result<Family, String> {
+    family_from_variant(tag).ok_or_else(|| format!("unknown family tag `{tag}`"))
 }
 
-impl std::str::FromStr for Family {
-    type Err = String;
-
-    /// Parses the restool type name (`dpni`, `dprc`, …), the inverse of
-    /// [`Family::as_str`]. Shared by [`ObjRef`]'s parsing and the
-    /// `--create-args` flag parser ([`CreateArgs::parse_flag`]).
-    fn from_str(s: &str) -> Result<Self, String> {
-        [
-            Self::Dprc,
-            Self::Dpni,
-            Self::Dpmac,
-            Self::Dpbp,
-            Self::Dpio,
-            Self::Dpcon,
-            Self::Dpmcp,
-            Self::Dpseci,
-            Self::Dpsw,
-            Self::Dpdmux,
-            Self::Dpaiop,
-            Self::Dpci,
-            Self::Dpdcei,
-            Self::Dpdmai,
-            Self::Dprtc,
-            Self::Dpdbg,
-        ]
+/// Parses the restool type name (`dpni`, `dprc`, …), the inverse of
+/// [`Family::as_str`]. Shared by [`ObjRef`]'s parsing and the `--create-args`
+/// flag parser ([`CreateArgs::parse_flag`]). Local because it inverts the
+/// restool projection, an adapter concern the domain type does not carry.
+fn family_from_str(s: &str) -> Result<Family, String> {
+    dpaa2_api::ALL_FAMILIES
         .into_iter()
         .find(|f| f.as_str() == s)
         .ok_or_else(|| format!("unknown family `{s}`"))
+}
+
+/// serde for the foreign [`Family`] via its [`Family::variant_name`] string
+/// (`"Dprc"`) — the form the batch plan/snapshot files already carry. Lives here
+/// rather than on the type: `dpaa2-api` stays serde-free (design D10), and
+/// `Serialize`/`Deserialize` for a foreign type is an orphan-rule violation, so
+/// the field opts in with `#[serde(with = "family_serde")]` and [`CreateArgs`]
+/// maps its keys through [`family_from_variant`].
+mod family_serde {
+    use super::{Family, family_from_variant};
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    // serde's `with` contract fixes the `&Family` receiver; it cannot take the
+    // Copy value by value.
+    #[allow(clippy::trivially_copy_pass_by_ref)]
+    pub(super) fn serialize<S: Serializer>(f: &Family, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str(f.variant_name())
+    }
+
+    pub(super) fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Family, D::Error> {
+        let tag = String::deserialize(d)?;
+        family_from_variant(&tag)
+            .ok_or_else(|| serde::de::Error::custom(format!("unknown family `{tag}`")))
     }
 }
 
@@ -141,6 +96,7 @@ impl std::str::FromStr for Family {
 )]
 pub struct ObjRef {
     /// The object family.
+    #[serde(with = "family_serde")]
     pub fam: Family,
     /// The model-assigned object number.
     pub num: u32,
@@ -161,7 +117,7 @@ impl std::str::FromStr for ObjRef {
             .split_once('.')
             .ok_or_else(|| format!("not an object ref: `{s}`"))?;
         Ok(Self {
-            fam: kind.parse()?,
+            fam: family_from_str(kind)?,
             num: num.parse().map_err(|e| format!("bad object number: {e}"))?,
         })
     }
@@ -348,7 +304,7 @@ fn tag(v: &Value) -> Result<&str, String> {
 
 fn obj_ref(v: &Value) -> Result<ObjRef, String> {
     Ok(ObjRef {
-        fam: Family::from_tag(tag(&v["fam"])?)?,
+        fam: family_from_tag(tag(&v["fam"])?)?,
         num: num(&v["num"])?,
     })
 }
@@ -380,7 +336,7 @@ fn action(taken: &str, picks: &Value) -> Result<ModelAction, String> {
             parent: obj("parent")?,
         },
         "createObject" => ModelAction::CreateObject {
-            fam: Family::from_tag(tag(pick(picks, "fam")?)?)?,
+            fam: family_from_tag(tag(pick(picks, "fam")?)?)?,
             container: obj("c")?,
         },
         "preplugMutate" => ModelAction::PreplugMutate { obj: obj("o")? },
@@ -661,14 +617,37 @@ fn create_args(fam: Family) -> &'static [&'static str] {
 /// records them; the create arguments never enter the model, because
 /// channel mode is not a lifecycle attribute.
 ///
-/// Keyed by [`Family`] directly rather than its `as_str()` string: the
-/// family already derives `Ord` (a `BTreeMap` key) and
-/// `Serialize`/`Deserialize` (`serde_json` renders a fieldless enum as a
-/// string map key, the same `"Dpio"` form the plan already uses for
-/// `created`), so keying by the value is the smaller of the two.
-#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[serde(transparent)]
+/// Keyed by [`Family`] directly rather than its `as_str()` string: the family
+/// already derives `Ord` (a `BTreeMap` key), and its [`Family::variant_name`]
+/// renders the map key as the `"Dpio"` form the plan already uses for `created`,
+/// so keying by the value stays the smaller of the two. serde is hand-written
+/// (via `family_serde`) because the foreign [`Family`] carries none of its own
+/// (design D10); a transparent map with the key mapped through
+/// `family_from_variant` reproduces the committed on-disk form byte for byte.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct CreateArgs(BTreeMap<Family, Vec<String>>);
+
+impl serde::Serialize for CreateArgs {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        let by_name: BTreeMap<&str, &Vec<String>> =
+            self.0.iter().map(|(f, v)| (f.variant_name(), v)).collect();
+        by_name.serialize(s)
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for CreateArgs {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let by_name: BTreeMap<String, Vec<String>> = BTreeMap::deserialize(d)?;
+        by_name
+            .into_iter()
+            .map(|(tag, v)| {
+                family_from_variant(&tag)
+                    .map(|f| (f, v))
+                    .ok_or_else(|| serde::de::Error::custom(format!("unknown family `{tag}`")))
+            })
+            .collect()
+    }
+}
 
 impl CreateArgs {
     /// Whether no family carries an override, so the default table
@@ -700,7 +679,7 @@ impl CreateArgs {
         let (fam, args) = s
             .split_once('=')
             .ok_or_else(|| format!("create-args `{s}` is not <fam>=<args>"))?;
-        let fam: Family = fam.trim().parse()?;
+        let fam: Family = family_from_str(fam.trim())?;
         let args: Vec<String> = args.split_whitespace().map(str::to_owned).collect();
         if args.is_empty() {
             return Err(format!(
