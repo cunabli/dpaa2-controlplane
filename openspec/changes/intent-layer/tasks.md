@@ -208,7 +208,7 @@ the change's only other operator sync point (design D12).
       fields rejected, unknown schema version refused); converts to
       `Intent`; `ConfigSource::load` returns `Intent`; README example and
       ADR-0013's construct examples re-checked against the shipped parser
-- [ ] 3.3a `dpaa2-api`: the extras proptest law narrowed — inserting an extra
+- [x] 3.3a `dpaa2-api`: the extras proptest law narrowed — inserting an extra
       identical to a declared `(tenant, family, count)` triple is a set no-op
       in model and Rust alike, so the "raises by exactly count" law only holds
       for a genuinely new extra (bead gqf.39, surfaced by 3.3's gate run); the

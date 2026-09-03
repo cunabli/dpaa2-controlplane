@@ -880,9 +880,18 @@ proptest! {
         (intent, inv) in intent_and_inventory(),
         count in 1i64..=4,
     ) {
-        let Ok(base) = compile(&intent, &inv) else { return Ok(()); };
+        // The law needs the inserted extra to be NEW: extras is a set matched by the
+        // whole (tenant, family, count) triple, so re-adding an identical extra
+        // collapses model-faithfully (alphabet.qnt `addExtra` unions the same triple)
+        // and raises nothing. Drop any pre-existing (kernel, Dpbp, *) extras from the
+        // base first, so the single insert below is the only (kernel, Dpbp) raise.
+        let mut base_intent = intent.clone();
+        base_intent
+            .extras
+            .retain(|e| !(e.tenant.is_kernel() && e.family == Family::Dpbp));
+        let Ok(base) = compile(&base_intent, &inv) else { return Ok(()); };
 
-        let mut raised_intent = intent.clone();
+        let mut raised_intent = base_intent.clone();
         raised_intent.extras.insert(Extra {
             tenant: KERNEL.into(),
             family: Family::Dpbp,
