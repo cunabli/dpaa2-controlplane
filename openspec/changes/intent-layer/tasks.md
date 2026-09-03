@@ -202,12 +202,18 @@ the change's only other operator sync point (design D12).
       fits neither the pure single-state intent leg nor the retro leg's
       coarser-than-action epochs, and its serde mapping would force an
       ADR-0014 mirror vocabulary; revisit triggers in `intent_itf.rs`)
-- [ ] 3.3 `dpaa2-config`: schema rewritten to the constructs with the
+- [x] 3.3 `dpaa2-config`: schema rewritten to the constructs with the
       `[intent]` table's mandatory `schema` key; validation (references resolve,
       `kernel` reserved, link ends distinct, fabric members exist, count
       fields rejected, unknown schema version refused); converts to
       `Intent`; `ConfigSource::load` returns `Intent`; README example and
       ADR-0013's construct examples re-checked against the shipped parser
+- [ ] 3.3a `dpaa2-api`: the extras proptest law narrowed — inserting an extra
+      identical to a declared `(tenant, family, count)` triple is a set no-op
+      in model and Rust alike, so the "raises by exactly count" law only holds
+      for a genuinely new extra (bead gqf.39, surfaced by 3.3's gate run); the
+      proptest-regressions seed lands with the fix, and whether `Extra`
+      identity should be `(tenant, family)` instead is a filed design question
 - [ ] 3.4 `dpaa2-verify`: the pairing test — every `scenarios/<name>.toml`
       parses, compiles against the snapshot inventory, and equals its
       `<name>.itf.json` plan; the ladder fails on an unpaired scenario

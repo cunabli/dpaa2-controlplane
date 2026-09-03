@@ -40,7 +40,7 @@ use dpaa2_api::compiled::{
 use dpaa2_api::inventory::{Availability, Ceiling, DpmacLinkType, DpmacOffer, EthInterface};
 use dpaa2_api::{
     Compiled, Crypto, Dataplane, DpmacId, Extra, Fabric, Family, Intent, Inventory, Isolation,
-    KERNEL, Link, Member, Port, Switching, Tenant, TenantName, compile, kernel_tenant,
+    KERNEL, Link, MacMode, Member, Port, Switching, Tenant, TenantName, compile, kernel_tenant,
 };
 
 // ===========================================================================
@@ -618,6 +618,8 @@ fn intent_and_inventory() -> impl Strategy<Value = (Intent, Inventory)> {
                     dpmac,
                     rate,
                     tenant,
+                    mac: None,
+                    mac_mode: MacMode::default(),
                 })
                 .collect();
             let links = links
@@ -761,6 +763,8 @@ fn build_witness_plan(
                 dpmac: DpmacId::new(next_dpmac),
                 rate: 10_000,
                 tenant: t.name.clone(),
+                mac: None,
+                mac_mode: MacMode::default(),
             };
             next_dpmac += 1;
             let (obj, edge) = port.terminate(t, ord, 1);

@@ -14,7 +14,7 @@
 use std::collections::BTreeSet;
 
 use crate::family::Family;
-use crate::model::DpmacId;
+use crate::model::{DpmacId, MacAddr, MacMode};
 use crate::types::{ConstructName, TenantName};
 
 /// The reserved kernel tenant (design D1; `types.qnt` `KERNEL`): the kernel's own
@@ -118,6 +118,17 @@ pub struct Port {
     pub rate: i64,
     /// The tenant that terminates the port.
     pub tenant: TenantName,
+    /// The port's known/declared MAC, if any — an actuation-only fact the
+    /// derivation never reads (design D9). It rides on the port so
+    /// [`compile`](crate::compile)'s
+    /// [`DesiredPort`](crate::model::DesiredPort) projection keeps the operator's
+    /// MAC intent, but the sizing rules ignore it; the Quint model omits it
+    /// deliberately, which is why the model-copy lint does not bind it (ADR-0013 §11).
+    pub mac: Option<MacAddr>,
+    /// Whether [`mac`](Self::mac) is asserted (verified) or actuated (written) —
+    /// likewise an actuation-only fact the derivation never reads (design D9),
+    /// carried for the projection and omitted from the model.
+    pub mac_mode: MacMode,
 }
 
 /// A link: point-to-point dpni↔dpni pseudo-wire between two tenants

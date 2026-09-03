@@ -9,7 +9,7 @@ use std::process::ExitCode;
 use std::time::Duration;
 
 use clap::{Parser, Subcommand};
-use dpaa2_api::{DesiredTopology, Error, ReconcileOptions, reconcile_with};
+use dpaa2_api::{DesiredPort, DesiredTopology, Error, Intent, ReconcileOptions, reconcile_with};
 use dpaa2_mc::{RestoolMc, SysfsKernel};
 use dpaa2_tools::engine::{self, ConvergeConfig, Outcome};
 use dpaa2_tools::{StatusReport, link};
@@ -172,8 +172,45 @@ fn ensure(
     }
 }
 
+/// Loads the declared [`Intent`] and bridges the kernel-port-only subset onto today's
+/// [`DesiredTopology`] executor (task 3.3 scope; design D10).
+///
+/// Only a kernel-owned, port-only intent — no tenants, links, fabrics, crypto or
+/// extras, every port on the reserved kernel — maps onto the current dpni↔dpmac
+/// reconciler, and it does so through [`DesiredTopology::from_ports`] carrying each
+/// port's name, MAC and mode. A construct intent needs `compile` and inventory
+/// reading, which task 3.5 wires into `ensure`/`dry-run`; until then it is refused by
+/// name rather than silently truncated.
 fn load_config(path: &std::path::Path) -> Result<DesiredTopology, Error> {
-    dpaa2_config::load(path)
+    let intent = dpaa2_config::load(path)?;
+    if is_kernel_port_only(&intent) {
+        Ok(DesiredTopology::from_ports(intent.ports.iter().map(|p| {
+            DesiredPort {
+                mac: p.mac,
+                mac_mode: p.mac_mode,
+                ..DesiredPort::new(p.dpmac, p.name.as_str())
+            }
+        })))
+    } else {
+        Err(Error::Config(
+            "this intent declares constructs (tenants, links, fabrics, crypto, extras, or a \
+             non-kernel port); compiling them into the object plan is wired into `ensure`/`dry-run` \
+             in task 3.5. Today only a kernel-owned, port-only topology is executable."
+                .to_owned(),
+        ))
+    }
+}
+
+/// Whether `intent` is the kernel-owned, port-only subset the current reconciler can
+/// execute without `compile`: no constructs beyond ports, and every port on the
+/// reserved kernel.
+fn is_kernel_port_only(intent: &Intent) -> bool {
+    intent.tenants.is_empty()
+        && intent.links.is_empty()
+        && intent.fabrics.is_empty()
+        && intent.crypto.is_empty()
+        && intent.extras.is_empty()
+        && intent.ports.iter().all(|p| p.tenant.is_kernel())
 }
 
 fn init_logging() {

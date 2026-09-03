@@ -20,7 +20,11 @@ use crate::family::Family;
 use crate::intent::kernel_tenant;
 
 /// A 48-bit Ethernet MAC address.
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+///
+/// `Ord` is derived (lexicographic over the octets) so a [`MacAddr`] can ride on the
+/// fully-ordered [`crate::intent::Port`] the plan keys and sets order (task 3.3); the
+/// ordering is incidental, never semantic.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct MacAddr([u8; 6]);
 
 impl MacAddr {
@@ -224,7 +228,10 @@ pub enum LinkType {
 }
 
 /// How a port's MAC address is treated (design D9, config spec).
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+///
+/// `Ord`/`Hash` are derived so this rides on the fully-ordered, hashable
+/// [`crate::intent::Port`] (task 3.3); the ordering is incidental, never semantic.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Default)]
 pub enum MacMode {
     /// Verify the observed MAC against the declared one; never write (default).
     #[default]

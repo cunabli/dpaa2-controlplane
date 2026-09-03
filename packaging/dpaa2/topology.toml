@@ -10,16 +10,26 @@
 # `mac` is optional. When present it is asserted by default (verified against the
 # netdev's inherited DPMAC MAC, never written). Set `mac_mode = "actuate"` only to
 # have the reconciler set the DPNI primary MAC.
+#
+# A [[port]] with no `tenant` belongs to the reserved `kernel` dataplane (design D1).
+# This example is kernel-port-only, the subset `dpaa2ctl` executes today; construct
+# intents (tenants, links, fabrics, crypto) are documented in ADR-0013.
+
+[intent]
+schema = 1
 
 [[port]]
 dpmac = "dpmac.7"
 name = "lan0"
+rate = 10000
 
 [[port]]
 dpmac = "dpmac.8"
 name = "lan1"
+rate = 10000
 
 # Example 25G port on the QSFP28 breakout:
 # [[port]]
 # dpmac = "dpmac.3"
 # name = "wan0"
+# rate = 25000

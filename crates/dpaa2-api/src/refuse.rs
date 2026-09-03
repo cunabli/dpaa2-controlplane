@@ -376,7 +376,11 @@ impl Compiled {
             .ports
             .iter()
             .filter(|p| !is_hw_switched_port(intent, &p.name))
-            .map(|p| DesiredPort::new(p.dpmac, p.name.as_str()))
+            .map(|p| DesiredPort {
+                mac: p.mac,
+                mac_mode: p.mac_mode,
+                ..DesiredPort::new(p.dpmac, p.name.as_str())
+            })
             .collect();
         DesiredTopology::from_parts(self.plan.clone(), ports)
             .expect("a compiled plan pairs coherently with its terminated-port projection")
@@ -1009,6 +1013,8 @@ mod compile_tests {
             dpmac: DpmacId::new(dpmac),
             rate,
             tenant: owner.into(),
+            mac: None,
+            mac_mode: crate::model::MacMode::Assert,
         }
     }
     fn link(name: &str, a: &str, b: &str) -> Link {
@@ -1789,6 +1795,27 @@ mod compile_tests {
         assert_eq!(topology.ports().len(), 2);
         // the two terminated ports are the whole port-edge set.
         assert_eq!(topology.plan().edges.len(), 2);
+    }
+
+    #[test]
+    fn desired_topology_keeps_the_operators_mac_intent() {
+        // The port's MAC and mode are actuation-only facts the derivation never
+        // reads, but the projection must carry them (design D9).
+        let mac = crate::model::MacAddr::new([0x02, 0, 0, 0, 0, 0x07]);
+        let intent = Intent {
+            tenants: vec![kernel_tenant(16)],
+            ports: vec![Port {
+                mac: Some(mac),
+                mac_mode: crate::model::MacMode::Actuate,
+                ..port("wan0", 7, 10_000, "kernel")
+            }],
+            ..Intent::default()
+        };
+        let c = ok(&intent, &ref_inv());
+        let topology = c.desired_topology(&intent);
+        let projected = &topology.ports()[0];
+        assert_eq!(projected.mac, Some(mac));
+        assert_eq!(projected.mac_mode, crate::model::MacMode::Actuate);
     }
 
     #[test]

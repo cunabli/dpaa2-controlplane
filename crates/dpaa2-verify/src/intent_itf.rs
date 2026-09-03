@@ -41,8 +41,9 @@ use serde_json::Value;
 use dpaa2_api::{
     ALL_FAMILIES, AttachPoint, Attributes, Availability, Ceiling, Compiled, ConstructName,
     Container, Crypto, Dataplane, DpmacId, DpmacLinkType, DpmacOffer, EthInterface, Extra, Fabric,
-    Family, Intent, Inventory, Isolation, Link, Measurement, Member, ObjectKey, Permission, Port,
-    ProvenanceKey, ProvenanceNode, Refusal, Switching, Tenant, TenantName, Warning, compile,
+    Family, Intent, Inventory, Isolation, Link, MacMode, Measurement, Member, ObjectKey,
+    Permission, Port, ProvenanceKey, ProvenanceNode, Refusal, Switching, Tenant, TenantName,
+    Warning, compile,
 };
 
 use crate::itf::{int64, num, tag};
@@ -242,6 +243,10 @@ fn port(v: &Value) -> Result<Port, String> {
         dpmac: DpmacId::new(num(field(v, "dpmac")?)?),
         rate: int64(field(v, "rate")?)?,
         tenant: tname(field(v, "tenant")?)?,
+        // `mac`/`mac_mode` are actuation-only facts the derivation never reads; the
+        // Quint model omits them, so the ITF trace carries none — default them.
+        mac: None,
+        mac_mode: MacMode::default(),
     })
 }
 
