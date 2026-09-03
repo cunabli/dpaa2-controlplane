@@ -14,6 +14,7 @@ use std::collections::BTreeMap;
 use std::collections::HashMap;
 
 use crate::error::Error;
+use crate::inventory::Inventory;
 use crate::model::{
     DpmacId, DpniId, LinkType, MacAddr, ObservedDpmac, ObservedDpni, ObservedTopology,
 };
@@ -40,6 +41,9 @@ struct FakeState {
     bind_latency: u64,
     /// Per-DPNI tick at which its netdev becomes visible.
     ready_at: HashMap<DpniId, u64>,
+    /// The hardware offer [`McControl::read_inventory`] returns; injected by tests
+    /// (design D2). Defaults empty — the board offers nothing until seeded.
+    inventory: Inventory,
 }
 
 /// In-memory fake implementing both southbound ports over a shared state.
@@ -59,8 +63,18 @@ impl FakeBackend {
                 tick: 0,
                 bind_latency: 0,
                 ready_at: HashMap::new(),
+                inventory: Inventory::default(),
             }),
         }
+    }
+
+    /// Seeds the hardware offer [`McControl::read_inventory`] returns, so the
+    /// compile path can be driven with a chosen board offer and no hardware
+    /// (design D2; bead gqf.19).
+    #[must_use]
+    pub fn with_inventory(self, inventory: Inventory) -> Self {
+        self.state.borrow_mut().inventory = inventory;
+        self
     }
 
     /// Sets how many observation ticks pass after connect before a PHY netdev
@@ -165,6 +179,10 @@ impl McControl for FakeBackend {
             .collect();
 
         Ok(ObservedTopology { dpnis, dpmacs })
+    }
+
+    fn read_inventory(&self) -> Result<Inventory, Error> {
+        Ok(self.state.borrow().inventory.clone())
     }
 
     fn create_dpni(&self) -> Result<DpniId, Error> {

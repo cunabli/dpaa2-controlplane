@@ -9,13 +9,64 @@
 
 use std::collections::BTreeMap;
 
-use dpaa2_api::{DpmacId, DpniId, Error, McControl, ObservedDpmac, ObservedDpni, ObservedTopology};
+use dpaa2_api::{
+    Availability, Ceiling, DERIVED_FAMILIES, DpmacId, DpmacOffer, DpniId, Error, Family, Inventory,
+    McControl, ObservedDpmac, ObservedDpni, ObservedTopology,
+};
 
 use crate::parse;
 use crate::runner::{RestoolRunner, Runner};
 
 /// The default fsl-mc root container.
 pub const DEFAULT_CONTAINER: &str = "dprc.1";
+
+/// The MC's own container, aliased `mc.global` by restool; only `dprc show` (and
+/// its `--resources` variant) is accepted against it (`dprc.md` mc.global section).
+const MC_GLOBAL: &str = "mc.global";
+
+/// The ADR-0003 §3 port safety matrix, transcribed once — the single Rust copy the
+/// southbound consults (task 3.5, design D2). A reserved dpmac may never anchor a
+/// port; the reason string is the one `REF_INVENTORY` records
+/// (`models/intent/inventory.qnt`). Any dpmac not listed here is [`Availability::Free`]
+/// unless a DPL object holds it (which this adapter cannot yet observe — see
+/// [`RestoolMc::read_inventory`]).
+fn reserved_reason(id: DpmacId) -> Option<&'static str> {
+    match id.into_inner() {
+        3 => Some("ADR-0003 §3: wired to a peer that must never see traffic (total-deny)"),
+        17 => Some("ADR-0003 §3: management plane (dpni.0), never touched"),
+        _ => None,
+    }
+}
+
+/// ADR-0011's per-family ceiling policy, transcribed once (task 3.5). It is *not* a
+/// plain "listed pool ⇒ [`Ceiling::Counted`]" rule: only dpbp's `bp` pool is a true
+/// count (decision 1); dpmcp's `mcp` pool is a per-boot budget the listing reports
+/// but destroy never returns, so it is [`Ceiling::Observed`] (decision 3); dpni's
+/// ceiling of 18 is measured but *unlisted* (decision 2); every other derived family
+/// was never measured and stays [`Ceiling::Unknown`]. This never invents a number —
+/// the two `Observed` values are the ones ADR-0011/`REF_INVENTORY` record.
+fn ceiling_of(family: Family, pools: &BTreeMap<String, i64>) -> Ceiling {
+    match family {
+        Family::Dpbp => pools
+            .get("bp")
+            .map_or(Ceiling::Unknown, |&n| Ceiling::Counted(n)),
+        Family::Dpmcp => pools
+            .get("mcp")
+            .map_or(Ceiling::Unknown, |&n| Ceiling::Observed {
+                n,
+                provenance: "ADR-0011 decision 3 (V-CEIL-1 rev 2, 2026-08-29): MC portals are a \
+                 fixed per-boot budget the listing reports, never returned by destroy"
+                    .to_owned(),
+            }),
+        Family::Dpni => Ceiling::Observed {
+            n: 18,
+            provenance: "ADR-0011 decision 2 (V-CEIL-1, 2026-08-29): the 18th dpni is refused \
+                 with every listed pool showing room; an unlisted resource"
+                .to_owned(),
+        },
+        _ => Ceiling::Unknown,
+    }
+}
 
 /// One step in a transactional provisioning chain (see
 /// [`RestoolMc::provision_chain`]): the object kind (for rollback destroy) and the
@@ -269,6 +320,65 @@ impl<R: Runner> McControl for RestoolMc<R> {
         Ok(ObservedTopology { dpnis, dpmacs })
     }
 
+    fn read_inventory(&self) -> Result<Inventory, Error> {
+        // dpmac set: reuse the observe listing rather than re-deriving it.
+        let show = self.runner.run(&["dprc", "show", &self.container])?;
+        let (_dpnis, dpmac_ids) = parse::parse_dprc_show(&show);
+
+        let mut dpmacs = BTreeMap::new();
+        for id in dpmac_ids {
+            let raw =
+                parse::parse_dpmac_offer(&self.runner.run(&["dpmac", "info", &id.to_string()])?);
+            // DPMAC-I3: these attributes are immutable; a missing one is a parse
+            // failure, not a default — an invented rate/media would misdescribe the
+            // port to `compile`.
+            let (Some(max_rate), Some(eth_if), Some(link_type)) =
+                (raw.max_rate, raw.eth_if, raw.link_type)
+            else {
+                return Err(Error::Parse(format!(
+                    "dpmac info {id}: missing max_rate/eth_if/link_type"
+                )));
+            };
+            let avail = reserved_reason(id).map_or(Availability::Free, |why| {
+                Availability::Reserved(why.to_owned())
+            });
+            dpmacs.insert(
+                id,
+                DpmacOffer {
+                    id,
+                    max_rate,
+                    eth_if,
+                    link_type,
+                    avail,
+                },
+            );
+        }
+
+        // Ceilings: the MC-level resource listing, mapped per ADR-0011's policy.
+        let res = self
+            .runner
+            .run(&["dprc", "show", MC_GLOBAL, "--resources"])?;
+        let pools = parse::parse_resources(&res);
+        let ceilings = DERIVED_FAMILIES
+            .iter()
+            .map(|&f| (f, ceiling_of(f, &pools)))
+            .collect();
+
+        Ok(Inventory {
+            // ADR-0012: the kernel dataplane draws one dpio per online CPU; the crate
+            // already sizes its pools by this count.
+            cpus: u32::try_from(self.cores).unwrap_or(u32::MAX),
+            dpmacs,
+            // GAP (design D2, ADR-0001 §4): DPL ownership is not observable through
+            // `restool` without persisted state — `dprc show` cannot distinguish a
+            // DPL-created object (e.g. dpni.0) from one this control plane made. The
+            // honest subset leaves `foreign` empty rather than guess; recovering it
+            // needs a DPL/ownership signal Parcel A does not have.
+            foreign: BTreeMap::new(),
+            ceilings,
+        })
+    }
+
     fn create_dpni(&self) -> Result<DpniId, Error> {
         // A DPNI is not usable alone: `dpaa2-eth` allocates a DPBP, a DPMCP, and one
         // DPCON per queue from the container's pool at probe, backed by a per-core
@@ -332,5 +442,89 @@ impl<R: Runner> McControl for RestoolMc<R> {
     fn destroy(&self, dpni: DpniId) -> Result<(), Error> {
         self.runner.run(&["dpni", "destroy", &dpni.to_string()])?;
         self.sync()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A [`Runner`] that replays canned output keyed by the joined argument line.
+    struct CannedRunner(std::collections::HashMap<String, String>);
+
+    impl CannedRunner {
+        fn new(pairs: &[(&str, &str)]) -> Self {
+            Self(
+                pairs
+                    .iter()
+                    .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
+                    .collect(),
+            )
+        }
+    }
+
+    impl Runner for CannedRunner {
+        fn run(&self, args: &[&str]) -> Result<String, Error> {
+            self.0
+                .get(&args.join(" "))
+                .cloned()
+                .ok_or_else(|| Error::Backend(format!("no canned output for `{}`", args.join(" "))))
+        }
+    }
+
+    // dpmac info bodies shaped after models/board/baselines/reference.json.
+    fn dpmac_info(rate: i64, eth: &str) -> String {
+        format!(
+            "DPMAC ethernet interface: {eth}\nDPMAC link type: DPMAC_LINK_TYPE_PHY\n\
+             MAC address: 00:11:22:33:44:55\nmaximum supported rate {rate} Mbps\n"
+        )
+    }
+
+    #[test]
+    fn read_inventory_assembles_offers_availability_and_ceilings() {
+        let show = "dpni.0\ndpmac.3\ndpmac.4\ndpmac.17\n";
+        let info3 = dpmac_info(25_000, "DPMAC_ETH_IF_CAUI");
+        let info4 = dpmac_info(25_000, "DPMAC_ETH_IF_CAUI");
+        let info17 = dpmac_info(1000, "DPMAC_ETH_IF_RGMII");
+        let resources = "bp 63\nmcp 203\nswp 49\nfq 1981\n";
+        let runner = CannedRunner::new(&[
+            ("dprc show dprc.1", show),
+            ("dpmac info dpmac.3", &info3),
+            ("dpmac info dpmac.4", &info4),
+            ("dpmac info dpmac.17", &info17),
+            ("dprc show mc.global --resources", resources),
+        ]);
+        let mc = RestoolMc::with_runner(runner, DEFAULT_CONTAINER).with_cores(16);
+
+        let inv = mc.read_inventory().expect("inventory");
+
+        assert_eq!(inv.cpus, 16);
+        // The ADR-0003 matrix: dpmac.3 total-deny, dpmac.17 management, dpmac.4 free.
+        assert!(matches!(
+            inv.dpmacs[&DpmacId::new(3)].avail,
+            Availability::Reserved(_)
+        ));
+        assert!(matches!(
+            inv.dpmacs[&DpmacId::new(17)].avail,
+            Availability::Reserved(_)
+        ));
+        assert_eq!(inv.dpmacs[&DpmacId::new(4)].avail, Availability::Free);
+        assert_eq!(inv.dpmacs[&DpmacId::new(4)].max_rate, 25_000);
+
+        // ADR-0011 per-family ceilings: dpbp counted, dpmcp/dpni observed, rest unknown.
+        assert_eq!(inv.ceilings[&Family::Dpbp], Ceiling::Counted(63));
+        assert!(matches!(
+            inv.ceilings[&Family::Dpmcp],
+            Ceiling::Observed { n: 203, .. }
+        ));
+        assert!(matches!(
+            inv.ceilings[&Family::Dpni],
+            Ceiling::Observed { n: 18, .. }
+        ));
+        assert_eq!(inv.ceilings[&Family::Dpio], Ceiling::Unknown);
+        assert_eq!(inv.ceilings[&Family::Dpcon], Ceiling::Unknown);
+
+        // GAP: DPL ownership is unobservable here, so no foreign objects appear.
+        assert!(inv.foreign.is_empty());
     }
 }
