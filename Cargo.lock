@@ -188,6 +188,7 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "dpaa2-api",
+ "dpaa2-config",
  "dpaa2-mc",
  "serde",
  "serde_json",

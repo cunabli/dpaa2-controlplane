@@ -214,7 +214,7 @@ the change's only other operator sync point (design D12).
       for a genuinely new extra (bead gqf.39, surfaced by 3.3's gate run); the
       proptest-regressions seed lands with the fix, and whether `Extra`
       identity should be `(tenant, family)` instead is a filed design question
-- [ ] 3.4 `dpaa2-verify`: the pairing test — every `scenarios/<name>.toml`
+- [x] 3.4 `dpaa2-verify`: the pairing test — every `scenarios/<name>.toml`
       parses, compiles against the snapshot inventory, and equals its
       `<name>.itf.json` plan; the ladder fails on an unpaired scenario
 - [ ] 3.5 `dpaa2-mc` + `dpaa2-tools`: inventory read (`dpmac info`
