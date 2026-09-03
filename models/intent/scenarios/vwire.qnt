@@ -46,11 +46,11 @@ module vwire {
   import types.* from "../../core/types"           // Family
   import intent_types.* from "../types"            // Intent, KernelNetlink, UserspacePoll, KERNEL, kernelTenant, …
   import intent_inventory.* from "../inventory"    // REF_INVENTORY
-  import intent_derive.* from "../derive"          // Plan, PlanObj, End, DpniAttrs, Child, Root, …
+  import intent_derive.* from "../derive"          // Plan, PlannedObject, AttachPoint, DpniAttrs, Child, Root, …
   import intent_refuse.* from "../refuse"          // compile, PoolDataplaneMismatch
   import intent_invariants.* from "../invariants"  // planInvariants, compileInvariants
 
-  pure def objsOfFam(p: Plan, name: str, fam: Family): Set[PlanObj] =
+  pure def objsOfFam(p: Plan, name: str, fam: Family): Set[PlannedObject] =
     p.objs.filter(o => o.key.tenant == name and o.key.family == fam)
   pure def countFam(p: Plan, name: str, fam: Family): int =
     objsOfFam(p, name, fam).size()
@@ -95,7 +95,7 @@ module vwire {
             countFam(p, "ns1", Dpni) == 2,
             objsOfFam(p, "ns1", Dpni).forall(o =>
               o.container == Child("ns1") and
-              match o.attrs { | DpniAttrs(a) => a.numQueues == 16 | _ => false }),
+              match o.attributes { | DpniAttrs(a) => a.numQueues == 16 | _ => false }),
             countFam(p, "ns1", Dpio) == 0,    // child-resident kernel: zero dpio (dpio-service.c)
             countFam(p, "ns1", Dpbp) == 2,    // one per dpni
             countFam(p, "ns1", Dpmcp) == 2,   // one per dpni
@@ -104,7 +104,7 @@ module vwire {
             countFam(p, "ns2", Dpni) == 2,
             objsOfFam(p, "ns2", Dpni).forall(o =>
               o.container == Child("ns2") and
-              match o.attrs { | DpniAttrs(a) => a.numQueues == 16 | _ => false }),
+              match o.attributes { | DpniAttrs(a) => a.numQueues == 16 | _ => false }),
             countFam(p, "ns2", Dpio) == 0,
             countFam(p, "ns2", Dpbp) == 2,
             countFam(p, "ns2", Dpmcp) == 2,
@@ -113,7 +113,7 @@ module vwire {
             countFam(p, KERNEL, Dpni) == 1,
             objsOfFam(p, KERNEL, Dpni).forall(o =>
               o.container == Root and
-              match o.attrs { | DpniAttrs(a) => a.numQueues == 16 | _ => false }),
+              match o.attributes { | DpniAttrs(a) => a.numQueues == 16 | _ => false }),
             countFam(p, KERNEL, Dpio) == 16,   // one per online CPU
             countFam(p, KERNEL, Dpbp) == 1,    // one per dpni
             countFam(p, KERNEL, Dpmcp) == 17,  // cpus + dpnis = 16 + 1
@@ -122,7 +122,7 @@ module vwire {
             countFam(p, "vpp", Dpni) == 1,
             objsOfFam(p, "vpp", Dpni).forall(o =>
               o.container == Child("vpp") and
-              match o.attrs { | DpniAttrs(a) => a.numQueues == 1 | _ => false }),
+              match o.attributes { | DpniAttrs(a) => a.numQueues == 1 | _ => false }),
             countFam(p, "vpp", Dpio) == 2,    // 2·T (ADR-0012)
             countFam(p, "vpp", Dpbp) == 2,
             countFam(p, "vpp", Dpmcp) == 1,
@@ -131,15 +131,15 @@ module vwire {
             p.objs.filter(o => o.key.family == Dpseci) == Set(),
             // the three pseudo-wires are the whole edge set (no dpmac, no port)
             p.edges == Set(
-              { a: ObjEnd({ key: { tenant: "ns1", family: Dpni, ordinal: 1 }, port: 0 }),
-                b: ObjEnd({ key: { tenant: "ns2", family: Dpni, ordinal: 1 }, port: 0 }),
-                prov: { tenant: "ns1", rule: "link-edge", construct: "veth" } },
-              { a: ObjEnd({ key: { tenant: "ns1", family: Dpni, ordinal: 2 }, port: 0 }),
-                b: ObjEnd({ key: { tenant: KERNEL, family: Dpni, ordinal: 1 }, port: 0 }),
-                prov: { tenant: "ns1", rule: "link-edge", construct: "uplink" } },
-              { a: ObjEnd({ key: { tenant: "ns2", family: Dpni, ordinal: 2 }, port: 0 }),
-                b: ObjEnd({ key: { tenant: "vpp", family: Dpni, ordinal: 1 }, port: 0 }),
-                prov: { tenant: "ns2", rule: "link-edge", construct: "app" } }),
+              { a: ObjectAttach({ key: { tenant: "ns1", family: Dpni, ordinal: 1 }, port: 0 }),
+                b: ObjectAttach({ key: { tenant: "ns2", family: Dpni, ordinal: 1 }, port: 0 }),
+                provenance: { tenant: "ns1", rule: "link-edge", construct: "veth" } },
+              { a: ObjectAttach({ key: { tenant: "ns1", family: Dpni, ordinal: 2 }, port: 0 }),
+                b: ObjectAttach({ key: { tenant: KERNEL, family: Dpni, ordinal: 1 }, port: 0 }),
+                provenance: { tenant: "ns1", rule: "link-edge", construct: "uplink" } },
+              { a: ObjectAttach({ key: { tenant: "ns2", family: Dpni, ordinal: 2 }, port: 0 }),
+                b: ObjectAttach({ key: { tenant: "vpp", family: Dpni, ordinal: 1 }, port: 0 }),
+                provenance: { tenant: "ns2", rule: "link-edge", construct: "app" } }),
           }
       | Refused(_) => false
     }

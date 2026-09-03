@@ -95,7 +95,7 @@ module machine {
   pure def startNum(f: Family): int =
     if (f == Dprc) 2 else if (f == Dprtc) 1 else 0
 
-  pure val rootPerms: Set[Perm] =
+  pure val rootPerms: Set[Permission] =
     Set(Spawn, Alloc, ObjCreate, IrqCfg, TopologyChanges)
 
   // Reference-environment init (dprc.md [verified]): dprc.0 (mc.global)

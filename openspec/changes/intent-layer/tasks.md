@@ -149,8 +149,8 @@ the change's only other operator sync point (design D12).
       one device, so the demand is refused not clamped, the remedy being to
       split across blocks. Provenance stays a single
       per-tenant dpseci node (value = accelerator count): Quint has no
-      int→string, so a nameless block cannot key a distinct prov node, and a
-      fourth `ordinal` ProvKey field would pollute ~105 unrelated construct
+      int→string, so a nameless block cannot key a distinct provenance node, and a
+      fourth `ordinal` ProvenanceKey field would pollute ~105 unrelated construct
       keys — considered and rejected in design D6. Directed
       `twoCryptoBlocksTest` asserts the two-dpseci shape directionally; router
       (single block) unchanged. Ladder green; coverage narrative refreshed to

@@ -396,6 +396,6 @@ module intent_refuse {
     UnknownCeiling({ family: Dpio, needed: 0 }),
     UnmeasuredCombination({ tenant: "c", rates: Set() }))
   pure val COMPILED_USE: Set[Compiled] = Set(
-    Ok({ plan: { objs: Set(), edges: Set(), order: [], prov: Map() }, warnings: Set() }),
+    Ok({ plan: { objs: Set(), edges: Set(), order: [], provenance: Map() }, warnings: Set() }),
     Refused(Set()))
 }

@@ -35,7 +35,7 @@ module types {
   // DPRC permission bits (§1). Which bit gates which operation is an open
   // matrix (dprc.md unknown #3); the machine uses ObjCreate for object
   // create/destroy and Spawn for child containers, commented at use.
-  type Perm = Spawn | Alloc | ObjCreate | IrqCfg | TopologyChanges
+  type Permission = Spawn | Alloc | ObjCreate | IrqCfg | TopologyChanges
 
   type ObjState = {
     // §1 containment: every object lives in exactly one DPRC at a time;
@@ -75,7 +75,7 @@ module types {
   // dprc-only state (§1): identity and permissions fixed at create.
   type ContainerState = {
     icid: int,        // IOMMU isolation context — VFIO groups by container
-    perms: Set[Perm],
+    perms: Set[Permission],
     locked: bool,     // set-locked strips ops from the sub-hierarchy (DPRC-I11)
   }
 

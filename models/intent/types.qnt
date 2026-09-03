@@ -132,7 +132,7 @@ module intent_types {
   // dpmac attributes, immutable for the object's life (DPMAC-I3,
   // dpmac.md). Only the values the reference board reports are
   // enumerated; a new value enters with a board that has one.
-  type EthIf = XFI | CAUI | RGMII
+  type EthInterface = XFI | CAUI | RGMII
   type LinkType = LinkNone | LinkFixed | LinkPhy | LinkBackplane
 
   // Free to anchor a port; Reserved with the reason (the ADR-0003 §3
@@ -143,7 +143,7 @@ module intent_types {
   type DpmacOffer = {
     id: int,
     maxRate: int,        // Mbps, "maximum supported rate N Mbps" of `dpmac info`
-    ethIf: EthIf,
+    ethIf: EthInterface,
     linkType: LinkType,
     avail: Availability,
   }
@@ -187,7 +187,7 @@ module intent_types {
   // A value use for every constructor inside the module: the verify-path
   // flattener drops a sum-type constructor whose only value use sits in
   // another module (QNT404; see families/params.qnt, core/companions.qnt).
-  pure val ETH_IFS: Set[EthIf] = Set(XFI, CAUI, RGMII)
+  pure val ETH_IFS: Set[EthInterface] = Set(XFI, CAUI, RGMII)
   pure val DATAPLANES: Set[Dataplane] = Set(KernelNetlink, UserspacePoll, UserspaceEvent)
   pure val ISOLATIONS: Set[Isolation] = Set(Public, Restricted, Isolated)
   pure val SWITCHINGS: Set[Switching] = Set(Hardware, Software)

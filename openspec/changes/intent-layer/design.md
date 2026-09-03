@@ -222,7 +222,7 @@ keyed `(tenant, rule, construct)`; where several sized objects of one
 family need distinct nodes the discriminator is a declared *name* (the
 fabric name keys each dpsw node). Crypto blocks are nameless and Quint has
 no int→string, so a tenant's blocks cannot key distinct nodes by an
-ordinal string; per-block prov keys were considered and rejected on that
+ordinal string; per-block provenance keys were considered and rejected on that
 constraint (task 2.6e — a fourth `ordinal` key field would have polluted
 every unrelated construct's key). Instead a tenant carries one dpseci node
 whose value is its accelerator count, and each dpseci's own `num_queues`

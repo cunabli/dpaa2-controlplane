@@ -24,7 +24,7 @@ module intent_main {
 
   // ---- shared helpers for the derivation runs (task 1.2) ----
 
-  pure def objsOfFam(p: Plan, name: str, fam: Family): Set[PlanObj] =
+  pure def objsOfFam(p: Plan, name: str, fam: Family): Set[PlannedObject] =
     p.objs.filter(o => o.key.tenant == name and o.key.family == fam)
   pure def countFam(p: Plan, name: str, fam: Family): int =
     objsOfFam(p, name, fam).size()
@@ -193,28 +193,28 @@ module intent_main {
     all {
       p.objs.filter(o => o.key.family == Dprc) ==
         Set({ key: { tenant: "router", family: Dprc, ordinal: 1 }, container: Root,
-              attrs: DprcAttrs({ options: DPRC_DEFAULT_OPTIONS }), prov: { tenant: "router", rule: "dprc", construct: "" } }),
+              attributes: DprcAttrs({ options: DPRC_DEFAULT_OPTIONS }), provenance: { tenant: "router", rule: "dprc", construct: "" } }),
       countFam(p, "router", Dpni) == 2,
       objsOfFam(p, "router", Dpni).forall(o =>
-        o.container == Child("router") and match o.attrs { | DpniAttrs(a) => a.numQueues == 5 | _ => false }),
+        o.container == Child("router") and match o.attributes { | DpniAttrs(a) => a.numQueues == 5 | _ => false }),
       countFam(p, "router", Dpio) == 10,
       countFam(p, "router", Dpbp) == 2,
       countFam(p, "router", Dpmcp) == 1,
       countFam(p, "router", Dpcon) == 10,
       p.objs.filter(o => o.key.tenant == "router" and o.key.family != Dprc).forall(o => o.container == Child("router")),
       objsOfFam(p, "router", Dpio).map(o => o.key.ordinal) == 1.to(10),
-      p.prov.get({ tenant: "router", rule: "dpio", construct: "" }).value == 10,
-      p.prov.get({ tenant: "router", rule: "dpio", construct: "" }).request == 10,
-      p.prov.get({ tenant: "router", rule: "dpio", construct: "" }).extra == None,
-      p.prov.get({ tenant: "router", rule: "dpio", construct: "" }).inputs == Set({ tenant: "router", rule: "T", construct: "" }),
-      p.prov.get({ tenant: "router", rule: "T", construct: "" }).value == 5,
-      p.prov.get({ tenant: "router", rule: "T", construct: "" }).mark == Unmeasured,
-      p.prov.get({ tenant: "router", rule: "T", construct: "" }).constructs == Set("wan0", "wan1"),
+      p.provenance.get({ tenant: "router", rule: "dpio", construct: "" }).value == 10,
+      p.provenance.get({ tenant: "router", rule: "dpio", construct: "" }).request == 10,
+      p.provenance.get({ tenant: "router", rule: "dpio", construct: "" }).extra == None,
+      p.provenance.get({ tenant: "router", rule: "dpio", construct: "" }).inputs == Set({ tenant: "router", rule: "T", construct: "" }),
+      p.provenance.get({ tenant: "router", rule: "T", construct: "" }).value == 5,
+      p.provenance.get({ tenant: "router", rule: "T", construct: "" }).mark == Unmeasured,
+      p.provenance.get({ tenant: "router", rule: "T", construct: "" }).constructs == Set("wan0", "wan1"),
       p.edges == Set(
-        { a: ObjEnd({ key: { tenant: "router", family: Dpni, ordinal: 1 }, port: 0 }), b: MacEnd(7),
-          prov: { tenant: "router", rule: "port-edge", construct: "wan0" } },
-        { a: ObjEnd({ key: { tenant: "router", family: Dpni, ordinal: 2 }, port: 0 }), b: MacEnd(8),
-          prov: { tenant: "router", rule: "port-edge", construct: "wan1" } }),
+        { a: ObjectAttach({ key: { tenant: "router", family: Dpni, ordinal: 1 }, port: 0 }), b: MacAttach(7),
+          provenance: { tenant: "router", rule: "port-edge", construct: "wan0" } },
+        { a: ObjectAttach({ key: { tenant: "router", family: Dpni, ordinal: 2 }, port: 0 }), b: MacAttach(8),
+          provenance: { tenant: "router", rule: "port-edge", construct: "wan1" } }),
       keyIndex(p.order, { tenant: "router", family: Dprc, ordinal: 1 }) <
         keyIndex(p.order, { tenant: "router", family: Dpio, ordinal: 1 }),
       keyIndex(p.order, { tenant: "router", family: Dpio, ordinal: 10 }) <
@@ -230,9 +230,9 @@ module intent_main {
     val p = derive(extraIntent, REF_INVENTORY)
     all {
       countFam(p, "router", Dpio) == 14,
-      p.prov.get({ tenant: "router", rule: "dpio", construct: "" }).request == 10,
-      p.prov.get({ tenant: "router", rule: "dpio", construct: "" }).extra == Some(4),
-      p.prov.get({ tenant: "router", rule: "dpio", construct: "" }).value == 14,
+      p.provenance.get({ tenant: "router", rule: "dpio", construct: "" }).request == 10,
+      p.provenance.get({ tenant: "router", rule: "dpio", construct: "" }).extra == Some(4),
+      p.provenance.get({ tenant: "router", rule: "dpio", construct: "" }).value == 14,
     }
 
   // The kernel dataplane: no child DPRC, dpio per online CPU, dpmcp cpus+dpnis,
@@ -247,10 +247,10 @@ module intent_main {
       countFam(p, "kernel", Dpcon) == 16,
       countFam(p, "kernel", Dpni) == 1,
       objsOfFam(p, "kernel", Dpni).forall(o =>
-        o.container == Root and match o.attrs { | DpniAttrs(a) => a.numQueues == 16 | _ => false }),
+        o.container == Root and match o.attributes { | DpniAttrs(a) => a.numQueues == 16 | _ => false }),
       p.objs.filter(o => o.key.family == Dprtc) ==
-        Set({ key: { tenant: KERNEL, family: Dprtc, ordinal: 1 }, container: Root, attrs: Unsized,
-              prov: { tenant: KERNEL, rule: "dprtc", construct: "" } }),
+        Set({ key: { tenant: KERNEL, family: Dprtc, ordinal: 1 }, container: Root, attributes: Unsized,
+              provenance: { tenant: KERNEL, rule: "dprtc", construct: "" } }),
       keyIndex(p.order, { tenant: "kernel", family: Dpio, ordinal: 16 }) <
         keyIndex(p.order, { tenant: "kernel", family: Dpmcp, ordinal: 1 }),
     }
@@ -265,10 +265,10 @@ module intent_main {
     all {
       p.objs.filter(o => o.key.family == Dpsw) ==
         Set({ key: { tenant: "kernel", family: Dpsw, ordinal: 1 }, container: Root,
-              attrs: DpswAttrs({ numIfs: 3, maxFdbs: 3, perFdbFlooding: true, perFdbBroadcast: true, ctrlIf: true }),
-              prov: { tenant: "kernel", rule: "dpsw", construct: "lan" } }),
+              attributes: DpswAttrs({ numIfs: 3, maxFdbs: 3, perFdbFlooding: true, perFdbBroadcast: true, ctrlIf: true }),
+              provenance: { tenant: "kernel", rule: "dpsw", construct: "lan" } }),
       countFam(p, "router", Dpni) == 1,
-      objsOfFam(p, "router", Dpni).forall(o => match o.attrs { | DpniAttrs(a) => a.numQueues == 1 | _ => false }),
+      objsOfFam(p, "router", Dpni).forall(o => match o.attributes { | DpniAttrs(a) => a.numQueues == 1 | _ => false }),
       countFam(p, "router", Dpio) == 2,
       countFam(p, "router", Dpcon) == 1,
       countFam(p, "kernel", Dpni) == 0,
@@ -277,15 +277,15 @@ module intent_main {
       countFam(p, "kernel", Dpcon) == 0,
       p.objs.filter(o => o.key.family == Dpseci) ==
         Set({ key: { tenant: "router", family: Dpseci, ordinal: 1 }, container: Child("router"),
-              attrs: DpseciAttrs({ numQueues: 4, hasCg: true }), prov: { tenant: "router", rule: "dpseci", construct: "" } }),
-      p.edges.contains({ a: ObjEnd({ key: { tenant: "kernel", family: Dpsw, ordinal: 1 }, port: 0 }),
-                         b: MacEnd(7), prov: { tenant: "kernel", rule: "fabric-edge", construct: "lan" } }),
-      p.edges.contains({ a: ObjEnd({ key: { tenant: "kernel", family: Dpsw, ordinal: 1 }, port: 1 }),
-                         b: MacEnd(8), prov: { tenant: "kernel", rule: "fabric-edge", construct: "lan" } }),
-      p.edges.contains({ a: ObjEnd({ key: { tenant: "kernel", family: Dpsw, ordinal: 1 }, port: 2 }),
-                         b: ObjEnd({ key: { tenant: "router", family: Dpni, ordinal: 1 }, port: 0 }),
-                         prov: { tenant: "kernel", rule: "fabric-edge", construct: "lan" } }),
-      p.edges.filter(e => e.prov.rule == "port-edge") == Set(),
+              attributes: DpseciAttrs({ numQueues: 4, hasCg: true }), provenance: { tenant: "router", rule: "dpseci", construct: "" } }),
+      p.edges.contains({ a: ObjectAttach({ key: { tenant: "kernel", family: Dpsw, ordinal: 1 }, port: 0 }),
+                         b: MacAttach(7), provenance: { tenant: "kernel", rule: "fabric-edge", construct: "lan" } }),
+      p.edges.contains({ a: ObjectAttach({ key: { tenant: "kernel", family: Dpsw, ordinal: 1 }, port: 1 }),
+                         b: MacAttach(8), provenance: { tenant: "kernel", rule: "fabric-edge", construct: "lan" } }),
+      p.edges.contains({ a: ObjectAttach({ key: { tenant: "kernel", family: Dpsw, ordinal: 1 }, port: 2 }),
+                         b: ObjectAttach({ key: { tenant: "router", family: Dpni, ordinal: 1 }, port: 0 }),
+                         provenance: { tenant: "kernel", rule: "fabric-edge", construct: "lan" } }),
+      p.edges.filter(e => e.provenance.rule == "port-edge") == Set(),
     }
 
   // A software fabric (figure 6b): vpp bridges its own two 10G ports and a
@@ -298,16 +298,16 @@ module intent_main {
     all {
       p.objs.filter(o => o.key.family == Dpsw) == Set(),
       countFam(p, "vpp", Dpni) == 3,
-      objsOfFam(p, "vpp", Dpni).forall(o => match o.attrs { | DpniAttrs(a) => a.numQueues == 5 | _ => false }),
+      objsOfFam(p, "vpp", Dpni).forall(o => match o.attributes { | DpniAttrs(a) => a.numQueues == 5 | _ => false }),
       countFam(p, "vpp", Dpio) == 10,
       countFam(p, "kernel", Dpni) == 1,
-      p.edges.contains({ a: ObjEnd({ key: { tenant: "vpp", family: Dpni, ordinal: 1 }, port: 0 }),
-                         b: MacEnd(7), prov: { tenant: "vpp", rule: "port-edge", construct: "p7" } }),
-      p.edges.contains({ a: ObjEnd({ key: { tenant: "vpp", family: Dpni, ordinal: 2 }, port: 0 }),
-                         b: MacEnd(8), prov: { tenant: "vpp", rule: "port-edge", construct: "p8" } }),
-      p.edges.contains({ a: ObjEnd({ key: { tenant: "vpp", family: Dpni, ordinal: 3 }, port: 0 }),
-                         b: ObjEnd({ key: { tenant: "kernel", family: Dpni, ordinal: 1 }, port: 0 }),
-                         prov: { tenant: "vpp", rule: "fabric-wire", construct: "br" } }),
+      p.edges.contains({ a: ObjectAttach({ key: { tenant: "vpp", family: Dpni, ordinal: 1 }, port: 0 }),
+                         b: MacAttach(7), provenance: { tenant: "vpp", rule: "port-edge", construct: "p7" } }),
+      p.edges.contains({ a: ObjectAttach({ key: { tenant: "vpp", family: Dpni, ordinal: 2 }, port: 0 }),
+                         b: MacAttach(8), provenance: { tenant: "vpp", rule: "port-edge", construct: "p8" } }),
+      p.edges.contains({ a: ObjectAttach({ key: { tenant: "vpp", family: Dpni, ordinal: 3 }, port: 0 }),
+                         b: ObjectAttach({ key: { tenant: "kernel", family: Dpni, ordinal: 1 }, port: 0 }),
+                         provenance: { tenant: "vpp", rule: "fabric-wire", construct: "br" } }),
     }
 
   // The operator's chain of switches: a hardware fabric (kernel dpsw over two
@@ -321,22 +321,22 @@ module intent_main {
     all {
       p.objs.filter(o => o.key.family == Dpsw) ==
         Set({ key: { tenant: "kernel", family: Dpsw, ordinal: 1 }, container: Root,
-              attrs: DpswAttrs({ numIfs: 3, maxFdbs: 3, perFdbFlooding: true, perFdbBroadcast: true, ctrlIf: true }),
-              prov: { tenant: "kernel", rule: "dpsw", construct: "hw" } }),
+              attributes: DpswAttrs({ numIfs: 3, maxFdbs: 3, perFdbFlooding: true, perFdbBroadcast: true, ctrlIf: true }),
+              provenance: { tenant: "kernel", rule: "dpsw", construct: "hw" } }),
       countFam(p, "vpp", Dpni) == 3,
       countFam(p, "kernel", Dpni) == 0,
       countFam(p, "kernel", Dpmcp) == 17,
       countFam(p, "kernel", Dpbp) == 1,
-      p.edges.contains({ a: ObjEnd({ key: { tenant: "kernel", family: Dpsw, ordinal: 1 }, port: 0 }),
-                         b: MacEnd(8), prov: { tenant: "kernel", rule: "fabric-edge", construct: "hw" } }),
-      p.edges.contains({ a: ObjEnd({ key: { tenant: "kernel", family: Dpsw, ordinal: 1 }, port: 1 }),
-                         b: MacEnd(9), prov: { tenant: "kernel", rule: "fabric-edge", construct: "hw" } }),
-      p.edges.contains({ a: ObjEnd({ key: { tenant: "kernel", family: Dpsw, ordinal: 1 }, port: 2 }),
-                         b: ObjEnd({ key: { tenant: "vpp", family: Dpni, ordinal: 3 }, port: 0 }),
-                         prov: { tenant: "kernel", rule: "fabric-edge", construct: "hw" } }),
-      p.edges.contains({ a: ObjEnd({ key: { tenant: "vpp", family: Dpni, ordinal: 1 }, port: 0 }),
-                         b: MacEnd(7), prov: { tenant: "vpp", rule: "port-edge", construct: "p7" } }),
-      p.edges.filter(e => e.prov.rule == "fabric-wire") == Set(),
+      p.edges.contains({ a: ObjectAttach({ key: { tenant: "kernel", family: Dpsw, ordinal: 1 }, port: 0 }),
+                         b: MacAttach(8), provenance: { tenant: "kernel", rule: "fabric-edge", construct: "hw" } }),
+      p.edges.contains({ a: ObjectAttach({ key: { tenant: "kernel", family: Dpsw, ordinal: 1 }, port: 1 }),
+                         b: MacAttach(9), provenance: { tenant: "kernel", rule: "fabric-edge", construct: "hw" } }),
+      p.edges.contains({ a: ObjectAttach({ key: { tenant: "kernel", family: Dpsw, ordinal: 1 }, port: 2 }),
+                         b: ObjectAttach({ key: { tenant: "vpp", family: Dpni, ordinal: 3 }, port: 0 }),
+                         provenance: { tenant: "kernel", rule: "fabric-edge", construct: "hw" } }),
+      p.edges.contains({ a: ObjectAttach({ key: { tenant: "vpp", family: Dpni, ordinal: 1 }, port: 0 }),
+                         b: MacAttach(7), provenance: { tenant: "vpp", rule: "port-edge", construct: "p7" } }),
+      p.edges.filter(e => e.provenance.rule == "fabric-wire") == Set(),
     }
 
   // Hardware-in-Hardware derives nothing (open item (d)): hw2 lists hw1 as a
@@ -346,11 +346,11 @@ module intent_main {
     val p = derive(hwInHwIntent, REF_INVENTORY)
     all {
       countFam(p, "kernel", Dpsw) == 2,
-      objsOfFam(p, "kernel", Dpsw).forall(o => match o.attrs { | DpswAttrs(a) => a.numIfs == 1 | _ => false }),
+      objsOfFam(p, "kernel", Dpsw).forall(o => match o.attributes { | DpswAttrs(a) => a.numIfs == 1 | _ => false }),
       // hw2's dpsw (ordinal 2) connects only to its own port, never to hw1's dpsw
-      p.edges.filter(e => match e.a { | ObjEnd(x) => x.key == { tenant: "kernel", family: Dpsw, ordinal: 2 } | _ => false }) ==
-        Set({ a: ObjEnd({ key: { tenant: "kernel", family: Dpsw, ordinal: 2 }, port: 0 }),
-              b: MacEnd(9), prov: { tenant: "kernel", rule: "fabric-edge", construct: "hw2" } }),
+      p.edges.filter(e => match e.a { | ObjectAttach(x) => x.key == { tenant: "kernel", family: Dpsw, ordinal: 2 } | _ => false }) ==
+        Set({ a: ObjectAttach({ key: { tenant: "kernel", family: Dpsw, ordinal: 2 }, port: 0 }),
+              b: MacAttach(9), provenance: { tenant: "kernel", rule: "fabric-edge", construct: "hw2" } }),
     }
 
   // A virtual fabric: a link between two userspace-poll tenants, no dpmac —
@@ -360,11 +360,11 @@ module intent_main {
     all {
       countFam(p, "routerA", Dpni) == 1,
       countFam(p, "routerB", Dpni) == 1,
-      objsOfFam(p, "routerA", Dpni).forall(o => match o.attrs { | DpniAttrs(a) => a.numQueues == 1 | _ => false }),
-      objsOfFam(p, "routerB", Dpni).forall(o => match o.attrs { | DpniAttrs(a) => a.numQueues == 1 | _ => false }),
-      p.edges.contains({ a: ObjEnd({ key: { tenant: "routerA", family: Dpni, ordinal: 1 }, port: 0 }),
-                         b: ObjEnd({ key: { tenant: "routerB", family: Dpni, ordinal: 1 }, port: 0 }),
-                         prov: { tenant: "routerA", rule: "link-edge", construct: "wire" } }),
+      objsOfFam(p, "routerA", Dpni).forall(o => match o.attributes { | DpniAttrs(a) => a.numQueues == 1 | _ => false }),
+      objsOfFam(p, "routerB", Dpni).forall(o => match o.attributes { | DpniAttrs(a) => a.numQueues == 1 | _ => false }),
+      p.edges.contains({ a: ObjectAttach({ key: { tenant: "routerA", family: Dpni, ordinal: 1 }, port: 0 }),
+                         b: ObjectAttach({ key: { tenant: "routerB", family: Dpni, ordinal: 1 }, port: 0 }),
+                         provenance: { tenant: "routerA", rule: "link-edge", construct: "wire" } }),
       p.objs.filter(o => o.key.family == Dprc).size() == 2,
     }
 
@@ -484,7 +484,7 @@ module intent_main {
   // single ceiling. Declaration order numbers the dpseci ordinals, so block 1
   // (flows 3) is dpseci ordinal 1 and block 2 (flows 7) is ordinal 2; the block
   // a dpseci came from is named by that ordinal. Provenance is the tenant's
-  // single dpseci node (Quint keys a ProvKey by (tenant, rule, construct) and
+  // single dpseci node (Quint keys a ProvenanceKey by (tenant, rule, construct) and
   // has no int→string, so a nameless block cannot key a distinct node); its
   // value is the accelerator count and it names the crypto-owning tenant.
   run twoCryptoBlocksTest =
@@ -495,13 +495,13 @@ module intent_main {
       countFam(p, "router", Dpseci) == 2,
       objsOfFam(p, "router", Dpseci) == Set(
         { key: { tenant: "router", family: Dpseci, ordinal: 1 }, container: Child("router"),
-          attrs: DpseciAttrs({ numQueues: 3, hasCg: true }),
-          prov: { tenant: "router", rule: "dpseci", construct: "" } },
+          attributes: DpseciAttrs({ numQueues: 3, hasCg: true }),
+          provenance: { tenant: "router", rule: "dpseci", construct: "" } },
         { key: { tenant: "router", family: Dpseci, ordinal: 2 }, container: Child("router"),
-          attrs: DpseciAttrs({ numQueues: 7, hasCg: true }),
-          prov: { tenant: "router", rule: "dpseci", construct: "" } }),
-      p.prov.get({ tenant: "router", rule: "dpseci", construct: "" }).value == 2,
-      p.prov.get({ tenant: "router", rule: "dpseci", construct: "" }).constructs == Set("router"),
+          attributes: DpseciAttrs({ numQueues: 7, hasCg: true }),
+          provenance: { tenant: "router", rule: "dpseci", construct: "" } }),
+      p.provenance.get({ tenant: "router", rule: "dpseci", construct: "" }).value == 2,
+      p.provenance.get({ tenant: "router", rule: "dpseci", construct: "" }).constructs == Set("router"),
     }
 
   // One dpseci carries at most 16 queue pairs (DPSECI_MAX_QUEUE_NUM, dpseci.h):
@@ -536,8 +536,8 @@ module intent_main {
   run mixedRateClassWarnsTest =
     match compile(mixedClassIntent, REF_INVENTORY) {
       | Ok(res) => all {
-          res.plan.prov.get({ tenant: "router", rule: "T", construct: "" }).value == 10,
-          res.plan.prov.get({ tenant: "router", rule: "T", construct: "" }).mark == Unmeasured,
+          res.plan.provenance.get({ tenant: "router", rule: "T", construct: "" }).value == 10,
+          res.plan.provenance.get({ tenant: "router", rule: "T", construct: "" }).mark == Unmeasured,
           countFam(res.plan, "router", Dpio) == 20,
           res.warnings.contains(UnmeasuredCombination({ tenant: "router", rates: Set(10000, 25000) })),
         }
@@ -549,7 +549,7 @@ module intent_main {
   run singleClassNoMixWarnTest =
     match compile(routerIntent, REF_INVENTORY) {
       | Ok(res) => all {
-          res.plan.prov.get({ tenant: "router", rule: "T", construct: "" }).value == 5,
+          res.plan.provenance.get({ tenant: "router", rule: "T", construct: "" }).value == 5,
           not(res.warnings.exists(w => match w { | UnmeasuredCombination(_) => true | _ => false })),
         }
       | Refused(_) => false
@@ -605,14 +605,14 @@ module intent_main {
     all {
       p.objs.filter(o => o.key.family == Dprc) ==
         Set({ key: { tenant: "ns1", family: Dprc, ordinal: 1 }, container: Root,
-              attrs: DprcAttrs({ options: DPRC_DEFAULT_OPTIONS }), prov: { tenant: "ns1", rule: "dprc", construct: "" } }),
+              attributes: DprcAttrs({ options: DPRC_DEFAULT_OPTIONS }), provenance: { tenant: "ns1", rule: "dprc", construct: "" } }),
       countFam(p, "ns1", Dpio) == 0,
       countFam(p, "ns1", Dpbp) == 1,
       countFam(p, "ns1", Dpmcp) == 1,
       countFam(p, "ns1", Dpni) == 1,
       countFam(p, "ns1", Dpcon) == 16,
       objsOfFam(p, "ns1", Dpni).forall(o =>
-        o.container == Child("ns1") and match o.attrs { | DpniAttrs(a) => a.numQueues == 16 | _ => false }),
+        o.container == Child("ns1") and match o.attributes { | DpniAttrs(a) => a.numQueues == 16 | _ => false }),
       p.objs.filter(o => o.key.tenant == "ns1" and o.key.family != Dprc).forall(o => o.container == Child("ns1")),
     }
 
@@ -625,7 +625,7 @@ module intent_main {
       p.objs.filter(o => o.key.tenant == "secondary").forall(o => o.container == Child("primary")),
       p.objs.filter(o => o.key.tenant == "primary" and o.key.family == Dprc) ==
         Set({ key: { tenant: "primary", family: Dprc, ordinal: 1 }, container: Root,
-              attrs: DprcAttrs({ options: DPRC_DEFAULT_OPTIONS }), prov: { tenant: "primary", rule: "dprc", construct: "" } }),
+              attributes: DprcAttrs({ options: DPRC_DEFAULT_OPTIONS }), provenance: { tenant: "primary", rule: "dprc", construct: "" } }),
       countFam(p, "secondary", Dpio) == 2,
       countFam(p, "secondary", Dpmcp) == 1,
       countFam(p, "secondary", Dpbp) == 2,
@@ -666,11 +666,11 @@ module intent_main {
           all {
             countFam(p, "kernel", Dpni) == 1,
             objsOfFam(p, "kernel", Dpni).forall(o =>
-              o.container == Root and match o.attrs { | DpniAttrs(a) => a.numQueues == 16 | _ => false }),
+              o.container == Root and match o.attributes { | DpniAttrs(a) => a.numQueues == 16 | _ => false }),
             countFam(p, "routerX", Dpni) == 1,
-            p.edges.contains({ a: ObjEnd({ key: { tenant: "routerX", family: Dpni, ordinal: 1 }, port: 0 }),
-                               b: ObjEnd({ key: { tenant: "kernel", family: Dpni, ordinal: 1 }, port: 0 }),
-                               prov: { tenant: "routerX", rule: "link-edge", construct: "wire" } }),
+            p.edges.contains({ a: ObjectAttach({ key: { tenant: "routerX", family: Dpni, ordinal: 1 }, port: 0 }),
+                               b: ObjectAttach({ key: { tenant: "kernel", family: Dpni, ordinal: 1 }, port: 0 }),
+                               provenance: { tenant: "routerX", rule: "link-edge", construct: "wire" } }),
           }
       | Refused(_) => false
     }
@@ -720,14 +720,14 @@ module intent_main {
   run invariantsBiteTest =
     val base = derive(routerIntent, REF_INVENTORY)
     val badEdge = base.with("edges", base.edges.union(Set(
-      { a: MacEnd(7), b: MacEnd(8), prov: { tenant: "router", rule: "mac-mac", construct: "bogus" } })))
+      { a: MacAttach(7), b: MacAttach(8), provenance: { tenant: "router", rule: "mac-mac", construct: "bogus" } })))
     val badContainer = base.with("objs", base.objs.map(o =>
       if (o.key.family == Dpio and o.key.ordinal == 1) o.with("container", Root) else o))
     val badOrder = base.with("order", base.order.foldl([], (acc, k) => [k].concat(acc)))
     val badCompanion = base.with("objs", base.objs.union(Set(
       { key: { tenant: "router", family: Dpio, ordinal: 11 },
-        container: Child("router"), attrs: Unsized,
-        prov: { tenant: "router", rule: "dpio", construct: "" } })))
+        container: Child("router"), attributes: Unsized,
+        provenance: { tenant: "router", rule: "dpio", construct: "" } })))
     all {
       not(edgesTypedAndSingle(badEdge)),
       not(containmentByTenant(badContainer)),

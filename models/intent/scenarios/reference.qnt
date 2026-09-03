@@ -65,11 +65,11 @@ module reference {
   import types.* from "../../core/types"           // Family
   import intent_types.* from "../types"            // Intent, KERNEL, kernelTenant, UserspacePoll
   import intent_inventory.* from "../inventory"    // REF_INVENTORY
-  import intent_derive.* from "../derive"          // Plan, PlanObj, Container, DpniAttrs, End, …
+  import intent_derive.* from "../derive"          // Plan, PlannedObject, Container, DpniAttrs, AttachPoint, …
   import intent_refuse.* from "../refuse"          // compile
   import intent_invariants.* from "../invariants"  // planInvariants, compileInvariants
 
-  pure def objsOfFam(p: Plan, name: str, fam: Family): Set[PlanObj] =
+  pure def objsOfFam(p: Plan, name: str, fam: Family): Set[PlannedObject] =
     p.objs.filter(o => o.key.tenant == name and o.key.family == fam)
   pure def countFam(p: Plan, name: str, fam: Family): int =
     objsOfFam(p, name, fam).size()
@@ -191,26 +191,26 @@ module reference {
             countFam(p, "router", Dpni) == 2,
             objsOfFam(p, "router", Dpni).forall(o =>
               o.container == Child("router") and
-              match o.attrs { | DpniAttrs(a) => a.numQueues == 5 | _ => false }),
+              match o.attributes { | DpniAttrs(a) => a.numQueues == 5 | _ => false }),
             countFam(p, "router", Dpio) == 10,   // 2·T (ADR-0012)
             countFam(p, "router", Dpbp) == 2,
             countFam(p, "router", Dpmcp) == 1,   // one MC portal per process
             countFam(p, "router", Dpcon) == 10,  // dpnis·T (DPCON-I1)
-            p.prov.get({ tenant: "router", rule: "T", construct: "" }).value == 5,
-            p.prov.get({ tenant: "router", rule: "T", construct: "" }).mark == Unmeasured,
+            p.provenance.get({ tenant: "router", rule: "T", construct: "" }).value == 5,
+            p.provenance.get({ tenant: "router", rule: "T", construct: "" }).mark == Unmeasured,
             countFam(p, KERNEL, Dpio) == 16,     // one per online CPU
             countFam(p, KERNEL, Dpmcp) == 16,    // cpus + dpnis (ADR-0012)
             countFam(p, KERNEL, Dpni) == 0,
             countFam(p, KERNEL, Dpbp) == 0,
             countFam(p, KERNEL, Dpcon) == 0,
             p.objs.contains({ key: { tenant: KERNEL, family: Dprtc, ordinal: 1 }, container: Root,
-                              attrs: Unsized, prov: { tenant: KERNEL, rule: "dprtc", construct: "" } }),
+                              attributes: Unsized, provenance: { tenant: KERNEL, rule: "dprtc", construct: "" } }),
             // the two terminated ports are the whole edge set (fig. 6a)
             p.edges == Set(
-              { a: ObjEnd({ key: { tenant: "router", family: Dpni, ordinal: 1 }, port: 0 }),
-                b: MacEnd(7), prov: { tenant: "router", rule: "port-edge", construct: "wan0" } },
-              { a: ObjEnd({ key: { tenant: "router", family: Dpni, ordinal: 2 }, port: 0 }),
-                b: MacEnd(9), prov: { tenant: "router", rule: "port-edge", construct: "wan1" } }),
+              { a: ObjectAttach({ key: { tenant: "router", family: Dpni, ordinal: 1 }, port: 0 }),
+                b: MacAttach(7), provenance: { tenant: "router", rule: "port-edge", construct: "wan0" } },
+              { a: ObjectAttach({ key: { tenant: "router", family: Dpni, ordinal: 2 }, port: 0 }),
+                b: MacAttach(9), provenance: { tenant: "router", rule: "port-edge", construct: "wan1" } }),
           }
       | Refused(_) => false
     }

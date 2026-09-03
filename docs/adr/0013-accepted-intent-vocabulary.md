@@ -370,7 +370,7 @@ INTENT_I1–I9); the Rust type surface (task 3.1) transcribes what they prove.
 - **INTENT_I5 `keysAreIdentities`** — no two objects share a key, every
   ordinal is 1-based; the key is the identity, the label a projection
   (ADR-0010).
-- **INTENT_I6 `provenanceClosed`** — every prov reference resolves, every node
+- **INTENT_I6 `provenanceClosed`** — every provenance reference resolves, every node
   carries an anchor, and the only rule that may be `Unmeasured` today is "T".
 - **INTENT_I7 `feasibleAgainstCeilings`** — a compile is either a plan within
   every Counted/Observed ceiling (with an `UnknownCeiling` warning per

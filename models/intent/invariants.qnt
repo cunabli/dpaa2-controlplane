@@ -21,17 +21,17 @@
 //   front-end heap does not (intent/alphabet.qnt header; bead
 //   dpaa2-controlplane-gqf.26, task 1.5).
 module intent_invariants {
-  import types.* from "../core/types"           // Family, Option, Perm, ObjId
+  import types.* from "../core/types"           // Family, Option, Permission, ObjId
   import companions as comp from "../core/companions" // comp::Regime, comp::companionDraw (ADR-0012)
   import intent_types.* from "./types"           // Intent, Inventory, KERNEL, DERIVED_FAMILIES
-  import intent_derive.* from "./derive"         // Plan, Key, PlanObj, End, Edge, derive, sizeTenant, dprtcKey
+  import intent_derive.* from "./derive"         // Plan, ObjectKey, PlannedObject, AttachPoint, Edge, derive, sizeTenant, dprtcKey
   import intent_refuse.* from "./refuse"         // compile, Compiled, Warning
 
   // ---- helpers ----
 
-  pure def objKeys(p: Plan): Set[Key] = p.objs.map(o => o.key)
+  pure def objKeys(p: Plan): Set[ObjectKey] = p.objs.map(o => o.key)
 
-  pure def objByKey(p: Plan, k: Key): Option[PlanObj] =
+  pure def objByKey(p: Plan, k: ObjectKey): Option[PlannedObject] =
     p.objs.fold(None, (acc, o) => if (o.key == k) Some(o) else acc)
 
   pure def countOf(p: Plan, tenant: str, fam: Family): int =
@@ -42,11 +42,11 @@ module intent_invariants {
 
   // Position of a key in the emission order, or -1 if absent (copied from
   // main.qnt to avoid a circular import: main.qnt imports this module).
-  pure def keyIndex(order: List[Key], k: Key): int =
+  pure def keyIndex(order: List[ObjectKey], k: ObjectKey): int =
     order.foldl({ i: 0, found: -1 }, (acc, x) =>
       { i: acc.i + 1, found: if (acc.found >= 0) acc.found else if (x == k) acc.i else -1 }).found
 
-  pure def endsOf(e: Edge): Set[End] = Set(e.a, e.b)
+  pure def attachPointsOf(e: Edge): Set[AttachPoint] = Set(e.a, e.b)
 
   // The four companion families D6/ADR-0012 derive; their rule name is the
   // lowercase family name the derivation keys their provenance node by.
@@ -54,32 +54,32 @@ module intent_invariants {
   pure def companionRule(f: Family): str =
     if (f == Dpio) "dpio" else if (f == Dpbp) "dpbp" else if (f == Dpmcp) "dpmcp" else "dpcon"
 
-  // End shape predicates (object-model.md §2 edge table).
-  pure def isMac(en: End): bool = match en { | MacEnd(_) => true | _ => false }
-  pure def isFam(en: End, f: Family): bool = match en { | ObjEnd(x) => x.key.family == f | _ => false }
+  // AttachPoint shape predicates (object-model.md §2 edge table).
+  pure def isMac(en: AttachPoint): bool = match en { | MacAttach(_) => true | _ => false }
+  pure def isFam(en: AttachPoint, f: Family): bool = match en { | ObjectAttach(x) => x.key.family == f | _ => false }
   // An edge matches an unordered pair of end predicates (§2 edges are ↔).
-  pure def edgeMatches(e: Edge, pa: (End) => bool, pb: (End) => bool): bool =
+  pure def edgeMatches(e: Edge, pa: (AttachPoint) => bool, pb: (AttachPoint) => bool): bool =
     (pa(e.a) and pb(e.b)) or (pa(e.b) and pb(e.a))
 
   // The multiset of every edge endpoint, and how often a given end occurs.
-  pure def allEnds(p: Plan): List[End] =
+  pure def allAttachPoints(p: Plan): List[AttachPoint] =
     p.edges.fold([], (acc, e) => acc.append(e.a).append(e.b))
-  pure def endCount(p: Plan, en: End): int =
-    allEnds(p).foldl(0, (acc, x) => if (x == en) acc + 1 else acc)
-  pure def endsSet(p: Plan): Set[End] =
-    p.edges.fold(Set(), (acc, e) => acc.union(endsOf(e)))
+  pure def attachPointCount(p: Plan, en: AttachPoint): int =
+    allAttachPoints(p).foldl(0, (acc, x) => if (x == en) acc + 1 else acc)
+  pure def attachPointsSet(p: Plan): Set[AttachPoint] =
+    p.edges.fold(Set(), (acc, e) => acc.union(attachPointsOf(e)))
 
-  // An ObjEnd is well-formed: its key exists and its family/port surface is
+  // An ObjectAttach is well-formed: its key exists and its family/port surface is
   // a dpni (port 0) or a dpsw interface (port within the switch's num_ifs).
-  pure def endWellFormed(p: Plan, en: End): bool =
+  pure def attachPointWellFormed(p: Plan, en: AttachPoint): bool =
     match en {
-      | MacEnd(_) => true
-      | ObjEnd(x) => and {
+      | MacAttach(_) => true
+      | ObjectAttach(x) => and {
           objKeys(p).contains(x.key),
           match x.key.family {
             | Dpni => x.port == 0
             | Dpsw => match objByKey(p, x.key) {
-                | Some(o) => match o.attrs { | DpswAttrs(a) => x.port >= 0 and x.port < a.numIfs | _ => false }
+                | Some(o) => match o.attributes { | DpswAttrs(a) => x.port >= 0 and x.port < a.numIfs | _ => false }
                 | None => false
               }
             | _ => false
@@ -122,16 +122,16 @@ module intent_invariants {
   // witness, so a dpmac↔dpmac edge, a dpmac at a link/wire end, or a second
   // peer on an already-connected end cannot be built.
   pure def edgesTypedAndSingle(p: Plan): bool = and {
-    endsSet(p).forall(en => endCount(p, en) <= 1),
+    attachPointsSet(p).forall(en => attachPointCount(p, en) <= 1),
     p.edges.forall(e => and {
       not(isMac(e.a) and isMac(e.b)),
-      endWellFormed(p, e.a),
-      endWellFormed(p, e.b),
-      (e.prov.rule == "link-edge" or e.prov.rule == "fabric-wire")
+      attachPointWellFormed(p, e.a),
+      attachPointWellFormed(p, e.b),
+      (e.provenance.rule == "link-edge" or e.provenance.rule == "fabric-wire")
         implies (isFam(e.a, Dpni) and isFam(e.b, Dpni)),
-      (e.prov.rule == "port-edge")
+      (e.provenance.rule == "port-edge")
         implies edgeMatches(e, en => isFam(en, Dpni), en => isMac(en)),
-      (e.prov.rule == "fabric-edge")
+      (e.provenance.rule == "fabric-edge")
         implies edgeMatches(e, en => isFam(en, Dpsw), en => (isMac(en) or isFam(en, Dpni))),
     }),
   }
@@ -146,10 +146,10 @@ module intent_invariants {
       COMPANION_FAMS.contains(o.key.family) implies
         val pk = { tenant: o.key.tenant, rule: companionRule(o.key.family), construct: "" }
         and {
-          o.prov == pk,
-          p.prov.keys().contains(pk),
-          countOf(p, o.key.tenant, o.key.family) == p.prov.get(pk).value,
-          ordinalsOf(p, o.key.tenant, o.key.family) == 1.to(p.prov.get(pk).value),
+          o.provenance == pk,
+          p.provenance.keys().contains(pk),
+          countOf(p, o.key.tenant, o.key.family) == p.provenance.get(pk).value,
+          ordinalsOf(p, o.key.tenant, o.key.family) == 1.to(p.provenance.get(pk).value),
         })
 
   // ---- emissionOrderLawful (INTENT_I4): emission order ----
@@ -179,7 +179,7 @@ module intent_invariants {
 
   // ---- keysAreIdentities (INTENT_I5): keys are identities, labels a projection ----
   // ADR-0010 §4 (the key is the identity, the label a lossy projection). No
-  // two objects share a key, and every ordinal is 1-based; the Rust `Key` is
+  // two objects share a key, and every ordinal is 1-based; the Rust `ObjectKey` is
   // the map key, the rendered label a derived field.
   pure def keysAreIdentities(p: Plan): bool = and {
     p.objs.size() == objKeys(p).size(),
@@ -187,19 +187,19 @@ module intent_invariants {
   }
 
   // ---- provenanceClosed (INTENT_I6): provenance is closed ----
-  // design D6 (the tree reaches the construct and the anchor). Every prov
+  // design D6 (the tree reaches the construct and the anchor). Every provenance
   // reference resolves, every node carries an anchor, and the only rule that
   // may be Unmeasured today is "T"; a second unmeasured rule must be declared
   // in this predicate before it can appear in a plan. The Rust provenance
   // type is a closed DAG, not a dangling triple.
   pure def provenanceClosed(p: Plan): bool =
-    val pk = p.prov.keys()
+    val pk = p.provenance.keys()
     and {
-      p.objs.forall(o => pk.contains(o.prov)),
-      p.edges.forall(e => pk.contains(e.prov)),
-      pk.forall(k => p.prov.get(k).inputs.forall(i => pk.contains(i))),
-      pk.forall(k => p.prov.get(k).anchor != ""),
-      pk.forall(k => (p.prov.get(k).mark == Unmeasured) implies (p.prov.get(k).rule == "T")),
+      p.objs.forall(o => pk.contains(o.provenance)),
+      p.edges.forall(e => pk.contains(e.provenance)),
+      pk.forall(k => p.provenance.get(k).inputs.forall(i => pk.contains(i))),
+      pk.forall(k => p.provenance.get(k).anchor != ""),
+      pk.forall(k => (p.provenance.get(k).mark == Unmeasured) implies (p.provenance.get(k).rule == "T")),
     }
 
   // ---- feasibleAgainstCeilings (INTENT_I7): feasibility ----
@@ -239,17 +239,17 @@ module intent_invariants {
           val reqDraw = if (c.dataplane == KernelNetlink) comp::companionDraw(comp::Kernel, s.drawCpus, 0, 1, s.dpnis)
                         else comp::companionDraw(comp::PollMode, 0, s.t, 1, s.dpnis)
           acc and and {
-            countOf(r.plan, c.name, Dpio) == s.effDpio.value,
-            countOf(r.plan, c.name, Dpbp) == s.effDpbp.value,
-            countOf(r.plan, c.name, Dpmcp) == s.effDpmcp.value,
-            countOf(r.plan, c.name, Dpcon) == s.effDpcon.value,
-            s.effDpio.value == s.effDpio.request + extraOf(intent, c.name, Dpio),
-            s.effDpbp.value == s.effDpbp.request + extraOf(intent, c.name, Dpbp),
-            s.effDpmcp.value == s.effDpmcp.request + extraOf(intent, c.name, Dpmcp),
-            s.effDpcon.value == s.effDpcon.request + extraOf(intent, c.name, Dpcon),
-            s.effDpio.request == reqDraw.dpio,
+            countOf(r.plan, c.name, Dpio) == s.effectiveDpio.value,
+            countOf(r.plan, c.name, Dpbp) == s.effectiveDpbp.value,
+            countOf(r.plan, c.name, Dpmcp) == s.effectiveDpmcp.value,
+            countOf(r.plan, c.name, Dpcon) == s.effectiveDpcon.value,
+            s.effectiveDpio.value == s.effectiveDpio.request + extraOf(intent, c.name, Dpio),
+            s.effectiveDpbp.value == s.effectiveDpbp.request + extraOf(intent, c.name, Dpbp),
+            s.effectiveDpmcp.value == s.effectiveDpmcp.request + extraOf(intent, c.name, Dpmcp),
+            s.effectiveDpcon.value == s.effectiveDpcon.request + extraOf(intent, c.name, Dpcon),
+            s.effectiveDpio.request == reqDraw.dpio,
             r.plan.objs.forall(o => (o.key.tenant == c.name and o.key.family == Dpni) implies
-              match o.attrs {
+              match o.attributes {
                 | DpniAttrs(a) => if (c.dataplane == KernelNetlink) a.numQueues == s.cpus else a.numQueues >= s.t
                 | _ => false
               }),

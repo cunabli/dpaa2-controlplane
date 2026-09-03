@@ -28,11 +28,11 @@ module router {
   import types.* from "../../core/types"           // Family
   import intent_types.* from "../types"            // Intent, UserspacePoll, …
   import intent_inventory.* from "../inventory"    // REF_INVENTORY
-  import intent_derive.* from "../derive"          // Plan, PlanObj, End, DpniAttrs, DpseciAttrs, …
+  import intent_derive.* from "../derive"          // Plan, PlannedObject, AttachPoint, DpniAttrs, DpseciAttrs, …
   import intent_refuse.* from "../refuse"          // compile, DoubleClaimed, UnmeasuredCombination
   import intent_invariants.* from "../invariants"  // planInvariants, compileInvariants
 
-  pure def objsOfFam(p: Plan, name: str, fam: Family): Set[PlanObj] =
+  pure def objsOfFam(p: Plan, name: str, fam: Family): Set[PlannedObject] =
     p.objs.filter(o => o.key.tenant == name and o.key.family == fam)
   pure def countFam(p: Plan, name: str, fam: Family): int =
     objsOfFam(p, name, fam).size()
@@ -76,7 +76,7 @@ module router {
             countFam(p, "router", Dpni) == 3,
             objsOfFam(p, "router", Dpni).forall(o =>
               o.container == Child("router") and
-              match o.attrs { | DpniAttrs(a) => a.numQueues == 10 | _ => false }),
+              match o.attributes { | DpniAttrs(a) => a.numQueues == 10 | _ => false }),
             countFam(p, "router", Dpio) == 20,   // 2·T (ADR-0012)
             countFam(p, "router", Dpbp) == 2,
             countFam(p, "router", Dpmcp) == 1,
@@ -85,19 +85,19 @@ module router {
             // the DPSECI_OPT_HAS_CG safety bit (dpseci.md)
             objsOfFam(p, "router", Dpseci) == Set(
               { key: { tenant: "router", family: Dpseci, ordinal: 1 }, container: Child("router"),
-                attrs: DpseciAttrs({ numQueues: 2, hasCg: true }),
-                prov: { tenant: "router", rule: "dpseci", construct: "" } }),
+                attributes: DpseciAttrs({ numQueues: 2, hasCg: true }),
+                provenance: { tenant: "router", rule: "dpseci", construct: "" } }),
             p.objs.filter(o => o.key.family == Dpsw) == Set(),
             // the three terminated ports are the whole edge set (fig. 6a)
             p.edges == Set(
-              { a: ObjEnd({ key: { tenant: "router", family: Dpni, ordinal: 1 }, port: 0 }),
-                b: MacEnd(9), prov: { tenant: "router", rule: "port-edge", construct: "wan0" } },
-              { a: ObjEnd({ key: { tenant: "router", family: Dpni, ordinal: 2 }, port: 0 }),
-                b: MacEnd(10), prov: { tenant: "router", rule: "port-edge", construct: "wan1" } },
-              { a: ObjEnd({ key: { tenant: "router", family: Dpni, ordinal: 3 }, port: 0 }),
-                b: MacEnd(4), prov: { tenant: "router", rule: "port-edge", construct: "up0" } }),
-            p.prov.get({ tenant: "router", rule: "T", construct: "" }).value == 10,
-            p.prov.get({ tenant: "router", rule: "T", construct: "" }).mark == Unmeasured,
+              { a: ObjectAttach({ key: { tenant: "router", family: Dpni, ordinal: 1 }, port: 0 }),
+                b: MacAttach(9), provenance: { tenant: "router", rule: "port-edge", construct: "wan0" } },
+              { a: ObjectAttach({ key: { tenant: "router", family: Dpni, ordinal: 2 }, port: 0 }),
+                b: MacAttach(10), provenance: { tenant: "router", rule: "port-edge", construct: "wan1" } },
+              { a: ObjectAttach({ key: { tenant: "router", family: Dpni, ordinal: 3 }, port: 0 }),
+                b: MacAttach(4), provenance: { tenant: "router", rule: "port-edge", construct: "up0" } }),
+            p.provenance.get({ tenant: "router", rule: "T", construct: "" }).value == 10,
+            p.provenance.get({ tenant: "router", rule: "T", construct: "" }).mark == Unmeasured,
           }
       | Refused(_) => false
     }

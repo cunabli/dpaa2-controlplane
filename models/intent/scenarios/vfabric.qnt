@@ -27,11 +27,11 @@ module vfabric {
   import types.* from "../../core/types"           // Family
   import intent_types.* from "../types"            // Intent, KERNEL, kernelTenant, …
   import intent_inventory.* from "../inventory"    // REF_INVENTORY
-  import intent_derive.* from "../derive"          // Plan, PlanObj, End, DpniAttrs, …
+  import intent_derive.* from "../derive"          // Plan, PlannedObject, AttachPoint, DpniAttrs, …
   import intent_refuse.* from "../refuse"          // compile, Infeasible
   import intent_invariants.* from "../invariants"  // planInvariants, compileInvariants
 
-  pure def objsOfFam(p: Plan, name: str, fam: Family): Set[PlanObj] =
+  pure def objsOfFam(p: Plan, name: str, fam: Family): Set[PlannedObject] =
     p.objs.filter(o => o.key.tenant == name and o.key.family == fam)
   pure def countFam(p: Plan, name: str, fam: Family): int =
     objsOfFam(p, name, fam).size()
@@ -67,7 +67,7 @@ module vfabric {
             countFam(p, "routerA", Dpni) == 1,
             objsOfFam(p, "routerA", Dpni).forall(o =>
               o.container == Child("routerA") and
-              match o.attrs { | DpniAttrs(a) => a.numQueues == 1 | _ => false }),
+              match o.attributes { | DpniAttrs(a) => a.numQueues == 1 | _ => false }),
             countFam(p, "routerA", Dpio) == 2,   // 2·T (ADR-0012)
             countFam(p, "routerA", Dpbp) == 2,
             countFam(p, "routerA", Dpmcp) == 1,
@@ -75,7 +75,7 @@ module vfabric {
             countFam(p, "routerB", Dpni) == 1,
             objsOfFam(p, "routerB", Dpni).forall(o =>
               o.container == Child("routerB") and
-              match o.attrs { | DpniAttrs(a) => a.numQueues == 1 | _ => false }),
+              match o.attributes { | DpniAttrs(a) => a.numQueues == 1 | _ => false }),
             countFam(p, "routerB", Dpio) == 2,
             countFam(p, "routerB", Dpbp) == 2,
             countFam(p, "routerB", Dpmcp) == 1,
@@ -83,11 +83,11 @@ module vfabric {
             p.objs.filter(o => o.key.family == Dpsw) == Set(),
             p.objs.filter(o => o.key.family == Dpseci) == Set(),
             // the single pseudo-wire is the whole edge set (no dpmac, no port)
-            p.edges == Set({ a: ObjEnd({ key: { tenant: "routerA", family: Dpni, ordinal: 1 }, port: 0 }),
-                             b: ObjEnd({ key: { tenant: "routerB", family: Dpni, ordinal: 1 }, port: 0 }),
-                             prov: { tenant: "routerA", rule: "link-edge", construct: "wire" } }),
-            p.prov.get({ tenant: "routerA", rule: "T", construct: "" }).value == 1,
-            p.prov.get({ tenant: "routerA", rule: "T", construct: "" }).mark == Unmeasured,
+            p.edges == Set({ a: ObjectAttach({ key: { tenant: "routerA", family: Dpni, ordinal: 1 }, port: 0 }),
+                             b: ObjectAttach({ key: { tenant: "routerB", family: Dpni, ordinal: 1 }, port: 0 }),
+                             provenance: { tenant: "routerA", rule: "link-edge", construct: "wire" } }),
+            p.provenance.get({ tenant: "routerA", rule: "T", construct: "" }).value == 1,
+            p.provenance.get({ tenant: "routerA", rule: "T", construct: "" }).mark == Unmeasured,
           }
       | Refused(_) => false
     }
