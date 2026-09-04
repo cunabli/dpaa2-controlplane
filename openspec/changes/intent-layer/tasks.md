@@ -254,7 +254,7 @@ the change's only other operator sync point (design D12).
 
 ## 5. Close-out
 
-- [ ] 5.1 Ledger pass: `COVERAGE.md` rows for the intent invariants and
+- [x] 5.1 Ledger pass: `COVERAGE.md` rows for the intent invariants and
       the DPDCEI-I1 re-anchor; ledger lint green
 - [ ] 5.2 Docs: ROADMAP row 3 delivered; ADR-0005 amendment sealed;
       CHANGELOG flows from commits; spec deltas ready to promote

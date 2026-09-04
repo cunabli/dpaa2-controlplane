@@ -1007,6 +1007,21 @@ fn parse_intent_invariants(invariants_qnt: &str) -> Vec<(u32, String)> {
         .collect()
 }
 
+/// The `| INTENT_I<n> | <name> | … |` table rows of COVERAGE.md's
+/// intent-invariants section, as `(n, name)` — the ledger copy R12 checks
+/// against the model (task 5.1). Non-row lines (the preamble, the header, the
+/// separator) carry no `INTENT_I<n>` first cell and are skipped.
+fn parse_coverage_invariants(section: &str) -> Vec<(u32, String)> {
+    section
+        .lines()
+        .filter_map(|l| {
+            let cells = split_row(l);
+            let n: u32 = cells.first()?.strip_prefix("INTENT_I")?.parse().ok()?;
+            Some((n, cells.get(1)?.clone()))
+        })
+        .collect()
+}
+
 /// The `- **<name>**` scenario bullets of ADR §7.
 fn parse_adr_scenarios(section: &str) -> Vec<String> {
     section
@@ -1088,14 +1103,16 @@ fn r11_refusals(
     }
 }
 
-/// R12: the plan invariants agree between `invariants.qnt` (truth) and
-/// ADR-0013 §6 (copy), by id and name. `COVERAGE.md` carries no `INTENT_I`
-/// rows yet — the ledger rows that tie `INTENT_I1..I9` to the baseline ids
-/// land at a later task (`invariants.qnt` header) — so there is no COVERAGE
-/// leg to check.
-fn r12_invariants(invariants_qnt: &str, adr_md: &str, out: &mut Vec<String>) {
+/// R12: the plan invariants agree across `invariants.qnt` (truth) and its two
+/// copies — ADR-0013 §6 and `COVERAGE.md`'s intent-invariants section — by id
+/// and name, each checked both ways. Since task 5.1 the ledger carries one row
+/// per `INTENT_I1..I9` tying it to its baseline anchors (`invariants.qnt`
+/// header); this leg keeps that copy from drifting from the model the same way
+/// the ADR §6 leg does.
+fn r12_invariants(invariants_qnt: &str, coverage_md: &str, adr_md: &str, out: &mut Vec<String>) {
     let model = parse_intent_invariants(invariants_qnt);
     let adr = parse_adr_invariants(&md_section(adr_md, "### 6."));
+    let cov = parse_coverage_invariants(&md_section(coverage_md, "## Intent invariants"));
     for (n, name) in &model {
         match adr.iter().find(|(m, _)| m == n) {
             None => out.push(format!(
@@ -1106,11 +1123,27 @@ fn r12_invariants(invariants_qnt: &str, adr_md: &str, out: &mut Vec<String>) {
             )),
             Some(_) => {}
         }
+        match cov.iter().find(|(m, _)| m == n) {
+            None => out.push(format!(
+                "R12 invariants: INTENT_I{n} `{name}` (invariants.qnt) has no row in COVERAGE.md's intent-invariants section"
+            )),
+            Some((_, cname)) if cname != name => out.push(format!(
+                "R12 invariants: INTENT_I{n} is `{name}` in invariants.qnt but `{cname}` in COVERAGE.md's intent-invariants section"
+            )),
+            Some(_) => {}
+        }
     }
     for (n, aname) in &adr {
         if !model.iter().any(|(m, _)| m == n) {
             out.push(format!(
                 "R12 invariants: ADR-0013 §6 lists INTENT_I{n} `{aname}`, absent from invariants.qnt"
+            ));
+        }
+    }
+    for (n, cname) in &cov {
+        if !model.iter().any(|(m, _)| m == n) {
+            out.push(format!(
+                "R12 invariants: COVERAGE.md's intent-invariants section lists INTENT_I{n} `{cname}`, absent from invariants.qnt"
             ));
         }
     }
@@ -1226,7 +1259,7 @@ pub fn intent_lint(
 ) -> Vec<String> {
     let mut out = Vec::new();
     r11_refusals(refuse_qnt, alphabet_qnt, coverage_md, adr_md, &mut out);
-    r12_invariants(invariants_qnt, adr_md, &mut out);
+    r12_invariants(invariants_qnt, coverage_md, adr_md, &mut out);
     r13_scenarios(scenario_qnt_stems, scenario_toml_stems, adr_md, &mut out);
     r14_rust_copies(
         refuse_qnt,
@@ -1983,18 +2016,72 @@ module intent_invariants {
 
 ### 7. The scenarios
 ";
+    /// The COVERAGE.md intent-invariants section (task 5.1): a preamble line
+    /// the parser must skip, then one row per invariant, matching `INV_QNT`/`ADR6`.
+    const COV_INVARIANTS: &str = "\
+## Intent invariants (task 5.1)
+
+Plan invariants of `invariants.qnt`, ids INTENT_I1–I9, linted by R12.
+
+| Invariant | Name | CI rung | Anchors / baseline ties |
+|-----------|------|---------|-------------------------|
+| INTENT_I1 | containmentByTenant | simulate | object-model.md §1 |
+| INTENT_I2 | edgesTypedAndSingle | simulate | object-model.md §2 |
+";
 
     #[test]
-    fn r12_passes_then_flags_a_renamed_invariant() {
+    fn r12_passes_then_flags_a_renamed_adr_invariant() {
+        // The intent-invariants section bounded by the alphabet heading that
+        // follows it, as in the real COVERAGE.md; all three copies agree.
+        let cov = format!("{COV_INVARIANTS}{COV_INTENT}");
         let mut ok = Vec::new();
-        r12_invariants(INV_QNT, ADR6, &mut ok);
+        r12_invariants(INV_QNT, &cov, ADR6, &mut ok);
         assert!(ok.is_empty(), "{ok:?}");
 
         let adr_bad = ADR6.replace("`edgesTypedAndSingle`", "`edgesTypedAndDouble`");
         let mut out = Vec::new();
-        r12_invariants(INV_QNT, &adr_bad, &mut out);
+        r12_invariants(INV_QNT, &cov, &adr_bad, &mut out);
         assert_eq!(out.len(), 1, "{out:?}");
         assert!(out[0].contains("INTENT_I2"), "{out:?}");
+        assert!(out[0].contains("ADR-0013 §6"), "{out:?}");
+    }
+
+    #[test]
+    fn r12_flags_a_deleted_coverage_row() {
+        // COVERAGE drops the INTENT_I2 row → exactly the missing-row finding.
+        let cov_bad = format!(
+            "{}{COV_INTENT}",
+            COV_INVARIANTS.replace(
+                "| INTENT_I2 | edgesTypedAndSingle | simulate | object-model.md §2 |\n",
+                ""
+            )
+        );
+        let mut out = Vec::new();
+        r12_invariants(INV_QNT, &cov_bad, ADR6, &mut out);
+        assert_eq!(out.len(), 1, "{out:?}");
+        assert!(
+            out[0].contains(
+                "INTENT_I2 `edgesTypedAndSingle` (invariants.qnt) has no row in COVERAGE.md's intent-invariants section"
+            ),
+            "{out:?}"
+        );
+    }
+
+    #[test]
+    fn r12_flags_a_renamed_coverage_name() {
+        // COVERAGE renames the INTENT_I2 name cell → the mismatch finding.
+        let cov_bad = format!(
+            "{}{COV_INTENT}",
+            COV_INVARIANTS.replace("edgesTypedAndSingle", "edgesTypedAndDouble")
+        );
+        let mut out = Vec::new();
+        r12_invariants(INV_QNT, &cov_bad, ADR6, &mut out);
+        assert_eq!(out.len(), 1, "{out:?}");
+        assert!(out[0].contains("INTENT_I2"), "{out:?}");
+        assert!(
+            out[0].contains("COVERAGE.md's intent-invariants section"),
+            "{out:?}"
+        );
     }
 
     #[test]

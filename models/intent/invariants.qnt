@@ -10,7 +10,8 @@
 // the Rust constructor makes unrepresentable.
 //
 // The ids `INTENT_I1..I9` are this change's own; the ledger rows that tie
-// them to the baseline invariants land at task 5.1.
+// them to the baseline invariants live in `models/COVERAGE.md`'s
+// intent-invariants section (task 5.1) and are linted by R12.
 //
 // Named invariants: containmentByTenant … isolatedContainerPrivate
 //   (ids INTENT_I1..I9, below); planInvariants gathers I1–I6 over any Plan,

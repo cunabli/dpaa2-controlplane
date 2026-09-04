@@ -65,7 +65,7 @@ and the adapter render must resolve inside the kernel's `/dev/dprc.N`
 command whitelist (`docs/baseline/mc-ioctl-policy.md`), and the two raw
 probes must resolve outside it.
 
-Tally: 53 modeled, 48 deferred, 7 board-settled, 0 board-pending — 108 candidates.
+Tally: 54 modeled, 47 deferred, 7 board-settled, 0 board-pending — 108 candidates.
 
 | Candidate | Disposition | Location / owning change / settling scenario | CI rung | Board status |
 |-----------|-------------|----------------------------------------------|---------|--------------|
@@ -159,7 +159,7 @@ Tally: 53 modeled, 48 deferred, 7 board-settled, 0 board-pending — 108 candida
 | DPCI-I3 | modeled | `main.qnt` `DPCI_I3Test` + `families/dpci.qnt` createTriggersRescan=false | simulate | verified 2026-08-29 (V-DPRC-5 rev 1): the create command triggers no rescan, but the BSP's `autorescan=1` makes the dprc driver rescan on the MC's object-added interrupt, so a root-created dpci was bus-visible before the hook's explicit `dprc sync`; the MC law holds and the sysfs lag is a kernel setting to read, not assume → `tier-c-families` (#13) |
 | DPCI-I4 | board-settled | V-DPCI-1 | — | verified 2026-08-23 (V-DPCI-1 rev 2, 7/7): a bare GPP↔GPP pair created in a scratch container connected (issued against the root ancestor) and read back peered at 1 priority each — no platform gate |
 | DPCI-I5 | modeled | `main.qnt` `DPCI_I5Test` (connect sets no link state) | simulate | verified (V-LINK-1: pair reads link-down after connect; consumer enable required) |
-| DPDCEI-I1 | deferred | `intent-layer` (#3): the `TenantAbsent` refusal — a compile-time rule of `models/intent/` (task 1.3), not a board probe | — | open: V-DPDCEI-1 probes → `tier-c-families` (#13); the create face landed (V-LIFE-DPDCEI-1) and the API-version half is read: dpdcei reports 2.3, the module is linked into this firmware (V-READBACK-1, 2026-08-25) |
+| DPDCEI-I1 | modeled | `intent/refuse.qnt` `TenantAbsent` (task 1.3; alphabet coverage 235 traces, intent section below) | simulate | open: V-DPDCEI-1 probes → `tier-c-families` (#13); the create face landed (V-LIFE-DPDCEI-1) and the API-version half is read: dpdcei reports 2.3, the module is linked into this firmware (V-READBACK-1, 2026-08-25) |
 | DPDCEI-I2 | deferred | this change ph.4 generator | — | verified 2026-08-29 (V-GENDPL-1 rev 1, 4/4 + hook 1/1): the emitted dpdcei node carries `engine` only — the create-time priority is write-only, absent from `dpdcei info` and the DPL alike → `dpl-tape-out` (#14) |
 | DPDCEI-I3 | deferred | this change ph.4 adapter (LAW 2; `DPSECI_I8Test` is the class witness) | — | — |
 | DPDCEI-I4 | deferred | `tier-c-families` (#13) | — | — |
@@ -177,6 +177,27 @@ Tally: 53 modeled, 48 deferred, 7 board-settled, 0 board-pending — 108 candida
 | DPDBG-I2 | modeled | structural — no debug-state observable exists in the model (formal-models spec scenario) | typecheck | — |
 | DPDBG-I3 | deferred | this change ph.4 adapter (LAW 2: dump verified by artifact, never exit) | — | anchored 2026-08-24 (V-DPDBG-1): both dumps exit 0 with the artifact only in the MC log |
 | DPDBG-I4 | modeled | `main.qnt` `DPDBG_I4Test` (bus-visible, driver-less, never kernel-bindable) | simulate | `dprc show` face verified 2026-08-24 (V-DPDBG-1 trace 4/4); sysfs face unprobed — needs V-DPRC-5's bus-visibility observation → `dprc-encapsulation` (#4) |
+
+## Intent invariants (task 5.1)
+
+These are the `intent-layer` change's own plan invariants
+(`models/intent/invariants.qnt`, ids INTENT_I1–I9), the laws design D6 makes
+unrepresentable in Rust. Each row ties an invariant to the baseline and ADR
+anchors it derives from, the same honesty mechanism the candidate ledger above
+applies to the family invariants. The section is linted (R12) against
+`invariants.qnt` and ADR-0013 §6 both ways, so a drift fails in CI, not review.
+
+| Invariant | Name | CI rung | Anchors / baseline ties |
+|-----------|------|---------|-------------------------|
+| INTENT_I1 | containmentByTenant | simulate | object-model.md §1; dprc.md; ADR-0001 §4 |
+| INTENT_I2 | edgesTypedAndSingle | simulate | object-model.md §2; DPNI-I9 |
+| INTENT_I3 | companionsOnlyDerived | simulate | ADR-0012; design D6 |
+| INTENT_I4 | emissionOrderLawful | simulate | object-model.md §5; ADR-0012 |
+| INTENT_I5 | keysAreIdentities | simulate | ADR-0010 §4 |
+| INTENT_I6 | provenanceClosed | simulate | design D6 |
+| INTENT_I7 | feasibleAgainstCeilings | simulate (apalache-marked, front-end heap wall — bead gqf.26) | ADR-0011; design D2 |
+| INTENT_I8 | companionCountsByRegime | simulate (apalache-marked, front-end heap wall — bead gqf.26) | ADR-0012 via companionDraw |
+| INTENT_I9 | isolatedContainerPrivate | simulate | design D6a; task 2.6c |
 
 ## Intent alphabet coverage (task 2.4)
 
