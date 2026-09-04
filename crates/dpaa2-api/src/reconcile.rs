@@ -40,6 +40,11 @@ pub fn reconcile_with(
 ) -> Plan {
     let mut plan = Plan::new();
 
+    // Report every derived object the port facet has no executor for, by family
+    // (design D10): reconcile actuates the dpni↔dpmac port subset below and reports
+    // the rest as plan-only, never as drift or error.
+    plan.plan_only = desired.plan().plan_only_by_family();
+
     for port in desired.ports() {
         match port.presence {
             Presence::Present => plan_present(port, observed, &mut plan),

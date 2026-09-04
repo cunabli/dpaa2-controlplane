@@ -15,8 +15,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use thiserror::Error;
 
-use crate::compiled::{AttachPoint, CompiledPlan, Edge};
-use crate::family::Family;
+use crate::compiled::CompiledPlan;
 use crate::intent::kernel_tenant;
 
 /// A 48-bit Ethernet MAC address.
@@ -329,21 +328,6 @@ pub enum FacetMismatch {
     EdgeWithoutPort(DpmacId),
 }
 
-/// The dpmac a dpni↔dpmac port-edge connects, or `None` for any other edge (a
-/// dpni↔dpni link-edge, a dpsw↔dpmac fabric-edge): the port projection actuates
-/// exactly these edges, so they are the ones [`DesiredTopology::from_parts`] matches.
-fn port_edge_mac(edge: &Edge) -> Option<DpmacId> {
-    match (edge.a(), edge.b()) {
-        (AttachPoint::Object { key, .. }, AttachPoint::Mac(dpmac))
-        | (AttachPoint::Mac(dpmac), AttachPoint::Object { key, .. })
-            if key.family == Family::Dpni =>
-        {
-            Some(*dpmac)
-        }
-        _ => None,
-    }
-}
-
 impl DesiredTopology {
     /// Creates an empty desired topology.
     #[must_use]
@@ -381,7 +365,11 @@ impl DesiredTopology {
     /// Returns [`FacetMismatch`] when the plan's port-edges and the ports do not
     /// name the same set of dpmacs.
     pub fn from_parts(plan: CompiledPlan, ports: Vec<DesiredPort>) -> Result<Self, FacetMismatch> {
-        let edge_macs: BTreeSet<DpmacId> = plan.edges.iter().filter_map(port_edge_mac).collect();
+        let edge_macs: BTreeSet<DpmacId> = plan
+            .edges
+            .iter()
+            .filter_map(|e| e.port_edge_dpni().map(|(_, dpmac)| dpmac))
+            .collect();
         if let Some(port) = ports.iter().find(|p| !edge_macs.contains(&p.dpmac)) {
             return Err(FacetMismatch::PortWithoutEdge(port.dpmac));
         }

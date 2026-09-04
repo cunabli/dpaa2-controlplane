@@ -6,6 +6,9 @@
 //! assigns it at create time (design D1). Transitions that *tear down* an existing
 //! object reference the observed [`DpniId`].
 
+use std::collections::BTreeMap;
+
+use crate::family::Family;
 use crate::model::{DpmacId, DpniId, MacAddr};
 
 /// A single MC- or kernel-granularity action in a plan.
@@ -81,8 +84,8 @@ pub struct AssertMismatch {
 
 /// The full result of a reconcile pass.
 ///
-/// A plan is *converged* when it carries no transitions. Drift and assert reports
-/// are informational and never imply an actuation.
+/// A plan is *converged* when it carries no transitions. Drift, assert, and
+/// plan-only reports are informational and never imply an actuation.
 #[derive(Clone, PartialEq, Eq, Debug, Default)]
 pub struct Plan {
     /// Ordered actions to move observed toward desired.
@@ -91,6 +94,10 @@ pub struct Plan {
     pub drift: Vec<DriftReport>,
     /// Assert-only mismatches that were reported but not actuated.
     pub assertions: Vec<AssertMismatch>,
+    /// Derived objects the port facet has no executor for, counted by family
+    /// (design D10). Reported so an operator sees the whole plan; never actuated,
+    /// never drift, and — like drift and assertions — it does not affect convergence.
+    pub plan_only: BTreeMap<Family, usize>,
 }
 
 impl Plan {
@@ -110,5 +117,21 @@ impl Plan {
     #[must_use]
     pub fn has_divergence(&self) -> bool {
         !self.drift.is_empty() || !self.assertions.is_empty()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn plan_only_is_reported_but_never_drift_or_divergence() {
+        // A plan whose sole content is a plan-only summary stays converged and
+        // divergence-free: plan-only objects are reported, never reconciled (D10).
+        let mut plan = Plan::new();
+        plan.plan_only.insert(Family::Dpio, 3);
+        plan.plan_only.insert(Family::Dpbp, 1);
+        assert!(plan.is_converged());
+        assert!(!plan.has_divergence());
     }
 }

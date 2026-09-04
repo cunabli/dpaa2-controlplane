@@ -358,6 +358,26 @@ impl Edge {
     pub fn provenance(&self) -> &ProvenanceKey {
         &self.provenance
     }
+
+    /// The dpni key and dpmac a dpni↔dpmac port-edge connects, or `None` for any
+    /// other edge — a dpni↔dpni link/fabric wire or a dpsw↔dpmac fabric-edge (design
+    /// D10). This is the one discriminator for the port facet: the objects the port
+    /// reconciler actuates are exactly these dpni ends, so both
+    /// [`DesiredTopology::from_parts`](crate::DesiredTopology::from_parts) (which
+    /// pairs on the dpmac) and [`CompiledPlan::plan_only_by_family`] (which excludes
+    /// the dpni) read the same set from here.
+    #[must_use]
+    pub fn port_edge_dpni(&self) -> Option<(&ObjectKey, DpmacId)> {
+        match (&self.a, &self.b) {
+            (AttachPoint::Object { key, .. }, AttachPoint::Mac(dpmac))
+            | (AttachPoint::Mac(dpmac), AttachPoint::Object { key, .. })
+                if key.family == Family::Dpni =>
+            {
+                Some((key, *dpmac))
+            }
+            _ => None,
+        }
+    }
 }
 
 /// The compiled object plan (design D6; `derive.qnt` `Plan`): the objects, the
@@ -376,6 +396,30 @@ pub struct CompiledPlan {
     pub order: Vec<ObjectKey>,
     /// The provenance DAG, keyed by [`ProvenanceKey`].
     pub provenance: BTreeMap<ProvenanceKey, ProvenanceNode>,
+}
+
+impl CompiledPlan {
+    /// Counts the objects the port facet has no executor for, grouped by family
+    /// (design D10): every planned object except the dpni end of a dpni↔dpmac
+    /// port-edge, which the port reconciler actuates. `reconcile` reports this so an
+    /// operator sees every derived object the plan carries; it is never actuated and
+    /// never drift. A port-only plan carries nothing but port-edge dpnis, so its
+    /// summary is empty.
+    #[must_use]
+    pub fn plan_only_by_family(&self) -> BTreeMap<Family, usize> {
+        let actuated: BTreeSet<&ObjectKey> = self
+            .edges
+            .iter()
+            .filter_map(|e| e.port_edge_dpni().map(|(key, _)| key))
+            .collect();
+        let mut summary: BTreeMap<Family, usize> = BTreeMap::new();
+        for obj in &self.objects {
+            if !actuated.contains(obj.key()) {
+                *summary.entry(obj.key().family).or_insert(0) += 1;
+            }
+        }
+        summary
+    }
 }
 
 /// The child-DPRC option mask restool creates by default, verified on the reference

@@ -11,7 +11,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
 
 use dpaa2_api::{
-    AttachPoint, Attributes, CompiledPlan, Container, Edge, Family, Measurement, ObjectKey, Plan,
+    AttachPoint, Attributes, CompiledPlan, Container, Family, Measurement, ObjectKey, Plan,
     PlannedObject, ProvenanceKey, Refusal, Warning,
 };
 
@@ -27,7 +27,7 @@ pub fn render_dry_run(
     let mut out = String::new();
     out.push_str(&render_plan(plan));
     out.push_str(&render_transitions(reconcile));
-    out.push_str(&render_plan_only(&plan_only_by_family(plan)));
+    out.push_str(&render_plan_only(&reconcile.plan_only));
     out.push_str(&render_warnings(warnings));
     out
 }
@@ -135,22 +135,6 @@ pub fn render_transitions(plan: &Plan) -> String {
     out
 }
 
-/// Counts the objects the port-facet reconciler has no executor for, by family
-/// (design D10): every planned object except the port-edge dpnis it actuates. Task
-/// 3.6 folds this into `reconcile`; until then it is a small pure fn the frontend
-/// computes from the plan the reconciler already carries in its [`dpaa2_api::DesiredTopology`].
-#[must_use]
-pub fn plan_only_by_family(plan: &CompiledPlan) -> BTreeMap<Family, usize> {
-    let actuated = port_edge_dpni_keys(plan);
-    let mut summary: BTreeMap<Family, usize> = BTreeMap::new();
-    for obj in &plan.objects {
-        if !actuated.contains(obj.key()) {
-            *summary.entry(obj.key().family).or_insert(0) += 1;
-        }
-    }
-    summary
-}
-
 /// Renders the plan-only report (design D10): the families the reconciler does not
 /// execute, grouped and counted, presented as plan-only — never drift, never error.
 #[must_use]
@@ -204,27 +188,6 @@ pub fn render_warnings(warnings: &BTreeSet<Warning>) -> String {
 }
 
 // ---- endpoint / attribute / container formatting ----
-
-/// The dpni object keys the port-facet reconciler actuates: the dpni end of every
-/// dpni<->dpmac port-edge (design D10). Everything else in the plan is plan-only.
-fn port_edge_dpni_keys(plan: &CompiledPlan) -> BTreeSet<ObjectKey> {
-    plan.edges.iter().filter_map(port_edge_dpni_key).collect()
-}
-
-/// The dpni key a dpni<->dpmac port-edge connects, or `None` for any other edge (a
-/// dpni<->dpni link/wire, a dpsw<->dpmac fabric-edge): the same discriminator
-/// [`dpaa2_api::DesiredTopology::from_parts`] pairs the port projection on.
-fn port_edge_dpni_key(edge: &Edge) -> Option<ObjectKey> {
-    match (edge.a(), edge.b()) {
-        (AttachPoint::Object { key, .. }, AttachPoint::Mac(_))
-        | (AttachPoint::Mac(_), AttachPoint::Object { key, .. })
-            if key.family == Family::Dpni =>
-        {
-            Some(key.clone())
-        }
-        _ => None,
-    }
-}
 
 fn render_attach(ap: &AttachPoint) -> String {
     match ap {

@@ -223,7 +223,7 @@ the change's only other operator sync point (design D12).
       plan with provenance trees and the plan-only report, `insta`
       snapshots of the text (design D9); refusals print the full list
       and exit non-zero
-- [ ] 3.6 `dpaa2-api` reconciler: plan-only objects reported by family
+- [x] 3.6 `dpaa2-api` reconciler: plan-only objects reported by family
       and count, never as drift; `is_converged` ignores them; retro
       traces still green
 
