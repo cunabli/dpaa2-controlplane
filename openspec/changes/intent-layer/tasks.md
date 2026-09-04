@@ -223,6 +223,9 @@ the change's only other operator sync point (design D12).
       plan with provenance trees and the plan-only report, `insta`
       snapshots of the text (design D9); refusals print the full list
       and exit non-zero
+- [x] 3.5a `dpaa2-mc`: `observe()`'s dpmac parser and its fixtures aligned
+      to the captured baseline spellings; a FIXED link no longer misreads
+      as PHY (bug gqf.42, discovered by 3.5 parcel A)
 - [x] 3.6 `dpaa2-api` reconciler: plan-only objects reported by family
       and count, never as drift; `is_converged` ignores them; retro
       traces still green

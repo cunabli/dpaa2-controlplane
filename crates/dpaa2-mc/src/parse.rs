@@ -189,21 +189,26 @@ pub fn parse_resources(stdout: &str) -> BTreeMap<String, i64> {
 
 /// Parses `restool dpmac info dpmac.N`.
 ///
-/// Recognizes a `link type:` line carrying `DPMAC_LINK_TYPE_PHY` or
-/// `DPMAC_LINK_TYPE_FIXED`; when absent, defaults to PHY.
+/// The field spellings mirror the captured baseline in
+/// `models/board/baselines/reference.json` (`DPMAC link type`, `MAC address`),
+/// matching [`parse_dpmac_offer`] above; restool prints these with a `DPMAC`
+/// prefix and capitalized `MAC`, so the lowercase forms never appear (DPMAC-I3:
+/// attributes are read once by `dpmac info`, the baseline is the spelling oracle).
+/// Recognizes `DPMAC_LINK_TYPE_PHY` or `DPMAC_LINK_TYPE_FIXED`; when absent,
+/// defaults to PHY.
 #[must_use]
 pub fn parse_dpmac_info(stdout: &str) -> RawDpmacInfo {
     let mut info = RawDpmacInfo::default();
     for line in stdout.lines() {
         let line = line.trim();
-        if let Some(rest) = line.strip_prefix("link type:") {
+        if let Some(rest) = line.strip_prefix("DPMAC link type:") {
             let v = rest.trim();
             if v.contains("FIXED") {
                 info.link_type = LinkType::Fixed;
             } else if v.contains("PHY") {
                 info.link_type = LinkType::Phy;
             }
-        } else if let Some(rest) = line.strip_prefix("mac address:") {
+        } else if let Some(rest) = line.strip_prefix("MAC address:") {
             info.mac = rest.trim().parse::<MacAddr>().ok();
         }
     }
@@ -255,6 +260,47 @@ plugged state: plugged
         assert_eq!(o.eth_if, None);
         assert_eq!(o.link_type, None);
         assert_eq!(o.max_rate, None);
+    }
+
+    #[test]
+    fn dpmac_info_reads_baseline_mac_and_link_type() {
+        let i = parse_dpmac_info(DPMAC_INFO_XFI);
+        assert_eq!(i.mac, "00:11:22:33:44:55".parse::<MacAddr>().ok());
+        assert_eq!(i.link_type, LinkType::Phy);
+    }
+
+    #[test]
+    fn dpmac_info_reads_fixed_link_type() {
+        // The case the prefix bug hid: a FIXED link must not fall to the PHY default.
+        let i = parse_dpmac_info("DPMAC link type: DPMAC_LINK_TYPE_FIXED\n");
+        assert_eq!(i.link_type, LinkType::Fixed);
+    }
+
+    #[test]
+    fn dpmac_info_ignores_lowercase_spellings() {
+        // The old assumed spelling is not what restool prints; it must not match.
+        let i =
+            parse_dpmac_info("link type: DPMAC_LINK_TYPE_FIXED\nmac address: 00:11:22:33:44:55\n");
+        assert_eq!(i.mac, None);
+        assert_eq!(i.link_type, LinkType::Phy);
+    }
+
+    #[test]
+    fn dpni_info_reads_lowercase_mac_and_endpoint() {
+        // restool spells dpni info fields lowercase, the inverse of dpmac info:
+        // reference.json dpni.0 (~line 1410) prints `mac address:` / `endpoint:`,
+        // while dpmac blocks print `MAC address:`. Do not "align" dpni to dpmac.
+        let i = parse_dpni_info("endpoint: dpmac.7, link is up\nmac address: 00:00:00:00:00:29\n");
+        assert_eq!(i.endpoint, Some(DpmacId::from(7)));
+        assert_eq!(i.mac, "00:00:00:00:00:29".parse::<MacAddr>().ok());
+    }
+
+    #[test]
+    fn dpni_info_ignores_capitalized_mac_spelling() {
+        // dpmac's capitalized `MAC address:` is not what dpni info prints; it must
+        // not match, or a real board's dpni mac would read absent.
+        let i = parse_dpni_info("MAC address: 00:00:00:00:00:29\n");
+        assert_eq!(i.mac, None);
     }
 
     #[test]
