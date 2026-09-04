@@ -12,7 +12,39 @@
 #   dpaa2-verify diff --plan V-FIT-1.plan.json --results <dir>
 set -u
 RESULTS="${1:?usage: $0 <results-dir>}"
+# The cd below moves us to the repo root, so a relative results dir must be
+# anchored to the operator's cwd first.
+case "$RESULTS" in /*) ;; *) RESULTS="$PWD/$RESULTS" ;; esac
 mkdir -p "$RESULTS"
+
+# --- repo-root cd (design D12; ADR-0003 §2) ---
+# The dpaa2ctl steps name the reference intent relative to the repo root
+# (models/intent/scenarios/reference.toml), so the sitting runs from there
+# regardless of the operator's cwd. This script lives three levels down at
+# models/board/<id>/<id>.sh; SELF is resolved absolute BEFORE the cd so the
+# total-deny self-check below still greps the right file. Refuse if the cd
+# target is not this repo's root.
+SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
+cd "$(dirname "$SELF")/../../.." || { echo "refusing: cannot reach the repo root from $SELF" >&2; exit 1; }
+[ -f models/intent/scenarios/reference.toml ] || { echo "refusing: not the repo root (models/intent/scenarios/reference.toml missing); run this script from its checkout" >&2; exit 1; }
+
+# --- dpaa2ctl from this checkout's build output (design D12; ADR-0003 §2) ---
+# Evidence is only valid if the sitting exercises THIS checkout's compiler,
+# not a stale dpaa2ctl on PATH (sudo's secure_path defeats a PATH prefix).
+# Honor a pre-set $DPAA2CTL, else take the first binary this checkout built;
+# refuse with the exact build command if neither exists.
+if [ -z "${DPAA2CTL:-}" ]; then
+  if [ -x target/release/dpaa2ctl ]; then
+    DPAA2CTL=target/release/dpaa2ctl
+  elif [ -x target/debug/dpaa2ctl ]; then
+    DPAA2CTL=target/debug/dpaa2ctl
+  else
+    echo "refusing: no dpaa2ctl in target/release or target/debug — run: cargo build -p dpaa2-tools" >&2
+    exit 1
+  fi
+fi
+# Record which binary ran so the evidence names its compiler.
+{ echo "$DPAA2CTL"; sha256sum "$DPAA2CTL" 2>/dev/null || ls -l "$DPAA2CTL"; } > "$RESULTS/dpaa2ctl-provenance.txt"
 
 # --- kernel-log window ---
 # A marker stamps the sitting's start in the kernel log; the footer saves
@@ -27,7 +59,7 @@ save_dmesg() {
 # --- independent safety self-check (ADR-0003 §4) ---
 # The execution side refuses total-deny references even if a script was
 # hand-edited after generation.
-if grep -nE 'dpmac[.]3([^0-9]|$)|dpmac[.]17([^0-9]|$)|dpni[.]0([^0-9]|$)' "$0" | grep -v safety-self-check; then
+if grep -nE 'dpmac[.]3([^0-9]|$)|dpmac[.]17([^0-9]|$)|dpni[.]0([^0-9]|$)' "$SELF" | grep -v safety-self-check; then
   echo "refusing: total-deny object referenced in this script" >&2  # safety-self-check
   exit 1
 fi
@@ -99,12 +131,12 @@ expect_zero 8 "dpmac.10 info"
 
 # step 9: shipped compiler dry-run on the reference intent
 # expect: zero exit; the shipped read then compile then reconcile path over the reference intent (design D12 — the diff exercises the shipped code path). Capture the whole plan with its provenance trees and the plan-only report
-run 9 dpaa2ctl --config models/intent/scenarios/reference.toml dry-run
+run 9 "$DPAA2CTL" --config models/intent/scenarios/reference.toml dry-run
 expect_zero 9 "shipped compiler dry-run on the reference intent"
 
 # step 10: shipped compiler status on the reference intent
 # expect: exit any; the machine drift report. A nonzero exit means the board diverges from intent and is EVIDENCE for 4.2's dispositioning (design D12 open questions), never a script failure
-run 10 dpaa2ctl --config models/intent/scenarios/reference.toml status
+run 10 "$DPAA2CTL" --config models/intent/scenarios/reference.toml status
 expect_any 10 "shipped compiler status on the reference intent"
 
 save_dmesg

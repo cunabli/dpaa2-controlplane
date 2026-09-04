@@ -243,6 +243,10 @@ the change's only other operator sync point (design D12).
       reference intent through the shipped `dpaa2ctl dry-run`, diff
       against the census; no mutation anywhere in the script; reference
       pair asserted
+- [x] 4.1a The sitting asserts the dpaa2ctl build it exercises: rev 1
+      failed only because the board ran a stale pre-3.3 binary (`unknown
+      field intent, expected port`) the reference-pair assert cannot see
+      (discovered by 4.2 rev 1, bead gqf.44)
 - [ ] 4.2 Operator runs the sitting; diff dispositioned; divergences
       amend the model, the ADR-0005 amendment, or the baseline in the
       same bead; evidence archived outside the checkout per the board

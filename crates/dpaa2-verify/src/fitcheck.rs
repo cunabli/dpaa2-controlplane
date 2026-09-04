@@ -152,7 +152,39 @@ fn preamble(id: &str, probes_file: &str) -> String {
 #   dpaa2-verify diff --plan {id}.plan.json --results <dir>
 set -u
 RESULTS="${{1:?usage: $0 <results-dir>}}"
+# The cd below moves us to the repo root, so a relative results dir must be
+# anchored to the operator's cwd first.
+case "$RESULTS" in /*) ;; *) RESULTS="$PWD/$RESULTS" ;; esac
 mkdir -p "$RESULTS"
+
+# --- repo-root cd (design D12; ADR-0003 §2) ---
+# The dpaa2ctl steps name the reference intent relative to the repo root
+# (models/intent/scenarios/reference.toml), so the sitting runs from there
+# regardless of the operator's cwd. This script lives three levels down at
+# models/board/<id>/<id>.sh; SELF is resolved absolute BEFORE the cd so the
+# total-deny self-check below still greps the right file. Refuse if the cd
+# target is not this repo's root.
+SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
+cd "$(dirname "$SELF")/../../.." || {{ echo "refusing: cannot reach the repo root from $SELF" >&2; exit 1; }}
+[ -f models/intent/scenarios/reference.toml ] || {{ echo "refusing: not the repo root (models/intent/scenarios/reference.toml missing); run this script from its checkout" >&2; exit 1; }}
+
+# --- dpaa2ctl from this checkout's build output (design D12; ADR-0003 §2) ---
+# Evidence is only valid if the sitting exercises THIS checkout's compiler,
+# not a stale dpaa2ctl on PATH (sudo's secure_path defeats a PATH prefix).
+# Honor a pre-set $DPAA2CTL, else take the first binary this checkout built;
+# refuse with the exact build command if neither exists.
+if [ -z "${{DPAA2CTL:-}}" ]; then
+  if [ -x target/release/dpaa2ctl ]; then
+    DPAA2CTL=target/release/dpaa2ctl
+  elif [ -x target/debug/dpaa2ctl ]; then
+    DPAA2CTL=target/debug/dpaa2ctl
+  else
+    echo "refusing: no dpaa2ctl in target/release or target/debug — run: cargo build -p dpaa2-tools" >&2
+    exit 1
+  fi
+fi
+# Record which binary ran so the evidence names its compiler.
+{{ echo "$DPAA2CTL"; sha256sum "$DPAA2CTL" 2>/dev/null || ls -l "$DPAA2CTL"; }} > "$RESULTS/dpaa2ctl-provenance.txt"
 
 # --- kernel-log window ---
 # A marker stamps the sitting's start in the kernel log; the footer saves
@@ -167,7 +199,7 @@ save_dmesg() {{
 # --- independent safety self-check (ADR-0003 §4) ---
 # The execution side refuses total-deny references even if a script was
 # hand-edited after generation.
-if grep -nE '{TOTAL_DENY_GREP}' "$0" | grep -v safety-self-check; then
+if grep -nE '{TOTAL_DENY_GREP}' "$SELF" | grep -v safety-self-check; then
   echo "refusing: total-deny object referenced in this script" >&2  # safety-self-check
   exit 1
 fi
@@ -209,7 +241,20 @@ pub fn generate_fit(plan: &ProbePlan, probes_file: &str) -> Result<FitSuite, Str
         let exit = step.exit.unwrap_or(ExitShape::Any);
         let _ = write!(body, "\n# step {i}: {}\n", step.label);
         let _ = writeln!(body, "# expect: {}", step.expect);
-        let _ = writeln!(body, "run {i} {}", argv.join(" "));
+        // A dpaa2ctl step runs the binary this checkout resolved into
+        // $DPAA2CTL (design D12); every other command (the system restool,
+        // run as root) stays bare. The probe plan keeps the bare `dpaa2ctl`
+        // declaration; the substitution lives only in the rendered script.
+        let rendered = match argv.split_first() {
+            Some((first, rest)) if first == "dpaa2ctl" => {
+                std::iter::once("\"$DPAA2CTL\"".to_owned())
+                    .chain(rest.iter().cloned())
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            }
+            _ => argv.join(" "),
+        };
+        let _ = writeln!(body, "run {i} {rendered}");
         let helper = match exit {
             ExitShape::Zero => "expect_zero",
             ExitShape::Nonzero => "expect_nonzero",
@@ -305,9 +350,30 @@ mod tests {
         // The reference pair is asserted before any command (ADR-0003 §2).
         assert!(s.contains("MC firmware is not 10.39.0"), "{s}");
         assert!(s.contains("kernel is not 6.6.52"), "{s}");
+        // The sitting cds to the repo root (three levels up) and refuses if
+        // it is not one, so the relative reference-intent path resolves from
+        // any cwd (design D12).
+        assert!(s.contains(r#"cd "$(dirname "$SELF")/../../..""#), "{s}");
+        assert!(
+            s.contains("models/intent/scenarios/reference.toml ] || ")
+                && s.contains("not the repo root"),
+            "{s}"
+        );
+        // dpaa2ctl is resolved from this checkout's build output, refusing
+        // with the exact build command when nothing is built (design D12).
+        assert!(s.contains("target/release/dpaa2ctl"), "{s}");
+        assert!(s.contains("target/debug/dpaa2ctl"), "{s}");
+        assert!(s.contains("cargo build -p dpaa2-tools"), "{s}");
+        // The resolved binary's provenance is captured for the evidence.
+        assert!(s.contains(r#"> "$RESULTS/dpaa2ctl-provenance.txt""#), "{s}");
         // PASS/FAIL rendering per step, keyed on the declared exit shape.
         assert!(s.contains("expect_zero 0 \"census\""), "{s}");
         assert!(s.contains("expect_any 1 \"drift\""), "{s}");
+        // A dpaa2ctl step runs the resolved binary; a restool step stays
+        // bare (the system tool, run as root).
+        assert!(s.contains(r#"run 1 "$DPAA2CTL" status"#), "{s}");
+        assert!(s.contains("run 0 restool dprc list"), "{s}");
+        assert!(!s.contains("run 1 dpaa2ctl "), "{s}");
         // Nothing is created, so there is no teardown trap and no mutating
         // verb anywhere in the script.
         assert!(!s.contains("trap teardown"), "{s}");
