@@ -25,6 +25,7 @@ tracing-subscriber.workspace = true
 
 [dev-dependencies]
 dpaa2-api = { workspace = true, features = ["testkit"] }
+insta.workspace = true
 
 [lints]
 workspace = true

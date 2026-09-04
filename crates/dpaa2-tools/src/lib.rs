@@ -8,6 +8,7 @@
 
 pub mod engine;
 pub mod link;
+pub mod render;
 pub mod status;
 
 pub use engine::{ConvergeConfig, Outcome, apply, ensure, observe};

@@ -1,0 +1,6 @@
+---
+source: crates/dpaa2-tools/tests/render.rs
+expression: render_refusals(&refusals)
+---
+compilation refused: 1 rule(s) broken
+  Reserved { port: ConstructName("wan0"), dpmac: dpmac.3, why: "ADR-0003 §3: total-deny" }

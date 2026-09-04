@@ -9,10 +9,12 @@ use std::process::ExitCode;
 use std::time::Duration;
 
 use clap::{Parser, Subcommand};
-use dpaa2_api::{DesiredPort, DesiredTopology, Error, Intent, ReconcileOptions, reconcile_with};
+use dpaa2_api::{
+    Compiled, Error, Intent, McControl, ReconcileOptions, compile, kernel_tenant, reconcile_with,
+};
 use dpaa2_mc::{RestoolMc, SysfsKernel};
 use dpaa2_tools::engine::{self, ConvergeConfig, Outcome};
-use dpaa2_tools::{StatusReport, link};
+use dpaa2_tools::{StatusReport, link, render};
 
 /// Declarative DPAA2 (DPNI↔DPMAC) provisioning for the LX2160A.
 #[derive(Parser, Debug)]
@@ -101,7 +103,10 @@ fn run(cli: &Cli) -> Result<ExitCode, Error> {
             })
         }
         Command::Status => {
-            let desired = load_config(&cli.config)?;
+            let Some((intent, compiled)) = compile_intent(&mc, &cli.config)? else {
+                return Ok(ExitCode::FAILURE);
+            };
+            let desired = compiled.desired_topology(&intent);
             let observed = engine::observe(&mc, &kernel)?;
             let report = StatusReport::compute(&desired, &observed);
             print!("{report}");
@@ -112,19 +117,16 @@ fn run(cli: &Cli) -> Result<ExitCode, Error> {
             })
         }
         Command::DryRun { prune } => {
-            let desired = load_config(&cli.config)?;
+            let Some((intent, compiled)) = compile_intent(&mc, &cli.config)? else {
+                return Ok(ExitCode::FAILURE);
+            };
+            let desired = compiled.desired_topology(&intent);
             let observed = engine::observe(&mc, &kernel)?;
             let plan = reconcile_with(&desired, &observed, ReconcileOptions { prune: *prune });
-            println!("{} planned transition(s):", plan.transitions.len());
-            for t in &plan.transitions {
-                println!("  {t:?}");
-            }
-            for d in &plan.drift {
-                println!("  DRIFT {} {}: {}", d.dpni, d.attribute, d.detail);
-            }
-            for a in &plan.assertions {
-                println!("  ASSERT {} {}: {}", a.port, a.field, a.detail);
-            }
+            print!(
+                "{}",
+                render::render_dry_run(&compiled.plan, &compiled.warnings, &plan)
+            );
             Ok(ExitCode::SUCCESS)
         }
         Command::Ensure {
@@ -145,7 +147,16 @@ fn ensure(
     no_link: bool,
     link_dir: &std::path::Path,
 ) -> Result<ExitCode, Error> {
-    let desired = load_config(&cli.config)?;
+    let Some((intent, compiled)) = compile_intent(mc, &cli.config)? else {
+        return Ok(ExitCode::FAILURE);
+    };
+    // Warnings are named on stderr so the executed plan on stdout stays clean; the
+    // dry-run text carries the same set inline (design D2/D3).
+    let warnings = render::render_warnings(&compiled.warnings);
+    if !warnings.is_empty() {
+        eprint!("{warnings}");
+    }
+    let desired = compiled.desired_topology(&intent);
 
     let cfg = ConvergeConfig {
         deadline: Duration::from_secs(deadline),
@@ -172,45 +183,49 @@ fn ensure(
     }
 }
 
-/// Loads the declared [`Intent`] and bridges the kernel-port-only subset onto today's
-/// [`DesiredTopology`] executor (task 3.3 scope; design D10).
+/// The read → complete → compile pipeline `ensure`, `dry-run`, and `status` share
+/// (design D2/D10; bead gqf.19): loads the declared [`Intent`], reads the board's
+/// hardware offer, completes the reserved kernel, then compiles.
 ///
-/// Only a kernel-owned, port-only intent — no tenants, links, fabrics, crypto or
-/// extras, every port on the reserved kernel — maps onto the current dpni↔dpmac
-/// reconciler, and it does so through [`DesiredTopology::from_ports`] carrying each
-/// port's name, MAC and mode. A construct intent needs `compile` and inventory
-/// reading, which task 3.5 wires into `ensure`/`dry-run`; until then it is refused by
-/// name rather than silently truncated.
-fn load_config(path: &std::path::Path) -> Result<DesiredTopology, Error> {
-    let intent = dpaa2_config::load(path)?;
-    if is_kernel_port_only(&intent) {
-        Ok(DesiredTopology::from_ports(intent.ports.iter().map(|p| {
-            DesiredPort {
-                mac: p.mac,
-                mac_mode: p.mac_mode,
-                ..DesiredPort::new(p.dpmac, p.name.as_str())
-            }
-        })))
-    } else {
-        Err(Error::Config(
-            "this intent declares constructs (tenants, links, fabrics, crypto, extras, or a \
-             non-kernel port); compiling them into the object plan is wired into `ensure`/`dry-run` \
-             in task 3.5. Today only a kernel-owned, port-only topology is executable."
-                .to_owned(),
-        ))
+/// On refusal it prints every rule with its offending construct and returns `Ok(None)`
+/// so the caller exits non-zero having changed nothing — no reconcile, no link files
+/// (design D9/D10). On success it returns the completed intent beside its [`Compiled`]
+/// plan, from which the caller projects the [`dpaa2_api::DesiredTopology`] the
+/// reconciler drives. Every intent now goes through `compile`; a kernel-owned,
+/// port-only file behaves as before by construction (design D10).
+///
+/// # Errors
+///
+/// Returns an [`Error`] only when the config is unreadable or the board cannot be
+/// queried; a *refused* compile is not an error but the printed `Ok(None)` verdict.
+fn compile_intent(
+    mc: &RestoolMc<dpaa2_mc::RestoolRunner>,
+    path: &std::path::Path,
+) -> Result<Option<(Intent, Compiled)>, Error> {
+    let mut intent = dpaa2_config::load(path)?;
+    let inventory = mc.read_inventory()?;
+    complete_kernel(&mut intent, inventory.cpus);
+    match compile(&intent, &inventory) {
+        Ok(compiled) => Ok(Some((intent, compiled))),
+        Err(refusals) => {
+            print!("{}", render::render_refusals(&refusals));
+            Ok(None)
+        }
     }
 }
 
-/// Whether `intent` is the kernel-owned, port-only subset the current reconciler can
-/// execute without `compile`: no constructs beyond ports, and every port on the
-/// reserved kernel.
-fn is_kernel_port_only(intent: &Intent) -> bool {
-    intent.tenants.is_empty()
-        && intent.links.is_empty()
-        && intent.fabrics.is_empty()
-        && intent.crypto.is_empty()
-        && intent.extras.is_empty()
-        && intent.ports.iter().all(|p| p.tenant.is_kernel())
+/// Reserved-kernel completion (design D1): the config parser never creates a kernel
+/// [`dpaa2_api::Tenant`] — a port with no owner defaults to the reserved name — so the
+/// frontend injects `kernel_tenant(cpus)` at index 0 when a port terminates the kernel
+/// and no kernel tenant is declared. A link naming the kernel is materialised inside
+/// `compile`'s `effective_tenants`, so this completes the port case only (the
+/// `dpaa2-verify` `intent_pairing` normative note; bead gqf.19).
+fn complete_kernel(intent: &mut Intent, cpus: u32) {
+    let declared = intent.tenants.iter().any(|t| t.name.is_kernel());
+    let port_names_kernel = intent.ports.iter().any(|p| p.tenant.is_kernel());
+    if port_names_kernel && !declared {
+        intent.tenants.insert(0, kernel_tenant(i64::from(cpus)));
+    }
 }
 
 fn init_logging() {
@@ -218,4 +233,56 @@ fn init_logging() {
     let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
     // Ignore the error if a global subscriber is already installed (e.g. in tests).
     let _ = fmt().with_env_filter(filter).try_init();
+}
+
+#[cfg(test)]
+mod tests {
+    use dpaa2_api::{DpmacId, Intent, MacMode, Port, kernel_tenant};
+
+    use super::complete_kernel;
+
+    fn port(owner: &str) -> Port {
+        Port {
+            name: "wan0".into(),
+            dpmac: DpmacId::new(7),
+            rate: 10_000,
+            tenant: owner.into(),
+            mac: None,
+            mac_mode: MacMode::Assert,
+        }
+    }
+
+    #[test]
+    fn injects_kernel_tenant_at_index_zero_when_a_port_owns_it() {
+        let mut intent = Intent {
+            tenants: vec![],
+            ports: vec![port("kernel")],
+            ..Intent::default()
+        };
+        complete_kernel(&mut intent, 16);
+        assert_eq!(intent.tenants, vec![kernel_tenant(16)]);
+    }
+
+    #[test]
+    fn does_nothing_when_the_kernel_is_already_declared() {
+        // No duplicate, and the declared cpus budget is never overwritten.
+        let mut intent = Intent {
+            tenants: vec![kernel_tenant(16)],
+            ports: vec![port("kernel")],
+            ..Intent::default()
+        };
+        complete_kernel(&mut intent, 8);
+        assert_eq!(intent.tenants, vec![kernel_tenant(16)]);
+    }
+
+    #[test]
+    fn does_nothing_when_no_port_names_the_kernel() {
+        let mut intent = Intent {
+            tenants: vec![],
+            ports: vec![port("app")],
+            ..Intent::default()
+        };
+        complete_kernel(&mut intent, 16);
+        assert!(intent.tenants.is_empty());
+    }
 }

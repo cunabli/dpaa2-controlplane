@@ -217,7 +217,7 @@ the change's only other operator sync point (design D12).
 - [x] 3.4 `dpaa2-verify`: the pairing test — every `scenarios/<name>.toml`
       parses, compiles against the snapshot inventory, and equals its
       `<name>.itf.json` plan; the ladder fails on an unpaired scenario
-- [ ] 3.5 `dpaa2-mc` + `dpaa2-tools`: inventory read (`dpmac info`
+- [x] 3.5 `dpaa2-mc` + `dpaa2-tools`: inventory read (`dpmac info`
       attributes, `mc.global --resources`) behind the `McControl` seam;
       `ensure`/`dry-run` read → compile → reconcile; dry-run prints the
       plan with provenance trees and the plan-only report, `insta`
