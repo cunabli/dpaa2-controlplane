@@ -261,7 +261,7 @@ the change's only other operator sync point (design D12).
 - [ ] 5.3 Quality floor: `cargo build | fmt | clippy | clippy --tests |
       doc | test` and the model ladder green; epic closed with every
       child bead through acceptance
-- [ ] 5.4 Disposition of the accepted Apalache gap on `compileLaws`
+- [x] 5.4 Disposition of the accepted Apalache gap on `compileLaws`
       (bead gqf.26): wire `model:verify` if a quint/Apalache upgrade or a
       compile-once restructure makes it affordable, else seal the gap in
       ADR-0002's escalation note with the measured costs

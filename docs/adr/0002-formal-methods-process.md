@@ -38,6 +38,27 @@ taken per model on the same terms as TLA+: only when Quint has been tried
 on that property and found awkward, recorded in the model's header and
 the owning change when taken, never up front.
 
+Sealed gap — `compileLaws` stays simulator-only (amended 2026-09-04, change
+`intent-layer`, task 5.4). The three `compileLaws` predicates (INTENT_I7/I8/I9,
+`models/intent/alphabet.qnt`) are marked for Apalache, but no affordable green
+exists on any available toolchain, so they run at the simulator rung. Three
+measurements (62G machine, quint 0.32.0) seal it: (1) quint's flattener fails
+in ~7s with `[QNT404] Name 'comp::companionDraw' not found` on the qualified
+`import companions as comp` that task 2.6c introduced, under both the pinned
+Apalache 0.56.1 and the latest 0.62.2, so the verify rung is unreachable before
+Apalache starts; (2) with the import de-namespaced as a scratch experiment,
+Apalache 0.62.2 starts its server but quint submits nothing and exits 0 with no
+verdict (12.7s / 779MB RSS) — the identical no-verdict exit-0 shape the
+known-good rung shows under 0.62.2, so quint 0.32.0's client and Apalache
+0.62.2's server do not interoperate and exit 0 proves nothing; (3) the original
+heap wall stands unchanged — Apalache 0.56.1's InlinePass inlines full copies
+of the compile/derive call tree and OOMs at 4G and 24G heap, a 40G server
+running >12 min to ~50G RSS without reaching the checker (accepted 2026-08-30).
+Revisit on any one of: a quint release whose flattener resolves qualified
+re-exported names, a quint/Apalache pair whose client and server interoperate
+with a real verdict, or the `compileLaws` restructure that binds one compile
+per law. Bead dpaa2-controlplane-gqf.26.
+
 ### 2. Models are living artifacts
 
 A model is amended and rebaselined as understanding grows — a board

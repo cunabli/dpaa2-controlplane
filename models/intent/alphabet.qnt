@@ -21,9 +21,15 @@
 //   but Apalache's InlinePass inlines several full copies of the
 //   compile/derive call tree and exhausts the heap: OOM at 4G and 24G, and a
 //   40G server ran >12 min to ~50G RSS without reaching the checker.
-//   Accepted 2026-08-30 for excessive cost (bead dpaa2-controlplane-gqf.26):
-//   compileLaws runs at the simulator rung; revisit on a quint/Apalache
-//   upgrade or a restructure that binds one compile per law.
+//   Accepted 2026-08-30 for excessive cost; the 2026-09-04 quint/Apalache
+//   revisit ran and found no affordable green — Apalache 0.62.2 hits the
+//   flattener QNT404 on the qualified `import companions as comp` first, then
+//   a silent no-verdict exit-0 (quint 0.32.0 client and 0.62.2 server do not
+//   interoperate). Gap SEALED in ADR-0002 §1 (escalation note, sealed-gap
+//   paragraph); compileLaws stays at the simulator rung (bead
+//   dpaa2-controlplane-gqf.26). Revisit triggers: a flattener that resolves
+//   qualified re-exported names, a quint/Apalache pair that interoperates with
+//   a real verdict, or the restructure that binds one compile per law.
 //
 // Coverage (task 2.4). `pnpm model:coverage` runs the alphabet under every
 // invariant with the named witnesses below; the counted run is
