@@ -214,6 +214,24 @@ the change's only other operator sync point (design D12).
       for a genuinely new extra (bead gqf.39, surfaced by 3.3's gate run); the
       proptest-regressions seed lands with the fix, and whether `Extra`
       identity should be `(tenant, family)` instead is a filed design question
+- [ ] 3.3b `dpaa2-config`: `[[extra]]` migrated to the TOML map idiom —
+      `[extra.<tenant>]` tables with `family = count` pairs; identity moves
+      from data to structure so a duplicate (tenant, family) is a TOML parse
+      error, unrepresentable rather than validated; model/API unchanged,
+      ADR-0013 records collapse/sum as unreachable from config (resolves the
+      3.3a design question, decision 2026-09-05, bead gqf.40)
+- [ ] 3.3c `dpaa2-config`: `[[tenant]]`/`[[fabric]]` migrated to keyed
+      tables (`[tenant.<name>]`, `[fabric.<name>]`) — name hoisted into the
+      key, hand-written duplicate-name clauses deleted, members stay an
+      ordered list; serde boundary only, scenario TOMLs and docs in
+      lockstep (discovered by the gqf.40 review, bead gqf.45)
+- [ ] 3.3d model+config: port/link identity from name, not position —
+      MODEL-GATED, Quint first: `derive.qnt` ordinals from names, a new
+      position-independence invariant, ladder green before the Rust and
+      `[port.<name>]`/`[link.<name>]` config re-shape; kills the
+      reorder-rewires hazard and the boundary N churn that breaks external
+      `dpni.N` consumers; `[[crypto]]` stays an array by the 2.6e decision
+      (discovered by the gqf.40 review, bead gqf.46)
 - [x] 3.4 `dpaa2-verify`: the pairing test — every `scenarios/<name>.toml`
       parses, compiles against the snapshot inventory, and equals its
       `<name>.itf.json` plan; the ladder fails on an unpaired scenario
@@ -256,6 +274,14 @@ the change's only other operator sync point (design D12).
 
 - [x] 5.1 Ledger pass: `COVERAGE.md` rows for the intent invariants and
       the DPDCEI-I1 re-anchor; ledger lint green
+- [ ] 5.2a docs: identity-taxonomy ADR — intent identity = name/key
+      (structure- and type-enforced), runtime handle = N (MC-owned, reused,
+      never referenced; N-invariance unpromisable per ADR-0010), label as
+      the re-association seam, the position-independence law, and the
+      N-boundary contract for external consumers (VPP/udev hold `dpni.N`
+      as text: determinism from clean boot, no churn without intent change,
+      bindings by read-back — export recorded as a revisit trigger); the
+      rejected array+trait alternative on record (bead gqf.47)
 - [ ] 5.2 Docs: ROADMAP row 3 delivered; ADR-0005 amendment sealed;
       CHANGELOG flows from commits; spec deltas ready to promote
 - [ ] 5.3 Quality floor: `cargo build | fmt | clippy | clippy --tests |
