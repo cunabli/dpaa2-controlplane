@@ -17,7 +17,8 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
 use crate::adapter::Observed;
-use crate::driver::{ProbeRecord, StepRecord};
+use crate::driver::{ExitShape, ProbeRecord, StepRecord};
+use crate::fitcheck::{FitPlan, FitReport};
 use crate::generate::{StepReport, SuitePlan};
 
 /// The pinned reference pair every verdict is a fact about
@@ -386,6 +387,76 @@ pub fn from_batch(
     }
 }
 
+/// Builds a verdict from a read-only fit check's plan and its result
+/// files (task 4.1, design D12). A fit check is a plan diffed against a
+/// result directory — the same shape as [`from_batch`] — so it is
+/// [`Kind::Batch`]; it creates nothing, so there is no `created.txt` and
+/// no hook. Each step is judged on its captured exit against the declared
+/// shape ([`crate::fitcheck::fit_diff`]); an `any` step (the `status`
+/// drift report) judges nothing — its nonzero exit is evidence for
+/// dispositioning, never a failure — so it stays `conform: None`.
+pub fn from_fit(
+    plan: &FitPlan,
+    plan_text: &str,
+    reports: &[FitReport],
+    read: impl Fn(&str) -> Option<String>,
+    revision: u32,
+    date: String,
+) -> Verdict {
+    let steps: Vec<StepOutcome> = plan
+        .steps
+        .iter()
+        .zip(reports)
+        .map(|(step, r)| {
+            let exit_codes = read(&format!("step-{}-exit.txt", r.index))
+                .map(|t| {
+                    t.lines()
+                        .filter_map(|l| l.trim().parse::<i32>().ok())
+                        .collect()
+                })
+                .unwrap_or_default();
+            let judged = step.exit != ExitShape::Any;
+            StepOutcome {
+                index: r.index,
+                title: r.label.clone(),
+                conform: judged.then_some(r.verdict.pass),
+                exit_codes,
+                observed: None,
+                mismatches: if judged && !r.verdict.pass {
+                    vec![r.verdict.detail.clone()]
+                } else {
+                    Vec::new()
+                },
+                refusal: read(&format!("step-{}-err.txt", r.index))
+                    .as_deref()
+                    .and_then(mc_status),
+                expected_refusal: None,
+                skipped: false,
+            }
+        })
+        .collect();
+
+    let judged = steps.iter().filter(|s| s.conform.is_some()).count();
+    let passed = steps.iter().filter(|s| s.conform == Some(true)).count();
+    let pass = steps.iter().all(|s| s.conform != Some(false));
+
+    Verdict {
+        suite: plan.id.clone(),
+        revision,
+        kind: Kind::Batch,
+        source: plan.probes_file.clone(),
+        source_hash: fnv1a64(plan_text),
+        reference: REFERENCE_PAIR,
+        date,
+        pass,
+        judged,
+        passed,
+        steps,
+        created: Vec::new(),
+        hook: Vec::new(),
+    }
+}
+
 /// One probe record's outcome.
 fn probe_outcome(pr: &ProbeRecord) -> StepOutcome {
     let has_verdict =
@@ -690,6 +761,70 @@ mod tests {
         assert!(good.pass, "no hook FAIL, every step conforms");
         // Same plan text hashes the same regardless of results.
         assert_eq!(good.source_hash, bad.source_hash);
+    }
+
+    #[test]
+    fn from_fit_judges_exits_and_records_a_verdict() {
+        // A fit plan the emitter produces: a `zero` census step and an
+        // `any` status step (drift evidence, never judged).
+        let probes = r#"{
+          "suite": "V-FIT-1",
+          "class": "lifecycle",
+          "steps": [
+            {"label":"census","expect":"the containers","cmd":["restool","dprc","list"],"exit":"zero"},
+            {"label":"drift","expect":"nonzero is evidence","cmd":["dpaa2ctl","status"],"exit":"any"}
+          ]
+        }"#;
+        let plan = crate::fitcheck::generate_fit(
+            &crate::driver::parse_probe_plan(probes).unwrap(),
+            "p.json",
+        )
+        .unwrap()
+        .plan;
+
+        // Census exits clean, status exits nonzero (board diverges): the
+        // `any` step never fails the run, so the verdict passes.
+        let read = |name: &str| match name {
+            "step-0-exit.txt" => Some("0\n".to_owned()),
+            "step-1-exit.txt" => Some("1\n".to_owned()),
+            _ => None,
+        };
+        let reports = crate::fitcheck::fit_diff(&plan, read);
+        let v = from_fit(
+            &plan,
+            "plan text",
+            &reports,
+            read,
+            1,
+            "2026-09-04".to_owned(),
+        );
+        assert_eq!(v.kind, Kind::Batch);
+        assert_eq!(v.source, "p.json");
+        assert!(
+            v.pass,
+            "an `any` step's nonzero exit is evidence, not a failure"
+        );
+        assert_eq!(v.judged, 1, "only the `zero` census step is judged");
+        assert_eq!(v.passed, 1);
+        assert_eq!(
+            v.steps[1].conform, None,
+            "the `any` status step judges nothing"
+        );
+        assert_eq!(v.steps[0].exit_codes, vec![0]);
+
+        // A failed census (nonzero where zero was required) fails the run.
+        let read = |name: &str| (name == "step-0-exit.txt").then(|| "3\n".to_owned());
+        let reports = crate::fitcheck::fit_diff(&plan, read);
+        let v = from_fit(
+            &plan,
+            "plan text",
+            &reports,
+            read,
+            1,
+            "2026-09-04".to_owned(),
+        );
+        assert!(!v.pass);
+        assert!(!v.steps[0].mismatches.is_empty());
     }
 
     #[test]

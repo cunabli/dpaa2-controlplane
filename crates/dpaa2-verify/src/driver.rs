@@ -312,7 +312,7 @@ pub fn drive_trace(
 /// exist largely to pin refusals, where the exit status *is* part of the
 /// question — but never the whole answer: the captured message is what
 /// the finding quotes (DPNI-I6, DPMAC-I8).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ExitShape {
     /// The command must succeed.
@@ -326,7 +326,7 @@ pub enum ExitShape {
 
 impl ExitShape {
     /// The shape as the plan spells it.
-    fn as_str(self) -> &'static str {
+    pub(crate) fn as_str(self) -> &'static str {
         match self {
             Self::Zero => "zero",
             Self::Nonzero => "nonzero",
@@ -553,7 +553,7 @@ fn show_argv(container: &str) -> Vec<String> {
 }
 
 /// Judges an exit status against the shape the step declared.
-fn judge_exit(shape: ExitShape, code: Option<i32>) -> ProbeVerdict {
+pub(crate) fn judge_exit(shape: ExitShape, code: Option<i32>) -> ProbeVerdict {
     let got = code.map_or_else(|| "no exit code".to_owned(), |c| format!("exit {c}"));
     let pass = match (shape, code) {
         (ExitShape::Any, _) => true,

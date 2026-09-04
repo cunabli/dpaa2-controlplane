@@ -43,14 +43,24 @@ impl From<ClassArg> for TrafficClass {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Generate a reviewable batch suite from a `quint run --mbt` trace.
+    /// Generate a reviewable batch suite from a `quint run --mbt` trace,
+    /// or a read-only fit-check sitting from a hand-authored probe plan
+    /// (`--probes`, design D12). Exactly one source is required.
+    #[command(group = clap::ArgGroup::new("gen_source").required(true).args(["trace", "probes"]))]
     Generate {
         /// The `--mbt` ITF trace to generate from.
         #[arg(long)]
-        trace: PathBuf,
-        /// Scenario id (names the emitted files, e.g. V-DPRC-1).
+        trace: Option<PathBuf>,
+        /// A hand-authored read-only probe plan to render as a fit-check
+        /// sitting instead of a trace (design D12). Mutually exclusive
+        /// with `--trace`; the trace-only options below are ignored.
         #[arg(long)]
-        id: String,
+        probes: Option<PathBuf>,
+        /// Scenario id (names the emitted files, e.g. V-DPRC-1). Required
+        /// with `--trace`; with `--probes` the id is the plan's own suite
+        /// name and this is ignored.
+        #[arg(long, required = false)]
+        id: Option<String>,
         /// Declared traffic class.
         #[arg(long, value_enum, default_value = "lifecycle")]
         class: ClassArg,
@@ -326,6 +336,7 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
     match cli.command {
         Command::Generate {
             trace,
+            probes,
             id,
             class,
             flagged,
@@ -337,6 +348,16 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
             expect_refusal,
             out,
         } => {
+            // The fit-check arm: a read-only sitting from a probe plan
+            // (design D12). It shares the trace path's out-dir and 0o755
+            // handling but renders no postboot half and takes none of the
+            // trace-only options.
+            if let Some(probes) = probes {
+                return generate_fit_sitting(&probes, &out);
+            }
+            // clap's required group guarantees a trace when probes is absent.
+            let trace = trace.ok_or("--trace or --probes is required")?;
+            let id = id.ok_or("--id is required with --trace")?;
             let json = std::fs::read_to_string(&trace)
                 .map_err(|e| format!("reading {}: {e}", trace.display()))?;
             let parsed = dpaa2_verify::adapter::parse_mbt_trace(&json)?;
@@ -515,6 +536,38 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
     }
 }
 
+/// Renders a read-only fit-check sitting from a probe plan (design D12):
+/// `<id>.sh` (executable) and `<id>.plan.json`, into `out`. The id is the
+/// plan's own suite name, and the recorded source is the probes path as
+/// the operator spells it from the repository root, so regeneration is
+/// byte-for-byte reproducible.
+fn generate_fit_sitting(probes: &Path, out: &Path) -> Result<ExitCode, String> {
+    let json = std::fs::read_to_string(probes)
+        .map_err(|e| format!("reading {}: {e}", probes.display()))?;
+    let plan = dpaa2_verify::driver::parse_probe_plan(&json)?;
+    let suite = dpaa2_verify::fitcheck::generate_fit(&plan, &probes.display().to_string())?;
+
+    std::fs::create_dir_all(out).map_err(|e| e.to_string())?;
+    let script_path = out.join(format!("{}.sh", suite.plan.id));
+    std::fs::write(&script_path, &suite.script).map_err(|e| e.to_string())?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&script_path, std::fs::Permissions::from_mode(0o755))
+            .map_err(|e| e.to_string())?;
+    }
+    let plan_path = out.join(format!("{}.plan.json", suite.plan.id));
+    let plan_json = serde_json::to_string_pretty(&suite.plan).map_err(|e| e.to_string())?;
+    std::fs::write(&plan_path, plan_json).map_err(|e| e.to_string())?;
+    println!(
+        "wrote {} ({} steps) and {}",
+        script_path.display(),
+        suite.plan.steps.len(),
+        plan_path.display()
+    );
+    Ok(ExitCode::SUCCESS)
+}
+
 /// Parses a `--expect-refusal <N>=<STATUS NAME>` flag into a step index
 /// and a status name. The name itself is validated against the MC status
 /// table by `generate`, which also knows the trace length to reject an
@@ -646,6 +699,13 @@ fn run_diff_plan(plan_path: &Path, args: &DiffArgs) -> Result<ExitCode, String> 
     let results = args.results.as_deref().ok_or("--plan requires --results")?;
     let plan_text = std::fs::read_to_string(plan_path)
         .map_err(|e| format!("reading {}: {e}", plan_path.display()))?;
+    // A read-only fit-check plan carries `probes_file` where a batch plan
+    // carries `trace_file`; route it to the fit judge (design D12) so the
+    // sitting's `diff --plan` header instruction actually works.
+    let value: serde_json::Value = serde_json::from_str(&plan_text).map_err(|e| e.to_string())?;
+    if value.get("probes_file").is_some() {
+        return run_diff_fit(&plan_text, results, args);
+    }
     let plan: generate::SuitePlan = serde_json::from_str(&plan_text).map_err(|e| e.to_string())?;
     let reports = generate::diff(&plan, |name| {
         std::fs::read_to_string(results.join(name)).ok()
@@ -709,6 +769,62 @@ fn run_diff_plan(plan_path: &Path, args: &DiffArgs) -> Result<ExitCode, String> 
     // Exit follows the verdict's overall pass, so a hook FAIL (which the
     // step report does not count) still fails the process; the printed
     // report above is unchanged.
+    Ok(if v.pass {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::FAILURE
+    })
+}
+
+/// The `diff --plan` arm for a read-only fit-check plan (design D12):
+/// judge each step's captured exit against its declared shape, print the
+/// same per-step report the batch arm does, write `verdict.json` and
+/// upsert the index. An `any` step (the `status` drift report) prints as
+/// unjudged — its nonzero exit is evidence for dispositioning, not a
+/// failure.
+fn run_diff_fit(plan_text: &str, results: &Path, args: &DiffArgs) -> Result<ExitCode, String> {
+    use dpaa2_verify::fitcheck::{self, FitPlan};
+
+    let plan: FitPlan = serde_json::from_str(plan_text).map_err(|e| e.to_string())?;
+    let reports = fitcheck::fit_diff(&plan, |name| {
+        std::fs::read_to_string(results.join(name)).ok()
+    });
+
+    let mut failed = 0usize;
+    for (step, r) in plan.steps.iter().zip(&reports) {
+        if step.exit == dpaa2_verify::driver::ExitShape::Any {
+            println!("step {:>3}  -     {} (exit is evidence)", r.index, r.label);
+        } else if r.verdict.pass {
+            println!("step {:>3}  pass  {}", r.index, r.label);
+        } else {
+            failed += 1;
+            println!("step {:>3}  FAIL  {}", r.index, r.label);
+            println!("            {}", r.verdict.detail);
+        }
+    }
+    println!("{}: {} steps, {} failed", plan.id, reports.len(), failed);
+
+    let revision = args
+        .revision
+        .unwrap_or_else(|| verdict::revision_of(&base_name(results)));
+    let date = args
+        .date
+        .clone()
+        .unwrap_or_else(|| verdict::civil_date(newest_mtime(results)));
+    let v = verdict::from_fit(
+        &plan,
+        plan_text,
+        &reports,
+        |name| std::fs::read_to_string(results.join(name)).ok(),
+        revision,
+        date,
+    );
+    let verdict_path = results.join("verdict.json");
+    write_verdict_file(&verdict_path, &v)?;
+    let label = args.label.clone().unwrap_or_else(|| base_name(results));
+    let idx_note = maybe_upsert(args, &v, &label)?;
+    print_verdict_line(&v, &verdict_path, &idx_note);
+
     Ok(if v.pass {
         ExitCode::SUCCESS
     } else {
@@ -845,6 +961,28 @@ fn run_snapshot(what: SnapshotCmd) -> Result<ExitCode, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A generate run takes exactly one source: a `--mbt` trace (with an
+    /// id) or a read-only probe plan (which names its own suite), never
+    /// both and never neither.
+    #[test]
+    fn generate_takes_a_trace_or_a_probe_plan_not_both() {
+        assert!(
+            Cli::try_parse_from([
+                "v", "generate", "--trace", "t.json", "--id", "V-X-1", "--out", "o"
+            ])
+            .is_ok()
+        );
+        // A probe plan names its own suite, so --id is not required.
+        assert!(Cli::try_parse_from(["v", "generate", "--probes", "p.json", "--out", "o"]).is_ok());
+        assert!(
+            Cli::try_parse_from([
+                "v", "generate", "--trace", "t.json", "--probes", "p.json", "--out", "o",
+            ])
+            .is_err()
+        );
+        assert!(Cli::try_parse_from(["v", "generate", "--out", "o"]).is_err());
+    }
 
     /// A drive run walks exactly one input: a model trace or a probe
     /// plan, never both and never neither.

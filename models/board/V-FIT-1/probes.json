@@ -1,0 +1,72 @@
+{
+  "suite": "V-FIT-1",
+  "class": "lifecycle",
+  "steps": [
+    {
+      "label": "container census",
+      "cmd": ["restool", "dprc", "list"],
+      "expect": "zero exit; the list of DPRC containers on the board (ADR-0003 §5 queries are object-lifecycle-only). Captured whole for 4.2 to diff the live census against the compiled plan (design D12)",
+      "exit": "zero"
+    },
+    {
+      "label": "root container listing with the ownership label column",
+      "cmd": ["restool", "dprc", "show", "dprc.1"],
+      "expect": "zero exit; every object in the root container with its label column. The label is the ownership signal (ADR-0010 §4): an object at an expected name without this control plane's label is somebody else's, and an unlabelled object is DPL-born",
+      "exit": "zero"
+    },
+    {
+      "label": "pool ceilings on the MC's own container",
+      "cmd": ["restool", "dprc", "show", "mc.global", "--resources"],
+      "expect": "zero exit; the pooled-resource ceilings by type. Only dprc show (and its --resources variant) is legal against mc.global; this is the ceiling half of the fit check the compiled plan's feasibility sums are diffed against (design D12)",
+      "exit": "zero"
+    },
+    {
+      "label": "read-only DPL reconstruction",
+      "cmd": ["restool", "dprc", "generate-dpl", "dprc.1"],
+      "expect": "zero exit; a DPL device tree reconstructed from live MC state — a read-only query walk that mutates nothing (the reference-capture script uses the same verb read-only). Lets 4.2 separate DPL-injected objects from runtime-added ones and cross-check the unlabelled = DPL-born signal (ADR-0010 §4)",
+      "exit": "zero"
+    },
+    {
+      "label": "dpmac.4 info",
+      "cmd": ["restool", "dpmac", "info", "dpmac.4"],
+      "expect": "zero exit; the dpmac attributes. dpmac.4 is a lifecycle-safe unwired port (ADR-0003 §4 port matrix), read only",
+      "exit": "zero"
+    },
+    {
+      "label": "dpmac.5 info",
+      "cmd": ["restool", "dpmac", "info", "dpmac.5"],
+      "expect": "zero exit; the dpmac attributes. dpmac.5 is a lifecycle-safe unwired port (ADR-0003 §4 port matrix), read only",
+      "exit": "zero"
+    },
+    {
+      "label": "dpmac.6 info",
+      "cmd": ["restool", "dpmac", "info", "dpmac.6"],
+      "expect": "zero exit; the dpmac attributes. dpmac.6 is a lifecycle-safe unwired port (ADR-0003 §4 port matrix), read only",
+      "exit": "zero"
+    },
+    {
+      "label": "dpmac.8 info",
+      "cmd": ["restool", "dpmac", "info", "dpmac.8"],
+      "expect": "zero exit; the dpmac attributes. dpmac.8 is a lifecycle-safe unwired port (ADR-0003 §4 port matrix), read only",
+      "exit": "zero"
+    },
+    {
+      "label": "dpmac.10 info",
+      "cmd": ["restool", "dpmac", "info", "dpmac.10"],
+      "expect": "zero exit; the dpmac attributes. dpmac.10 is a lifecycle-safe unwired port (ADR-0003 §4 port matrix), read only",
+      "exit": "zero"
+    },
+    {
+      "label": "shipped compiler dry-run on the reference intent",
+      "cmd": ["dpaa2ctl", "--config", "models/intent/scenarios/reference.toml", "dry-run"],
+      "expect": "zero exit; the shipped read then compile then reconcile path over the reference intent (design D12 — the diff exercises the shipped code path). Capture the whole plan with its provenance trees and the plan-only report",
+      "exit": "zero"
+    },
+    {
+      "label": "shipped compiler status on the reference intent",
+      "cmd": ["dpaa2ctl", "--config", "models/intent/scenarios/reference.toml", "status"],
+      "expect": "exit any; the machine drift report. A nonzero exit means the board diverges from intent and is EVIDENCE for 4.2's dispositioning (design D12 open questions), never a script failure",
+      "exit": "any"
+    }
+  ]
+}

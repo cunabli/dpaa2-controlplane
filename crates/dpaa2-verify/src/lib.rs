@@ -8,6 +8,9 @@
 
 pub mod adapter;
 pub mod driver;
+/// The read-only fit-check emitter: renders a board sitting from a probe
+/// plan (task 4.1, design D12).
+pub mod fitcheck;
 pub mod generate;
 pub mod intent_itf;
 /// The fsl-mc ioctl command-id policy as code (task 6.5).

@@ -41,12 +41,13 @@ fn board_files(suffix: &str) -> Vec<PathBuf> {
 #[test]
 fn committed_probe_plans_parse_and_clear_the_envelope() {
     let plans = board_files("probes.json");
-    // V-DPRTC-1/2/3 (plus V-DPRTC-3's postboot half), V-DPDBG-1, and the
-    // task-5.9 refusal plans V-DPAIOP-1 / V-DPSECI-1 / V-DPNI-2: a count
-    // that drops means a plan was renamed out of the driver's reach,
-    // which would pass silently as an empty walk.
+    // V-DPRTC-1/2/3 (plus V-DPRTC-3's postboot half), V-DPDBG-1, the
+    // task-5.9 refusal plans V-DPAIOP-1 / V-DPSECI-1 / V-DPNI-2, and the
+    // task-4.1 fit-check plan V-FIT-1: a count that drops means a plan was
+    // renamed out of the driver's reach, which would pass silently as an
+    // empty walk.
     assert!(
-        plans.len() >= 8,
+        plans.len() >= 9,
         "expected the committed probe plans under models/board, found {plans:?}"
     );
     for path in plans {
@@ -134,31 +135,60 @@ fn expected_refusal_probe_steps_parse_and_are_validated() {
     );
 }
 
-/// Each plan's `trace_file` points at its sibling trace. Nothing reads
-/// the field after generation, so this is the only thing that keeps it
-/// true when a trace moves or is renamed.
+/// Each plan points at the source it was generated from — a trace's
+/// `trace_file`, a fit check's `probes_file` (task 4.1). Nothing reads the
+/// field after generation, so this is the only thing that keeps it true
+/// when a source moves or is renamed.
 #[test]
 fn committed_plan_trace_files_resolve() {
     let plans = board_files(".plan.json");
     // A count that drops means a plan was renamed out of reach, which
     // would pass silently as an empty walk.
     assert!(
-        plans.len() >= 36,
+        plans.len() >= 37,
         "expected the committed plans under models/board, found {plans:?}"
     );
     let root = format!("{}/../../", env!("CARGO_MANIFEST_DIR"));
     for path in plans {
         let json = std::fs::read_to_string(&path).expect("read committed plan");
         let plan: serde_json::Value = serde_json::from_str(&json).expect("parse plan");
-        let trace_file = plan["trace_file"].as_str().expect("trace_file string");
-        let resolved = PathBuf::from(&root).join(trace_file);
+        let source = plan["trace_file"]
+            .as_str()
+            .or_else(|| plan["probes_file"].as_str())
+            .expect("trace_file or probes_file string");
+        let resolved = PathBuf::from(&root).join(source);
         assert!(
             resolved.exists(),
-            "{}: trace_file {trace_file} missing at {}",
+            "{}: source {source} missing at {}",
             path.display(),
             resolved.display()
         );
     }
+}
+
+/// The do-not-edit invariant on the fit-check sitting: regenerating from
+/// the committed `models/board/V-FIT-1/probes.json` reproduces the
+/// committed `V-FIT-1.sh` byte-for-byte (task 4.1, design D12). A hand
+/// edit to either the script or the emitter breaks this.
+#[test]
+fn the_committed_fit_check_regenerates_byte_for_byte() {
+    use dpaa2_verify::driver::parse_probe_plan;
+    use dpaa2_verify::fitcheck::generate_fit;
+
+    let root = format!("{}/../../", env!("CARGO_MANIFEST_DIR"));
+    let probes_file = "models/board/V-FIT-1/probes.json";
+    let json =
+        std::fs::read_to_string(PathBuf::from(&root).join(probes_file)).expect("read probes.json");
+    let plan = parse_probe_plan(&json).expect("parse probe plan");
+    let suite = generate_fit(&plan, probes_file).expect("generate fit check");
+
+    let committed =
+        std::fs::read_to_string(PathBuf::from(&root).join("models/board/V-FIT-1/V-FIT-1.sh"))
+            .expect("read committed V-FIT-1.sh");
+    assert_eq!(
+        suite.script, committed,
+        "V-FIT-1.sh is generated — do not edit; regenerate with `dpaa2-verify generate --probes {probes_file} --out models/board/V-FIT-1`"
+    );
 }
 
 #[test]

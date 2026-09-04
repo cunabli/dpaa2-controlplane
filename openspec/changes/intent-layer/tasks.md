@@ -237,7 +237,7 @@ the change's only other operator sync point (design D12).
 
 ## 4. Board milestone (read-only, one sitting; design D12)
 
-- [ ] 4.1 Generate the fit-check sitting: read the live census (`dprc
+- [x] 4.1 Generate the fit-check sitting: read the live census (`dprc
       show` tree, `mc.global --resources`, `dpmac info` on the
       lifecycle-safe ports), build the inventory from it, compile the
       reference intent through the shipped `dpaa2ctl dry-run`, diff
