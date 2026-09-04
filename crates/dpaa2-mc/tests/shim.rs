@@ -136,10 +136,38 @@ fn create_provisions_private_deps_then_creates_dpni_unplugged() {
 
     // The DPNI create is issued with an explicit queue count...
     assert!(calls[dpni_at].iter().any(|a| a == "--num-queues=1"));
-    // ...and the sequence ends there: create_dpni() no longer plugs or syncs.
-    // Plugging (and the actuate-mode SetMac that must precede it) now happens in
-    // connect(), matching the design recipe's ordering.
-    assert_eq!(dpni_at, calls.len() - 1, "dpni create is the last call");
+    // ...and is immediately followed by its ADR-0010 §4 ownership label, which is
+    // now the last call: create_dpni() still does not plug or sync (plugging, and
+    // the actuate-mode SetMac that must precede it, happen in connect()).
+    let set_label = |obj: &str| {
+        vec![
+            "dprc".to_owned(),
+            "set-label".to_owned(),
+            obj.to_owned(),
+            "--label=dpaa2ctl".to_owned(),
+        ]
+    };
+    assert_eq!(
+        calls.last(),
+        Some(&set_label("dpni.7")),
+        "dpni labelled last"
+    );
+    assert_eq!(
+        dpni_at,
+        calls.len() - 2,
+        "only the label follows dpni create"
+    );
+
+    // ADR-0010 §4: every provisioned dependency is labelled too, so a later
+    // read-back does not misread our own objects as foreign. The RecordingRunner
+    // echoes each create as `<kind>.0`, so its label call is `dprc set-label
+    // <kind>.0 --label=dpaa2ctl`.
+    for dep in ["dpbp.0", "dpmcp.0", "dpcon.0", "dpio.0"] {
+        assert!(
+            calls.contains(&set_label(dep)),
+            "expected a set-label for {dep}"
+        );
+    }
 }
 
 #[test]

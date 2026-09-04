@@ -6,7 +6,9 @@
 
 use std::collections::BTreeMap;
 
-use dpaa2_api::{DpmacId, DpmacLinkType, DpniId, EthInterface, LinkType, MacAddr};
+use dpaa2_api::{
+    ALL_FAMILIES, DpmacId, DpmacLinkType, DpniId, EthInterface, Family, LinkType, MacAddr,
+};
 
 /// Strips `prefix` from `tok` and parses the remainder as the numeric index behind
 /// an id type, e.g. `parse_indexed::<DpmacId>("dpmac.7", "dpmac.")`.
@@ -46,20 +48,73 @@ pub fn count_objects(stdout: &str, kind: &str) -> usize {
         .count()
 }
 
+/// One data row of `restool dprc show <container>` (ADR-0010 Consequences: the
+/// read-back parser must surface the label column). The family is recovered from the
+/// name token, the number is its ordinal, and the label is empty when the row carried
+/// none — the identity ADR-0010 §4 leans on to tell our objects from foreign ones.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DprcRow {
+    /// The object family, recovered from the `family.N` name token.
+    pub family: Family,
+    /// The object ordinal `N`.
+    pub num: u32,
+    /// The label column, empty when the row set none.
+    pub label: String,
+}
+
+/// Parses `restool dprc show <container>` into its data rows, surfacing the label
+/// column (ADR-0010 Consequences).
+///
+/// A data row is whitespace-tokenised as `[name, state]` (empty label) or
+/// `[name, label, state]` (label set); the trailing token is exactly `plugged` or
+/// `unplugged`, so the header (`… plugged-state`) and the `dprc.N contains M
+/// objects:` line — whose last tokens are neither — are skipped without a special
+/// case. A name token whose family is not in [`ALL_FAMILIES`] is skipped, never an
+/// error: another firmware may list families outside this enum.
+#[must_use]
+pub fn parse_dprc_rows(stdout: &str) -> Vec<DprcRow> {
+    let mut rows = Vec::new();
+    for line in stdout.lines() {
+        let toks: Vec<&str> = line.split_whitespace().collect();
+        let Some(&state) = toks.last() else { continue };
+        if state != "plugged" && state != "unplugged" {
+            continue;
+        }
+        let Some((family, num)) = parse_family_num(toks[0]) else {
+            continue;
+        };
+        // Label sits between the name and the state; a two-token row has none.
+        let label = if toks.len() >= 3 {
+            toks[1].to_owned()
+        } else {
+            String::new()
+        };
+        rows.push(DprcRow { family, num, label });
+    }
+    rows
+}
+
+/// Recovers `(family, ordinal)` from a `family.N` name token by scanning
+/// [`ALL_FAMILIES`] (ADR-0010: the name is a projection of the key). Returns `None`
+/// when the prefix names no known family or the ordinal is not a number.
+fn parse_family_num(tok: &str) -> Option<(Family, u32)> {
+    let (kind, index) = tok.split_once('.')?;
+    let num = index.parse::<u32>().ok()?;
+    let family = ALL_FAMILIES.iter().copied().find(|f| f.as_str() == kind)?;
+    Some((family, num))
+}
+
 /// Parses `restool dprc show <container>` and returns the DPNI and DPMAC ids it
-/// lists. Lines are expected to begin with the object reference in the first column.
+/// lists. Derived from [`parse_dprc_rows`] so both views agree on what a data row is.
 #[must_use]
 pub fn parse_dprc_show(stdout: &str) -> (Vec<DpniId>, Vec<DpmacId>) {
     let mut dpnis = Vec::new();
     let mut dpmacs = Vec::new();
-    for line in stdout.lines() {
-        let Some(tok) = line.split_whitespace().next() else {
-            continue;
-        };
-        if let Some(id) = parse_indexed::<DpniId>(tok, "dpni.") {
-            dpnis.push(id);
-        } else if let Some(id) = parse_indexed::<DpmacId>(tok, "dpmac.") {
-            dpmacs.push(id);
+    for row in parse_dprc_rows(stdout) {
+        match row.family {
+            Family::Dpni => dpnis.push(DpniId::from(row.num)),
+            Family::Dpmac => dpmacs.push(DpmacId::from(row.num)),
+            _ => {}
         }
     }
     (dpnis, dpmacs)
@@ -124,6 +179,11 @@ pub struct RawDpmacOffer {
     pub eth_if: Option<EthInterface>,
     /// The link type, from `DPMAC link type: DPMAC_LINK_TYPE_*`.
     pub link_type: Option<DpmacLinkType>,
+    /// The DPNI this dpmac anchors, from the lowercase `endpoint:` line. Only a
+    /// `dpni.` peer parses; `No object associated` or a future dpdmux/dpsw peer
+    /// leaves `None`. Feeds the ADR-0001 §4 foreign-ownership check in
+    /// [`RestoolMc`](crate::RestoolMc)'s `read_inventory`.
+    pub endpoint: Option<DpniId>,
 }
 
 /// Parses `restool dpmac info dpmac.N` for the inventory offer (task 3.5, design D2).
@@ -157,6 +217,13 @@ pub fn parse_dpmac_offer(stdout: &str) -> RawDpmacOffer {
         } else if let Some(rest) = line.strip_prefix("maximum supported rate") {
             // Line has no colon: "maximum supported rate 10000 Mbps".
             offer.max_rate = rest.split_whitespace().find_map(|t| t.parse::<i64>().ok());
+        } else if let Some(rest) = line.strip_prefix("endpoint:") {
+            // `endpoint:` is lowercase where the dpmac's other fields are
+            // capitalized (`DPMAC link type:`, `MAC address:`) — the baseline is the
+            // spelling oracle, do not "align" it. Only a `dpni.` peer parses;
+            // `No object associated` (and any future dpdmux/dpsw peer) leaves None.
+            let obj = rest.split(',').next().unwrap_or("").trim();
+            offer.endpoint = parse_indexed(obj, "dpni.");
         }
     }
     offer
@@ -301,6 +368,65 @@ plugged state: plugged
         // not match, or a real board's dpni mac would read absent.
         let i = parse_dpni_info("MAC address: 00:00:00:00:00:29\n");
         assert_eq!(i.mac, None);
+    }
+
+    #[test]
+    fn dpmac_offer_reads_connected_and_unconnected_endpoint() {
+        // reference.json dpmac.17: `endpoint: dpni.0, link is up`.
+        let connected = parse_dpmac_offer("endpoint: dpni.0, link is up\n");
+        assert_eq!(connected.endpoint, Some(DpniId::from(0)));
+        // An unconnected dpmac reports `No object associated`.
+        assert_eq!(parse_dpmac_offer(DPMAC_INFO_XFI).endpoint, None);
+        // A non-dpni peer (a future dpdmux/dpsw) is not an owner signal here.
+        assert_eq!(parse_dpmac_offer("endpoint: dpdmux.1\n").endpoint, None);
+    }
+
+    #[test]
+    fn dprc_rows_surfaces_family_num_and_label() {
+        let show = "\
+dprc.1 contains 4 objects:
+object          label           plugged-state
+dpmac.17                        plugged
+dpni.0          eth0            plugged
+dpbp.0                          unplugged
+";
+        let rows = parse_dprc_rows(show);
+        assert_eq!(
+            rows,
+            vec![
+                DprcRow {
+                    family: Family::Dpmac,
+                    num: 17,
+                    label: String::new(),
+                },
+                DprcRow {
+                    family: Family::Dpni,
+                    num: 0,
+                    label: "eth0".to_owned(),
+                },
+                DprcRow {
+                    family: Family::Dpbp,
+                    num: 0,
+                    label: String::new(),
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn dprc_rows_skips_header_contains_and_unknown_family() {
+        // Header and the `contains` line end in tokens that are neither
+        // plugged/unplugged; a `dpfoo.` family is outside ALL_FAMILIES. All skipped.
+        let show = "\
+dprc.1 contains 2 objects:
+object          label           plugged-state
+dpfoo.2                         plugged
+dpni.7          wan0            plugged
+";
+        let rows = parse_dprc_rows(show);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].family, Family::Dpni);
+        assert_eq!(rows[0].num, 7);
     }
 
     #[test]
