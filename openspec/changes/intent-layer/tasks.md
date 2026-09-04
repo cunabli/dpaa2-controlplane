@@ -247,7 +247,7 @@ the change's only other operator sync point (design D12).
       failed only because the board ran a stale pre-3.3 binary (`unknown
       field intent, expected port`) the reference-pair assert cannot see
       (discovered by 4.2 rev 1, bead gqf.44)
-- [ ] 4.2 Operator runs the sitting; diff dispositioned; divergences
+- [x] 4.2 Operator runs the sitting; diff dispositioned; divergences
       amend the model, the ADR-0005 amendment, or the baseline in the
       same bead; evidence archived outside the checkout per the board
       evidence rules

@@ -437,6 +437,21 @@ asserting the derived plan (design D8); numbers are the model's.
   ForeignDpl or BootResident (DPL statics — the kernel consumes 16 of the 52
   dpmcps, the rest idle boot portals, DPMCP-I6); dpio 16 and dprtc.0 match.
   The child dpmcp (derived 1 vs board 3) is `DpmcpThreeVsOne` — OQ1 (§8).
+  **Live disposition (V-FIT-1 rev 2, 2026-09-04, passed 10/10):** the
+  shipped `dpaa2ctl dry-run` compiled this intent against the live census
+  with zero refusals, and `DeferredToLive` resolved as *pending, not drift*:
+  the board sat at its DPL-only boot state (no child dprc), so the two ports
+  read Absent and the reconciler reported 6 pending transitions, 0 drift,
+  0 assert-mismatch, the 25 plan-only objects by family, and `UnknownCeiling`
+  on exactly the families `dprc show mc.global --resources` does not list.
+  All 97 census objects were unlabelled and every one present in the
+  `generate-dpl` read-back — the unlabelled-is-DPL-born signal (ADR-0010 §4)
+  corroborated by the MC's own account. OQ1's extra child portals were
+  unobservable (no child exists at boot); the §8 decision stands. Rev 1
+  (FAIL 9/10) was evidentiary, not divergence — a stale pre-intent-schema
+  `dpaa2ctl` — and produced the self-contained sitting (task 4.1a). Evidence:
+  `~/dpaa2-board-evidence/intent-layer-vfit1-2026-09-04.tar.gz`; verdicts in
+  `models/board/VERDICTS.json`.
 
 ## Consequences
 
