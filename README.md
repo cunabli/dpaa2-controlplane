@@ -70,10 +70,8 @@ tenant = "router"
 flows = 2
 
 # The raise-only escape hatch: add companions on top of the derived request.
-[[extra]]
-tenant = "router"
-family = "dpio"
-count = 2
+[extra.router]
+dpio = 2
 ```
 
 From this the compiler derives the router's child DPRC, its dpni per port, its

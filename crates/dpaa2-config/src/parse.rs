@@ -22,8 +22,8 @@ use dpaa2_api::{
 };
 
 use crate::schema::{
-    RawCrypto, RawDataplane, RawExtra, RawFabric, RawIntent, RawIsolation, RawLink, RawMacMode,
-    RawPort, RawSwitching, RawTenant,
+    RawCrypto, RawDataplane, RawFabric, RawIntent, RawIsolation, RawLink, RawMacMode, RawPort,
+    RawSwitching, RawTenant,
 };
 
 /// The one schema version this build accepts (design D1: the `apiVersion` hook).
@@ -197,10 +197,15 @@ fn convert(raw: &RawIntent) -> Result<Intent, Error> {
         .map(|k| convert_crypto(k, &tenant_names))
         .collect::<Result<Vec<_>, _>>()?;
 
+    let names = &tenant_names;
     let extras = raw
         .extra
         .iter()
-        .map(|e| convert_extra(e, &tenant_names))
+        .flat_map(|(tenant, families)| {
+            families
+                .iter()
+                .map(move |(family, count)| convert_extra(tenant, family, *count, names))
+        })
         .collect::<Result<_, _>>()?;
 
     Ok(Intent {
@@ -406,30 +411,39 @@ fn convert_crypto(k: &RawCrypto, tenants: &HashSet<TenantName>) -> Result<Crypto
     })
 }
 
-fn convert_extra(e: &RawExtra, tenants: &HashSet<TenantName>) -> Result<Extra, Error> {
-    let tenant = e.tenant.clone();
-    if !resolves(&tenant, tenants) {
+/// Converts one `family = count` pair under an `[extra.<tenant>]` table into a neutral
+/// [`Extra`]. The tenant must resolve (declared, or the reserved `kernel`) and the
+/// family must be known; a duplicate (tenant, family) never reaches here, the TOML
+/// format having refused it as a key redefinition (schema.rs).
+fn convert_extra(
+    tenant: &TenantName,
+    family: &str,
+    count: i64,
+    tenants: &HashSet<TenantName>,
+) -> Result<Extra, Error> {
+    if !resolves(tenant, tenants) {
         return Err(cfg(format!(
-            "`[[extra]]` names tenant `{tenant}`, which is not declared"
+            "`[extra.{tenant}]` names tenant `{tenant}`, which is not declared"
         )));
     }
-    let family = parse_family(&e.family)?;
+    let family = parse_family(tenant, family)?;
     Ok(Extra {
-        tenant,
+        tenant: tenant.clone(),
         family,
-        count: e.count,
+        count,
     })
 }
 
 /// Parses a lowercase restool family name (`"dpio"`, …) to a [`Family`]. `compile`
 /// refuses a non-companion family or a count below 1 (`ExtraNotCompanion`,
-/// `ExtraNotPositive`); the config only parses the name.
-fn parse_family(name: &str) -> Result<Family, Error> {
+/// `ExtraNotPositive`); the config only parses the name. `tenant` names the owning
+/// `[extra.<tenant>]` table in the error subject.
+fn parse_family(tenant: &TenantName, name: &str) -> Result<Family, Error> {
     ALL_FAMILIES
         .iter()
         .copied()
         .find(|f| f.as_str() == name)
-        .ok_or_else(|| cfg(format!("`[[extra]]` names unknown family `{name}`")))
+        .ok_or_else(|| cfg(format!("`[extra.{tenant}]` names unknown family `{name}`")))
 }
 
 /// Validates a raw port `name` against the constraints it must satisfy to become both
@@ -477,7 +491,9 @@ mod tests {
     //! per-field rejections (topology-config spec).
 
     use super::{parse_schema, parse_str};
-    use dpaa2_api::{Dataplane, DpmacId, Family, Isolation, MacAddr, MacMode, Member, Switching};
+    use dpaa2_api::{
+        Dataplane, DpmacId, Extra, Family, Isolation, MacAddr, MacMode, Member, Switching,
+    };
 
     /// The mandatory `[intent]` header, prepended to the construct-only fixtures.
     const HEADER: &str = "[intent]\nschema = 1\n";
@@ -650,10 +666,8 @@ mod tests {
             tenant = "router"
             flows = 8
 
-            [[extra]]
-            tenant = "router"
-            family = "dpio"
-            count = 2
+            [extra.router]
+            dpio = 2
             "#,
         );
         assert_eq!(intent.tenants[0].dataplane, Dataplane::UserspacePoll);
@@ -910,13 +924,71 @@ mod tests {
             dataplane = "userspace-poll"
             max_cores = 16
 
-            [[extra]]
-            tenant = "router"
-            family = "dpwidget"
-            count = 1
+            [extra.router]
+            dpwidget = 1
             "#,
         );
         assert!(err.contains("dpwidget"), "names the family: {err}");
+    }
+
+    #[test]
+    fn duplicate_family_under_one_tenant_is_a_parse_error() {
+        // Identity is structural: a second `dpio` under one `[extra.<tenant>]` table is a
+        // TOML key redefinition, so a duplicate (tenant, family) is unrepresentable, not
+        // validated — this is the law that replaces the old hand-written check.
+        let err = parse_err(
+            r#"
+            [[tenant]]
+            name = "router"
+            dataplane = "userspace-poll"
+            max_cores = 16
+
+            [extra.router]
+            dpio = 1
+            dpio = 2
+            "#,
+        );
+        assert!(
+            err.contains("duplicate key"),
+            "the format refuses the redefinition: {err}"
+        );
+    }
+
+    #[test]
+    fn extras_across_families_and_tenants_all_convert() {
+        // Two families under one tenant table and a second tenant table: every
+        // (tenant, family) pair lands in the set.
+        let intent = parse(
+            r#"
+            [[tenant]]
+            name = "router"
+            dataplane = "userspace-poll"
+            max_cores = 16
+
+            [extra.router]
+            dpio = 2
+            dpbp = 3
+
+            [extra.kernel]
+            dpmcp = 1
+            "#,
+        );
+        assert_eq!(intent.extras.len(), 3);
+        assert!(intent.extras.contains(&Extra {
+            tenant: "router".into(),
+            family: Family::Dpio,
+            count: 2,
+        }));
+        assert!(intent.extras.contains(&Extra {
+            tenant: "router".into(),
+            family: Family::Dpbp,
+            count: 3,
+        }));
+        assert!(intent.extras.contains(&Extra {
+            tenant: "kernel".into(),
+            family: Family::Dpmcp,
+            count: 1,
+        }));
     }
 
     #[test]

@@ -18,6 +18,8 @@
 //! `dpmac`, `mac`, `family` — stay `String` on purpose, so [`crate::parse`] can name the
 //! offending construct in the error; a `deserialize_with` type error would lose it.
 
+use std::collections::BTreeMap;
+
 use dpaa2_api::{ConstructName, TenantName};
 use serde::{Deserialize, Deserializer};
 
@@ -49,6 +51,21 @@ where
     Ok(Vec::<String>::deserialize(de)?
         .into_iter()
         .map(T::from)
+        .collect())
+}
+
+/// Deserializes the `[extra.<tenant>]` map: an outer table keyed by tenant name whose
+/// values are inner `family = count` tables. The outer key crosses into [`TenantName`]
+/// through its infallible `From<String>` (design D10), like the [`name`] family of
+/// helpers; the inner family key stays `String` on purpose, so [`crate::parse`] can name
+/// an unknown family in the error a `deserialize_with` type error would lose.
+fn extra_map<'de, D>(de: D) -> Result<BTreeMap<TenantName, BTreeMap<String, i64>>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    Ok(BTreeMap::<String, BTreeMap<String, i64>>::deserialize(de)?
+        .into_iter()
+        .map(|(tenant, families)| (TenantName::from(tenant), families))
         .collect())
 }
 
@@ -110,9 +127,12 @@ pub struct RawIntent {
     /// The `[[crypto]]` array (ordered — declaration order numbers each dpseci).
     #[serde(default)]
     pub crypto: Vec<RawCrypto>,
-    /// The `[[extra]]` array (the additive raise-only override channel).
-    #[serde(default)]
-    pub extra: Vec<RawExtra>,
+    /// The `[extra.<tenant>]` map: the additive raise-only override channel (design D5),
+    /// each per-tenant table carrying `family = count` pairs. Identity is structural, so
+    /// a duplicate (tenant, family) is a TOML key-redefinition parse error,
+    /// unrepresentable rather than validated.
+    #[serde(default, deserialize_with = "extra_map")]
+    pub extra: BTreeMap<TenantName, BTreeMap<String, i64>>,
 }
 
 /// The `[intent]` table: the document-level properties anchor (design D1).
@@ -259,21 +279,4 @@ construct_table! {
         /// The flow demand this block sizes its own dpseci to.
         pub flows: i64,
     }
-}
-
-/// An `[[extra]]` table: the additive raise-only override channel (design D5).
-///
-/// Not a [`construct_table`]: this *is* the sanctioned count channel, so it carries a
-/// legitimate `count` rather than the rejected derived-count keys the others do.
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct RawExtra {
-    /// The tenant the extra raises a count for.
-    #[serde(deserialize_with = "name")]
-    pub tenant: TenantName,
-    /// The companion family raised, lowercase (e.g. `"dpio"`). Fallible, so it stays
-    /// `String`: [`crate::parse`] must name the offending family when it is unknown.
-    pub family: String,
-    /// The count added on top of the derived request.
-    pub count: i64,
 }

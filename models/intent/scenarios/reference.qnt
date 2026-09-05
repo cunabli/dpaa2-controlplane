@@ -48,8 +48,8 @@
 //           over-provisioned residue the diff reports as explained divergence.
 //         extra — an operator could legitimately provision 3 for a
 //           secondary process; the intent vocabulary stays silent and the
-//           additive `[[extra]]` channel (design D5) would carry it — a
-//           dpmcp extra of count 2 on the kernel raises the derived 1 to 3.
+//           additive `[extra.<tenant>]` channel (design D5) would carry it —
+//           `[extra.kernel]` with `dpmcp = 2` raises the derived 1 to 3.
 //
 // Anchors: ADR-0012 companion draws; ADR-0011 ceilings; ADR-0001 §4 DPL
 // ownership; ADR-0003 §3 reserved dpmacs; design D4/D8/D12; DPMCP-I6

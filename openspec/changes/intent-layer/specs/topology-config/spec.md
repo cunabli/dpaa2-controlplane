@@ -20,10 +20,12 @@ dpseci (ordinal N), each dpseci by its own block's `flows`. A block's
 larger demand is refused, not clamped, and the remedy is splitting it
 across blocks. The config SHALL NOT require
 or accept the operator naming a DPNI index or any dpio, dpbp, dpcon,
-dpmcp, queue or worker count; per-(tenant, family) `[[extra]]` counts are
-the only object-level numbers, they add on top of the derived request,
-and they are accepted only for the four companion families dpio/dpbp/
-dpmcp/dpcon with a `count` of at least 1.
+dpmcp, queue or worker count; `[extra.<tenant>]` tables of `family =
+count` pairs are the only object-level numbers, they add on top of the
+derived request, and they are accepted only for the four companion
+families dpio/dpbp/dpmcp/dpcon with a `count` of at least 1. A duplicate
+(tenant, family) is unrepresentable — a TOML key redefinition — never
+validated.
 
 #### Scenario: Port defined by DPMAC
 - **WHEN** a topology entry specifies `dpmac = "dpmac.7"`, a name, a
@@ -38,8 +40,8 @@ dpmcp/dpcon with a `count` of at least 1.
   explaining that DPNI identity is derived from the DPMAC edge
 
 #### Scenario: A count field is rejected
-- **WHEN** a tenant entry attempts `dpio = 10` outside an `[[extra]]`
-  table, or any entry names a worker count
+- **WHEN** a tenant entry attempts `dpio = 10` outside an
+  `[extra.<tenant>]` table, or any entry names a worker count
 - **THEN** the system SHALL reject the config with a validation error
   naming the field and stating that the count is derived
 

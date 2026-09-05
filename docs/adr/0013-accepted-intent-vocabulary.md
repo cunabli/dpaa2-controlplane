@@ -145,19 +145,22 @@ tenant = "router"
 flows = 2
 ```
 
-**`[[extra]]`** — the additive raise-only override channel (design D5). Every
-derived count is a *request*; a per-(tenant, family) extra adds its `count` on
-top, so the effective count is request + count — raise-only by construction,
-no floor comparison to get wrong. Only the four companion families
-dpio/dpbp/dpmcp/dpcon accept an extra (any other is `ExtraNotCompanion`), and
-`count` must be ≥ 1 (`ExtraNotPositive`). Extras are matched by (tenant,
-family), unordered, never by position.
+**`[extra.<tenant>]`** — the additive raise-only override channel (design D5).
+Each per-tenant table carries `family = count` pairs. Every derived count is a
+*request*; a per-(tenant, family) extra adds its `count` on top, so the
+effective count is request + count — raise-only by construction, no floor
+comparison to get wrong. Only the four companion families dpio/dpbp/dpmcp/dpcon
+accept an extra (any other is `ExtraNotCompanion`), and `count` must be ≥ 1
+(`ExtraNotPositive`). Extras are matched by (tenant, family), unordered, never
+by position. Identity is structural: a duplicate (tenant, family) is a TOML
+key-redefinition parse error, so the set-collapse/sum asymmetry of the
+underlying (tenant, family, count) triple set is *unrepresentable from config*
+— recorded here as unreachable rather than as semantics (decision 2026-09-05,
+resolving the 3.3a design question).
 
 ```toml
-[[extra]]
-tenant = "kernel"
-family = "dpmcp"
-count = 2                       # e.g. provision a secondary-process portal
+[extra.kernel]
+dpmcp = 2                       # e.g. provision a secondary-process portal
 ```
 
 ### 3. The two inputs: intent and the observed inventory
@@ -513,8 +516,8 @@ Each entry keeps the question as posed and records the decision.
   derivation gives one MC portal per process; the deployed board's child
   carried 3 = 1 needed + 1 possible secondary + 1 idle boot portal (DPMCP-I6).
   The `restricted` isolation now makes the secondary *expressible* (a
-  restricted secondary pooling the primary draws its own dpmcp), and an
-  `[[extra]]` of count 2 on the kernel would raise the derived 1 to 3.
+  restricted secondary pooling the primary draws its own dpmcp), and a
+  `[extra.kernel]` entry of `dpmcp = 2` would raise the derived 1 to 3.
   **Residual:** whether the reference intent should declare that secondary (so
   the plan derives 3) or whether the fit-check diff reports the board's two
   extra portals as explained divergence. The model derives 1 and reports the

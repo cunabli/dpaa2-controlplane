@@ -188,7 +188,7 @@ the operator fixes a file in one pass — so the error side is a non-empty
 `PoolShortfall` variant is reserved for `reconcile` (#6), and a
 passthrough value (a VFIO child whose guest dataplane the host cannot
 see) is #4's. Extras follow an additive idiom: every derived count is a
-*request*, a per-(tenant, family) `[[extra]]` adds its `count` on top, so
+*request*, a per-(tenant, family) `[extra.<tenant>]` adds its `count` on top, so
 the effective count is request + count — raise-only by construction, with
 no floor comparison to get wrong. Only the four companion families accept
 an extra; any other family, or a count below 1, refuses; and provenance

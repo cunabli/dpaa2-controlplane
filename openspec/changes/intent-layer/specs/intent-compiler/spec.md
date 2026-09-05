@@ -201,8 +201,8 @@ live-census refusal.
   `CoreBudgetExceeded`
 
 ### Requirement: Derived counts are requests; extras add on top
-Every derived count SHALL be a *request*; an `[[extra]]`, declared per
-(tenant, family), SHALL add its `count` on top, so the effective count
+Every derived count SHALL be a *request*; an `[extra.<tenant>]` entry,
+declared per (tenant, family), SHALL add its `count` on top, so the effective count
 SHALL be request + count — raise-only by construction. Only the four
 companion families dpio/dpbp/dpmcp/dpcon SHALL accept an extra; any other
 family SHALL be refused, and `count` SHALL be at least 1. Provenance for

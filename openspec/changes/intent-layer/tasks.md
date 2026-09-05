@@ -214,7 +214,7 @@ the change's only other operator sync point (design D12).
       for a genuinely new extra (bead gqf.39, surfaced by 3.3's gate run); the
       proptest-regressions seed lands with the fix, and whether `Extra`
       identity should be `(tenant, family)` instead is a filed design question
-- [ ] 3.3b `dpaa2-config`: `[[extra]]` migrated to the TOML map idiom —
+- [x] 3.3b `dpaa2-config`: `[[extra]]` migrated to the TOML map idiom —
       `[extra.<tenant>]` tables with `family = count` pairs; identity moves
       from data to structure so a duplicate (tenant, family) is a TOML parse
       error, unrepresentable rather than validated; model/API unchanged,
