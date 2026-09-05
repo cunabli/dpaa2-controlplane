@@ -59,7 +59,7 @@ fn inventory() -> Inventory {
     Inventory {
         cpus: 16,
         dpmacs,
-        foreign: BTreeMap::new(),
+        labels: BTreeMap::new(),
         ceilings,
     }
 }

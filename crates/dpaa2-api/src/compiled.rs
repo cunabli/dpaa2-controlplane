@@ -22,6 +22,7 @@
 //! draw them) is a property of the order witnesses append keys in, not a sort
 //! applied afterwards.
 
+use core::fmt;
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::family::{Family, Permission};
@@ -29,9 +30,12 @@ use crate::intent::{Fabric, Link, Port, Tenant};
 use crate::model::DpmacId;
 use crate::types::{ConstructName, RuleName, TenantName};
 
-/// A derived object's identity (design D6; `derive.qnt` `ObjectKey`). The label the MC
-/// carries is a projection of it (ADR-0010: names are not identities). Ordinals are
-/// 1-based positions.
+/// A derived object's identity (design D6; `derive.qnt` `ObjectKey`). This is the plan
+/// key, the thing every collection sorts and traces by. The MC label the object carries
+/// is *not* rendered from it: the label is the owning construct's name (ADR-0015
+/// decisions 9+13), stamped on the [`PlannedObject`]. Ordinals are 1-based positions.
+/// [`Display`](fmt::Display) renders the key as `<tenant>/<family>/<ordinal>` for
+/// human-readable plan output, never as the label the MC carries.
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub struct ObjectKey {
     /// The owning tenant's name.
@@ -52,13 +56,21 @@ impl ObjectKey {
             ordinal,
         }
     }
+}
 
-    /// The MC label rendered from the key, `<tenant>/<family>/<ordinal>` (ADR-0010:
-    /// a lossy projection — restool caps a set-label at 15 chars, so a long tenant
-    /// name overflows; the key stays the identity).
-    #[must_use]
-    pub fn label(&self) -> String {
-        format!("{}/{}/{}", self.tenant, self.family.as_str(), self.ordinal)
+impl fmt::Display for ObjectKey {
+    /// The plan-key identity path, `<tenant>/<family>/<ordinal>`, for human-readable
+    /// plan output (ADR-0015 decision 9). This is never the label the MC carries — the
+    /// label is the owning construct's name on the [`PlannedObject`] — only the key the
+    /// plan sorts and traces by.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "{}/{}/{}",
+            self.tenant,
+            self.family.as_str(),
+            self.ordinal
+        )
     }
 }
 
@@ -71,7 +83,7 @@ impl ObjectKey {
 ///
 /// ```compile_fail
 /// use dpaa2_api::compiled::{Attributes, Container, ObjectKey, PlannedObject, ProvenanceKey};
-/// use dpaa2_api::Family;
+/// use dpaa2_api::{ConstructName, Family};
 /// // A tenant's dpni cannot be placed in root: `PlannedObject` has private fields, and
 /// // the only constructors (`Tenant::dpni`/`companion`) use the tenant's own
 /// // `Container::Child`.
@@ -80,6 +92,7 @@ impl ObjectKey {
 ///     container: Container::Root,
 ///     attributes: Attributes::Dpni { num_queues: 1 },
 ///     provenance: ProvenanceKey::new("vpp", "dpnis", ""),
+///     label: ConstructName::from("vpp"),
 /// };
 /// ```
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
@@ -202,7 +215,7 @@ pub struct ProvenanceNode {
 ///
 /// ```compile_fail
 /// use dpaa2_api::compiled::{Attributes, Container, ObjectKey, PlannedObject, ProvenanceKey};
-/// use dpaa2_api::Family;
+/// use dpaa2_api::{ConstructName, Family};
 /// // A free-standing dpio: `PlannedObject` has no public constructor, so only
 /// // `Tenant::companion` can emit a companion — never a bare literal.
 /// let _ = PlannedObject {
@@ -210,6 +223,7 @@ pub struct ProvenanceNode {
 ///     container: Container::Root,
 ///     attributes: Attributes::Unsized,
 ///     provenance: ProvenanceKey::new("", "dpio", ""),
+///     label: ConstructName::from(""),
 /// };
 /// ```
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
@@ -218,6 +232,13 @@ pub struct PlannedObject {
     container: Container,
     attributes: Attributes,
     provenance: ProvenanceKey,
+    /// The MC label written on create: the owning construct's name byte-for-byte,
+    /// lossless by the ADR-0015 decision-13 name rule (≤ 15 chars, never `family.N`).
+    /// An anchored object (a port's dpni, a fabric's dpsw) is stamped too, for
+    /// debuggability with bare restool, but re-associated by its anchor — its dpmac
+    /// edge — never by this label (ADR-0015 decision 9); the [`ObjectKey`] stays the
+    /// plan identity.
+    label: ConstructName,
 }
 
 impl PlannedObject {
@@ -225,6 +246,14 @@ impl PlannedObject {
     #[must_use]
     pub fn key(&self) -> &ObjectKey {
         &self.key
+    }
+
+    /// The MC label the object carries: the owning construct's name (ADR-0015
+    /// decisions 9+13). The label the reconciler writes on create and repairs by
+    /// `set-label`; never the plan identity, which is [`key`](Self::key).
+    #[must_use]
+    pub fn label(&self) -> &ConstructName {
+        &self.label
     }
 
     /// Where the object lives.
@@ -286,10 +315,10 @@ impl AttachPoint {
 /// ```compile_fail
 /// use dpaa2_api::{kernel_tenant, Link};
 /// let k = kernel_tenant(1);
-/// let l = Link { name: "w".to_owned(), interface_a: "kernel".to_owned(), interface_b: "kernel".to_owned() };
-/// let (_o1, ia) = k.dpni(1, 0);
-/// let (_o2, ib) = k.dpni(2, 0);
-/// let (_o3, ic) = k.dpni(3, 0);
+/// let l = Link { name: "w".into(), interface_a: "kernel".into(), interface_b: "kernel".into(), renamed: None };
+/// let (_o1, ia) = k.dpni(1, 0, "w".into());
+/// let (_o2, ib) = k.dpni(2, 0, "w".into());
+/// let (_o3, ic) = k.dpni(3, 0, "w".into());
 /// let _e1 = l.wire(ia, ib);
 /// let _e2 = l.wire(ia, ic); // error: use of moved value `ia`
 /// ```
@@ -474,6 +503,7 @@ impl Tenant {
                 options: dprc_default_options(),
             },
             provenance: ProvenanceKey::new(self.name.clone(), "dprc", ""),
+            label: ConstructName::from(&self.name),
         }
     }
 
@@ -487,20 +517,30 @@ impl Tenant {
             container: self.container(),
             attributes: Attributes::Unsized,
             provenance: ProvenanceKey::new(self.name.clone(), family.as_str(), ""),
+            label: ConstructName::from(&self.name),
         }
     }
 
     /// One dpni object and its interface handle (design D6; `derive.qnt` dpni
     /// origins). The [`Interface`] is the only value a [`Link`] or a port-edge accepts
-    /// as an end.
+    /// as an end. `label` is the construct the dpni serves — the port, link, or fabric
+    /// name its origin resolves to — carried as the MC label (ADR-0015 decisions 9+13);
+    /// the caller derives it from the origin, since one tenant's dpnis serve different
+    /// constructs.
     #[must_use]
-    pub fn dpni(&self, ordinal: u32, num_queues: u32) -> (PlannedObject, Interface) {
+    pub fn dpni(
+        &self,
+        ordinal: u32,
+        num_queues: u32,
+        label: ConstructName,
+    ) -> (PlannedObject, Interface) {
         let key = ObjectKey::new(self.name.clone(), Family::Dpni, ordinal);
         let obj = PlannedObject {
             key: key.clone(),
             container: self.container(),
             attributes: Attributes::Dpni { num_queues },
             provenance: ProvenanceKey::new(self.name.clone(), "dpnis", ""),
+            label,
         };
         (obj, Interface { key, port: 0 })
     }
@@ -521,6 +561,7 @@ impl Tenant {
                 has_cg: true,
             },
             provenance: ProvenanceKey::new(self.name.clone(), "dpseci", ""),
+            label: ConstructName::from(&self.name),
         }
     }
 }
@@ -543,6 +584,9 @@ impl Port {
             container: tenant.container(),
             attributes: Attributes::Dpni { num_queues },
             provenance: ProvenanceKey::new(tenant.name.clone(), "dpnis", ""),
+            // The port's own name: the dpni is anchored on the port's dpmac, but the
+            // label is stamped for debuggability (ADR-0015 decision 9).
+            label: ConstructName::from(&self.name),
         };
         let edge = Edge {
             a: AttachPoint::Object { key, port: 0 },
@@ -562,8 +606,8 @@ impl Link {
     /// use dpaa2_api::{kernel_tenant, DpmacId, Link};
     /// use dpaa2_api::compiled::AttachPoint;
     /// let k = kernel_tenant(1);
-    /// let l = Link { name: "w".to_owned(), interface_a: "kernel".to_owned(), interface_b: "kernel".to_owned() };
-    /// let (_o, ia) = k.dpni(1, 0);
+    /// let l = Link { name: "w".into(), interface_a: "kernel".into(), interface_b: "kernel".into(), renamed: None };
+    /// let (_o, ia) = k.dpni(1, 0, "w".into());
     /// // `wire` takes `Interface`, so a bare dpmac end is a type error:
     /// let _e = l.wire(AttachPoint::mac(DpmacId::new(7)), ia);
     /// ```
@@ -610,6 +654,9 @@ impl Fabric {
                 ctrl_if: true,
             },
             provenance: ProvenanceKey::new(self.forwarded_by.clone(), "dpsw", self.name.clone()),
+            // The fabric's own name: the dpsw is anchored on its wired dpmac set, but the
+            // label is stamped for debuggability (ADR-0015 decision 9).
+            label: self.name.clone(),
         }
     }
 

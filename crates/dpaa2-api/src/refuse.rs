@@ -503,6 +503,10 @@ fn self_member_refusals(intent: &Intent, out: &mut BTreeSet<Refusal>) {
 // ---- rule 4: the port's dpmac anchor (design D2; ADR-0003 §3; ADR-0001 §4) ----
 
 fn anchor_refusals(intent: &Intent, inv: &Inventory, out: &mut BTreeSet<Refusal>) {
+    // Ownership is judged against the declared-name recognition set (ADR-0010 §4 as
+    // refined by ADR-0015): a dpmac held by an object wearing one of these names is
+    // ours, not foreign.
+    let declared = intent.declared_names();
     for p in &intent.ports {
         if !inv.dpmacs.contains_key(&p.dpmac) {
             out.insert(Refusal::Unanchored {
@@ -511,7 +515,7 @@ fn anchor_refusals(intent: &Intent, inv: &Inventory, out: &mut BTreeSet<Refusal>
             });
             continue;
         }
-        match inv.availability_of(Family::Dpmac, p.dpmac.into_inner()) {
+        match inv.availability_of(Family::Dpmac, p.dpmac.into_inner(), &declared) {
             Availability::Reserved(why) => {
                 out.insert(Refusal::Reserved {
                     port: p.name.clone(),
@@ -986,7 +990,7 @@ mod compile_tests {
         Inventory {
             cpus: 16,
             dpmacs,
-            foreign: BTreeMap::from([((Family::Dpni, 0), "dpl".to_owned())]),
+            labels: BTreeMap::from([((Family::Dpni, 0), String::new())]),
             ceilings,
         }
     }

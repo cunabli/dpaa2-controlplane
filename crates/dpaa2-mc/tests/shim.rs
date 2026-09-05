@@ -5,7 +5,7 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 
-use dpaa2_api::{DpmacId, DpniId, LinkType, MacAddr, McControl};
+use dpaa2_api::{ConstructName, DpmacId, DpniId, LinkType, MacAddr, McControl};
 use dpaa2_mc::RestoolMc;
 use dpaa2_mc::parse::{parse_dpmac_info, parse_dpni_info, parse_dpni_object_id, parse_dprc_show};
 use dpaa2_mc::runner::Runner;
@@ -105,7 +105,9 @@ fn observe_composes_show_info_calls_into_topology() {
 fn create_provisions_private_deps_then_creates_dpni_unplugged() {
     // Pin cores=queues=1 so the sequence is bounded and deterministic.
     let mc = RestoolMc::with_runner(RecordingRunner::new(), "dprc.1").with_cores(1);
-    let id = mc.create_dpni().expect("create");
+    let id = mc
+        .create_dpni(&ConstructName::from("wan0"))
+        .expect("create");
     assert_eq!(id, DpniId::new(7));
 
     let calls = mc.runner_calls();
@@ -136,15 +138,16 @@ fn create_provisions_private_deps_then_creates_dpni_unplugged() {
 
     // The DPNI create is issued with an explicit queue count...
     assert!(calls[dpni_at].iter().any(|a| a == "--num-queues=1"));
-    // ...and is immediately followed by its ADR-0010 §4 ownership label, which is
-    // now the last call: create_dpni() still does not plug or sync (plugging, and
-    // the actuate-mode SetMac that must precede it, happen in connect()).
+    // ...and is immediately followed by the construct-name label (ADR-0010 §4 refined
+    // by ADR-0015 decision 9), which is now the last call: create_dpni() still does not
+    // plug or sync (plugging, and the actuate-mode SetMac that must precede it, happen
+    // in connect()).
     let set_label = |obj: &str| {
         vec![
             "dprc".to_owned(),
             "set-label".to_owned(),
             obj.to_owned(),
-            "--label=dpaa2ctl".to_owned(),
+            "--label=wan0".to_owned(),
         ]
     };
     assert_eq!(
@@ -158,10 +161,10 @@ fn create_provisions_private_deps_then_creates_dpni_unplugged() {
         "only the label follows dpni create"
     );
 
-    // ADR-0010 §4: every provisioned dependency is labelled too, so a later
-    // read-back does not misread our own objects as foreign. The RecordingRunner
-    // echoes each create as `<kind>.0`, so its label call is `dprc set-label
-    // <kind>.0 --label=dpaa2ctl`.
+    // ADR-0010 §4: every companion in the chain wears the same construct name, so the
+    // whole chain is readable in bare restool and recognized as ours next pass. The
+    // RecordingRunner echoes each create as `<kind>.0`, so its label call is `dprc
+    // set-label <kind>.0 --label=wan0`.
     for dep in ["dpbp.0", "dpmcp.0", "dpcon.0", "dpio.0"] {
         assert!(
             calls.contains(&set_label(dep)),
@@ -175,7 +178,9 @@ fn create_rolls_back_deps_when_dpni_create_fails() {
     // Pin cores=queues=1 so exactly one dpbp/dpmcp/dpcon are created.
     let mc =
         RestoolMc::with_runner(FailingRunner::new(("--script", "dpni")), "dprc.1").with_cores(1);
-    let err = mc.create_dpni().expect_err("dpni create fails");
+    let err = mc
+        .create_dpni(&ConstructName::from("wan0"))
+        .expect_err("dpni create fails");
     assert!(matches!(err, dpaa2_api::Error::Backend(_)));
 
     let calls = mc.runner_calls();
@@ -193,7 +198,8 @@ fn create_rolls_back_deps_when_dpni_create_fails() {
 fn create_tops_up_dpio_pool_idempotently() {
     // DPRC_SHOW has no dpio; with cores=2 the shim creates two DPIOs (+companion mcp).
     let mc = RestoolMc::with_runner(RecordingRunner::new(), "dprc.1").with_cores(2);
-    mc.create_dpni().expect("create");
+    mc.create_dpni(&ConstructName::from("wan0"))
+        .expect("create");
     let calls = mc.runner_calls();
     let dpio_creates = calls
         .iter()

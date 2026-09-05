@@ -63,9 +63,13 @@ fn plan_present(port: &DesiredPort, observed: &ObservedTopology, plan: &mut Plan
     let needs_netdev = link_type == LinkType::Phy;
 
     let Some(dpni) = observed.dpni_connected_to(port.dpmac) else {
-        // Absent -> Create, (optionally set MAC), Connect, and wait-to-bind.
-        plan.transitions
-            .push(Transition::Create { port: port.dpmac });
+        // Absent -> Create, (optionally set MAC), Connect, and wait-to-bind. The
+        // create carries the construct name so the object is stamped the moment it is
+        // minted (ADR-0010 §4 ABA guard; ADR-0015 decisions 9 + 13).
+        plan.transitions.push(Transition::Create {
+            port: port.dpmac,
+            label: port.name.clone(),
+        });
         if port.mac_mode == MacMode::Actuate
             && let Some(mac) = port.mac
         {
@@ -101,6 +105,18 @@ fn plan_present(port: &DesiredPort, observed: &ObservedTopology, plan: &mut Plan
     }
     if drifted {
         return;
+    }
+
+    // Label repair (ADR-0015 decision 9): a port dpni whose observed label differs from
+    // its construct name is relabelled with `set-label`, decision 9's repair verb, never
+    // a destroy/create. A freshly created dpni (the Absent branch above) already carries
+    // the name — the create stamps it (ADR-0010 §4 ABA guard) — so this emission is the
+    // drift/rename repair for a standing object whose label was lost or changed.
+    if dpni.label.as_ref() != Some(&port.name) {
+        plan.transitions.push(Transition::SetLabel {
+            dpni: dpni.id,
+            label: port.name.clone(),
+        });
     }
 
     // MAC: actuate on mismatch, or assert-and-report (design D9).
@@ -184,9 +200,22 @@ mod tests {
         mac: Option<MacAddr>,
         netdev: Option<&str>,
     ) -> ObservedDpni {
+        labelled(id, connected, mac, netdev, None)
+    }
+
+    /// A dpni carrying its construct-name label, so a converged fixture does not draw a
+    /// spurious relabel (ADR-0015 decision 9): the label a level-triggered board shows
+    /// once its dpnis have been stamped.
+    fn labelled(
+        id: u32,
+        connected: Option<u32>,
+        mac: Option<MacAddr>,
+        netdev: Option<&str>,
+        label: Option<&str>,
+    ) -> ObservedDpni {
         ObservedDpni {
             id: DpniId::new(id),
-            label: None,
+            label: label.map(Into::into),
             connected_to: connected.map(DpmacId::new),
             mac,
             netdev: netdev.map(str::to_owned),
@@ -214,7 +243,8 @@ mod tests {
             plan.transitions,
             vec![
                 Transition::Create {
-                    port: DpmacId::new(3)
+                    port: DpmacId::new(3),
+                    label: "wan0".into(),
                 },
                 Transition::Connect {
                     port: DpmacId::new(3)
@@ -241,7 +271,8 @@ mod tests {
             plan.transitions,
             vec![
                 Transition::Create {
-                    port: DpmacId::new(3)
+                    port: DpmacId::new(3),
+                    label: "wan0".into(),
                 },
                 Transition::SetMac {
                     port: DpmacId::new(3),
@@ -261,7 +292,13 @@ mod tests {
     fn converged_state_is_idempotent() {
         let desired = DesiredTopology::from_ports([DesiredPort::new(DpmacId::new(3), "wan0")]);
         let observed = ObservedTopology {
-            dpnis: vec![dpni(7, Some(3), Some(MAC_3), Some("eth7"))],
+            dpnis: vec![labelled(
+                7,
+                Some(3),
+                Some(MAC_3),
+                Some("eth7"),
+                Some("wan0"),
+            )],
             dpmacs: vec![phy(3, MAC_3)],
         };
         assert!(reconcile(&desired, &observed).is_converged());
@@ -272,7 +309,13 @@ mod tests {
         // Same DPMAC edge, different DPNI index -> no change planned.
         let desired = DesiredTopology::from_ports([DesiredPort::new(DpmacId::new(3), "wan0")]);
         let observed = ObservedTopology {
-            dpnis: vec![dpni(42, Some(3), Some(MAC_3), Some("eth42"))],
+            dpnis: vec![labelled(
+                42,
+                Some(3),
+                Some(MAC_3),
+                Some("eth42"),
+                Some("wan0"),
+            )],
             dpmacs: vec![phy(3, MAC_3)],
         };
         assert!(reconcile(&desired, &observed).is_converged());
@@ -284,7 +327,7 @@ mod tests {
         let desired = DesiredTopology::from_ports([DesiredPort::new(DpmacId::new(3), "wan0")]);
         let observed = ObservedTopology {
             dpnis: vec![
-                dpni(7, Some(3), Some(MAC_3), Some("eth7")),
+                labelled(7, Some(3), Some(MAC_3), Some("eth7"), Some("wan0")),
                 dpni(9, Some(17), None, Some("eth9")), // dpmac.17 mgmt, not in desired
             ],
             dpmacs: vec![phy(3, MAC_3), phy(17, MacAddr::new([0, 0, 0, 0, 0, 17]))],
@@ -321,11 +364,12 @@ mod tests {
         port.mac_mode = MacMode::Assert;
         let desired = DesiredTopology::from_ports([port]);
         let observed = ObservedTopology {
-            dpnis: vec![dpni(
+            dpnis: vec![labelled(
                 7,
                 Some(3),
                 Some(MacAddr::new([9, 9, 9, 9, 9, 9])),
                 Some("eth7"),
+                Some("wan0"),
             )],
             dpmacs: vec![phy(3, MAC_3)],
         };
@@ -342,11 +386,12 @@ mod tests {
         port.mac_mode = MacMode::Actuate;
         let desired = DesiredTopology::from_ports([port]);
         let observed = ObservedTopology {
-            dpnis: vec![dpni(
+            dpnis: vec![labelled(
                 7,
                 Some(3),
                 Some(MacAddr::new([9, 9, 9, 9, 9, 9])),
                 Some("eth7"),
+                Some("wan0"),
             )],
             dpmacs: vec![phy(3, MAC_3)],
         };
@@ -396,7 +441,7 @@ mod tests {
     fn fixed_link_port_needs_no_bind() {
         let desired = DesiredTopology::from_ports([DesiredPort::new(DpmacId::new(3), "wan0")]);
         let observed = ObservedTopology {
-            dpnis: vec![dpni(7, Some(3), Some(MAC_3), None)],
+            dpnis: vec![labelled(7, Some(3), Some(MAC_3), None, Some("wan0"))],
             dpmacs: vec![ObservedDpmac {
                 id: DpmacId::new(3),
                 link_type: LinkType::Fixed,
@@ -405,6 +450,107 @@ mod tests {
         };
         // Fixed link: connected == provisioned, no netdev, no Bind.
         assert!(reconcile(&desired, &observed).is_converged());
+    }
+
+    #[test]
+    fn stale_label_yields_one_set_label() {
+        // A connected port dpni whose label differs from the port name draws exactly one
+        // SetLabel with the port name (ADR-0015 decision 9), no destroy/create.
+        let desired = DesiredTopology::from_ports([DesiredPort::new(DpmacId::new(3), "wan0")]);
+        let observed = ObservedTopology {
+            dpnis: vec![labelled(
+                7,
+                Some(3),
+                Some(MAC_3),
+                Some("eth7"),
+                Some("stale"),
+            )],
+            dpmacs: vec![phy(3, MAC_3)],
+        };
+        let plan = reconcile(&desired, &observed);
+        assert_eq!(
+            plan.transitions,
+            vec![Transition::SetLabel {
+                dpni: DpniId::new(7),
+                label: "wan0".into(),
+            }]
+        );
+    }
+
+    #[test]
+    fn absent_label_yields_one_set_label() {
+        // An empty label column reads the same as drift: one SetLabel repairs it.
+        let desired = DesiredTopology::from_ports([DesiredPort::new(DpmacId::new(3), "wan0")]);
+        let observed = ObservedTopology {
+            dpnis: vec![labelled(7, Some(3), Some(MAC_3), Some("eth7"), None)],
+            dpmacs: vec![phy(3, MAC_3)],
+        };
+        let plan = reconcile(&desired, &observed);
+        assert_eq!(
+            plan.transitions,
+            vec![Transition::SetLabel {
+                dpni: DpniId::new(7),
+                label: "wan0".into(),
+            }]
+        );
+    }
+
+    #[test]
+    fn matching_label_yields_no_set_label() {
+        // A label already equal to the port name is idempotent — no relabel.
+        let desired = DesiredTopology::from_ports([DesiredPort::new(DpmacId::new(3), "wan0")]);
+        let observed = ObservedTopology {
+            dpnis: vec![labelled(
+                7,
+                Some(3),
+                Some(MAC_3),
+                Some("eth7"),
+                Some("wan0"),
+            )],
+            dpmacs: vec![phy(3, MAC_3)],
+        };
+        assert!(reconcile(&desired, &observed).is_converged());
+    }
+
+    #[test]
+    fn immutable_drift_suppresses_the_relabel() {
+        // The drift gate wins: an immutable mismatch refuses before any relabel is
+        // emitted, even when the label is also stale (design D8, ADR-0015 decision 9).
+        let mut port = DesiredPort::new(DpmacId::new(3), "wan0");
+        port.immutable.insert("num_tcs".to_owned(), "8".to_owned());
+        let desired = DesiredTopology::from_ports([port]);
+
+        let mut attrs = BTreeMap::new();
+        attrs.insert("num_tcs".to_owned(), "1".to_owned());
+        let observed = ObservedTopology {
+            dpnis: vec![ObservedDpni {
+                attributes: attrs,
+                ..labelled(7, Some(3), Some(MAC_3), Some("eth7"), Some("stale"))
+            }],
+            dpmacs: vec![phy(3, MAC_3)],
+        };
+        let plan = reconcile(&desired, &observed);
+        assert!(plan.transitions.is_empty(), "drift gate suppresses relabel");
+        assert_eq!(plan.drift.len(), 1);
+    }
+
+    #[test]
+    fn set_label_only_plan_headlines_boundary() {
+        // A relabel-only plan headlines boundary — the conservative transition-level
+        // class (ADR-0015 decision 12; plan.rs classing rationale).
+        let desired = DesiredTopology::from_ports([DesiredPort::new(DpmacId::new(3), "wan0")]);
+        let observed = ObservedTopology {
+            dpnis: vec![labelled(
+                7,
+                Some(3),
+                Some(MAC_3),
+                Some("eth7"),
+                Some("stale"),
+            )],
+            dpmacs: vec![phy(3, MAC_3)],
+        };
+        let plan = reconcile(&desired, &observed);
+        assert_eq!(plan.headline(), crate::plan::Class::Boundary);
     }
 
     #[test]
@@ -426,11 +572,16 @@ mod tests {
             }
             for t in &plan.transitions {
                 match t {
-                    Transition::Create { .. } => {
-                        let id = backend.create_dpni().unwrap();
+                    Transition::Create { label, .. } => {
+                        let id = backend.create_dpni(label).unwrap();
                         backend.connect(id, DpmacId::new(3)).unwrap();
                     }
                     Transition::Connect { .. } | Transition::Bind { .. } => {}
+                    // The create stamps the label (ADR-0010 §4 ABA guard), so a
+                    // converged board never emits this; apply it if drift ever does.
+                    Transition::SetLabel { dpni, label } => {
+                        backend.set_label(*dpni, label).unwrap();
+                    }
                     other => panic!("unexpected transition {other:?}"),
                 }
             }

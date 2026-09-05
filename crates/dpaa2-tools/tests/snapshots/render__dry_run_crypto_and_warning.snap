@@ -3,190 +3,190 @@ source: crates/dpaa2-tools/tests/render.rs
 expression: "render_dry_run(&compiled.plan, &compiled.warnings, &plan)"
 ---
 plan: 40 object(s), 2 edge(s)
-  kernel/dprtc/1 @ root
+  kernel/dprtc/1 label=kernel @ root
     - dprtc request=1 value=1 [measured] anchor: DPRTC-I1 singleton, DPRTC-I2 kernel-owned
-  router/dprc/1 @ root (dprc default options)
+  router/dprc/1 label=router @ root (dprc default options)
     - dprc request=1 value=1 [measured] anchor: dprc.md: restool-default child options
-  router/dpio/1 @ child:router
+  router/dpio/1 label=router @ child:router
     - dpio request=16 value=16 [measured] anchor: ADR-0012 (companions.qnt companionDraw)
       - T request=8 value=8 [unmeasured] anchor: design D3: T = 1 + Σ workers over terminated ports; workers-per-port table (10G⇒2, 25G⇒5), unmeasured
         - ports request=2 value=2 [measured] anchor: design D1: declared port constructs
-  router/dpio/2 @ child:router
+  router/dpio/2 label=router @ child:router
     - dpio request=16 value=16 [measured] anchor: ADR-0012 (companions.qnt companionDraw)
       - T request=8 value=8 [unmeasured] anchor: design D3: T = 1 + Σ workers over terminated ports; workers-per-port table (10G⇒2, 25G⇒5), unmeasured
         - ports request=2 value=2 [measured] anchor: design D1: declared port constructs
-  router/dpio/3 @ child:router
+  router/dpio/3 label=router @ child:router
     - dpio request=16 value=16 [measured] anchor: ADR-0012 (companions.qnt companionDraw)
       - T request=8 value=8 [unmeasured] anchor: design D3: T = 1 + Σ workers over terminated ports; workers-per-port table (10G⇒2, 25G⇒5), unmeasured
         - ports request=2 value=2 [measured] anchor: design D1: declared port constructs
-  router/dpio/4 @ child:router
+  router/dpio/4 label=router @ child:router
     - dpio request=16 value=16 [measured] anchor: ADR-0012 (companions.qnt companionDraw)
       - T request=8 value=8 [unmeasured] anchor: design D3: T = 1 + Σ workers over terminated ports; workers-per-port table (10G⇒2, 25G⇒5), unmeasured
         - ports request=2 value=2 [measured] anchor: design D1: declared port constructs
-  router/dpio/5 @ child:router
+  router/dpio/5 label=router @ child:router
     - dpio request=16 value=16 [measured] anchor: ADR-0012 (companions.qnt companionDraw)
       - T request=8 value=8 [unmeasured] anchor: design D3: T = 1 + Σ workers over terminated ports; workers-per-port table (10G⇒2, 25G⇒5), unmeasured
         - ports request=2 value=2 [measured] anchor: design D1: declared port constructs
-  router/dpio/6 @ child:router
+  router/dpio/6 label=router @ child:router
     - dpio request=16 value=16 [measured] anchor: ADR-0012 (companions.qnt companionDraw)
       - T request=8 value=8 [unmeasured] anchor: design D3: T = 1 + Σ workers over terminated ports; workers-per-port table (10G⇒2, 25G⇒5), unmeasured
         - ports request=2 value=2 [measured] anchor: design D1: declared port constructs
-  router/dpio/7 @ child:router
+  router/dpio/7 label=router @ child:router
     - dpio request=16 value=16 [measured] anchor: ADR-0012 (companions.qnt companionDraw)
       - T request=8 value=8 [unmeasured] anchor: design D3: T = 1 + Σ workers over terminated ports; workers-per-port table (10G⇒2, 25G⇒5), unmeasured
         - ports request=2 value=2 [measured] anchor: design D1: declared port constructs
-  router/dpio/8 @ child:router
+  router/dpio/8 label=router @ child:router
     - dpio request=16 value=16 [measured] anchor: ADR-0012 (companions.qnt companionDraw)
       - T request=8 value=8 [unmeasured] anchor: design D3: T = 1 + Σ workers over terminated ports; workers-per-port table (10G⇒2, 25G⇒5), unmeasured
         - ports request=2 value=2 [measured] anchor: design D1: declared port constructs
-  router/dpio/9 @ child:router
+  router/dpio/9 label=router @ child:router
     - dpio request=16 value=16 [measured] anchor: ADR-0012 (companions.qnt companionDraw)
       - T request=8 value=8 [unmeasured] anchor: design D3: T = 1 + Σ workers over terminated ports; workers-per-port table (10G⇒2, 25G⇒5), unmeasured
         - ports request=2 value=2 [measured] anchor: design D1: declared port constructs
-  router/dpio/10 @ child:router
+  router/dpio/10 label=router @ child:router
     - dpio request=16 value=16 [measured] anchor: ADR-0012 (companions.qnt companionDraw)
       - T request=8 value=8 [unmeasured] anchor: design D3: T = 1 + Σ workers over terminated ports; workers-per-port table (10G⇒2, 25G⇒5), unmeasured
         - ports request=2 value=2 [measured] anchor: design D1: declared port constructs
-  router/dpio/11 @ child:router
+  router/dpio/11 label=router @ child:router
     - dpio request=16 value=16 [measured] anchor: ADR-0012 (companions.qnt companionDraw)
       - T request=8 value=8 [unmeasured] anchor: design D3: T = 1 + Σ workers over terminated ports; workers-per-port table (10G⇒2, 25G⇒5), unmeasured
         - ports request=2 value=2 [measured] anchor: design D1: declared port constructs
-  router/dpio/12 @ child:router
+  router/dpio/12 label=router @ child:router
     - dpio request=16 value=16 [measured] anchor: ADR-0012 (companions.qnt companionDraw)
       - T request=8 value=8 [unmeasured] anchor: design D3: T = 1 + Σ workers over terminated ports; workers-per-port table (10G⇒2, 25G⇒5), unmeasured
         - ports request=2 value=2 [measured] anchor: design D1: declared port constructs
-  router/dpio/13 @ child:router
+  router/dpio/13 label=router @ child:router
     - dpio request=16 value=16 [measured] anchor: ADR-0012 (companions.qnt companionDraw)
       - T request=8 value=8 [unmeasured] anchor: design D3: T = 1 + Σ workers over terminated ports; workers-per-port table (10G⇒2, 25G⇒5), unmeasured
         - ports request=2 value=2 [measured] anchor: design D1: declared port constructs
-  router/dpio/14 @ child:router
+  router/dpio/14 label=router @ child:router
     - dpio request=16 value=16 [measured] anchor: ADR-0012 (companions.qnt companionDraw)
       - T request=8 value=8 [unmeasured] anchor: design D3: T = 1 + Σ workers over terminated ports; workers-per-port table (10G⇒2, 25G⇒5), unmeasured
         - ports request=2 value=2 [measured] anchor: design D1: declared port constructs
-  router/dpio/15 @ child:router
+  router/dpio/15 label=router @ child:router
     - dpio request=16 value=16 [measured] anchor: ADR-0012 (companions.qnt companionDraw)
       - T request=8 value=8 [unmeasured] anchor: design D3: T = 1 + Σ workers over terminated ports; workers-per-port table (10G⇒2, 25G⇒5), unmeasured
         - ports request=2 value=2 [measured] anchor: design D1: declared port constructs
-  router/dpio/16 @ child:router
+  router/dpio/16 label=router @ child:router
     - dpio request=16 value=16 [measured] anchor: ADR-0012 (companions.qnt companionDraw)
       - T request=8 value=8 [unmeasured] anchor: design D3: T = 1 + Σ workers over terminated ports; workers-per-port table (10G⇒2, 25G⇒5), unmeasured
         - ports request=2 value=2 [measured] anchor: design D1: declared port constructs
-  router/dpmcp/1 @ child:router
+  router/dpmcp/1 label=router @ child:router
     - dpmcp request=1 value=1 [measured] anchor: companions.qnt: one MC portal per process
-  router/dpbp/1 @ child:router
+  router/dpbp/1 label=router @ child:router
     - dpbp request=2 value=2 [measured] anchor: ADR-0012 (companions.qnt companionDraw)
-  router/dpbp/2 @ child:router
+  router/dpbp/2 label=router @ child:router
     - dpbp request=2 value=2 [measured] anchor: ADR-0012 (companions.qnt companionDraw)
-  router/dpcon/1 @ child:router
+  router/dpcon/1 label=router @ child:router
     - dpcon request=16 value=16 [measured] anchor: dpcon.md DPCON-I1: one dpcon per polled queue
       - dpni-queues request=8 value=8 [measured] anchor: ADR-0012: transmit queues >= T
         - T request=8 value=8 [unmeasured] anchor: design D3: T = 1 + Σ workers over terminated ports; workers-per-port table (10G⇒2, 25G⇒5), unmeasured
           - ports request=2 value=2 [measured] anchor: design D1: declared port constructs
       - dpnis request=2 value=2 [measured] anchor: object-model.md §2: one dpni per terminated port, link end, fabric membership
-  router/dpcon/2 @ child:router
+  router/dpcon/2 label=router @ child:router
     - dpcon request=16 value=16 [measured] anchor: dpcon.md DPCON-I1: one dpcon per polled queue
       - dpni-queues request=8 value=8 [measured] anchor: ADR-0012: transmit queues >= T
         - T request=8 value=8 [unmeasured] anchor: design D3: T = 1 + Σ workers over terminated ports; workers-per-port table (10G⇒2, 25G⇒5), unmeasured
           - ports request=2 value=2 [measured] anchor: design D1: declared port constructs
       - dpnis request=2 value=2 [measured] anchor: object-model.md §2: one dpni per terminated port, link end, fabric membership
-  router/dpcon/3 @ child:router
+  router/dpcon/3 label=router @ child:router
     - dpcon request=16 value=16 [measured] anchor: dpcon.md DPCON-I1: one dpcon per polled queue
       - dpni-queues request=8 value=8 [measured] anchor: ADR-0012: transmit queues >= T
         - T request=8 value=8 [unmeasured] anchor: design D3: T = 1 + Σ workers over terminated ports; workers-per-port table (10G⇒2, 25G⇒5), unmeasured
           - ports request=2 value=2 [measured] anchor: design D1: declared port constructs
       - dpnis request=2 value=2 [measured] anchor: object-model.md §2: one dpni per terminated port, link end, fabric membership
-  router/dpcon/4 @ child:router
+  router/dpcon/4 label=router @ child:router
     - dpcon request=16 value=16 [measured] anchor: dpcon.md DPCON-I1: one dpcon per polled queue
       - dpni-queues request=8 value=8 [measured] anchor: ADR-0012: transmit queues >= T
         - T request=8 value=8 [unmeasured] anchor: design D3: T = 1 + Σ workers over terminated ports; workers-per-port table (10G⇒2, 25G⇒5), unmeasured
           - ports request=2 value=2 [measured] anchor: design D1: declared port constructs
       - dpnis request=2 value=2 [measured] anchor: object-model.md §2: one dpni per terminated port, link end, fabric membership
-  router/dpcon/5 @ child:router
+  router/dpcon/5 label=router @ child:router
     - dpcon request=16 value=16 [measured] anchor: dpcon.md DPCON-I1: one dpcon per polled queue
       - dpni-queues request=8 value=8 [measured] anchor: ADR-0012: transmit queues >= T
         - T request=8 value=8 [unmeasured] anchor: design D3: T = 1 + Σ workers over terminated ports; workers-per-port table (10G⇒2, 25G⇒5), unmeasured
           - ports request=2 value=2 [measured] anchor: design D1: declared port constructs
       - dpnis request=2 value=2 [measured] anchor: object-model.md §2: one dpni per terminated port, link end, fabric membership
-  router/dpcon/6 @ child:router
+  router/dpcon/6 label=router @ child:router
     - dpcon request=16 value=16 [measured] anchor: dpcon.md DPCON-I1: one dpcon per polled queue
       - dpni-queues request=8 value=8 [measured] anchor: ADR-0012: transmit queues >= T
         - T request=8 value=8 [unmeasured] anchor: design D3: T = 1 + Σ workers over terminated ports; workers-per-port table (10G⇒2, 25G⇒5), unmeasured
           - ports request=2 value=2 [measured] anchor: design D1: declared port constructs
       - dpnis request=2 value=2 [measured] anchor: object-model.md §2: one dpni per terminated port, link end, fabric membership
-  router/dpcon/7 @ child:router
+  router/dpcon/7 label=router @ child:router
     - dpcon request=16 value=16 [measured] anchor: dpcon.md DPCON-I1: one dpcon per polled queue
       - dpni-queues request=8 value=8 [measured] anchor: ADR-0012: transmit queues >= T
         - T request=8 value=8 [unmeasured] anchor: design D3: T = 1 + Σ workers over terminated ports; workers-per-port table (10G⇒2, 25G⇒5), unmeasured
           - ports request=2 value=2 [measured] anchor: design D1: declared port constructs
       - dpnis request=2 value=2 [measured] anchor: object-model.md §2: one dpni per terminated port, link end, fabric membership
-  router/dpcon/8 @ child:router
+  router/dpcon/8 label=router @ child:router
     - dpcon request=16 value=16 [measured] anchor: dpcon.md DPCON-I1: one dpcon per polled queue
       - dpni-queues request=8 value=8 [measured] anchor: ADR-0012: transmit queues >= T
         - T request=8 value=8 [unmeasured] anchor: design D3: T = 1 + Σ workers over terminated ports; workers-per-port table (10G⇒2, 25G⇒5), unmeasured
           - ports request=2 value=2 [measured] anchor: design D1: declared port constructs
       - dpnis request=2 value=2 [measured] anchor: object-model.md §2: one dpni per terminated port, link end, fabric membership
-  router/dpcon/9 @ child:router
+  router/dpcon/9 label=router @ child:router
     - dpcon request=16 value=16 [measured] anchor: dpcon.md DPCON-I1: one dpcon per polled queue
       - dpni-queues request=8 value=8 [measured] anchor: ADR-0012: transmit queues >= T
         - T request=8 value=8 [unmeasured] anchor: design D3: T = 1 + Σ workers over terminated ports; workers-per-port table (10G⇒2, 25G⇒5), unmeasured
           - ports request=2 value=2 [measured] anchor: design D1: declared port constructs
       - dpnis request=2 value=2 [measured] anchor: object-model.md §2: one dpni per terminated port, link end, fabric membership
-  router/dpcon/10 @ child:router
+  router/dpcon/10 label=router @ child:router
     - dpcon request=16 value=16 [measured] anchor: dpcon.md DPCON-I1: one dpcon per polled queue
       - dpni-queues request=8 value=8 [measured] anchor: ADR-0012: transmit queues >= T
         - T request=8 value=8 [unmeasured] anchor: design D3: T = 1 + Σ workers over terminated ports; workers-per-port table (10G⇒2, 25G⇒5), unmeasured
           - ports request=2 value=2 [measured] anchor: design D1: declared port constructs
       - dpnis request=2 value=2 [measured] anchor: object-model.md §2: one dpni per terminated port, link end, fabric membership
-  router/dpcon/11 @ child:router
+  router/dpcon/11 label=router @ child:router
     - dpcon request=16 value=16 [measured] anchor: dpcon.md DPCON-I1: one dpcon per polled queue
       - dpni-queues request=8 value=8 [measured] anchor: ADR-0012: transmit queues >= T
         - T request=8 value=8 [unmeasured] anchor: design D3: T = 1 + Σ workers over terminated ports; workers-per-port table (10G⇒2, 25G⇒5), unmeasured
           - ports request=2 value=2 [measured] anchor: design D1: declared port constructs
       - dpnis request=2 value=2 [measured] anchor: object-model.md §2: one dpni per terminated port, link end, fabric membership
-  router/dpcon/12 @ child:router
+  router/dpcon/12 label=router @ child:router
     - dpcon request=16 value=16 [measured] anchor: dpcon.md DPCON-I1: one dpcon per polled queue
       - dpni-queues request=8 value=8 [measured] anchor: ADR-0012: transmit queues >= T
         - T request=8 value=8 [unmeasured] anchor: design D3: T = 1 + Σ workers over terminated ports; workers-per-port table (10G⇒2, 25G⇒5), unmeasured
           - ports request=2 value=2 [measured] anchor: design D1: declared port constructs
       - dpnis request=2 value=2 [measured] anchor: object-model.md §2: one dpni per terminated port, link end, fabric membership
-  router/dpcon/13 @ child:router
+  router/dpcon/13 label=router @ child:router
     - dpcon request=16 value=16 [measured] anchor: dpcon.md DPCON-I1: one dpcon per polled queue
       - dpni-queues request=8 value=8 [measured] anchor: ADR-0012: transmit queues >= T
         - T request=8 value=8 [unmeasured] anchor: design D3: T = 1 + Σ workers over terminated ports; workers-per-port table (10G⇒2, 25G⇒5), unmeasured
           - ports request=2 value=2 [measured] anchor: design D1: declared port constructs
       - dpnis request=2 value=2 [measured] anchor: object-model.md §2: one dpni per terminated port, link end, fabric membership
-  router/dpcon/14 @ child:router
+  router/dpcon/14 label=router @ child:router
     - dpcon request=16 value=16 [measured] anchor: dpcon.md DPCON-I1: one dpcon per polled queue
       - dpni-queues request=8 value=8 [measured] anchor: ADR-0012: transmit queues >= T
         - T request=8 value=8 [unmeasured] anchor: design D3: T = 1 + Σ workers over terminated ports; workers-per-port table (10G⇒2, 25G⇒5), unmeasured
           - ports request=2 value=2 [measured] anchor: design D1: declared port constructs
       - dpnis request=2 value=2 [measured] anchor: object-model.md §2: one dpni per terminated port, link end, fabric membership
-  router/dpcon/15 @ child:router
+  router/dpcon/15 label=router @ child:router
     - dpcon request=16 value=16 [measured] anchor: dpcon.md DPCON-I1: one dpcon per polled queue
       - dpni-queues request=8 value=8 [measured] anchor: ADR-0012: transmit queues >= T
         - T request=8 value=8 [unmeasured] anchor: design D3: T = 1 + Σ workers over terminated ports; workers-per-port table (10G⇒2, 25G⇒5), unmeasured
           - ports request=2 value=2 [measured] anchor: design D1: declared port constructs
       - dpnis request=2 value=2 [measured] anchor: object-model.md §2: one dpni per terminated port, link end, fabric membership
-  router/dpcon/16 @ child:router
+  router/dpcon/16 label=router @ child:router
     - dpcon request=16 value=16 [measured] anchor: dpcon.md DPCON-I1: one dpcon per polled queue
       - dpni-queues request=8 value=8 [measured] anchor: ADR-0012: transmit queues >= T
         - T request=8 value=8 [unmeasured] anchor: design D3: T = 1 + Σ workers over terminated ports; workers-per-port table (10G⇒2, 25G⇒5), unmeasured
           - ports request=2 value=2 [measured] anchor: design D1: declared port constructs
       - dpnis request=2 value=2 [measured] anchor: object-model.md §2: one dpni per terminated port, link end, fabric membership
-  router/dpni/1 @ child:router num_queues=8
+  router/dpni/1 label=wan0 @ child:router num_queues=8
     - dpnis request=2 value=2 [measured] anchor: object-model.md §2: one dpni per terminated port, link end, fabric membership
-  router/dpni/2 @ child:router num_queues=8
+  router/dpni/2 label=wan1 @ child:router num_queues=8
     - dpnis request=2 value=2 [measured] anchor: object-model.md §2: one dpni per terminated port, link end, fabric membership
-  router/dpseci/1 @ child:router num_queues=4 has_cg=true
+  router/dpseci/1 label=router @ child:router num_queues=4 has_cg=true
     - dpseci request=1 value=1 [measured] anchor: dpseci.md: num_queues >= each block's flows, DPSECI_OPT_HAS_CG
 edges:
   router/dpni/1#0 <-> dpmac.7  [port-edge]
   router/dpni/2#0 <-> dpmac.4  [port-edge]
 6 planned transition(s) [headline: disruptive]:
-  [disruptive] Create { port: dpmac.7 }
+  [disruptive] Create { port: dpmac.7, label: ConstructName("wan0") }
   [disruptive] Connect { port: dpmac.7 }
   [hitless] Bind { port: dpmac.7 }
-  [disruptive] Create { port: dpmac.4 }
+  [disruptive] Create { port: dpmac.4, label: ConstructName("wan1") }
   [disruptive] Connect { port: dpmac.4 }
   [hitless] Bind { port: dpmac.4 }
 plan-only (38) [no port-facet executor; reported, not drift or error]:

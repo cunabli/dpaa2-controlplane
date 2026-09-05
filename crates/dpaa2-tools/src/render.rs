@@ -52,8 +52,8 @@ pub fn render_plan(plan: &CompiledPlan) -> String {
         };
         let _ = writeln!(
             out,
-            "  {} @ {}{}",
-            key.label(),
+            "  {key} label={} @ {}{}",
+            obj.label(),
             render_container(obj.container()),
             render_attrs(obj.attributes()),
         );
@@ -198,7 +198,7 @@ pub fn render_warnings(warnings: &BTreeSet<Warning>) -> String {
 
 fn render_attach(ap: &AttachPoint) -> String {
     match ap {
-        AttachPoint::Object { key, port } => format!("{}#{port}", key.label()),
+        AttachPoint::Object { key, port } => format!("{key}#{port}"),
         AttachPoint::Mac(dpmac) => dpmac.to_string(),
     }
 }

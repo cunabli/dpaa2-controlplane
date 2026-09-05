@@ -390,9 +390,14 @@ fn inventory(v: &Value) -> Result<Inventory, String> {
         let offer = dpmac_offer(&pair[1])?;
         dpmacs.insert(DpmacId::new(num(&pair[0])?), offer);
     }
-    let mut foreign = BTreeMap::new();
+    // The model's `foreign` map records DPL-owned objects by their owner label; it
+    // decodes into the Rust `labels` map, where availability_of judges each label
+    // against the declared-name set. The model's owners ("dpl", third-party names) are
+    // never declared names, so they read Foreign exactly as the model's availabilityOf
+    // does (correspondence preserved).
+    let mut labels = BTreeMap::new();
     for pair in map_items(field(v, "foreign")?)? {
-        foreign.insert(obj_id(&pair[0])?, text(&pair[1])?);
+        labels.insert(obj_id(&pair[0])?, text(&pair[1])?);
     }
     let mut ceilings = BTreeMap::new();
     for pair in map_items(field(v, "ceilings")?)? {
@@ -401,7 +406,7 @@ fn inventory(v: &Value) -> Result<Inventory, String> {
     Ok(Inventory {
         cpus: num(field(v, "cpus")?)?,
         dpmacs,
-        foreign,
+        labels,
         ceilings,
     })
 }

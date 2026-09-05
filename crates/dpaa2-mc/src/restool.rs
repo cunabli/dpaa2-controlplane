@@ -24,13 +24,6 @@ pub const DEFAULT_CONTAINER: &str = "dprc.1";
 /// its `--resources` variant) is accepted against it (`dprc.md` mc.global section).
 const MC_GLOBAL: &str = "mc.global";
 
-/// The label this control plane stamps on every object it creates (ADR-0010 §4 and
-/// Consequences: the intent layer reserves a label namespace; the reconciler tags
-/// what it makes so a later pass can tell its own objects from foreign ones). An
-/// object at an expected name without this label is somebody else's and is left
-/// alone. Fits the MC's 15-char cap (`restool.h MC_OBJ_LABEL_MAX_LENGTH`).
-const OWNED_LABEL: &str = "dpaa2ctl";
-
 /// The ADR-0003 §3 port safety matrix, transcribed once — the single Rust copy the
 /// southbound consults (task 3.5, design D2). A reserved dpmac may never anchor a
 /// port; the reason string is the one `REF_INVENTORY` records
@@ -148,27 +141,34 @@ impl<R: Runner> RestoolMc<R> {
         self.queues.clamp(1, self.cores)
     }
 
-    /// `restool --script <type> create …` then plug the result into the container.
-    /// Returns the created object reference (e.g. `dpcon.5`).
-    fn create_and_plug(&self, create_args: &[&str]) -> Result<String, Error> {
+    /// `restool --script <type> create …` then plug the result into the container,
+    /// stamping it with the owning construct's name. Returns the created object
+    /// reference (e.g. `dpcon.5`). Every companion in a dpni's chain wears the same
+    /// construct name as the dpni it serves, so the whole chain is readable in bare
+    /// restool and — the name being in the declared set — recognized as ours next pass
+    /// (ADR-0010 §4 as refined by ADR-0015 decisions 9 + 13). A stamp failure lets the
+    /// chain roll back, so a half-labelled object is never left behind.
+    fn create_and_plug(
+        &self,
+        create_args: &[&str],
+        label: &ConstructName,
+    ) -> Result<String, Error> {
         let out = self.runner.run(create_args)?;
         let obj = parse::parse_object_ref(&out)
             .ok_or_else(|| Error::Parse(format!("no object id in `{}`", out.trim())))?
             .to_owned();
         self.assign_plugged(&obj)?;
-        // ADR-0010 §4: tag every object we create so the next read-back does not
-        // misread it as foreign. Propagating a failure lets the chain roll back —
-        // an unlabelled object of ours would be lost to the foreign map next pass.
-        self.set_label(&obj)?;
+        self.stamp_label(&obj, label)?;
         Ok(obj)
     }
 
-    /// `restool dprc set-label <obj> --label=dpaa2ctl` (ADR-0010 §4). Stamps our
-    /// ownership label on `obj`; board-verified to land even on a locked container
-    /// (V-DPRC-3). The label is [`OWNED_LABEL`], within the MC's 15-char cap.
-    fn set_label(&self, obj: &str) -> Result<(), Error> {
+    /// `restool dprc set-label <obj> --label=<name>` (ADR-0010 §4; ADR-0015 decision 9):
+    /// stamps the owning construct's name on `obj`. Board-verified to land even on a
+    /// locked container (V-DPRC-3). The name is bounded to the MC's 15-char cap by
+    /// ADR-0015 decision 13, so it is never truncated.
+    fn stamp_label(&self, obj: &str, label: &ConstructName) -> Result<(), Error> {
         self.runner
-            .run(&["dprc", "set-label", obj, &format!("--label={OWNED_LABEL}")])?;
+            .run(&["dprc", "set-label", obj, &format!("--label={label}")])?;
         Ok(())
     }
 
@@ -186,22 +186,29 @@ impl<R: Runner> RestoolMc<R> {
 
     /// Ensures the container holds one DPIO per core (each with its own DPMCP),
     /// topping up idempotently — the DPAA2 datapath needs a per-core DPIO pool
-    /// (`ls-addni` `create_dpio`).
-    fn ensure_dpio(&self) -> Result<(), Error> {
+    /// (`ls-addni` `create_dpio`). The pool is shared across ports; each object it
+    /// tops up is stamped with `label`, the construct name of the port that triggered
+    /// the top-up. A shared pool object created under one port's name stays ours for
+    /// every port (its name is in the declared set), so ownership recognition never
+    /// depends on which port grew the pool (ADR-0010 §4 refined by ADR-0015).
+    fn ensure_dpio(&self, label: &ConstructName) -> Result<(), Error> {
         let show = self.runner.run(&["dprc", "show", &self.container])?;
         let existing = parse::count_objects(&show, "dpio");
         let container = format!("--container={}", self.container);
         for _ in existing..self.cores {
-            let dpio = self.create_and_plug(&[
-                "--script",
-                "dpio",
-                "create",
-                "--channel-mode=DPIO_LOCAL_CHANNEL",
-                &container,
-                "--num-priorities=8",
-            ])?;
+            let dpio = self.create_and_plug(
+                &[
+                    "--script",
+                    "dpio",
+                    "create",
+                    "--channel-mode=DPIO_LOCAL_CHANNEL",
+                    &container,
+                    "--num-priorities=8",
+                ],
+                label,
+            )?;
             // Each DPIO also needs a companion DPMCP.
-            self.create_and_plug(&["--script", "dpmcp", "create", &container])?;
+            self.create_and_plug(&["--script", "dpmcp", "create", &container], label)?;
             tracing::debug!(%dpio, "provisioned dpio");
         }
         Ok(())
@@ -262,12 +269,13 @@ impl<R: Runner> RestoolMc<R> {
     fn provision_chain<T>(
         &self,
         steps: &[ProvisionStep],
+        label: &ConstructName,
         then: impl FnOnce(&Self) -> Result<T, Error>,
     ) -> Result<T, Error> {
         let mut created: Vec<(&'static str, String)> = Vec::new();
         for step in steps {
             let args: Vec<&str> = step.args.iter().map(String::as_str).collect();
-            match self.create_and_plug(&args) {
+            match self.create_and_plug(&args, label) {
                 Ok(obj) => created.push((step.kind, obj)),
                 Err(e) => {
                     self.rollback_chain(&created);
@@ -352,29 +360,23 @@ impl<R: Runner> McControl for RestoolMc<R> {
 
     fn read_inventory(&self) -> Result<Inventory, Error> {
         // One `dprc show`, read as rows so the label column (ADR-0010 Consequences)
-        // feeds both the foreign map and each dpmac's availability.
+        // feeds both the label map and each dpmac's availability.
         let show = self.runner.run(&["dprc", "show", &self.container])?;
         let rows = parse::parse_dprc_rows(&show);
 
-        // ADR-0010 §4: labels are the only identity the MC carries. Every object we
-        // create is stamped with `OWNED_LABEL` (set-label at create), so a row whose
-        // label is not ours belongs to someone else — a DPL resident (empty label ⇒
-        // owner "dpl") or a third party (its label is the owner). This is
-        // level-triggered: our own objects, relabelled each pass, never enter this
-        // map, so a plan never mistakes them for foreign. Dpmacs are excluded — they
-        // are DPC-born hardware anchors, never owned through their own label; their
-        // ownership is inferred below from the dpni they anchor.
-        let mut foreign = BTreeMap::new();
+        // The backend reports, it never judges (ADR-0010 §4 as refined by ADR-0015):
+        // ownership is decided against the declared-name set on the api side, not by a
+        // fixed tag here. Every non-dpmac row reports its raw label verbatim (empty
+        // string included) — our own objects are no longer filtered out, because there
+        // is no self-tag to recognize them by. Dpmacs are excluded: they are DPC-born
+        // hardware anchors with no label of their own, and their availability is
+        // derived below from the dpni they anchor.
+        let mut labels = BTreeMap::new();
         for row in &rows {
-            if row.family == Family::Dpmac || row.label == OWNED_LABEL {
+            if row.family == Family::Dpmac {
                 continue;
             }
-            let owner = if row.label.is_empty() {
-                "dpl".to_owned()
-            } else {
-                row.label.clone()
-            };
-            foreign.insert((row.family, row.num), owner);
+            labels.insert((row.family, row.num), row.label.clone());
         }
 
         let mut dpmacs = BTreeMap::new();
@@ -396,16 +398,23 @@ impl<R: Runner> McControl for RestoolMc<R> {
                 )));
             };
             // Availability precedence: (1) the ADR-0003 §3 safety matrix is strongest
-            // — a reserved dpmac is Reserved even when it anchors a foreign dpni;
-            // (2) else if it anchors a dpni in the foreign map, it is Foreign with
-            // that dpni's owner (ADR-0001 §4); (3) else Free.
+            // — a reserved dpmac is Reserved even when it anchors a labelled dpni;
+            // (2) else if it anchors a dpni, it reports that dpni's raw label as the
+            // owner (empty ⇒ the DPL resident "dpl"); the api side demotes this to Free
+            // when the owner is a declared name (ADR-0010 §4 refined by ADR-0015 —
+            // Inventory::availability_of); (3) else Free.
             let avail = if let Some(why) = reserved_reason(id) {
                 Availability::Reserved(why.to_owned())
-            } else if let Some(owner) = raw
+            } else if let Some(label) = raw
                 .endpoint
-                .and_then(|ep| foreign.get(&(Family::Dpni, ep.into_inner())))
+                .and_then(|ep| labels.get(&(Family::Dpni, ep.into_inner())))
             {
-                Availability::Foreign(owner.clone())
+                let owner = if label.is_empty() {
+                    "dpl".to_owned()
+                } else {
+                    label.clone()
+                };
+                Availability::Foreign(owner)
             } else {
                 Availability::Free
             };
@@ -436,17 +445,16 @@ impl<R: Runner> McControl for RestoolMc<R> {
             // already sizes its pools by this count.
             cpus: u32::try_from(self.cores).unwrap_or(u32::MAX),
             dpmacs,
-            // ADR-0010 §4 closes design D2's GAP: DPL ownership *is* observable —
-            // the label column of `dprc show` is the signal. An object without our
-            // `OWNED_LABEL` is foreign (empty label ⇒ "dpl", any other label ⇒ that
-            // owner); set-label-at-create keeps our own objects out of this map
-            // across passes (ADR-0001 §4 level-triggered idempotence).
-            foreign,
+            // ADR-0010 §4 closes design D2's GAP: DPL ownership *is* observable — the
+            // label column of `dprc show` is the signal. The raw column is reported
+            // verbatim; the api side judges each label against the declared-name set
+            // (empty ⇒ "dpl", a declared name ⇒ ours, anything else ⇒ that owner).
+            labels,
             ceilings,
         })
     }
 
-    fn create_dpni(&self) -> Result<DpniId, Error> {
+    fn create_dpni(&self, label: &ConstructName) -> Result<DpniId, Error> {
         // A DPNI is not usable alone: `dpaa2-eth` allocates a DPBP, a DPMCP, and one
         // DPCON per queue from the container's pool at probe, backed by a per-core
         // DPIO pool. These must exist first (mirrors `ls-addni`'s create_dpni).
@@ -454,17 +462,20 @@ impl<R: Runner> McControl for RestoolMc<R> {
         // outside the transactional chain (it's always safe to retry from partial
         // state); the per-DPNI deps below are provisioned and, on any failure
         // (including the `dpni create` itself), rolled back together so a failed
-        // attempt never leaves orphaned private objects plugged in the container.
-        self.ensure_dpio()?;
-        self.provision_chain(&self.dpni_dep_steps(), |this| {
+        // attempt never leaves orphaned private objects plugged in the container. The
+        // whole chain wears `label`, the owning construct's name (ADR-0015 decision 9).
+        self.ensure_dpio(label)?;
+        self.provision_chain(&self.dpni_dep_steps(), label, |this| {
             let queues = format!("--num-queues={}", this.queues);
             let out = this.runner.run(&["--script", "dpni", "create", &queues])?;
             let id = parse::parse_dpni_object_id(&out).ok_or_else(|| {
                 Error::Parse(format!("could not parse created dpni id from `{out}`"))
             })?;
-            // ADR-0010 §4: label the dpni too (pre-plug is fine — V-DPRC-3 shows
-            // labels land regardless of plug state). A failure rolls the chain back.
-            this.set_label(&id.to_string())?;
+            // Stamp the construct name at create (pre-plug is fine — V-DPRC-3 shows
+            // labels land regardless of plug state), so no read-back window ever shows
+            // the object unlabelled (ADR-0010 §4 ABA guard). A failure rolls the chain
+            // back.
+            this.stamp_label(&id.to_string(), label)?;
             Ok(id)
         })
         // The DPNI is plugged (triggering the driver probe) in `connect()`, after
@@ -497,6 +508,15 @@ impl<R: Runner> McControl for RestoolMc<R> {
             &dpni.to_string(),
             &format!("--mac-addr={mac}"),
         ])?;
+        self.sync()
+    }
+
+    fn set_label(&self, dpni: DpniId, label: &ConstructName) -> Result<(), Error> {
+        // `dprc set-label dpni.N --label=<name>`, decision 9's repair verb (ADR-0015):
+        // rewrites the construct name as the object's MC label to repair drift or
+        // realize a rename on a standing object. The create path already stamps the
+        // name via [`Self::stamp_label`]; this is the level-triggered repair.
+        self.stamp_label(&dpni.to_string(), label)?;
         self.sync()
     }
 
@@ -575,7 +595,8 @@ mod tests {
     #[test]
     fn read_inventory_assembles_offers_availability_and_ceilings() {
         // Unlabelled residents (the DPL's own): every dpmac here is unconnected, and
-        // dpni.0 carries no label — so it now surfaces as foreign, owned by "dpl".
+        // dpni.0 carries no label — reported verbatim as an empty label, which the api
+        // side reads as the DPL resident.
         let show = dprc_show(&[
             "dpni.0                          plugged",
             "dpmac.3                         unplugged",
@@ -622,8 +643,8 @@ mod tests {
         assert_eq!(inv.ceilings[&Family::Dpio], Ceiling::Unknown);
         assert_eq!(inv.ceilings[&Family::Dpcon], Ceiling::Unknown);
 
-        // ADR-0010 §4: the unlabelled dpni.0 is a DPL object, owned by "dpl".
-        assert_eq!(inv.foreign.get(&(Family::Dpni, 0)), Some(&"dpl".to_owned()));
+        // ADR-0010 §4: the unlabelled dpni.0 reports an empty label verbatim.
+        assert_eq!(inv.labels.get(&(Family::Dpni, 0)), Some(&String::new()));
     }
 
     #[test]
@@ -644,7 +665,7 @@ mod tests {
             .read_inventory()
             .expect("inventory");
 
-        assert_eq!(inv.foreign.get(&(Family::Dpni, 0)), Some(&"dpl".to_owned()));
+        assert_eq!(inv.labels.get(&(Family::Dpni, 0)), Some(&String::new()));
         assert_eq!(
             inv.dpmacs[&DpmacId::new(7)].avail,
             Availability::Foreign("dpl".to_owned())
@@ -652,12 +673,13 @@ mod tests {
     }
 
     #[test]
-    fn our_labelled_dpni_is_not_foreign_and_its_dpmac_is_free() {
-        // Idempotence twin: same board, but dpni.0 wears our label — so it is not
-        // foreign and the dpmac it anchors is Free (level-triggered: our own objects
-        // never re-enter the foreign map across passes).
+    fn a_labelled_dpni_reports_its_label_as_the_dpmac_owner() {
+        // The backend never judges (ADR-0010 §4 refined by ADR-0015): a dpni wearing a
+        // construct name is reported with that raw label, and the dpmac it anchors is
+        // Foreign(that name). Whether the name is ours is the api side's call —
+        // Inventory::availability_of demotes it to Free when the name is declared.
         let show = dprc_show(&[
-            "dpni.0          dpaa2ctl        plugged",
+            "dpni.0          wan0            plugged",
             "dpmac.7                         plugged",
         ]);
         let info7 = dpmac_info_ep(10_000, "DPMAC_ETH_IF_XFI", "dpni.0, link is up");
@@ -670,8 +692,11 @@ mod tests {
             .read_inventory()
             .expect("inventory");
 
-        assert!(inv.foreign.is_empty());
-        assert_eq!(inv.dpmacs[&DpmacId::new(7)].avail, Availability::Free);
+        assert_eq!(inv.labels.get(&(Family::Dpni, 0)), Some(&"wan0".to_owned()));
+        assert_eq!(
+            inv.dpmacs[&DpmacId::new(7)].avail,
+            Availability::Foreign("wan0".to_owned())
+        );
     }
 
     #[test]
@@ -716,7 +741,7 @@ mod tests {
             .expect("inventory");
 
         assert_eq!(
-            inv.foreign.get(&(Family::Dpni, 5)),
+            inv.labels.get(&(Family::Dpni, 5)),
             Some(&"vendor".to_owned())
         );
         assert_eq!(

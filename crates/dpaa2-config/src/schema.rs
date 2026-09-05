@@ -83,9 +83,11 @@ where
 #[serde(deny_unknown_fields, bound(deserialize = "T: From<String>"))]
 pub struct RawRenamed<T> {
     /// The construct's prior name. [`crate::parse`] validates it as an interface
-    /// name (task 6.2), applies rule (i), then carries the accepted clause into the
-    /// neutral model as `renamed` (task 6.5), which the rename matcher will consume
-    /// once wired into the live path (task 6.6).
+    /// name, applies rule (i), then carries the accepted clause into the neutral model
+    /// as `renamed` (ADR-0015 decision 10). An anchored port's rename is already
+    /// realized live: the reconciler matches the dpni by its dpmac edge and emits a
+    /// `SetLabel` repair to the new name. The matcher's rename widening for unanchored
+    /// constructs engages when an unanchored-family executor lands (bead gqf.57).
     #[serde(deserialize_with = "name")]
     pub from: T,
 }

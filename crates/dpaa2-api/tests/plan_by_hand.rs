@@ -23,7 +23,7 @@ fn hand_built_plan_reconciles_and_locks_relationships() {
     // A companion is drawn only through a tenant witness, and the port witness
     // yields the dpni and its dpni<->dpmac edge.
     let dpio = kernel.companion(Family::Dpio, 1);
-    let (dpni, iface) = kernel.dpni(1, 4);
+    let (dpni, iface) = kernel.dpni(1, 4, "lan0".into());
     let port_edge = iface.into_port_edge(DpmacId::new(7));
 
     let mut plan = CompiledPlan::default();
@@ -47,8 +47,8 @@ fn hand_built_plan_reconciles_and_locks_relationships() {
     );
 
     // A link between two tenant interfaces is dpni<->dpni: both ends are objects.
-    let (_va, va_if) = vpp.dpni(1, 0);
-    let (_kb, kb_if) = kernel.dpni(2, 4);
+    let (_va, va_if) = vpp.dpni(1, 0, "wire".into());
+    let (_kb, kb_if) = kernel.dpni(2, 4, "wire".into());
     let link = Link {
         name: "wire".into(),
         interface_a: "vpp".into(),
@@ -84,7 +84,8 @@ fn hand_built_plan_reconciles_and_locks_relationships() {
         out.transitions,
         vec![
             Transition::Create {
-                port: DpmacId::new(7)
+                port: DpmacId::new(7),
+                label: "lan0".into(),
             },
             Transition::Connect {
                 port: DpmacId::new(7)

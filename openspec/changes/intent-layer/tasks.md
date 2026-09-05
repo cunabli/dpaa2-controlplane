@@ -326,8 +326,13 @@ the change's only other operator sync point (design D12).
 - [x] 6.5 `dpaa2-api` matcher + disruption-classed Plan (hitless /
       boundary / disruptive); dry-run headline is the max class,
       converge gates on `--allow` (bead gqf.54)
-- [ ] 6.6 label carries the construct name verbatim; drift repaired by
-      set-label, never recreate; ADR-0010 §4 cross-checked (bead gqf.53)
+- [x] 6.6 label carries the construct name verbatim; drift repaired by
+      set-label, never recreate; ADR-0010 §4 cross-checked (bead gqf.53);
+      ownership recognition went intent-relative with it (the fixed
+      `dpaa2ctl` tag retired, `Intent::declared_names` + raw-label
+      inventory) — the fixed tag could not coexist with name labels; the
+      matcher's live wiring for unanchored constructs awaits an executor
+      for those families (follow-up bead gqf.57)
 - [ ] 6.7 `dpaa2-verify` pairing twin: the two-intent properties on real
       strings plus MBT replay of the edit alphabet; owes the Rust twins of
       the model's `frameLawTest`/`addFrameTest` (deliberately not

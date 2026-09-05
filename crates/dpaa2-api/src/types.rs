@@ -117,6 +117,17 @@ resource_name! {
     ConstructName
 }
 
+/// The construct-name view of a tenant name: the MC label ADR-0015 decision 9 stamps
+/// on a tenant-owned object (its child dprc, companions, dpseci), whose owning construct
+/// *is* the tenant. A tenant name is already a valid construct name — one declaration
+/// namespace (ADR-0013 §2) — so the crossing is lossless. It is spelled out rather than
+/// hopping through `From<&str>` so the tenant→label seam reads at the call site.
+impl From<&TenantName> for ConstructName {
+    fn from(t: &TenantName) -> Self {
+        Self(t.0.clone())
+    }
+}
+
 resource_name! {
     /// A derivation rule's name: the token a [`ProvenanceNode`](crate::compiled::ProvenanceNode)
     /// and its [`ProvenanceKey`](crate::compiled::ProvenanceKey) address it by

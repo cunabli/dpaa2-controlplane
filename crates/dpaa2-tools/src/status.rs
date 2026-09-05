@@ -41,7 +41,7 @@ impl StatusReport {
                 let matched = observed.dpni_connected_to(p.dpmac);
                 PortStatus {
                     dpmac: p.dpmac,
-                    name: p.name.clone(),
+                    name: p.name.to_string(),
                     lifecycle: matched
                         .map_or(Lifecycle::Absent, dpaa2_api::ObservedDpni::lifecycle),
                     netdev: matched.and_then(|d| d.netdev.clone()),

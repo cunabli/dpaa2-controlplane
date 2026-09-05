@@ -262,8 +262,10 @@ pub enum Presence {
 pub struct DesiredPort {
     /// The stable DPMAC this port is anchored to.
     pub dpmac: DpmacId,
-    /// The stable interface name the resulting netdev should be renamed to.
-    pub name: String,
+    /// The stable interface name the resulting netdev should be renamed to. By ADR-0015
+    /// decision 13 the construct name IS the netdev name and the MC label, so this is a
+    /// [`ConstructName`], converted only at the serde/CLI boundary.
+    pub name: ConstructName,
     /// The port's known/declared MAC, if any.
     pub mac: Option<MacAddr>,
     /// Whether `mac` is asserted or actuated.
@@ -281,7 +283,7 @@ pub struct DesiredPort {
 impl DesiredPort {
     /// Creates an assert-mode, present port with the given anchor and name.
     #[must_use]
-    pub fn new(dpmac: DpmacId, name: impl Into<String>) -> Self {
+    pub fn new(dpmac: DpmacId, name: impl Into<ConstructName>) -> Self {
         Self {
             dpmac,
             name: name.into(),
@@ -388,7 +390,8 @@ impl DesiredTopology {
         // ponytail: num_queues 0 in the port-only projection — real sizing is the
         // compiler's (task 3.2); reconcile reads it from `ports`, not the plan.
         let kernel = kernel_tenant(0);
-        let (dpni, iface) = kernel.dpni(ordinal, 0);
+        // The kernel dpni serves this port; its name is the label (ADR-0015 decision 13).
+        let (dpni, iface) = kernel.dpni(ordinal, 0, port.name.clone());
         self.plan.order.push(dpni.key().clone());
         self.plan.objects.insert(dpni);
         self.plan.edges.insert(iface.into_port_edge(port.dpmac));
@@ -499,7 +502,7 @@ mod tests {
     /// A plan carrying a single kernel dpni terminating a port-edge to `dpmac`.
     fn plan_with_port_edge(dpmac: DpmacId) -> CompiledPlan {
         let kernel = kernel_tenant(1);
-        let (dpni, iface) = kernel.dpni(1, 0);
+        let (dpni, iface) = kernel.dpni(1, 0, "lan0".into());
         let mut plan = CompiledPlan::default();
         plan.order.push(dpni.key().clone());
         plan.objects.insert(dpni);

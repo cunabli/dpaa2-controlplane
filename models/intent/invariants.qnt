@@ -180,10 +180,11 @@ module intent_invariants {
           implies keyIndex(p.order, k1) < keyIndex(p.order, k2))),
     }
 
-  // ---- keysAreIdentities (INTENT_I5): keys are identities, labels a projection ----
-  // ADR-0010 §4 (the key is the identity, the label a lossy projection). No
-  // two objects share a key, and every ordinal is 1-based; the Rust `ObjectKey` is
-  // the map key, the rendered label a derived field.
+  // ---- keysAreIdentities (INTENT_I5): keys are identities, the label a name ----
+  // ADR-0010 §4 as refined by ADR-0015 decision 13: the key is the identity, and the
+  // label is the owning construct's name — bounded to the 15-char cap and lossless, not
+  // a lossy projection. No two objects share a key, and every ordinal is 1-based; the
+  // Rust `ObjectKey` is the map key, the label the re-association seam.
   pure def keysAreIdentities(p: Plan): bool = and {
     p.objs.size() == objKeys(p).size(),
     p.objs.forall(o => o.key.ordinal >= 1),

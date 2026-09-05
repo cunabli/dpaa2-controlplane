@@ -22,11 +22,17 @@
 use std::collections::BTreeMap;
 
 use dpaa2_api::{
-    DesiredPort, DesiredTopology, DpmacId, DpniId, LinkType, ObservedDpmac, ObservedDpni,
-    ObservedTopology, Plan, Presence, ReconcileOptions, Transition, reconcile_with,
+    ConstructName, DesiredPort, DesiredTopology, DpmacId, DpniId, LinkType, ObservedDpmac,
+    ObservedDpni, ObservedTopology, Plan, Presence, ReconcileOptions, Transition, reconcile_with,
 };
 
 use crate::itf::ModelView;
+
+/// The construct name of the single desired port every retro trace replays under.
+/// The retro model carries no label (see `project`), so both the reconciler's plan
+/// and the model-derived expectation use this one name — the `Create` label then
+/// matches on both sides and is not a divergence.
+const RETRO_PORT_NAME: &str = "retro0";
 
 /// One frozen retro trace and the reconciler context it replays under.
 #[derive(Clone, Copy, Debug)]
@@ -82,7 +88,12 @@ fn deltas(prev: &ModelView, next: &ModelView, port: u32) -> Option<Transition> {
     let anchor = DpmacId::new(port);
     for (n, d) in &next.dpnis {
         match prev.dpnis.get(n) {
-            None => return Some(Transition::Create { port: anchor }),
+            None => {
+                return Some(Transition::Create {
+                    port: anchor,
+                    label: ConstructName::from(RETRO_PORT_NAME),
+                });
+            }
             Some(p) => {
                 if p.connected_to.is_none() && d.connected_to == Some(port) {
                     return Some(Transition::Connect { port: anchor });
@@ -143,7 +154,7 @@ fn expected_plan(epoch: &[ModelView], port: u32) -> Vec<Transition> {
 /// never predicted, or a final state the reconciler does not consider
 /// converged.
 pub fn replay(views: &[ModelView], spec: &RetroTrace) -> Result<(), String> {
-    let mut port = DesiredPort::new(DpmacId::new(spec.port), "retro0");
+    let mut port = DesiredPort::new(DpmacId::new(spec.port), RETRO_PORT_NAME);
     port.presence = spec.presence;
     let desired = DesiredTopology::from_ports([port]);
 
@@ -169,10 +180,20 @@ pub fn replay(views: &[ModelView], spec: &RetroTrace) -> Result<(), String> {
             // Final observation: the model is done, so must the plan be.
             None => Vec::new(),
         };
-        if plan.transitions != expected {
+        // The retro model does not carry the set-label seam (ADR-0015 decision 9), just
+        // as it carries no MAC or link type (see `project`): the label projects as
+        // absent, so a `SetLabel` repair is out of retro scope and is dropped before the
+        // model-conformance diff.
+        let planned: Vec<Transition> = plan
+            .transitions
+            .iter()
+            .filter(|t| !matches!(t, Transition::SetLabel { .. }))
+            .cloned()
+            .collect();
+        if planned != expected {
             return Err(format!(
-                "{}@{obs}: reconciler planned {:?}, model expects {expected:?}",
-                spec.file, plan.transitions
+                "{}@{obs}: reconciler planned {planned:?}, model expects {expected:?}",
+                spec.file
             ));
         }
     }

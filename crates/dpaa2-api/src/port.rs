@@ -11,6 +11,7 @@ use crate::error::Error;
 use crate::intent::Intent;
 use crate::inventory::Inventory;
 use crate::model::{DpmacId, DpniId, MacAddr, ObservedTopology};
+use crate::types::ConstructName;
 
 /// Southbound MC-portal control at MC-command granularity.
 ///
@@ -37,11 +38,14 @@ pub trait McControl {
     /// Returns an error if the backend cannot be queried.
     fn read_inventory(&self) -> Result<Inventory, Error>;
 
-    /// Creates a DPNI object and returns its MC-assigned id.
+    /// Creates a DPNI object, stamped with the owning construct's name as its MC
+    /// label, and returns its MC-assigned id. Stamping at create closes the read-back
+    /// window in which a fresh object would otherwise show unlabelled and be misread
+    /// as foreign (ADR-0010 §4 ABA guard; ADR-0015 decision 9).
     ///
     /// # Errors
     /// Returns an error if creation fails.
-    fn create_dpni(&self) -> Result<DpniId, Error>;
+    fn create_dpni(&self, label: &ConstructName) -> Result<DpniId, Error>;
 
     /// Connects a single DPNI↔DPMAC edge.
     ///
@@ -54,6 +58,15 @@ pub trait McControl {
     /// # Errors
     /// Returns an error if the MAC cannot be set.
     fn set_mac(&self, dpni: DpniId, mac: MacAddr) -> Result<(), Error>;
+
+    /// Writes the construct name as the object's MC label (`dprc set-label`), decision
+    /// 9's repair verb (ADR-0015): the seam that re-associates an unanchored object to
+    /// its intent and stamps an anchored one for debuggability. Board-verified to land
+    /// even on a locked container (ADR-0010 §4 / V-DPRC-3).
+    ///
+    /// # Errors
+    /// Returns an error if the label cannot be written.
+    fn set_label(&self, dpni: DpniId, label: &ConstructName) -> Result<(), Error>;
 
     /// Disconnects a DPNI from its DPMAC.
     ///

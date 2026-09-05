@@ -83,8 +83,8 @@ pub fn generate(
             tracing::warn!(port = %port.dpmac, "no known MAC; cannot generate .link");
             continue;
         };
-        let path = link_path(dir, &port.name);
-        std::fs::write(&path, render_link(mac, &port.name))?;
+        let path = link_path(dir, port.name.as_str());
+        std::fs::write(&path, render_link(mac, port.name.as_str()))?;
         tracing::info!(path = %path.display(), %mac, name = %port.name, "wrote link file");
         written.push(path);
     }
@@ -116,7 +116,7 @@ pub fn apply(
     reload_udev()?;
     for port in desired.ports() {
         if let Some(current) = rename_target(port, observed) {
-            trigger_rename(current, &port.name)?;
+            trigger_rename(current, port.name.as_str())?;
         }
     }
     Ok(written)
@@ -134,7 +134,7 @@ fn rename_target<'a>(port: &DesiredPort, observed: &'a ObservedTopology) -> Opti
         return None;
     }
     let current = observed.dpni_connected_to(port.dpmac)?.netdev.as_deref()?;
-    (current != port.name).then_some(current)
+    (current != port.name.as_str()).then_some(current)
 }
 
 /// Re-emits an `add` uevent for `netdev` so udevd re-runs `net_setup_link` and applies

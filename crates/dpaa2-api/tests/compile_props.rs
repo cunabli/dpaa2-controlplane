@@ -504,7 +504,7 @@ fn ref_inventory(cpus: u32) -> Inventory {
     Inventory {
         cpus,
         dpmacs,
-        foreign: BTreeMap::from([((Family::Dpni, 0), "dpl".to_owned())]),
+        labels: BTreeMap::from([((Family::Dpni, 0), String::new())]),
         ceilings,
     }
 }
@@ -781,7 +781,7 @@ fn build_witness_plan(
         for _ in 0..n_free {
             let ord = *next_dpni.entry(t.name.clone()).or_insert(1);
             next_dpni.insert(t.name.clone(), ord + 1);
-            let (obj, _iface) = t.dpni(ord, 1);
+            let (obj, _iface) = t.dpni(ord, 1, t.name.as_str().into());
             push(&mut plan, obj);
         }
         for ord in 1..=n_dpseci {
@@ -799,8 +799,8 @@ fn build_witness_plan(
         next_dpni.insert(ta.name.clone(), ord_left + 1);
         let ord_right = *next_dpni.entry(tb.name.clone()).or_insert(1);
         next_dpni.insert(tb.name.clone(), ord_right + 1);
-        let (oa, iface_a) = ta.dpni(ord_left, 1);
-        let (ob, iface_b) = tb.dpni(ord_right, 1);
+        let (oa, iface_a) = ta.dpni(ord_left, 1, "w".into());
+        let (ob, iface_b) = tb.dpni(ord_right, 1, "w".into());
         push(&mut plan, oa);
         push(&mut plan, ob);
         let link = Link {

@@ -8,10 +8,11 @@
 //! family (ADR-0011). `ensure` reads it from the board; tests and the model read it
 //! from change #2's reference snapshot. It carries no `serde` (design D10).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::family::Family;
 use crate::model::DpmacId;
+use crate::types::ConstructName;
 
 /// A dpmac's physical media type, immutable for the object's life (DPMAC-I3,
 /// `dpmac.md`; `types.qnt` `EthInterface`). Only the reference board's values are
@@ -105,27 +106,116 @@ pub struct Inventory {
     pub cpus: u32,
     /// Every DPC-born dpmac, by id (DPMAC-I1).
     pub dpmacs: BTreeMap<DpmacId, DpmacOffer>,
-    /// DPL-owned objects a plan must never claim, with their owner label
-    /// (ADR-0001 §4). Keyed by `(family, number)`.
-    pub foreign: BTreeMap<(Family, u32), String>,
+    /// The raw MC label column, one entry per non-dpmac object the board reports,
+    /// keyed by `(family, number)` (`""` for an empty label). The backend reports;
+    /// it never judges. Ownership is decided against the declared-name set, not a
+    /// fixed tag (ADR-0010 §4 as refined by ADR-0015): see [`Self::availability_of`].
+    pub labels: BTreeMap<(Family, u32), String>,
     /// One ceiling per derived family ([`crate::DERIVED_FAMILIES`] is the domain).
     pub ceilings: BTreeMap<Family, Ceiling>,
 }
 
 impl Inventory {
-    /// The availability of an object id against the inventory (design D2;
-    /// `types.qnt` `availabilityOf`): a dpmac reads its offer, a DPL-owned object
-    /// reads [`Availability::Foreign`], anything else is free to derive.
+    /// The availability of an object id against the inventory, judged relative to the
+    /// declared-name recognition set (design D2; `edits.qnt` `intentNames`; ADR-0010 §4
+    /// refined by ADR-0015). A dpmac reads its offer, with one refinement: a dpmac whose
+    /// offer is [`Availability::Foreign`] but whose owner is a declared name is one of
+    /// ours (the anchoring dpni wears a construct name), so it demotes to
+    /// [`Availability::Free`] — without this an idempotent re-converge would self-refuse
+    /// a port on the dpmac it already provisioned. For any other family the raw label
+    /// decides: absent from the map ⇒ [`Availability::Free`]; an empty label ⇒
+    /// `Foreign("dpl")`, the DPL resident; a label in `declared` ⇒ ours, so
+    /// [`Availability::Free`]; anything else ⇒ [`Availability::Foreign`] wearing that label.
     #[must_use]
-    pub fn availability_of(&self, family: Family, num: u32) -> Availability {
-        if family == Family::Dpmac
-            && let Some(offer) = self.dpmacs.get(&DpmacId::new(num))
-        {
+    pub fn availability_of(
+        &self,
+        family: Family,
+        num: u32,
+        declared: &BTreeSet<ConstructName>,
+    ) -> Availability {
+        if family == Family::Dpmac {
+            let Some(offer) = self.dpmacs.get(&DpmacId::new(num)) else {
+                return Availability::Free;
+            };
+            if let Availability::Foreign(owner) = &offer.avail
+                && declared.contains(&ConstructName::from(owner.as_str()))
+            {
+                return Availability::Free;
+            }
             return offer.avail.clone();
         }
-        if let Some(owner) = self.foreign.get(&(family, num)) {
-            return Availability::Foreign(owner.clone());
+        match self.labels.get(&(family, num)) {
+            None => Availability::Free,
+            Some(label) if label.is_empty() => Availability::Foreign("dpl".to_owned()),
+            Some(label) if declared.contains(&ConstructName::from(label.as_str())) => {
+                Availability::Free
+            }
+            Some(label) => Availability::Foreign(label.clone()),
         }
-        Availability::Free
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn declared(names: &[&str]) -> BTreeSet<ConstructName> {
+        names.iter().map(|n| ConstructName::from(*n)).collect()
+    }
+
+    #[test]
+    fn label_judgment_is_declared_relative() {
+        let inv = Inventory {
+            labels: BTreeMap::from([
+                ((Family::Dpni, 0), String::new()),     // empty ⇒ the DPL resident
+                ((Family::Dpni, 5), "wan0".to_owned()), // ours (declared)
+                ((Family::Dpni, 6), "vendor".to_owned()), // third party
+            ]),
+            ..Inventory::default()
+        };
+        let d = declared(&["wan0"]);
+        // Absent from the map is free to derive.
+        assert_eq!(inv.availability_of(Family::Dpni, 9, &d), Availability::Free);
+        // Empty label reads as the DPL resident.
+        assert_eq!(
+            inv.availability_of(Family::Dpni, 0, &d),
+            Availability::Foreign("dpl".to_owned())
+        );
+        // A declared label is ours, so free.
+        assert_eq!(inv.availability_of(Family::Dpni, 5, &d), Availability::Free);
+        // Any other label is its owner.
+        assert_eq!(
+            inv.availability_of(Family::Dpni, 6, &d),
+            Availability::Foreign("vendor".to_owned())
+        );
+    }
+
+    #[test]
+    fn a_dpmac_owned_by_our_own_dpni_demotes_to_free() {
+        // A dpmac whose offer is Foreign but whose owner is a declared name is ours —
+        // the anchoring dpni wears the construct name — so an idempotent re-converge
+        // must not self-refuse the port it already provisioned.
+        let inv = Inventory {
+            dpmacs: BTreeMap::from([(
+                DpmacId::new(7),
+                DpmacOffer {
+                    id: DpmacId::new(7),
+                    max_rate: 10_000,
+                    eth_if: EthInterface::Xfi,
+                    link_type: DpmacLinkType::Phy,
+                    avail: Availability::Foreign("wan0".to_owned()),
+                },
+            )]),
+            ..Inventory::default()
+        };
+        assert_eq!(
+            inv.availability_of(Family::Dpmac, 7, &declared(&["wan0"])),
+            Availability::Free
+        );
+        // A foreign owner that is not declared stays foreign.
+        assert_eq!(
+            inv.availability_of(Family::Dpmac, 7, &declared(&["lan0"])),
+            Availability::Foreign("wan0".to_owned())
+        );
     }
 }

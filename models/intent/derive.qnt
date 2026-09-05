@@ -20,9 +20,11 @@
 // derivation of a refused intent is undefined, not wrong.
 //
 // Open items left for 1.3 (refusals) and 3.1 (Rust label rendering):
-//   (a) restool caps set-label at 15 chars (dprc.md), so the rendered
-//       `<tenant>/<family>/<ordinal>` overflows for long tenant names;
-//       the ObjectKey is the identity, the label a lossy projection (ADR-0010).
+//   (a) the label is the owning construct's name, bounded to restool's 15-char
+//       set-label cap by the decision-13 name rule (ADR-0015), so it is
+//       lossless — never the overflowing `<tenant>/<family>/<ordinal>`
+//       rendering. The ObjectKey remains the identity; the name is the
+//       re-association seam (ADR-0010 §4 as refined by ADR-0015).
 //   (b) a tenant terminating an unseeded rate class has no thread count —
 //       threadCount returns None; 1.3 refuses it UnknownRateClass. 1.2 reads
 //       None as 0 and never reaches that intent. A mix of *seeded* classes

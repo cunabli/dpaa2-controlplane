@@ -172,10 +172,10 @@ pub fn apply<M: McControl, K: KernelControl>(
 
     for t in &plan.transitions {
         match t {
-            Transition::Create { port } => {
-                let id = mc.create_dpni()?;
+            Transition::Create { port, label } => {
+                let id = mc.create_dpni(label)?;
                 created.insert(*port, id);
-                tracing::info!(%port, %id, "created dpni");
+                tracing::info!(%port, %id, %label, "created dpni");
             }
             Transition::Connect { port } => {
                 let id = resolve(*port, &created, observed)?;
@@ -206,10 +206,10 @@ pub fn apply<M: McControl, K: KernelControl>(
                 tracing::info!(%dpni, "destroyed dpni");
             }
             Transition::SetLabel { dpni, label } => {
-                // The matcher's relabel lowering (ADR-0015 decisions 9-10). `reconcile`
-                // does not yet emit this — the set-label write convention is task 6.6 —
-                // so the arm only logs; wiring the McControl set-label call lands there.
-                tracing::info!(%dpni, %label, "relabel (set-label emission is task 6.6)");
+                // The matcher's relabel lowering (ADR-0015 decisions 9-10): set-label is
+                // decision 9's repair verb, never a destroy/create.
+                mc.set_label(*dpni, label)?;
+                tracing::info!(%dpni, %label, "relabelled dpni to construct name");
             }
         }
     }
@@ -234,7 +234,7 @@ fn unconverged_anchors(plan: &Plan) -> Vec<DpmacId> {
     let mut anchors = Vec::new();
     for t in &plan.transitions {
         let anchor = match t {
-            Transition::Create { port }
+            Transition::Create { port, .. }
             | Transition::Connect { port }
             | Transition::Bind { port }
             | Transition::SetMac { port, .. } => Some(*port),

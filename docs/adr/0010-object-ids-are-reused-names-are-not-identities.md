@@ -58,7 +58,15 @@ guarantee).
    configuration block, and — where a family has one — a label the
    reconciler itself wrote. A mismatch is refuse-and-report, never
    "destroy whatever is at that name now".
-4. **Labels are the only identity the MC carries, and they survive a
+4. *Refined by ADR-0015 decisions 9 + 13: the label the reconciler writes
+   is the owning construct's name — bounded to the 15-char cap and lossless
+   under the decision-13 name rule — stamped at create and repaired by
+   `set-label`, not a fixed tag. Recognition is membership in the declared-
+   name set plus each active rename `from`, decided on the api side against
+   the intent, never by the adapter. An empty label still reads as the DPL
+   resident. The ABA guard survives unchanged: an object at an expected id
+   wearing a name the intent does not declare is somebody else's and is left
+   alone.* **Labels are the only identity the MC carries, and they survive a
    lock.** `dprc set-label` is accepted even on a locked container's
    objects (V-DPRC-3 rev 1) and reads back through `dprc show`. The
    reconciler tags every object it creates with a label it can
@@ -80,8 +88,9 @@ guarantee).
   created and destroys in reverse order inside one run); nothing changes
   for `dpaa2-verify`.
 - Labels become part of the convergence intent: the intent layer (`#3`)
-  reserves a label namespace, and the read-back parser must surface the
-  label column of `dprc show`.
+  writes the owning construct's name as the label (not a reserved tag — see
+  the decision-4 refinement above), and the read-back parser must surface
+  the label column of `dprc show` verbatim for the api side to judge.
 - The reference snapshot's object list is a set of names at one moment,
   not a set of identities; snapshot diffs report "a `dpni.3` is present"
   and never "the same `dpni.3` is still present".

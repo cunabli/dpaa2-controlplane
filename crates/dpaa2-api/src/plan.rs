@@ -57,6 +57,12 @@ pub enum Transition {
     Create {
         /// The anchor the new DPNI will be connected to.
         port: DpmacId,
+        /// The construct name stamped on the object at create — the owning
+        /// construct's name (ADR-0015 decisions 9 + 13), written as the MC label the
+        /// moment the object is minted so no read-back window ever shows it
+        /// unlabelled (ADR-0010 §4 ABA guard). The name IS the label, byte-for-byte
+        /// (decision 13).
+        label: ConstructName,
     },
     /// Connect the port's DPNI to its DPMAC (single edge).
     Connect {
@@ -91,12 +97,12 @@ pub enum Transition {
         dpni: DpniId,
     },
     /// Relabel an observed DPNI to its intended construct name — the actuation the
-    /// matcher's re-association lowers to (ADR-0015 decisions 9-10; the plan seam of
-    /// the parcel review). A relabel is `set-label`, decision 9's repair verb, never a
-    /// destroy/create; whether it is a hitless drift-repair or a boundary rename is
-    /// the matcher's [`crate::matcher::MatchPlan::headline`] to judge from the prior
-    /// label. This carries only the variant; its *emission* from a reconcile pass is
-    /// task 6.6 (the set-label write convention), so `reconcile` does not yet produce it.
+    /// matcher's re-association lowers to (ADR-0015 decisions 9-10). A relabel is
+    /// `set-label`, decision 9's repair verb, never a destroy/create; whether it is a
+    /// hitless drift-repair or a boundary rename is the matcher's
+    /// [`crate::matcher::MatchPlan::headline`] to judge from the prior label.
+    /// [`reconcile`](crate::reconcile::reconcile) emits this for a port dpni whose
+    /// observed label differs from its construct name.
     SetLabel {
         /// The observed DPNI to relabel.
         dpni: DpniId,
@@ -140,7 +146,7 @@ impl Transition {
             // cannot tell a hitless drift-repair from a boundary rename — that needs
             // the prior label the matcher holds — so it takes the conservative
             // boundary reading for gating; the matcher's headline judges the exact
-            // class per pair when task 6.6 wires emission.
+            // per-pair class where the prior label is known.
             Self::SetLabel { .. } => Class::Boundary,
         }
     }
@@ -251,6 +257,7 @@ mod tests {
                 },
                 Transition::Create {
                     port: DpmacId::new(7),
+                    label: "wan0".into(),
                 },
             ],
             ..Plan::new()

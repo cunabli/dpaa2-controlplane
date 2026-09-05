@@ -193,8 +193,10 @@ fn convert(raw: &RawIntent) -> Result<Intent, Error> {
     // `from` resolves against declared tenants, a port/link/fabric's against the
     // shared construct namespace. Validation stays up front here; each converter
     // then carries the accepted clause into the neutral `Intent` as `renamed`
-    // (task 6.5), which the rename matcher will consume once wired into the live
-    // path (task 6.6).
+    // (ADR-0015 decision 10). An anchored port's rename is realized live by the
+    // reconciler's anchor-matched `SetLabel` repair; the matcher's rename widening for
+    // unanchored constructs engages when an unanchored-family executor lands (bead
+    // gqf.57).
     check_renames(raw)?;
 
     let tenants = raw
@@ -304,8 +306,9 @@ fn construct_is_declared_unrenamed(raw: &RawIntent, target: &ConstructName) -> b
 /// a `from` that itself carries a `renamed` clause (the swap, the chain) or names an
 /// undeclared construct (the plain rename) is admitted. This gate only validates and
 /// refuses; the accepted clause is carried into the neutral `Intent` by each converter
-/// (task 6.5), which the rename matcher will consume once wired into the live path
-/// (task 6.6).
+/// (ADR-0015 decision 10). An anchored port's rename is realized live by the
+/// reconciler's anchor-matched `SetLabel` repair; the matcher's rename widening for
+/// unanchored constructs engages when an unanchored-family executor lands (bead gqf.57).
 fn check_renames(raw: &RawIntent) -> Result<(), Error> {
     for (name, t) in &raw.tenant {
         let Some(r) = &t.renamed else { continue };

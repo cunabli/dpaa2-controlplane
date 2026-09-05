@@ -329,17 +329,23 @@ fn terminated_port_names(intent: &Intent, name: &TenantName) -> BTreeSet<Constru
         .collect()
 }
 
-/// The construct names of a tenant's dpnis: a port name, a link name, or the fabric
-/// name for an attachment or either wire end (`derive.qnt` `dpniConstructs`).
+/// The construct a dpni origin serves — the name carried as the dpni's MC label
+/// (ADR-0015 decisions 9+13): a port name, a link name, or the fabric name for an
+/// attachment or either wire end (`derive.qnt` `dpniConstructs`).
+fn origin_construct(o: &Origin) -> ConstructName {
+    match o {
+        Origin::Port(p) => p.name.clone(),
+        Origin::Link { link, .. } => link.name.clone(),
+        Origin::Attach(fname) | Origin::WireMember(fname) => fname.clone(),
+        Origin::WireOwner { fabric, .. } => fabric.clone(),
+    }
+}
+
+/// The construct names of a tenant's dpnis (`derive.qnt` `dpniConstructs`).
 fn dpni_constructs(intent: &Intent, name: &TenantName) -> BTreeSet<ConstructName> {
     origin_list(intent, name)
         .iter()
-        .map(|o| match o {
-            Origin::Port(p) => p.name.clone(),
-            Origin::Link { link, .. } => link.name.clone(),
-            Origin::Attach(fname) | Origin::WireMember(fname) => fname.clone(),
-            Origin::WireOwner { fabric, .. } => fabric.clone(),
-        })
+        .map(origin_construct)
         .collect()
 }
 
@@ -595,12 +601,14 @@ fn build_tenant_objects(
     emit_companions(t, Family::Dpmcp, s.effective_dpmcp.value, objects);
     emit_companions(t, Family::Dpbp, s.effective_dpbp.value, objects);
     emit_companions(t, Family::Dpcon, s.effective_dpcon.value, objects);
-    // one dpni per origin, all sharing the tenant's queue count
-    if s.dpnis >= 1 {
-        for ord in 1..=s.dpnis {
-            let (obj, _iface) = t.dpni(u(ord), u(s.num_queues));
-            objects.insert(obj);
-        }
+    // one dpni per origin, all sharing the tenant's queue count; the origin's
+    // construct is the dpni's MC label (ADR-0015 decisions 9+13). Position + 1 is the
+    // ordinal (`s.dpnis == origin_list(...).len()` by construction), so emission order
+    // is unchanged.
+    for (pos, o) in origin_list(intent, &t.name).iter().enumerate() {
+        let ord = u32::try_from(pos + 1).unwrap_or(0);
+        let (obj, _iface) = t.dpni(ord, u(s.num_queues), origin_construct(o));
+        objects.insert(obj);
     }
     // one dpseci per crypto block, sized by that block's own flows
     for (i, k) in crypto_blocks_of(intent, &t.name).iter().enumerate() {
@@ -1023,8 +1031,10 @@ fn build_edges(
         let ord_right = ordinal_where(&origin_list(intent, &l.interface_b), |o| {
             is_link_side(o, &l.name, 1)
         });
-        let (_a, ia) = ta.dpni(ord_left, u(sa.num_queues));
-        let (_b, ib) = tb.dpni(ord_right, u(sb.num_queues));
+        // Only the interfaces are kept (the objects are emitted by `build_tenant_objects`),
+        // so the label rides along inertly; it is the link the dpnis serve.
+        let (_a, ia) = ta.dpni(ord_left, u(sa.num_queues), l.name.clone());
+        let (_b, ib) = tb.dpni(ord_right, u(sb.num_queues), l.name.clone());
         edges.insert(l.wire(ia, ib));
     }
     // Hardware fabric (6c): one edge per dpsw interface, 0-based.
@@ -1067,8 +1077,9 @@ fn build_edges(
             });
             let ord_member =
                 ordinal_where(&origin_list(intent, &c), |o| is_wire_member_of(o, &g.name));
-            let (_o, owner_if) = owner.dpni(ord_owner, u(so.num_queues));
-            let (_mm, member_if) = ct.dpni(ord_member, u(sc.num_queues));
+            // Only the interfaces are kept; the label rides along inertly (the fabric).
+            let (_o, owner_if) = owner.dpni(ord_owner, u(so.num_queues), g.name.clone());
+            let (_mm, member_if) = ct.dpni(ord_member, u(sc.num_queues), g.name.clone());
             edges.insert(g.wire(owner_if, member_if));
         }
     }
