@@ -167,7 +167,9 @@ and the board already carries objects from the last converge. Decisions
     at leisure, and never consulted on a clean boot. Rollback is the
     inverse declaration through the same machinery. Two safety rules bound
     it: (i) a `from` naming a currently-declared construct refuses at
-    parse; and (ii) matching runs two passes, and pass 1 excludes every
+    parse, unless that construct itself carries a `renamed` clause — the
+    swap and the chain declare every `from`-target renamed away, so no
+    object is claimed twice; and (ii) matching runs two passes, and pass 1 excludes every
     construct named by any `from`-clause. Rule (ii) is required by the
     swap counterexample — `wan0` and `eth0` renamed to each other in one
     edit: naive pass-1 label matching would bind new-`eth0` to

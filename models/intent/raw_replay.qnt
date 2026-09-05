@@ -42,39 +42,39 @@ module intent_raw_replay {
     verdict' = parse(r),
   }
 
-  pure val rtBase: RawTenant = { dataplane: UserspacePoll, maxCores: 16, isolation: Isolated, pool: "" }
+  pure val rtBase: RawTenant = { dataplane: UserspacePoll, maxCores: 16, isolation: Isolated, pool: "", from: "" }
 
   // A clean document exercising every construct, so the accepted-arm Intent
   // comparison covers tenants, ports, links, fabrics, crypto, and extras at once.
   run rawAcceptedTrace = feed(
     emptyRaw
       .with("tenants", Map("router" -> rtBase))
-      .with("ports", Map("wan0" -> { dpmac: 7, rate: 10000, tenant: "router" }))
-      .with("links", Map("uplink" -> { interfaceA: "router", interfaceB: KERNEL }))
-      .with("fabrics", Map("lan" -> { switching: Hardware, forwardedBy: KERNEL, members: ["wan0", "router"] }))
+      .with("ports", Map("wan0" -> { dpmac: 7, rate: 10000, tenant: "router", from: "" }))
+      .with("links", Map("uplink" -> { interfaceA: "router", interfaceB: KERNEL, from: "" }))
+      .with("fabrics", Map("lan" -> { switching: Hardware, forwardedBy: KERNEL, members: ["wan0", "router"], from: "" }))
       .with("crypto", [{ tenant: "router", flows: 4 }])
       .with("extras", Map("router" -> Map("dpio" -> 2))))
 
   // The reserved kernel declared as a tenant — ReservedKernel (parse.rs convert).
   run rawReservedKernelTrace = feed(
-    emptyRaw.with("tenants", Map(KERNEL -> { dataplane: KernelNetlink, maxCores: 16, isolation: Isolated, pool: "" })))
+    emptyRaw.with("tenants", Map(KERNEL -> { dataplane: KernelNetlink, maxCores: 16, isolation: Isolated, pool: "", from: "" })))
 
   // A construct name shared across families (a port and a fabric both "p1") —
   // DuplicateName (parse.rs convert; task 3.3d keyed each family, so intra-family
   // duplicates are unrepresentable and only the cross-family collision remains).
   run rawDuplicateNameTrace = feed(
     emptyRaw
-      .with("ports", Map("p1" -> { dpmac: 7, rate: 10000, tenant: "" }))
-      .with("fabrics", Map("p1" -> { switching: Hardware, forwardedBy: KERNEL, members: [] })))
+      .with("ports", Map("p1" -> { dpmac: 7, rate: 10000, tenant: "", from: "" }))
+      .with("fabrics", Map("p1" -> { switching: Hardware, forwardedBy: KERNEL, members: [], from: "" })))
 
   // A link naming one tenant at both ends — LinkSelfLoop (parse.rs convert_link).
   run rawSelfLoopTrace = feed(
     emptyRaw.with("tenants", Map("c1" -> rtBase))
-      .with("links", Map("l1" -> { interfaceA: "c1", interfaceB: "c1" })))
+      .with("links", Map("l1" -> { interfaceA: "c1", interfaceB: "c1", from: "" })))
 
   // A fabric member classifying to nothing — RawMemberUnresolved (classify_member).
   run rawUnresolvedMemberTrace = feed(
-    emptyRaw.with("fabrics", Map("f1" -> { switching: Hardware, forwardedBy: KERNEL, members: ["ghost"] })))
+    emptyRaw.with("fabrics", Map("f1" -> { switching: Hardware, forwardedBy: KERNEL, members: ["ghost"], from: "" })))
 
   // An [extra.<tenant>] family not one of the 16 — UnknownExtraFamily (parse_family).
   run rawUnknownFamilyTrace = feed(
@@ -82,7 +82,7 @@ module intent_raw_replay {
 
   // A port naming an undeclared tenant — TenantAbsent (the dangling reference).
   run rawDanglingTenantTrace = feed(
-    emptyRaw.with("ports", Map("p1" -> { dpmac: 7, rate: 10000, tenant: "ghost" })))
+    emptyRaw.with("ports", Map("p1" -> { dpmac: 7, rate: 10000, tenant: "ghost", from: "" })))
 
   // The two isolation/pool contradictions in one document — RestrictedWithoutPool
   // (restricted, no pool) and PoolWithoutRestricted (a pool on a non-restricted
@@ -98,6 +98,22 @@ module intent_raw_replay {
   // any-match over the set is what reconciles the short-circuit DEVIATION.
   run rawDirtyMixTrace = feed(
     emptyRaw
-      .with("ports", Map("p1" -> { dpmac: 7, rate: -1, tenant: "ghost" }))
-      .with("links", Map("p1" -> { interfaceA: "ghost", interfaceB: "ghost" })))
+      .with("ports", Map("p1" -> { dpmac: 7, rate: -1, tenant: "ghost", from: "" }))
+      .with("links", Map("p1" -> { interfaceA: "ghost", interfaceB: "ghost", from: "" })))
+
+  // A port `e0` renamed from a currently-declared `wan0` that carries no clause of
+  // its own — RenamedFromDeclared (parse.rs convert; ADR-0015 decision 10 rule (i)
+  // as refined, task 6.3): the genuine contradiction where an object is claimed twice.
+  run rawRenamedFromDeclaredTrace = feed(
+    emptyRaw.with("ports", Map(
+      "e0" -> { dpmac: 7, rate: 10000, tenant: "", from: "wan0" },
+      "wan0" -> { dpmac: 8, rate: 10000, tenant: "", from: "" })))
+
+  // The swap `wan0` from `wan1` AND `wan1` from `wan0`, both declared — each target
+  // is itself renamed away, so the REFINED rule (i) ACCEPTS (task 6.3). Witnesses
+  // that the refinement admits the swap the naive rule would have refused.
+  run rawRenameSwapTrace = feed(
+    emptyRaw.with("ports", Map(
+      "wan0" -> { dpmac: 7, rate: 10000, tenant: "", from: "wan1" },
+      "wan1" -> { dpmac: 8, rate: 10000, tenant: "", from: "wan0" })))
 }

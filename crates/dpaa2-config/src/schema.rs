@@ -71,6 +71,24 @@ where
         .collect())
 }
 
+/// A `renamed = { from = "<old>" }` inline table (or `[<construct>.renamed]`
+/// sub-table) declaring a construct's prior name (ADR-0015 decision 10; task 6.3).
+/// Generic over the name namespace: `RawRenamed<TenantName>` on a tenant,
+/// `RawRenamed<ConstructName>` on a port/link/fabric, so the `from` value crosses
+/// into the same newtype the construct itself uses and no bare `String` name leaks
+/// through (types.rs). `deny_unknown_fields` rejects a mistyped `from` key; the
+/// `bound` keeps the derive's requirement at `From<String>` (what [`name`] needs)
+/// rather than the `Deserialize` it would otherwise demand of `T`.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields, bound(deserialize = "T: From<String>"))]
+pub struct RawRenamed<T> {
+    /// The construct's prior name. [`crate::parse`] validates it as an interface
+    /// name (task 6.2) and applies rule (i) before dropping it — the rename matcher
+    /// (task 6.4/6.5) is what will plumb it into the neutral model.
+    #[serde(deserialize_with = "name")]
+    pub from: T,
+}
+
 /// Defines a construct table that also carries the six retired count keys
 /// (dpio/dpbp/dpcon/dpmcp/queues/workers) as rejected `Option`s. `serde` accepts the
 /// key under `deny_unknown_fields` so [`crate::parse`] names it in the "count is
@@ -196,6 +214,11 @@ construct_table! {
         /// A restricted tenant's public holder; absent otherwise.
         #[serde(default, deserialize_with = "name_opt")]
         pub pool: Option<TenantName>,
+        /// An optional `renamed = { from = "<old>" }` declaring the tenant's prior
+        /// name (ADR-0015 decision 10; task 6.3). Validated and dropped in
+        /// [`crate::parse`] until the rename matcher lands (task 6.4/6.5).
+        #[serde(default)]
+        pub renamed: Option<RawRenamed<TenantName>>,
     }
 }
 
@@ -235,6 +258,10 @@ construct_table! {
         /// here is always invalid (topology-config spec).
         #[serde(default)]
         pub dpni: Option<String>,
+        /// An optional `renamed = { from = "<old>" }` declaring the port's prior name
+        /// (ADR-0015 decision 10; task 6.3). Shares the port/link/fabric namespace.
+        #[serde(default)]
+        pub renamed: Option<RawRenamed<ConstructName>>,
     }
 }
 
@@ -249,6 +276,10 @@ construct_table! {
         /// The tenant whose interface terminates the other end.
         #[serde(deserialize_with = "name")]
         pub interface_b: TenantName,
+        /// An optional `renamed = { from = "<old>" }` declaring the link's prior name
+        /// (ADR-0015 decision 10; task 6.3). Shares the port/link/fabric namespace.
+        #[serde(default)]
+        pub renamed: Option<RawRenamed<ConstructName>>,
     }
 }
 
@@ -275,6 +306,10 @@ construct_table! {
         /// The members, in declaration order — each names a port, tenant, or fabric.
         #[serde(default, deserialize_with = "name_vec")]
         pub members: Vec<ConstructName>,
+        /// An optional `renamed = { from = "<old>" }` declaring the fabric's prior
+        /// name (ADR-0015 decision 10; task 6.3). Shares the port/link/fabric namespace.
+        #[serde(default)]
+        pub renamed: Option<RawRenamed<ConstructName>>,
     }
 }
 

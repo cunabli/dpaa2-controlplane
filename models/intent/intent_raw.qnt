@@ -31,7 +31,11 @@
 // to TOML's own key-uniqueness and enum-value rejection): the `dpmac = "N"`
 // string lexing (`dpmac` is carried as `int`, as the model `Port` does), the
 // `mac`/`mac_mode`/`dpni`-pinning slots, the six rejected derived-count keys,
-// the `name` IFNAMSIZ/charset check, the `[intent]` schema version, and an
+// the `name` IFNAMSIZ/charset check (the same lexical rule the `renamed.from`
+// VALUE must satisfy — task 6.3; the `from` value's name check lives in parse.rs
+// only, exactly like the declared `name`, so the model carries `from` as a raw
+// `str` and checks only rule (i), the declared-and-not-itself-renamed clause),
+// the `[intent]` schema version, and an
 // unknown `dataplane`/`isolation`/`switching` enum value (`Dataplane` /
 // `Isolation` / `Switching` are reused verbatim — a bad enum value is a format
 // error, exactly like a duplicate key). Each is reported in the parcel summary.
@@ -59,7 +63,10 @@ module intent_raw {
   // a surface pathology, so the surface cannot express one (like a duplicate
   // key). `pool` is a raw `str` — "" means absent; a dangling holder is
   // representable and left to compile (parse.rs does not resolve the pool).
-  type RawTenant = { dataplane: Dataplane, maxCores: int, isolation: Isolation, pool: str }
+  // `from` (TOML key `renamed.from`, ADR-0015 decision 10 / task 6.3) declares the
+  // tenant's prior name; "" means absent (the `pool` convention). Refined rule (i)
+  // refuses it only when the target is a declared tenant not itself renamed away.
+  type RawTenant = { dataplane: Dataplane, maxCores: int, isolation: Isolation, pool: str, from: str }
 
   // A `[port.<name>]` value (the name lives in the map key, task 3.3d / ADR-0015
   // decision 1). An intra-family duplicate is a TOML key redefinition,
@@ -68,19 +75,25 @@ module intent_raw {
   // `str` ("" means the reserved kernel terminates it, parse.rs convert_port), a
   // dangling owner representable; `dpmac`/`rate` are ints (the "dpmac.N" lexing
   // is the format boundary, not modelled here).
-  type RawPort = { dpmac: int, rate: int, tenant: str }
+  // `from` (TOML key `renamed.from`, ADR-0015 decision 10 / task 6.3) declares the
+  // port's prior name; "" means absent. It shares the port/link/fabric namespace.
+  type RawPort = { dpmac: int, rate: int, tenant: str, from: str }
 
   // A `[link.<name>]` value (the name lives in the map key, task 3.3d): a
   // dpni↔dpni pseudo-wire between two tenant ends. Both ends are raw `str`
   // (dangling representable); interfaceA == interfaceB is a self-loop parse.rs
   // refuses (compile has no such refusal — a new raw variant).
-  type RawLink = { interfaceA: str, interfaceB: str }
+  // `from` (TOML key `renamed.from`, ADR-0015 decision 10 / task 6.3) declares the
+  // link's prior name; "" means absent. It shares the port/link/fabric namespace.
+  type RawLink = { interfaceA: str, interfaceB: str, from: str }
 
   // A `[fabric.<name>]` value (the name lives in the map key). `forwardedBy` is a
   // raw `str`; `members` are raw `str`s parse classifies into a `Member` or
   // refuses unresolved (parse.rs classify_member) — a duplicate/dangling member
   // is representable.
-  type RawFabric = { switching: Switching, forwardedBy: str, members: List[str] }
+  // `from` (TOML key `renamed.from`, ADR-0015 decision 10 / task 6.3) declares the
+  // fabric's prior name; "" means absent. It shares the port/link/fabric namespace.
+  type RawFabric = { switching: Switching, forwardedBy: str, members: List[str], from: str }
 
   // A `[[crypto]]` table: one accelerator for one tenant, `flows` a raw int.
   type RawCrypto = { tenant: str, flows: int }
@@ -123,6 +136,13 @@ module intent_raw {
     | LinkSelfLoop({ link: str, tenant: str })            // a link naming one tenant at both ends (parse.rs convert_link)
     | RawMemberUnresolved({ fabric: str, member: str })   // a fabric member string resolving to no port/tenant/fabric (parse.rs classify_member)
     | UnknownExtraFamily({ tenant: str, family: str })    // an [extra.<tenant>] family not one of the 16 (parse.rs parse_family)
+    // A `renamed = { from }` whose target is currently declared and NOT itself
+    // renamed away — ADR-0015 decision 10 rule (i) as refined (task 6.3): the swap
+    // and the chain declare every `from`-target renamed away, so this refuses only
+    // the genuine contradiction where an object would be claimed twice (parse.rs
+    // convert). Namespace-agnostic: `construct`/`from` are a tenant pair or a
+    // port/link/fabric pair (the two namespaces are checked separately).
+    | RenamedFromDeclared({ construct: str, from: str })
 
   // Ok(Intent) or Refused(refusals). Named apart from Compiled's Ok/Refused
   // (refuse.qnt), whose constructors are already in scope through the flat import.
@@ -162,6 +182,19 @@ module intent_raw {
     raw.ports.keys().fold([], (a, n) => a.append(n))
       .concat(raw.links.keys().fold([], (a, n) => a.append(n)))
       .concat(raw.fabrics.keys().fold([], (a, n) => a.append(n)))
+
+  // The port/link/fabric key union — the one namespace a construct's `renamed.from`
+  // is checked against (parse.rs; task 6.3). Tenants live in their own namespace.
+  pure def constructKeys(raw: RawIntent): Set[str] =
+    raw.ports.keys().union(raw.links.keys()).union(raw.fabrics.keys())
+
+  // The `from` clause carried by whichever family holds `n`, or "" when `n` is not
+  // a declared construct (parse.rs looks the target up across port/link/fabric).
+  pure def constructOwnFrom(raw: RawIntent, n: str): str =
+    if (raw.ports.keys().contains(n)) raw.ports.get(n).from
+    else if (raw.links.keys().contains(n)) raw.links.get(n).from
+    else if (raw.fabrics.keys().contains(n)) raw.fabrics.get(n).from
+    else ""
 
   // Whether a fabric member string classifies to a declared port, tenant, or
   // fabric (parse.rs classify_member; port first, then tenant, then fabric).
@@ -240,6 +273,27 @@ module intent_raw {
           | None => a2.union(Set(UnknownExtraFamily({ tenant: t, family: fam })))
         }))
 
+  // parse.rs convert: a `renamed = { from }` naming a currently-declared construct
+  // that is NOT itself renamed away — ADR-0015 decision 10 rule (i) as refined (task
+  // 6.3). A tenant's `from` is checked against declared tenant keys; a
+  // port/link/fabric's `from` against the shared construct key union, the target's
+  // own `from` looked up in whichever family holds it. A `from`-target that itself
+  // carries a `renamed` clause is admitted (the swap and the chain), and the
+  // reserved `kernel` is never declared, so `from = "kernel"` passes and is inert.
+  pure def renamedFromRefusals(raw: RawIntent): Set[RawRefusal] =
+    val tenantR = raw.tenants.keys().fold(Set(), (acc, n) =>
+      val f = raw.tenants.get(n).from
+      if (f != "" and raw.tenants.keys().contains(f) and raw.tenants.get(f).from == "")
+        acc.union(Set(RenamedFromDeclared({ construct: n, from: f })))
+      else acc)
+    val ck = constructKeys(raw)
+    val familyR = ck.fold(tenantR, (acc, n) =>
+      val f = constructOwnFrom(raw, n)
+      if (f != "" and ck.contains(f) and constructOwnFrom(raw, f) == "")
+        acc.union(Set(RenamedFromDeclared({ construct: n, from: f })))
+      else acc)
+    familyR
+
   // Every clause runs; the refusal set is their union (the compiler idiom).
   pure def parseRefusals(raw: RawIntent): Set[RawRefusal] =
     reservedKernelRefusals(raw)
@@ -248,9 +302,14 @@ module intent_raw {
       .union(tenantRefRefusals(raw))
       .union(memberRefusals(raw))
       .union(extraFamilyRefusals(raw))
+      .union(renamedFromRefusals(raw))
 
   // ---- conversion into the neutral Intent (parse.rs convert) ----
 
+  // toIntent drops every construct's `from` clause: the neutral `Intent` does not
+  // carry it in this parcel (task 6.3). The rename matcher lands in tasks 6.4/6.5 —
+  // it will plumb `from` into the matcher's acceptance set then; here parse only
+  // validates rule (i) and discards the clause.
   pure def toIntent(raw: RawIntent): Intent =
     { tenants: raw.tenants.keys().fold([], (acc, n) =>
         val t = raw.tenants.get(n)
@@ -292,6 +351,7 @@ module intent_raw {
   pure def isLinkSelfLoop(r: RawRefusal): bool = match r { | LinkSelfLoop(_) => true | _ => false }
   pure def isRawMemberUnresolved(r: RawRefusal): bool = match r { | RawMemberUnresolved(_) => true | _ => false }
   pure def isUnknownExtraFamily(r: RawRefusal): bool = match r { | UnknownExtraFamily(_) => true | _ => false }
+  pure def isRenamedFromDeclared(r: RawRefusal): bool = match r { | RenamedFromDeclared(_) => true | _ => false }
   pure def isTenantAbsent(r: RawRefusal): bool =
     match r { | FromCompile(x) => match x { | TenantAbsent(_) => true | _ => false } | _ => false }
   pure def isPoolWithoutRestricted(r: RawRefusal): bool =
@@ -319,6 +379,18 @@ module intent_raw {
   pure def hasUnresolvedMember(raw: RawIntent): bool =
     raw.fabrics.keys().exists(n =>
       raw.fabrics.get(n).members.foldl(false, (a, m) => a or not(memberResolvesRaw(raw, m))))
+
+  // A `renamed = { from }` present whose target is a declared construct not itself
+  // renamed away (ADR-0015 decision 10 rule (i) as refined, task 6.3), across both
+  // namespaces — derived independently of renamedFromRefusals.
+  pure def hasRenamedFromDeclared(raw: RawIntent): bool = or {
+    raw.tenants.keys().exists(n =>
+      val f = raw.tenants.get(n).from
+      f != "" and raw.tenants.keys().contains(f) and raw.tenants.get(f).from == ""),
+    constructKeys(raw).exists(n =>
+      val f = constructOwnFrom(raw, n)
+      f != "" and constructKeys(raw).contains(f) and constructOwnFrom(raw, f) == ""),
+  }
 
   pure def hasDanglingTenantRef(raw: RawIntent): bool = or {
     raw.ports.keys().exists(n => not(rawResolves(raw, effTenant(raw.ports.get(n).tenant)))),
@@ -402,15 +474,16 @@ module intent_raw {
     hasUnresolvedMember(raw) implies refusesWith(raw, isRawMemberUnresolved),
     hasUnknownExtraFamily(raw) implies refusesWith(raw, isUnknownExtraFamily),
     hasDanglingTenantRef(raw) implies refusesWith(raw, isTenantAbsent),
+    hasRenamedFromDeclared(raw) implies refusesWith(raw, isRenamedFromDeclared),
   }
 
   // ---- directed runs (pnpm model:test) ----
 
-  pure val rtPoll: RawTenant = { dataplane: UserspacePoll, maxCores: 8, isolation: Isolated, pool: "" }
+  pure val rtPoll: RawTenant = { dataplane: UserspacePoll, maxCores: 8, isolation: Isolated, pool: "", from: "" }
 
   // The reserved kernel declared as a tenant is refused by name (parse.rs convert).
   run rawReservedKernelTest =
-    val raw = emptyRaw.with("tenants", Map(KERNEL -> { dataplane: KernelNetlink, maxCores: 16, isolation: Isolated, pool: "" }))
+    val raw = emptyRaw.with("tenants", Map(KERNEL -> { dataplane: KernelNetlink, maxCores: 16, isolation: Isolated, pool: "", from: "" }))
     refusesWith(raw, isReservedKernel)
 
   // A construct name shared across families (a port and a fabric both "p1") —
@@ -418,19 +491,19 @@ module intent_raw {
   // (parse.rs convert; task 3.3d). Two ports of one name are now unrepresentable.
   run rawDuplicateNameTest =
     val raw = emptyRaw
-      .with("ports", Map("p1" -> { dpmac: 7, rate: 10000, tenant: "" }))
-      .with("fabrics", Map("p1" -> { switching: Hardware, forwardedBy: KERNEL, members: [] }))
+      .with("ports", Map("p1" -> { dpmac: 7, rate: 10000, tenant: "", from: "" }))
+      .with("fabrics", Map("p1" -> { switching: Hardware, forwardedBy: KERNEL, members: [], from: "" }))
     refusesWith(raw, isDuplicateName)
 
   // A port naming an undeclared tenant is refused TenantAbsent (reused from compile).
   run rawDanglingTenantTest =
-    val raw = emptyRaw.with("ports", Map("p1" -> { dpmac: 7, rate: 10000, tenant: "ghost" }))
+    val raw = emptyRaw.with("ports", Map("p1" -> { dpmac: 7, rate: 10000, tenant: "ghost", from: "" }))
     all { refusesWith(raw, isTenantAbsent), match parse(raw) { | ParseRefused(_) => true | ParseOk(_) => false } }
 
   // A link naming one tenant at both ends — a self-loop parse.rs refuses (compile
   // does not: the alphabet accepts a self-link).
   run rawLinkSelfLoopTest =
-    val raw = emptyRaw.with("tenants", Map("c1" -> rtPoll)).with("links", Map("l1" -> { interfaceA: "c1", interfaceB: "c1" }))
+    val raw = emptyRaw.with("tenants", Map("c1" -> rtPoll)).with("links", Map("l1" -> { interfaceA: "c1", interfaceB: "c1", from: "" }))
     refusesWith(raw, isLinkSelfLoop)
 
   // An [extra.<tenant>] naming a family not one of the 16 (parse.rs parse_family).
@@ -440,7 +513,7 @@ module intent_raw {
 
   // A fabric member classifying to nothing (parse.rs classify_member).
   run rawMemberUnresolvedTest =
-    val raw = emptyRaw.with("fabrics", Map("f1" -> { switching: Hardware, forwardedBy: KERNEL, members: ["ghost"] }))
+    val raw = emptyRaw.with("fabrics", Map("f1" -> { switching: Hardware, forwardedBy: KERNEL, members: ["ghost"], from: "" }))
     refusesWith(raw, isRawMemberUnresolved)
 
   // The two isolation/pool contradictions (parse.rs convert_tenant).
@@ -454,7 +527,7 @@ module intent_raw {
   run rawAcceptedVerbatimTest =
     val raw = emptyRaw
       .with("tenants", Map("router" -> rtPoll))
-      .with("ports", Map("wan0" -> { dpmac: 7, rate: 10000, tenant: "router" }))
+      .with("ports", Map("wan0" -> { dpmac: 7, rate: 10000, tenant: "router", from: "" }))
       .with("extras", Map("router" -> Map("dpio" -> 2)))
     match parse(raw) {
       | ParseOk(i) => all {
@@ -467,10 +540,43 @@ module intent_raw {
       | ParseRefused(_) => false
     }
 
+  // ADR-0015 decision 10 rule (i), refined (task 6.3) — the directed cases.
+
+  // (a) A port `eth0` renamed from a currently-declared `wan0` that carries no
+  // clause of its own — the genuine contradiction, refused RenamedFromDeclared.
+  run rawRenamedFromDeclaredTest =
+    val raw = emptyRaw.with("ports", Map(
+      "eth0" -> { dpmac: 7, rate: 10000, tenant: "", from: "wan0" },
+      "wan0" -> { dpmac: 8, rate: 10000, tenant: "", from: "" }))
+    refusesWith(raw, isRenamedFromDeclared)
+
+  // (b) The swap `wan0` from `wan1` AND `wan1` from `wan0`, both declared — each
+  // target is itself renamed away, so the refined rule ACCEPTS (parse succeeds).
+  // (Names are drawn from the ranked pool, since an accepted doc reaches toIntent.)
+  run rawRenameSwapTest =
+    val raw = emptyRaw.with("ports", Map(
+      "wan0" -> { dpmac: 7, rate: 10000, tenant: "", from: "wan1" },
+      "wan1" -> { dpmac: 8, rate: 10000, tenant: "", from: "wan0" }))
+    match parse(raw) { | ParseOk(_) => true | ParseRefused(_) => false }
+
+  // (c) The tenant namespace: `edge` renamed from a declared tenant `c1` that
+  // carries no clause — refused RenamedFromDeclared (same rule, its own namespace).
+  run rawRenamedTenantFromDeclaredTest =
+    val raw = emptyRaw.with("tenants", Map(
+      "edge" -> { dataplane: UserspacePoll, maxCores: 8, isolation: Isolated, pool: "", from: "c1" },
+      "c1" -> rtPoll))
+    refusesWith(raw, isRenamedFromDeclared)
+
+  // (d) A plain rename `e0` from `wan0` where `wan0` is NOT declared — inert, so
+  // the document is accepted (the common after-a-rename case).
+  run rawPlainRenameTest =
+    val raw = emptyRaw.with("ports", Map("e0" -> { dpmac: 7, rate: 10000, tenant: "", from: "wan0" }))
+    match parse(raw) { | ParseOk(_) => true | ParseRefused(_) => false }
+
   // The surface-refusal and no-surprise laws hold on a clean raw and a dirty one.
   run rawLawsHoldTest =
     val clean = emptyRaw.with("tenants", Map("c1" -> rtPoll))
-    val dirty = emptyRaw.with("ports", Map("p1" -> { dpmac: 7, rate: -1, tenant: "ghost" }))
+    val dirty = emptyRaw.with("ports", Map("p1" -> { dpmac: 7, rate: -1, tenant: "ghost", from: "" }))
     all {
       parseOkWellFormed(clean), acceptedSurvives(clean), nearMissRefusedByName(clean),
       parseOkWellFormed(dirty), acceptedSurvives(dirty), nearMissRefusedByName(dirty),
@@ -484,6 +590,7 @@ module intent_raw {
     DuplicateName({ name: "n" }),
     LinkSelfLoop({ link: "l", tenant: "t" }),
     RawMemberUnresolved({ fabric: "f", member: "m" }),
-    UnknownExtraFamily({ tenant: "t", family: "x" }))
+    UnknownExtraFamily({ tenant: "t", family: "x" }),
+    RenamedFromDeclared({ construct: "c", from: "old" }))
   pure val PARSED_USE: Set[Parsed] = Set(ParseOk(toIntent(emptyRaw)), ParseRefused(Set()))
 }

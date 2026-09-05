@@ -3,8 +3,10 @@
 // alphabet random simulation draws `RawIntent`s from, grown one construct per
 // step from the empty document — deliberately producing the near-misses the
 // gqf.39 hole hid: dangling references, the reserved `kernel` declared,
-// zero/negative counts, self-loop links, unresolved fabric members, and
-// non-companion/unknown extra families. (Duplicate port/link names are no longer
+// zero/negative counts, self-loop links, unresolved fabric members,
+// non-companion/unknown extra families, and a `renamed = { from }` naming a
+// currently-declared construct not itself renamed away (task 6.3, drawn on the
+// port via R_FROMS). (Duplicate port/link names are no longer
 // among them: task 3.3d keyed each family, so an intra-family duplicate is
 // unrepresentable and the cross-family collision — disjoint name pools here — is
 // covered by the directed rawDuplicateNameTest, a recorded unknown in the sweep.) Validity is NOT encoded in
@@ -62,6 +64,12 @@ module intent_raw_alphabet {
   pure val R_MEMBERS: Set[str] = Set("p1", "c1", "kernel", "f1", "ghost")
   // Pool draws: "" and a name, so both isolation/pool contradictions arise.
   pure val R_POOLS: Set[str] = Set("", "c1")
+  // `renamed.from` draws for a port (task 6.3): "" the common absent case, "old0"
+  // an undeclared source (the clean plain rename, inert), and "p1" a declared port
+  // — the RenamedFromDeclared near-miss when that `p1` carries no clause of its own.
+  // Other constructs keep `from = ""` fixed here; their namespaces are covered by the
+  // directed runs (intent_raw.qnt), keeping the random state space small.
+  pure val R_FROMS: Set[str] = Set("", "old0", "p1")
 
   action init = raw' = emptyRaw
 
@@ -74,7 +82,7 @@ module intent_raw_alphabet {
     all {
       raw.tenants.keys().size() < 3,
       raw' = raw.with("tenants",
-        raw.tenants.put(name, { dataplane: UserspacePoll, maxCores: 8, isolation: iso, pool: pool })),
+        raw.tenants.put(name, { dataplane: UserspacePoll, maxCores: 8, isolation: iso, pool: pool, from: "" })),
     }
   }
 
@@ -82,7 +90,7 @@ module intent_raw_alphabet {
   action addKernelTenant = all {
     not(raw.tenants.keys().contains(KERNEL)),
     raw' = raw.with("tenants",
-      raw.tenants.put(KERNEL, { dataplane: KernelNetlink, maxCores: 16, isolation: Isolated, pool: "" })),
+      raw.tenants.put(KERNEL, { dataplane: KernelNetlink, maxCores: 16, isolation: Isolated, pool: "", from: "" })),
   }
 
   // A port put under its name key (task 3.3d): a "ghost"/"" owner is the
@@ -93,9 +101,10 @@ module intent_raw_alphabet {
     nondet dp = R_DPMACS.oneOf()
     nondet rt = R_RATES.oneOf()
     nondet tn = R_TENANT_REFS.oneOf()
+    nondet fr = R_FROMS.oneOf()
     all {
       raw.ports.keys().size() < 3,
-      raw' = raw.with("ports", raw.ports.put(nm, { dpmac: dp, rate: rt, tenant: tn })),
+      raw' = raw.with("ports", raw.ports.put(nm, { dpmac: dp, rate: rt, tenant: tn, from: fr })),
     }
   }
 
@@ -107,7 +116,7 @@ module intent_raw_alphabet {
     nondet b = R_TENANT_REFS.oneOf()
     all {
       raw.links.keys().size() < 2,
-      raw' = raw.with("links", raw.links.put(nm, { interfaceA: a, interfaceB: b })),
+      raw' = raw.with("links", raw.links.put(nm, { interfaceA: a, interfaceB: b, from: "" })),
     }
   }
 
@@ -120,7 +129,7 @@ module intent_raw_alphabet {
     nondet sw = SWITCHINGS.oneOf()
     all {
       raw.fabrics.keys().size() < 2,
-      raw' = raw.with("fabrics", raw.fabrics.put(fn, { switching: sw, forwardedBy: fb, members: [m] })),
+      raw' = raw.with("fabrics", raw.fabrics.put(fn, { switching: sw, forwardedBy: fb, members: [m], from: "" })),
     }
   }
 
@@ -164,6 +173,7 @@ module intent_raw_alphabet {
   val wLinkSelfLoop = refusesWith(raw, isLinkSelfLoop)
   val wRawMemberUnresolved = refusesWith(raw, isRawMemberUnresolved)
   val wUnknownExtraFamily = refusesWith(raw, isUnknownExtraFamily)
+  val wRenamedFromDeclared = refusesWith(raw, isRenamedFromDeclared)
   val wTenantAbsent = refusesWith(raw, isTenantAbsent)
   val wPoolWithoutRestricted = refusesWith(raw, isPoolWithoutRestricted)
   val wRestrictedWithoutPool = refusesWith(raw, isRestrictedWithoutPool)

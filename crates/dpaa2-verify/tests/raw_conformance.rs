@@ -27,11 +27,14 @@ const TRACES: &[&str] = &[
     "rawDanglingTenantTrace",
     "rawPoolContradictionTrace",
     "rawDirtyMixTrace",
+    "rawRenamedFromDeclaredTrace",
+    "rawRenameSwapTrace",
 ];
 
 /// Every near-miss dimension the corpus must exercise (the task 3.3e list): reserved
 /// kernel, duplicate name, self-loop link, unresolved member, unknown family, dangling
-/// tenant reference (`TenantAbsent`), and both isolation/pool contradictions.
+/// tenant reference (`TenantAbsent`), both isolation/pool contradictions, and a
+/// `renamed = { from }` naming a declared-and-not-itself-renamed construct (task 6.3).
 const REQUIRED_KINDS: &[Kind] = &[
     Kind::ReservedKernel,
     Kind::DuplicateName,
@@ -41,6 +44,7 @@ const REQUIRED_KINDS: &[Kind] = &[
     Kind::TenantAbsent,
     Kind::PoolWithoutRestricted,
     Kind::RestrictedWithoutPool,
+    Kind::RenamedFromDeclared,
 ];
 
 fn load(file: &str) -> String {

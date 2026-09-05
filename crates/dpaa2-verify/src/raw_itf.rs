@@ -59,6 +59,8 @@ pub struct RawTenant {
     pub isolation: String,
     /// The pool holder, or `""` when absent (omitted from the emitted TOML).
     pub pool: TenantName,
+    /// The `renamed.from` prior name, or `""` when absent (task 6.3; omitted).
+    pub from: TenantName,
 }
 
 /// A `[port.<name>]` value (the name is the map key, task 3.3d). `dpmac` is the int
@@ -71,6 +73,8 @@ pub struct RawPort {
     pub rate: i64,
     /// The owning tenant, or `""` for the kernel-defaulting owner (omitted).
     pub tenant: TenantName,
+    /// The `renamed.from` prior name, or `""` when absent (task 6.3; omitted).
+    pub from: ConstructName,
 }
 
 /// A `[link.<name>]` value (the name is the map key, task 3.3d): a pseudo-wire between
@@ -81,6 +85,8 @@ pub struct RawLink {
     pub interface_a: TenantName,
     /// The other end.
     pub interface_b: TenantName,
+    /// The `renamed.from` prior name, or `""` when absent (task 6.3; omitted).
+    pub from: ConstructName,
 }
 
 /// A `[fabric.<name>]` value.
@@ -92,6 +98,8 @@ pub struct RawFabric {
     pub forwarded_by: TenantName,
     /// The members, in declaration order.
     pub members: Vec<ConstructName>,
+    /// The `renamed.from` prior name, or `""` when absent (task 6.3; omitted).
+    pub from: ConstructName,
 }
 
 /// A `[[crypto]]` value.
@@ -177,6 +185,14 @@ pub enum RawRefusal {
         /// The unknown family token.
         family: String,
     },
+    /// A `renamed = { from }` naming a currently-declared construct not itself
+    /// renamed away (ADR-0015 decision 10 rule (i) as refined, task 6.3).
+    RenamedFromDeclared {
+        /// The renaming construct.
+        construct: ConstructName,
+        /// The `from`-target that would be claimed twice.
+        from: ConstructName,
+    },
 }
 
 /// The near-miss dimension a [`RawRefusal`] belongs to, for corpus coverage. One
@@ -201,6 +217,8 @@ pub enum Kind {
     RawMemberUnresolved,
     /// `UnknownExtraFamily` — an unknown extra family.
     UnknownExtraFamily,
+    /// `RenamedFromDeclared` — a rename from a declared, not-itself-renamed construct.
+    RenamedFromDeclared,
 }
 
 impl RawRefusal {
@@ -216,6 +234,7 @@ impl RawRefusal {
             RawRefusal::LinkSelfLoop { .. } => Kind::LinkSelfLoop,
             RawRefusal::RawMemberUnresolved { .. } => Kind::RawMemberUnresolved,
             RawRefusal::UnknownExtraFamily { .. } => Kind::UnknownExtraFamily,
+            RawRefusal::RenamedFromDeclared { .. } => Kind::RenamedFromDeclared,
         }
     }
 
@@ -254,6 +273,11 @@ impl RawRefusal {
             RawRefusal::PoolWithoutRestricted { .. } => e.contains("but is not `restricted`"),
             // convert_tenant: "... is `restricted` but names no `pool` holder".
             RawRefusal::RestrictedWithoutPool { .. } => e.contains("names no `pool`"),
+            // check_renames: "... `<from>` is currently declared and not itself renamed;
+            // a construct cannot be claimed twice" (task 6.3).
+            RawRefusal::RenamedFromDeclared { from, .. } => {
+                e.contains("not itself renamed") && e.contains(from.as_str())
+            }
         }
     }
 }
@@ -309,6 +333,9 @@ pub fn to_toml(raw: &RawIntent) -> String {
         if !t.pool.as_str().is_empty() {
             let _ = writeln!(s, "pool = \"{}\"", t.pool);
         }
+        if !t.from.as_str().is_empty() {
+            let _ = writeln!(s, "renamed = {{ from = \"{}\" }}", t.from);
+        }
     }
 
     for (name, p) in &raw.ports {
@@ -318,12 +345,18 @@ pub fn to_toml(raw: &RawIntent) -> String {
         if !p.tenant.as_str().is_empty() {
             let _ = writeln!(s, "tenant = \"{}\"", p.tenant);
         }
+        if !p.from.as_str().is_empty() {
+            let _ = writeln!(s, "renamed = {{ from = \"{}\" }}", p.from);
+        }
     }
 
     for (name, l) in &raw.links {
         let _ = writeln!(s, "\n[link.{}]", bare_key(name.as_str()));
         let _ = writeln!(s, "interface_a = \"{}\"", l.interface_a);
         let _ = writeln!(s, "interface_b = \"{}\"", l.interface_b);
+        if !l.from.as_str().is_empty() {
+            let _ = writeln!(s, "renamed = {{ from = \"{}\" }}", l.from);
+        }
     }
 
     for (name, f) in &raw.fabrics {
@@ -332,6 +365,9 @@ pub fn to_toml(raw: &RawIntent) -> String {
         let _ = writeln!(s, "forwarded_by = \"{}\"", f.forwarded_by);
         let members: Vec<String> = f.members.iter().map(|m| format!("\"{m}\"")).collect();
         let _ = writeln!(s, "members = [{}]", members.join(", "));
+        if !f.from.as_str().is_empty() {
+            let _ = writeln!(s, "renamed = {{ from = \"{}\" }}", f.from);
+        }
     }
 
     for k in &raw.crypto {
@@ -390,6 +426,7 @@ fn raw_tenant(v: &Value) -> Result<RawTenant, String> {
         max_cores: int64(field(v, "maxCores")?)?,
         isolation: isolation_token(field(v, "isolation")?)?,
         pool: tname(field(v, "pool")?)?,
+        from: tname(field(v, "from")?)?,
     })
 }
 
@@ -398,6 +435,7 @@ fn raw_port(v: &Value) -> Result<RawPort, String> {
         dpmac: int64(field(v, "dpmac")?)?,
         rate: int64(field(v, "rate")?)?,
         tenant: tname(field(v, "tenant")?)?,
+        from: cname(field(v, "from")?)?,
     })
 }
 
@@ -405,6 +443,7 @@ fn raw_link(v: &Value) -> Result<RawLink, String> {
     Ok(RawLink {
         interface_a: tname(field(v, "interfaceA")?)?,
         interface_b: tname(field(v, "interfaceB")?)?,
+        from: cname(field(v, "from")?)?,
     })
 }
 
@@ -416,6 +455,7 @@ fn raw_fabric(v: &Value) -> Result<RawFabric, String> {
             .iter()
             .map(cname)
             .collect::<Result<_, _>>()?,
+        from: cname(field(v, "from")?)?,
     })
 }
 
@@ -504,6 +544,10 @@ fn raw_refusal(v: &Value) -> Result<RawRefusal, String> {
             tenant: tname(field(payload, "tenant")?)?,
             family: text(field(payload, "family")?)?,
         },
+        "RenamedFromDeclared" => RawRefusal::RenamedFromDeclared {
+            construct: cname(field(payload, "construct")?)?,
+            from: cname(field(payload, "from")?)?,
+        },
         t => return Err(format!("unknown raw refusal `{t}`")),
     })
 }
@@ -573,6 +617,7 @@ mod tests {
             max_cores: 8,
             isolation: "isolated".into(),
             pool: pool.into(),
+            from: "".into(),
         }
     }
 
@@ -586,6 +631,7 @@ mod tests {
                 dpmac: 7,
                 rate: 10000,
                 tenant: "".into(),
+                from: "".into(),
             },
         );
         let doc = to_toml(&raw);
@@ -611,6 +657,7 @@ mod tests {
                 dpmac: 7,
                 rate: 10000,
                 tenant: "".into(),
+                from: "".into(),
             },
         );
         raw.fabrics.insert(
@@ -619,6 +666,7 @@ mod tests {
                 switching: "hardware".into(),
                 forwarded_by: "kernel".into(),
                 members: vec![],
+                from: "".into(),
             },
         );
         let doc = to_toml(&raw);
@@ -687,6 +735,15 @@ mod tests {
                     tenant: "restr".into(),
                 },
                 "tenant `restr` is `restricted` but names no `pool` holder",
+                true,
+            ),
+            (
+                RawRefusal::RenamedFromDeclared {
+                    construct: "e0".into(),
+                    from: "wan0".into(),
+                },
+                "`[port.e0]` declares `renamed = { from = \"wan0\" }` but `wan0` is currently \
+                 declared and not itself renamed; a construct cannot be claimed twice",
                 true,
             ),
             // A member-unresolved message must NOT read as a TenantAbsent ("not a

@@ -31,7 +31,11 @@ count` pairs are the only object-level numbers, they add on top of the
 derived request, and they are accepted only for the four companion
 families dpio/dpbp/dpmcp/dpcon with a `count` of at least 1. A duplicate
 (tenant, family) is unrepresentable — a TOML key redefinition — never
-validated.
+validated. A nameable construct (`[tenant.<name>]`, `[port.<name>]`,
+`[link.<name>]`, `[fabric.<name>]`) MAY carry `renamed = { from = "<old>" }`
+declaring the construct's prior name (ADR-0015 decision 10) — a temporary,
+self-neutralizing widening of the matcher's acceptance set consumed by the
+converge, not the frontend.
 
 #### Scenario: Port defined by DPMAC
 - **WHEN** a topology entry specifies `dpmac = "dpmac.7"`, a name, a
@@ -95,7 +99,12 @@ at most 15 characters, carrying no `/` and no whitespace, and neither `.`
 nor `..` — and SHALL NOT match the reserved `family.N` pattern (any MC
 family token dotted with digits, e.g. `dpni.4`), so a name serves losslessly
 as its own restool label and can never be mistaken for a runtime handle
-(ADR-0015 decision 13). Validation failures SHALL be reported with actionable
+(ADR-0015 decision 13). A `renamed = { from = "<old>" }` clause's `from` value
+SHALL satisfy that same interface-name rule, and a `from` naming a
+currently-declared construct that is not itself renamed away SHALL be refused —
+so no object is claimed twice (ADR-0015 decision 10), while a swap (each end
+renamed to the other) and a chain (each link's target renamed onward) are
+admitted. Validation failures SHALL be reported with actionable
 messages and SHALL prevent compilation.
 
 #### Scenario: Duplicate interface name
@@ -123,3 +132,15 @@ messages and SHALL prevent compilation.
   pattern (e.g. `dpni.4`)
 - **THEN** validation fails naming the construct and the violated rule,
   and no compilation is attempted
+
+#### Scenario: Rename from a currently-declared construct is rejected
+- **WHEN** a construct declares `renamed = { from = "<old>" }` and `<old>`
+  is itself currently declared and carries no `renamed` clause of its own
+- **THEN** validation fails, naming the `from`-target and stating a
+  construct cannot be claimed twice (ADR-0015 decision 10)
+
+#### Scenario: A rename swap is accepted
+- **WHEN** two constructs in one edit each declare `renamed` naming the
+  other (`wan0` from `eth0` and `eth0` from `wan0`)
+- **THEN** the config is accepted, since every `from`-target is itself
+  renamed away and no object is claimed twice

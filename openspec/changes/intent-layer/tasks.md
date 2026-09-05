@@ -316,7 +316,7 @@ the change's only other operator sync point (design D12).
       (≤15 chars), never matching the reserved `family.N` lexical
       pattern — name == label lossless, id-confusion unrepresentable
       (bead gqf.50)
-- [ ] 6.3 schema + raw model: `renamed = { from }` on nameable
+- [x] 6.3 schema + raw model: `renamed = { from }` on nameable
       constructs; `from` naming a declared construct refuses at parse
       (bead gqf.51)
 - [ ] 6.4 model-first: `ObservedBoard`, the edit alphabet, pure

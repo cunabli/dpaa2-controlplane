@@ -102,7 +102,9 @@ fn require_schema(raw: &RawIntent) -> Result<(), Error> {
 /// schema, DPNI-index pinning, a derived count field, a declared name that is not a
 /// valid interface name (ADR-0015 decision 13), malformed DPMAC or MAC references,
 /// duplicate names, an unresolved tenant/member reference, a link naming one tenant
-/// twice, a `pool`/`restricted` contradiction, or an unknown extra family.
+/// twice, a `pool`/`restricted` contradiction, an unknown extra family, or a
+/// `renamed = { from }` whose source is an invalid interface name or names a
+/// currently-declared construct that is not itself renamed away (ADR-0015 decision 10).
 pub fn parse_str(text: &str) -> Result<Intent, Error> {
     let raw = deserialize(text)?;
     require_schema(&raw)?;
@@ -178,6 +180,20 @@ fn convert(raw: &RawIntent) -> Result<Intent, Error> {
     }
     let port_names: HashSet<ConstructName> = raw.port.keys().cloned().collect();
     let fabric_names: HashSet<ConstructName> = raw.fabric.keys().cloned().collect();
+
+    // ADR-0015 decision 10 rule (i), as refined (task 6.3): a `renamed = { from }`
+    // clause declares the construct's prior name — a temporary widening of the
+    // matcher's acceptance set. Validate every `from` value as an interface name
+    // (the task-6.2 rule), then refuse the genuine contradiction: `from` naming a
+    // construct that is currently declared AND not itself renamed away, so no object
+    // is claimed twice. A `from`-target that itself carries a `renamed` clause is
+    // admitted (the swap `wan0`↔`eth0` and the chain `a→b→c` declare every target
+    // renamed away), a self-rename is inert, and the reserved `kernel` is never
+    // declared so `from = "kernel"` passes. Namespaces are separate: a tenant's
+    // `from` resolves against declared tenants, a port/link/fabric's against the
+    // shared construct namespace. The clause is validated then dropped here; the
+    // matcher (task 6.4/6.5) is what will plumb it into the neutral model.
+    check_renames(raw)?;
 
     let tenants = raw
         .tenant
@@ -259,6 +275,78 @@ fn convert(raw: &RawIntent) -> Result<Intent, Error> {
 /// fabric forwarder (design D6a; `models/intent/scenarios/*.toml`).
 fn resolves(name: &TenantName, tenants: &HashSet<TenantName>) -> bool {
     name.is_kernel() || tenants.contains(name)
+}
+
+/// Whether `target` is a currently-declared construct (port, link, or fabric) that
+/// carries no `renamed` clause of its own — the shape ADR-0015 decision 10 rule (i)
+/// refuses (task 6.3). A target that is itself renamed away is admitted (the swap
+/// and the chain), and a name in no construct family is not declared, so inert.
+fn construct_is_declared_unrenamed(raw: &RawIntent, target: &ConstructName) -> bool {
+    if let Some(p) = raw.port.get(target) {
+        return p.renamed.is_none();
+    }
+    if let Some(l) = raw.link.get(target) {
+        return l.renamed.is_none();
+    }
+    if let Some(f) = raw.fabric.get(target) {
+        return f.renamed.is_none();
+    }
+    false
+}
+
+/// Validates every `renamed = { from }` clause and applies ADR-0015 decision 10 rule
+/// (i) as refined (task 6.3). The `from` value SHALL be a valid interface name (the
+/// task-6.2 rule); a `from` naming a currently-declared construct that is not itself
+/// renamed away is refused, since the target would be claimed twice. Tenants resolve
+/// against declared tenants, and ports/links/fabrics against their shared namespace;
+/// a `from` that itself carries a `renamed` clause (the swap, the chain) or names an
+/// undeclared construct (the plain rename) is admitted. The clause is dropped after
+/// this gate — the matcher (task 6.4/6.5) is what will consume it.
+fn check_renames(raw: &RawIntent) -> Result<(), Error> {
+    for (name, t) in &raw.tenant {
+        let Some(r) = &t.renamed else { continue };
+        r.from.validate().map_err(|e| {
+            cfg(format!(
+                "`[tenant.{name}]` declares an invalid rename source: {e}"
+            ))
+        })?;
+        // Tenant namespace: a `from` naming another declared tenant that carries no
+        // clause of its own is the genuine contradiction (the target stays itself).
+        if raw
+            .tenant
+            .get(&r.from)
+            .is_some_and(|target| target.renamed.is_none())
+        {
+            return Err(cfg(format!(
+                "`[tenant.{name}]` declares `renamed = {{ from = \"{from}\" }}` but `{from}` is \
+                 currently declared and not itself renamed; a construct cannot be claimed twice",
+                from = r.from
+            )));
+        }
+    }
+
+    let constructs = raw
+        .port
+        .iter()
+        .map(|(n, p)| ("port", n, &p.renamed))
+        .chain(raw.link.iter().map(|(n, l)| ("link", n, &l.renamed)))
+        .chain(raw.fabric.iter().map(|(n, f)| ("fabric", n, &f.renamed)));
+    for (kind, name, renamed) in constructs {
+        let Some(r) = renamed else { continue };
+        r.from.validate().map_err(|e| {
+            cfg(format!(
+                "`[{kind}.{name}]` declares an invalid rename source: {e}"
+            ))
+        })?;
+        if construct_is_declared_unrenamed(raw, &r.from) {
+            return Err(cfg(format!(
+                "`[{kind}.{name}]` declares `renamed = {{ from = \"{from}\" }}` but `{from}` is \
+                 currently declared and not itself renamed; a construct cannot be claimed twice",
+                from = r.from
+            )));
+        }
+    }
+    Ok(())
 }
 
 fn convert_tenant(name: &TenantName, t: &RawTenant) -> Result<Tenant, Error> {
@@ -1219,6 +1307,119 @@ mod tests {
         assert_eq!(intent.ports.len(), 1);
         assert_eq!(intent.ports[0].name.as_str(), "lan0");
         assert!(intent.ports[0].tenant.is_kernel());
+    }
+
+    // ---- Requirement: `renamed = { from }` (ADR-0015 decision 10; task 6.3) ----
+
+    #[test]
+    fn rename_from_a_declared_construct_not_itself_renamed_is_rejected() {
+        // The genuine contradiction: `eth0` claims to have been `wan0`, but `wan0` is
+        // still declared and stays itself — the object would be claimed twice.
+        let err = parse_err(
+            r#"
+            [port.eth0]
+            dpmac = "dpmac.7"
+            rate = 10000
+            renamed = { from = "wan0" }
+
+            [port.wan0]
+            dpmac = "dpmac.8"
+            rate = 10000
+            "#,
+        );
+        assert!(err.contains("not itself renamed"), "states the rule: {err}");
+        assert!(err.contains("wan0"), "names the from-target: {err}");
+    }
+
+    #[test]
+    fn rename_swap_is_accepted() {
+        // Both ends rename to each other in one edit: each target is itself renamed
+        // away, so the refined rule (i) admits the swap.
+        let intent = parse(
+            r#"
+            [port.wan0]
+            dpmac = "dpmac.7"
+            rate = 10000
+            renamed = { from = "eth0" }
+
+            [port.eth0]
+            dpmac = "dpmac.8"
+            rate = 10000
+            renamed = { from = "wan0" }
+            "#,
+        );
+        assert_eq!(intent.ports.len(), 2, "the swap parses to both ports");
+    }
+
+    #[test]
+    fn rename_in_the_tenant_namespace_from_a_declared_tenant_is_rejected() {
+        let err = parse_err(
+            r#"
+            [tenant.edge]
+            dataplane = "userspace-poll"
+            max_cores = 16
+            renamed = { from = "c1" }
+
+            [tenant.c1]
+            dataplane = "userspace-poll"
+            max_cores = 16
+            "#,
+        );
+        assert!(err.contains("not itself renamed"), "states the rule: {err}");
+        assert!(err.contains("c1"), "names the from-target: {err}");
+    }
+
+    #[test]
+    fn plain_rename_from_an_undeclared_construct_is_accepted() {
+        // The common after-a-rename case: the old name is gone, so the clause is inert.
+        let intent = parse(
+            r#"
+            [port.eth0]
+            dpmac = "dpmac.7"
+            rate = 10000
+            renamed = { from = "wan0" }
+            "#,
+        );
+        assert_eq!(intent.ports[0].name.as_str(), "eth0");
+    }
+
+    #[test]
+    fn rename_from_an_invalid_interface_name_is_rejected() {
+        // The `from` value must satisfy the task-6.2 interface-name rule: `dpni.4`
+        // trips the reserved `family.N` pattern.
+        let err = parse_err(
+            r#"
+            [port.eth0]
+            dpmac = "dpmac.7"
+            rate = 10000
+            renamed = { from = "dpni.4" }
+            "#,
+        );
+        assert!(
+            err.contains("invalid rename source"),
+            "names the slot: {err}"
+        );
+        assert!(err.contains("reserved"), "cites the 6.2 rule: {err}");
+    }
+
+    #[test]
+    fn rename_across_namespaces_is_inert() {
+        // A port's `from` naming a declared TENANT is not the port namespace's target,
+        // so rule (i) does not fire — it is a plain, inert rename (namespaces are
+        // separate).
+        let intent = parse(
+            r#"
+            [tenant.c1]
+            dataplane = "userspace-poll"
+            max_cores = 16
+
+            [port.eth0]
+            dpmac = "dpmac.7"
+            rate = 10000
+            renamed = { from = "c1" }
+            "#,
+        );
+        assert_eq!(intent.ports[0].name.as_str(), "eth0");
     }
 
     #[test]
