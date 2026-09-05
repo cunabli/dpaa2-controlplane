@@ -305,14 +305,14 @@ the change's only other operator sync point (design D12).
 ## 6. Identity across time (operator review 2026-09-05; still intent, per
 ## the amend-in-place rule — one bead per parcel, 6.1 gates the phase)
 
-- [ ] 6.1 docs: ADR-0015 amendment — the identity-across-time contract:
+- [x] 6.1 docs: ADR-0015 amendment — the identity-across-time contract:
       impossibility frame, anchor-first identity ladder, rename as
       self-neutralizing match widening (with the swap fix),
       indiscernibility and ambiguity-refusal, disruption classes, the
       IFNAMSIZ ∖ family.N name rule, decision-5 reframed (ordinals =
       clean-boot creation order, INTENT_I10 stands), stated model limits;
       operator reviews the draft before any dependent parcel (bead gqf.49)
-- [ ] 6.2 name rule: construct names are valid Linux iface names
+- [x] 6.2 name rule: construct names are valid Linux iface names
       (≤15 chars), never matching the reserved `family.N` lexical
       pattern — name == label lossless, id-confusion unrepresentable
       (bead gqf.50)

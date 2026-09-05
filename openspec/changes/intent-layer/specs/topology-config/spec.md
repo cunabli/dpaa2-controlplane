@@ -90,8 +90,13 @@ resolving at a `[link.<name>]` end without being declared — the reserved
 `kernel` name not declared as a `[tenant.kernel]` table, link ends that name two
 distinct tenants, and fabric members that exist. A `restricted` tenant
 SHALL name a `pool`, and a `pool` SHALL be named only on a `restricted`
-tenant. Validation failures SHALL be reported with actionable messages
-and SHALL prevent compilation.
+tenant. A declared construct name SHALL be a valid Linux interface name —
+at most 15 characters, carrying no `/` and no whitespace, and neither `.`
+nor `..` — and SHALL NOT match the reserved `family.N` pattern (any MC
+family token dotted with digits, e.g. `dpni.4`), so a name serves losslessly
+as its own restool label and can never be mistaken for a runtime handle
+(ADR-0015 decision 13). Validation failures SHALL be reported with actionable
+messages and SHALL prevent compilation.
 
 #### Scenario: Duplicate interface name
 - **WHEN** two ports request the same interface name
@@ -111,3 +116,10 @@ and SHALL prevent compilation.
 - **WHEN** a `[tenant.kernel]` table is declared
 - **THEN** validation fails stating the name is reserved for the root
   dataplane
+
+#### Scenario: Name is not a valid interface name
+- **WHEN** a declared construct name exceeds 15 characters, contains `/`
+  or whitespace, is `.` or `..`, or matches the reserved `family.N`
+  pattern (e.g. `dpni.4`)
+- **THEN** validation fails naming the construct and the violated rule,
+  and no compilation is attempted

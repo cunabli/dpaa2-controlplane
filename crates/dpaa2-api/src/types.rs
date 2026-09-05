@@ -45,6 +45,22 @@ macro_rules! resource_name {
             pub fn is_empty(&self) -> bool {
                 self.0.is_empty()
             }
+
+            /// Checks the name is a valid Linux interface name that cannot be mistaken
+            /// for a runtime handle: non-empty, at most 15 bytes (`IFNAMSIZ`), neither
+            /// `.` nor `..`, free of `/` and whitespace, and never matching the reserved
+            /// `family.N` pattern (ADR-0015 decision 13). A valid name serves verbatim
+            /// as the netdev name and its restool label, so name and label stay lossless
+            /// and id-confusion is unrepresentable at the parse boundary. Construction
+            /// stays infallible (an empty name is the absent-optional sentinel); a
+            /// frontend calls this on the names an operator DECLARES.
+            ///
+            /// # Errors
+            /// Returns the first [`NameError`] the name trips, naming the offending
+            /// detail — the length, the character, or the reserved family token.
+            pub fn validate(&self) -> Result<(), NameError> {
+                validate_interface_name(&self.0)
+            }
         }
 
         impl core::fmt::Display for $name {
@@ -107,4 +123,146 @@ resource_name! {
     /// (`"dpio"`, `"T"`, `"port-edge"`, …; design D6). Distinct from the tenant and
     /// construct it sits beside in a key.
     RuleName
+}
+
+/// Why a name is not a valid interface name (ADR-0015 decision 13). Each variant
+/// carries the offending detail — the length, the character, or the reserved MC
+/// family token — so its [`Display`](core::fmt::Display) is an actionable message a
+/// caller quotes verbatim in a refusal.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum NameError {
+    /// The name is empty; an interface name names something.
+    Empty,
+    /// The name exceeds the 15-byte `IFNAMSIZ` limit (the byte length is carried).
+    TooLong(usize),
+    /// The name is `.` or `..`, which the kernel's `dev_valid_name` refuses because
+    /// the name serves verbatim as a netdev (and thus a path) component.
+    DotComponent,
+    /// The name carries a `/` or a whitespace character (the offending char is carried).
+    ForbiddenChar(char),
+    /// The name matches the reserved `family.N` pattern — an MC family token dotted
+    /// with digits (the token is carried) — which would collide with a runtime handle.
+    ReservedPattern(&'static str),
+}
+
+impl core::fmt::Display for NameError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::Empty => f.write_str("the name is empty"),
+            Self::TooLong(n) => write!(f, "{n} characters exceeds the 15-character limit"),
+            Self::DotComponent => f.write_str("a name of `.` or `..` is reserved"),
+            Self::ForbiddenChar(c) => {
+                write!(
+                    f,
+                    "character {c:?} is not allowed (a name carries no `/` or whitespace)"
+                )
+            }
+            Self::ReservedPattern(token) => write!(
+                f,
+                "matches the reserved `{token}.N` pattern (an MC family token dotted with digits \
+                 collides with a runtime handle)"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for NameError {}
+
+/// Checks a raw name against the sealed interface-name contract (ADR-0015 decision 13):
+/// the kernel's `dev_valid_name` rules — non-empty, ≤ 15 bytes, not `.`/`..`, no `/` or
+/// whitespace — plus the reserved-pattern exclusion. The single implementation the
+/// per-slot [`validate`](TenantName::validate) methods share.
+fn validate_interface_name(s: &str) -> Result<(), NameError> {
+    if s.is_empty() {
+        return Err(NameError::Empty);
+    }
+    if s.len() > 15 {
+        return Err(NameError::TooLong(s.len()));
+    }
+    if s == "." || s == ".." {
+        return Err(NameError::DotComponent);
+    }
+    if let Some(c) = s.chars().find(|&c| c == '/' || c.is_whitespace()) {
+        return Err(NameError::ForbiddenChar(c));
+    }
+    if let Some(token) = reserved_family_token(s) {
+        return Err(NameError::ReservedPattern(token));
+    }
+    Ok(())
+}
+
+/// The MC family token a name reserves by matching `<family>.<digits>` to end of
+/// string, or `None`. Reuses [`ALL_FAMILIES`](crate::family::ALL_FAMILIES) for the
+/// token set (ADR-0014: one enumeration, not a second copy to keep in step). A simple
+/// prefix/suffix scan — no regex, no new dependency (design D10).
+fn reserved_family_token(s: &str) -> Option<&'static str> {
+    for family in crate::family::ALL_FAMILIES {
+        let token = family.as_str();
+        if let Some(digits) = s
+            .strip_prefix(token)
+            .and_then(|rest| rest.strip_prefix('.'))
+            && !digits.is_empty()
+            && digits.bytes().all(|b| b.is_ascii_digit())
+        {
+            return Some(token);
+        }
+    }
+    None
+}
+
+#[cfg(test)]
+mod tests {
+    //! The interface-name validator over the sealed contract (ADR-0015 decision 13);
+    //! one type stands in for all three, the `validate` method being macro-shared.
+
+    use super::{ConstructName, NameError};
+    use crate::family::ALL_FAMILIES;
+
+    fn err(name: &str) -> NameError {
+        ConstructName::from(name)
+            .validate()
+            .expect_err("name should be rejected")
+    }
+
+    #[test]
+    fn accepts_valid_interface_names() {
+        for ok in ["vpp", "abcdefghijklmno", "dpni4", "dpni.4x", "dpnix.4"] {
+            assert!(ok.len() <= 15, "fixture `{ok}` is within IFNAMSIZ");
+            ConstructName::from(ok)
+                .validate()
+                .unwrap_or_else(|e| panic!("`{ok}` should be valid: {e}"));
+        }
+    }
+
+    #[test]
+    fn rejects_empty_and_overlong() {
+        assert_eq!(err(""), NameError::Empty);
+        // 16 bytes — one past IFNAMSIZ.
+        assert_eq!(err("abcdefghijklmnop"), NameError::TooLong(16));
+    }
+
+    #[test]
+    fn rejects_dot_components() {
+        assert_eq!(err("."), NameError::DotComponent);
+        assert_eq!(err(".."), NameError::DotComponent);
+    }
+
+    #[test]
+    fn rejects_slash_and_whitespace() {
+        assert_eq!(err("a/b"), NameError::ForbiddenChar('/'));
+        assert_eq!(err("a b"), NameError::ForbiddenChar(' '));
+        assert_eq!(err("a\tb"), NameError::ForbiddenChar('\t'));
+    }
+
+    #[test]
+    fn rejects_every_reserved_family_pattern() {
+        for family in ALL_FAMILIES {
+            let name = format!("{}.0", family.as_str());
+            assert_eq!(
+                err(&name),
+                NameError::ReservedPattern(family.as_str()),
+                "`{name}` must be refused as a reserved handle"
+            );
+        }
+    }
 }

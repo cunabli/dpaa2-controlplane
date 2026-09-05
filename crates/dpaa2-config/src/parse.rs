@@ -99,9 +99,10 @@ fn require_schema(raw: &RawIntent) -> Result<(), Error> {
 ///
 /// # Errors
 /// Returns [`Error::Config`] on malformed TOML, a missing or unknown `[intent]`
-/// schema, DPNI-index pinning, a derived count field, malformed DPMAC or MAC
-/// references, duplicate names, an unresolved tenant/member reference, a link naming
-/// one tenant twice, a `pool`/`restricted` contradiction, or an unknown extra family.
+/// schema, DPNI-index pinning, a derived count field, a declared name that is not a
+/// valid interface name (ADR-0015 decision 13), malformed DPMAC or MAC references,
+/// duplicate names, an unresolved tenant/member reference, a link naming one tenant
+/// twice, a `pool`/`restricted` contradiction, or an unknown extra family.
 pub fn parse_str(text: &str) -> Result<Intent, Error> {
     let raw = deserialize(text)?;
     require_schema(&raw)?;
@@ -136,6 +137,32 @@ pub fn parse_schema(text: &str) -> Result<(), Error> {
 /// deserialization boundary, so no bare `String` name flows through the validation or
 /// the built [`Intent`] (types.rs: names cannot be confused among one another).
 fn convert(raw: &RawIntent) -> Result<Intent, Error> {
+    // ADR-0015 decision 13: a declared construct name serves verbatim as the netdev
+    // name and its restool label, so it must be a valid Linux interface name and must
+    // never match the reserved `family.N` handle pattern. Validate every DECLARED name
+    // (the table keys) up front; references (a port's tenant, a link's ends, a fabric's
+    // members) resolve against these declarations and are refused separately. The
+    // reserved-`kernel` refusal below keeps precedence — `kernel` is a lexically valid
+    // name, so the two checks never contend for the same document.
+    let declared = raw
+        .tenant
+        .keys()
+        .map(|n| ("tenant", n.as_str(), n.validate()))
+        .chain(raw.port.keys().map(|n| ("port", n.as_str(), n.validate())))
+        .chain(raw.link.keys().map(|n| ("link", n.as_str(), n.validate())))
+        .chain(
+            raw.fabric
+                .keys()
+                .map(|n| ("fabric", n.as_str(), n.validate())),
+        );
+    for (kind, name, result) in declared {
+        result.map_err(|e| {
+            cfg(format!(
+                "`[{kind}.{name}]` is not a valid interface name: {e}"
+            ))
+        })?;
+    }
+
     // Collected declaration namespaces, needed before members and references resolve.
     // The map keys are unique by construction (a duplicate name is a TOML key-redefinition
     // parse error), so only the reserved `kernel` refusal remains.
@@ -295,7 +322,9 @@ fn convert_port(
              the DPMAC edge and must not be set"
         )));
     }
-    let name = ConstructName::from(validate_name(name.as_str())?);
+    // The name's interface-name validity is checked once, up front, over every declared
+    // family (see `convert`; ADR-0015 decision 13), so the port path only clones it here.
+    let name = name.clone();
     reject_counts(&format!("port `{name}`"), counts_of!(p))?;
     let dpmac =
         parse_dpmac(&p.dpmac).ok_or_else(|| cfg(format!("port `{name}` has malformed `dpmac`")))?;
@@ -461,31 +490,6 @@ fn parse_family(tenant: &TenantName, name: &str) -> Result<Family, Error> {
         .copied()
         .find(|f| f.as_str() == name)
         .ok_or_else(|| cfg(format!("`[extra.{tenant}]` names unknown family `{name}`")))
-}
-
-/// Validates a raw port `name` against the constraints it must satisfy to become both
-/// a filename component and `.link` file content: 1-15 bytes (the Linux `IFNAMSIZ`
-/// limit) of ASCII alphanumeric, `-`, or `_` only, and returns it for the caller to
-/// wrap in a [`ConstructName`]. Without this, a name containing `/`, `..`, or a
-/// newline would flow unvalidated into a path or config file rather than being
-/// rejected here; the newtype boundary types the name but does not constrain its
-/// content, so this content check stays.
-fn validate_name(name: &str) -> Result<&str, Error> {
-    if name.is_empty() || name.len() > 15 {
-        return Err(cfg(format!(
-            "port `{name}` has an invalid `name`: must be 1-15 bytes (IFNAMSIZ limit), got {} bytes",
-            name.len()
-        )));
-    }
-    if let Some(c) = name
-        .chars()
-        .find(|&c| !(c.is_ascii_alphanumeric() || c == '-' || c == '_'))
-    {
-        return Err(cfg(format!(
-            "port `{name}` has an invalid `name`: character `{c}` is not allowed (only ASCII alphanumeric, `-`, `_`)"
-        )));
-    }
-    Ok(name)
 }
 
 /// Parses a `dpmac.N` reference into a [`DpmacId`].
@@ -943,6 +947,69 @@ mod tests {
         );
         assert!(err.contains("kernel"), "{err}");
         assert!(err.contains("reserved"), "{err}");
+    }
+
+    // ADR-0015 decision 13: a DECLARED construct name must be a valid interface name and
+    // never match the reserved `family.N` pattern. Four families, four distinct reasons.
+
+    #[test]
+    fn tenant_named_like_a_reserved_handle_is_rejected() {
+        let err = parse_err(
+            r#"
+            [tenant."dpni.4"]
+            dataplane = "userspace-poll"
+            max_cores = 16
+            "#,
+        );
+        assert!(err.contains("tenant.dpni.4"), "names the construct: {err}");
+        assert!(err.contains("reserved"), "states the rule: {err}");
+    }
+
+    #[test]
+    fn port_name_over_ifnamsiz_is_rejected() {
+        let err = parse_err(
+            r#"
+            [port.porttoolongname0]
+            dpmac = "dpmac.7"
+            rate = 10000
+            "#,
+        );
+        assert!(
+            err.contains("port.porttoolongname0"),
+            "names the construct: {err}"
+        );
+        assert!(err.contains("15-character limit"), "states the rule: {err}");
+    }
+
+    #[test]
+    fn link_name_with_a_slash_is_rejected() {
+        let err = parse_err(
+            r#"
+            [tenant.ns1]
+            dataplane = "kernel-netlink"
+            max_cores = 2
+
+            [link."a/b"]
+            interface_a = "ns1"
+            interface_b = "kernel"
+            "#,
+        );
+        assert!(err.contains("link.a/b"), "names the construct: {err}");
+        assert!(err.contains("not allowed"), "states the rule: {err}");
+    }
+
+    #[test]
+    fn fabric_name_with_whitespace_is_rejected() {
+        let err = parse_err(
+            r#"
+            [fabric."a b"]
+            switching = "hardware"
+            forwarded_by = "kernel"
+            members = []
+            "#,
+        );
+        assert!(err.contains("fabric.a b"), "names the construct: {err}");
+        assert!(err.contains("not allowed"), "states the rule: {err}");
     }
 
     #[test]
