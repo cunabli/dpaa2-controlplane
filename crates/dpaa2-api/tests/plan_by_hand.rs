@@ -39,6 +39,7 @@ fn hand_built_plan_reconciles_and_locks_relationships() {
         max_cores: 8,
         isolation: Isolation::Isolated,
         pool: "".into(),
+        renamed: None,
     };
     assert_eq!(
         vpp.companion(Family::Dpbp, 1).container(),
@@ -52,6 +53,7 @@ fn hand_built_plan_reconciles_and_locks_relationships() {
         name: "wire".into(),
         interface_a: "vpp".into(),
         interface_b: "kernel".into(),
+        renamed: None,
     };
     let wire = link.wire(va_if, kb_if);
     assert!(

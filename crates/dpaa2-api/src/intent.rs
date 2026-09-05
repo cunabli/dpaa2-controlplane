@@ -88,6 +88,11 @@ pub struct Tenant {
     pub isolation: Isolation,
     /// The public holder a restricted tenant draws inside (empty when absent).
     pub pool: TenantName,
+    /// An accepted `renamed = { from }` clause — the tenant's prior name, or `None`
+    /// when absent (ADR-0015 decision 10 / task 6.5). It widens the rename matcher's
+    /// acceptance set, is inert after one converge, and [`compile`](crate::compile)
+    /// ignores it (it derives objects by name, not by rename).
+    pub renamed: Option<TenantName>,
 }
 
 /// The reserved kernel as a tenant value (design D6a; `types.qnt` `kernelTenant`):
@@ -101,6 +106,7 @@ pub fn kernel_tenant(max_cores: i64) -> Tenant {
         max_cores,
         isolation: Isolation::Public,
         pool: TenantName::from(""),
+        renamed: None,
     }
 }
 
@@ -129,6 +135,10 @@ pub struct Port {
     /// likewise an actuation-only fact the derivation never reads (design D9),
     /// carried for the projection and omitted from the model.
     pub mac_mode: MacMode,
+    /// An accepted `renamed = { from }` clause — the port's prior name, or `None`
+    /// when absent (ADR-0015 decision 10 / task 6.5). For the rename matcher only;
+    /// [`compile`](crate::compile) ignores it.
+    pub renamed: Option<ConstructName>,
 }
 
 /// A link: point-to-point dpni↔dpni pseudo-wire between two tenants
@@ -144,6 +154,10 @@ pub struct Link {
     pub interface_a: TenantName,
     /// The tenant whose interface terminates the other end.
     pub interface_b: TenantName,
+    /// An accepted `renamed = { from }` clause — the link's prior name, or `None`
+    /// when absent (ADR-0015 decision 10 / task 6.5). For the rename matcher only;
+    /// [`compile`](crate::compile) ignores it.
+    pub renamed: Option<ConstructName>,
 }
 
 /// Who forwards between a fabric's members (design D1; `types.qnt` `Switching`).
@@ -188,6 +202,10 @@ pub struct Fabric {
     pub forwarded_by: TenantName,
     /// The members, in declaration order.
     pub members: Vec<Member>,
+    /// An accepted `renamed = { from }` clause — the fabric's prior name, or `None`
+    /// when absent (ADR-0015 decision 10 / task 6.5). For the rename matcher only;
+    /// [`compile`](crate::compile) ignores it.
+    pub renamed: Option<ConstructName>,
 }
 
 /// An accelerator for one tenant (design D1; `dpseci.md`; `types.qnt` `Crypto`).

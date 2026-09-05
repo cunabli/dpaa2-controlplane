@@ -83,8 +83,8 @@ where
 #[serde(deny_unknown_fields, bound(deserialize = "T: From<String>"))]
 pub struct RawRenamed<T> {
     /// The construct's prior name. [`crate::parse`] validates it as an interface
-    /// name (task 6.2) and applies rule (i) before dropping it — the rename matcher
-    /// (task 6.4/6.5) is what will plumb it into the neutral model.
+    /// name (task 6.2), applies rule (i), then carries the accepted clause into the
+    /// neutral model as `renamed` (task 6.5), where the rename matcher consumes it.
     #[serde(deserialize_with = "name")]
     pub from: T,
 }
@@ -215,8 +215,8 @@ construct_table! {
         #[serde(default, deserialize_with = "name_opt")]
         pub pool: Option<TenantName>,
         /// An optional `renamed = { from = "<old>" }` declaring the tenant's prior
-        /// name (ADR-0015 decision 10; task 6.3). Validated and dropped in
-        /// [`crate::parse`] until the rename matcher lands (task 6.4/6.5).
+        /// name (ADR-0015 decision 10; task 6.3). Validated in [`crate::parse`] and
+        /// carried into the neutral model as `renamed` for the matcher (task 6.5).
         #[serde(default)]
         pub renamed: Option<RawRenamed<TenantName>>,
     }

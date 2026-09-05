@@ -306,14 +306,15 @@ module intent_raw {
 
   // ---- conversion into the neutral Intent (parse.rs convert) ----
 
-  // toIntent drops every construct's `from` clause: the neutral `Intent` does not
-  // carry it in this parcel (task 6.3). The rename matcher lands in tasks 6.4/6.5 —
-  // it will plumb `from` into the matcher's acceptance set then; here parse only
-  // validates rule (i) and discards the clause.
+  // toIntent carries every construct's `from` clause through into the neutral
+  // `Intent` (task 6.5, ADR-0015 decision 10): parse validates rule (i) up front,
+  // and the accepted clause now feeds the rename matcher's acceptance set instead
+  // of being dropped ("" = absent, the `pool` convention). compile still ignores
+  // `from` (intent/derive.qnt) — the clause is the matcher's, not the compiler's.
   pure def toIntent(raw: RawIntent): Intent =
     { tenants: raw.tenants.keys().fold([], (acc, n) =>
         val t = raw.tenants.get(n)
-        acc.append({ name: n, dataplane: t.dataplane, maxCores: t.maxCores, isolation: t.isolation, pool: t.pool })),
+        acc.append({ name: n, dataplane: t.dataplane, maxCores: t.maxCores, isolation: t.isolation, pool: t.pool, from: t.from })),
       // Ports and links emit in canonical NAME order (task 3.3d): the neutral
       // Intent keeps a List, but the order carries no identity — the derivation
       // sorts by name (intent/derive.qnt) — so emitting name-sorted keeps the
@@ -321,15 +322,15 @@ module intent_raw {
       ports: sortByRank(raw.ports.keys().fold([], (acc, n) => acc.append(n)), n => nameRank(n))
         .foldl([], (acc, n) =>
           val p = raw.ports.get(n)
-          acc.append({ name: n, dpmac: p.dpmac, rate: p.rate, tenant: effTenant(p.tenant) })),
+          acc.append({ name: n, dpmac: p.dpmac, rate: p.rate, tenant: effTenant(p.tenant), from: p.from })),
       links: sortByRank(raw.links.keys().fold([], (acc, n) => acc.append(n)), n => nameRank(n))
         .foldl([], (acc, n) =>
           val l = raw.links.get(n)
-          acc.append({ name: n, interfaceA: l.interfaceA, interfaceB: l.interfaceB })),
+          acc.append({ name: n, interfaceA: l.interfaceA, interfaceB: l.interfaceB, from: l.from })),
       fabrics: raw.fabrics.keys().fold([], (acc, n) =>
         val f = raw.fabrics.get(n)
         acc.append({ name: n, switching: f.switching, forwardedBy: f.forwardedBy,
-          members: f.members.foldl([], (a2, m) => a2.append(classifyMember(raw, m))) })),
+          members: f.members.foldl([], (a2, m) => a2.append(classifyMember(raw, m))), from: f.from })),
       crypto: raw.crypto.foldl([], (acc, k) => acc.append({ tenant: k.tenant, flows: k.flows })),
       extras: raw.extras.keys().fold(Set(), (acc, t) =>
         raw.extras.get(t).keys().fold(acc, (a2, fam) =>
@@ -442,8 +443,10 @@ module intent_raw {
   // No-surprise law: an accepted declaration survives verbatim. Stated against
   // the RAW declarations (not toIntent, which would be tautological): every
   // declared extra pair is present with its own declared count — never a sum,
-  // never a collapse — and the counts of tenants/ports/crypto match, so nothing
-  // is dropped, merged, or invented (the gqf.40 collapse made checkable).
+  // never a collapse — the counts of tenants/ports/crypto match, and every
+  // accepted `renamed = { from }` clause survives verbatim on its tenant/port/
+  // link/fabric (task 6.5 extends the no-surprise law to the rename clause), so
+  // nothing is dropped, merged, or invented (the gqf.40 collapse made checkable).
   pure def extraPairCount(raw: RawIntent): int =
     raw.extras.keys().fold(0, (acc, t) => acc + raw.extras.get(t).keys().size())
   pure def acceptedSurvives(raw: RawIntent): bool =
@@ -460,6 +463,14 @@ module intent_raw {
           i.ports.length() == raw.ports.keys().size(),
           i.links.length() == raw.links.keys().size(),
           i.crypto.length() == raw.crypto.length(),
+          raw.tenants.keys().forall(n =>
+            i.tenants.foldl(false, (a, t) => a or (t.name == n and t.from == raw.tenants.get(n).from))),
+          raw.ports.keys().forall(n =>
+            i.ports.foldl(false, (a, p) => a or (p.name == n and p.from == raw.ports.get(n).from))),
+          raw.links.keys().forall(n =>
+            i.links.foldl(false, (a, l) => a or (l.name == n and l.from == raw.links.get(n).from))),
+          raw.fabrics.keys().forall(n =>
+            i.fabrics.foldl(false, (a, f) => a or (f.name == n and f.from == raw.fabrics.get(n).from))),
         }
     }
 

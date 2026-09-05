@@ -58,18 +58,26 @@ module intent_types {
   // `isolation` places the tenant in the container tree (default Isolated);
   // `pool` names the public holder a Restricted tenant draws inside ("" when
   // absent). The pool legality rules are intent/refuse.qnt (task 2.6c).
-  type Tenant = { name: str, dataplane: Dataplane, maxCores: int, isolation: Isolation, pool: str }
+  // `from` carries an accepted `renamed = { from }` clause ("" = absent, the
+  // `pool` convention) into the neutral model for the rename matcher (ADR-0015
+  // decision 10 / task 6.5): it widens the matcher's acceptance set, is inert
+  // after one converge, and compile ignores it (intent/derive.qnt).
+  type Tenant = { name: str, dataplane: Dataplane, maxCores: int, isolation: Isolation, pool: str, from: str }
 
   // A port: the dpmac anchor, the rate the port must deliver in Mbps (the
   // unit `dpmac info` reports its maximum in), and the tenant that
   // terminates it. A port named by a fabric is terminated by the fabric's
   // forwarding tenant — a port tenant that differs is a refusal (task 1.3).
-  type Port = { name: str, dpmac: int, rate: int, tenant: str }
+  // `from` carries an accepted rename clause ("" = absent) for the matcher
+  // (ADR-0015 decision 10 / task 6.5); compile ignores it.
+  type Port = { name: str, dpmac: int, rate: int, tenant: str, from: str }
 
   // A link: point-to-point dpni↔dpni pseudo-wire between two tenants
   // (object-model.md §2, DPNI-I9); each end names the tenant whose interface
   // terminates the wire (interfaces, not ports — leaves room for tunnels).
-  type Link = { name: str, interfaceA: str, interfaceB: str }
+  // `from` carries an accepted rename clause ("" = absent) for the matcher
+  // (ADR-0015 decision 10 / task 6.5); compile ignores it.
+  type Link = { name: str, interfaceA: str, interfaceB: str, from: str }
 
   // Who forwards between the members: Hardware — a DPSW (figure 6c), which
   // only the kernel can drive (dpsw.md: DPDK has no claim path); Software —
@@ -88,7 +96,9 @@ module intent_types {
   // task 3.3d). It does NOT number dpni ordinals — those come from the fabric's
   // NAME through the attach/wire origins (intent/derive.qnt), so a fabric block
   // reorder never renumbers a dpni (ADR-0015 decision 5).
-  type Fabric = { name: str, switching: Switching, forwardedBy: str, members: List[Member] }
+  // `from` carries an accepted rename clause ("" = absent) for the matcher
+  // (ADR-0015 decision 10 / task 6.5); compile ignores it.
+  type Fabric = { name: str, switching: Switching, forwardedBy: str, members: List[Member], from: str }
 
   // An accelerator for one tenant; its dpseci queue count derives from this
   // construct's own `flows` — a tenant-visible demand, never an object count
@@ -129,7 +139,7 @@ module intent_types {
   // The reserved kernel is implicitly public (task 2.6c): a Restricted tenant
   // may pool it, and it never itself draws inside another holder.
   pure def kernelTenant(maxCores: int): Tenant =
-    { name: KERNEL, dataplane: KernelNetlink, maxCores: maxCores, isolation: Public, pool: "" }
+    { name: KERNEL, dataplane: KernelNetlink, maxCores: maxCores, isolation: Public, pool: "", from: "" }
 
   // ---- canonical name order (ADR-0015 decision 5; task 3.3d) ----
 

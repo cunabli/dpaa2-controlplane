@@ -71,6 +71,7 @@ fn poll(name: &str) -> Tenant {
         max_cores: 16,
         isolation: Isolation::Isolated,
         pool: "".into(),
+        renamed: None,
     }
 }
 
@@ -82,6 +83,7 @@ fn port(name: &str, dpmac: u32, rate: i64, owner: &str) -> Port {
         tenant: owner.into(),
         mac: None,
         mac_mode: MacMode::Assert,
+        renamed: None,
     }
 }
 

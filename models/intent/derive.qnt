@@ -810,6 +810,9 @@ module intent_derive {
 
   // ---- the derivation ----
 
+  // compile derives objects by name/identity and never reads a construct's `from`
+  // clause: the rename clause widens the matcher's acceptance set, not the plan
+  // (ADR-0015 decision 10 / task 6.5 — the clause is the matcher's, not compile's).
   pure def derive(intent: Intent, inv: Inventory): Plan =
     { objs: allObjs(intent, inv),
       edges: portEdges(intent).union(linkEdges(intent)).union(fabricEdges(intent)).union(wireEdges(intent)),
@@ -828,8 +831,8 @@ module intent_derive {
     DprcAttrs({ options: Set() }))
   pure val MARKS_USE: Set[Measurement] = Set(Measured, Unmeasured)
   pure val ORIGINS_USE: Set[Origin] = Set(
-    OPort({ name: "p", dpmac: 0, rate: 0, tenant: "c" }),
-    OLink({ link: { name: "l", interfaceA: "c", interfaceB: "d" }, side: 0 }),
+    OPort({ name: "p", dpmac: 0, rate: 0, tenant: "c", from: "" }),
+    OLink({ link: { name: "l", interfaceA: "c", interfaceB: "d", from: "" }, side: 0 }),
     OAttach("f"),
     OWireOwner({ fabric: "f", peer: "c" }),
     OWireMember("f"))

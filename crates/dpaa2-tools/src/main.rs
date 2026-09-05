@@ -249,6 +249,7 @@ mod tests {
             tenant: owner.into(),
             mac: None,
             mac_mode: MacMode::Assert,
+            renamed: None,
         }
     }
 

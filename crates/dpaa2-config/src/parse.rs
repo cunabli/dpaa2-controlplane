@@ -191,8 +191,9 @@ fn convert(raw: &RawIntent) -> Result<Intent, Error> {
     // renamed away), a self-rename is inert, and the reserved `kernel` is never
     // declared so `from = "kernel"` passes. Namespaces are separate: a tenant's
     // `from` resolves against declared tenants, a port/link/fabric's against the
-    // shared construct namespace. The clause is validated then dropped here; the
-    // matcher (task 6.4/6.5) is what will plumb it into the neutral model.
+    // shared construct namespace. Validation stays up front here; each converter
+    // then carries the accepted clause into the neutral `Intent` as `renamed`
+    // (task 6.5), where the rename matcher consumes it.
     check_renames(raw)?;
 
     let tenants = raw
@@ -300,8 +301,9 @@ fn construct_is_declared_unrenamed(raw: &RawIntent, target: &ConstructName) -> b
 /// renamed away is refused, since the target would be claimed twice. Tenants resolve
 /// against declared tenants, and ports/links/fabrics against their shared namespace;
 /// a `from` that itself carries a `renamed` clause (the swap, the chain) or names an
-/// undeclared construct (the plain rename) is admitted. The clause is dropped after
-/// this gate — the matcher (task 6.4/6.5) is what will consume it.
+/// undeclared construct (the plain rename) is admitted. This gate only validates and
+/// refuses; the accepted clause is carried into the neutral `Intent` by each converter
+/// (task 6.5), where the rename matcher consumes it.
 fn check_renames(raw: &RawIntent) -> Result<(), Error> {
     for (name, t) in &raw.tenant {
         let Some(r) = &t.renamed else { continue };
@@ -381,6 +383,7 @@ fn convert_tenant(name: &TenantName, t: &RawTenant) -> Result<Tenant, Error> {
         max_cores: t.max_cores,
         isolation,
         pool,
+        renamed: t.renamed.as_ref().map(|r| r.from.clone()),
     })
 }
 
@@ -441,6 +444,7 @@ fn convert_port(
         tenant,
         mac,
         mac_mode,
+        renamed: p.renamed.as_ref().map(|r| r.from.clone()),
     })
 }
 
@@ -470,6 +474,7 @@ fn convert_link(
         name,
         interface_a,
         interface_b,
+        renamed: l.renamed.as_ref().map(|r| r.from.clone()),
     })
 }
 
@@ -502,6 +507,7 @@ fn convert_fabric(
         switching,
         forwarded_by,
         members,
+        renamed: f.renamed.as_ref().map(|r| r.from.clone()),
     })
 }
 
@@ -1381,6 +1387,37 @@ mod tests {
             "#,
         );
         assert_eq!(intent.ports[0].name.as_str(), "eth0");
+    }
+
+    #[test]
+    fn accepted_rename_lands_as_renamed_and_a_sibling_is_none() {
+        // An accepted `renamed = { from }` (the source undeclared, so inert) is carried
+        // onto its construct as `Some`, and a sibling with no clause carries `None`
+        // (task 6.5, ADR-0015 decision 10) — the matcher now sees the clause.
+        let intent = parse(
+            r#"
+            [port.eth0]
+            dpmac = "dpmac.7"
+            rate = 10000
+            renamed = { from = "old0" }
+
+            [port.wan1]
+            dpmac = "dpmac.8"
+            rate = 10000
+            "#,
+        );
+        let eth0 = intent
+            .ports
+            .iter()
+            .find(|p| p.name.as_str() == "eth0")
+            .expect("eth0 present");
+        let wan1 = intent
+            .ports
+            .iter()
+            .find(|p| p.name.as_str() == "wan1")
+            .expect("wan1 present");
+        assert_eq!(eth0.renamed.as_ref().map(|n| n.as_str()), Some("old0"));
+        assert!(wan1.renamed.is_none(), "a construct without a clause is None");
     }
 
     #[test]

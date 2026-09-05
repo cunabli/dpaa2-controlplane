@@ -161,6 +161,15 @@ fn flag(v: &Value) -> Result<bool, String> {
     v.as_bool().ok_or_else(|| format!("not a bool: {v}"))
 }
 
+/// The model's `from` slot as the neutral `renamed` field: `""` ⇒ `None`, else
+/// `Some(name)` — the accepted rename clause the matcher consumes (ADR-0015 decision
+/// 10 / task 6.5). Generic over the name newtype (a tenant reads `Option<TenantName>`,
+/// a construct `Option<ConstructName>`), the field type driving the inference.
+fn opt_name<T: From<String>>(v: &Value) -> Result<Option<T>, String> {
+    let s = text(v)?;
+    Ok(if s.is_empty() { None } else { Some(s.into()) })
+}
+
 /// The elements of an ITF `#set`.
 pub(crate) fn set_items(v: &Value) -> Result<&Vec<Value>, String> {
     v["#set"]
@@ -234,6 +243,7 @@ fn tenant(v: &Value) -> Result<Tenant, String> {
         max_cores: int64(field(v, "maxCores")?)?,
         isolation: isolation(field(v, "isolation")?)?,
         pool: tname(field(v, "pool")?)?,
+        renamed: opt_name(field(v, "from")?)?,
     })
 }
 
@@ -247,6 +257,7 @@ fn port(v: &Value) -> Result<Port, String> {
         // Quint model omits them, so the ITF trace carries none — default them.
         mac: None,
         mac_mode: MacMode::default(),
+        renamed: opt_name(field(v, "from")?)?,
     })
 }
 
@@ -255,6 +266,7 @@ fn link(v: &Value) -> Result<Link, String> {
         name: cname(field(v, "name")?)?,
         interface_a: tname(field(v, "interfaceA")?)?,
         interface_b: tname(field(v, "interfaceB")?)?,
+        renamed: opt_name(field(v, "from")?)?,
     })
 }
 
@@ -267,6 +279,7 @@ fn fabric(v: &Value) -> Result<Fabric, String> {
             .iter()
             .map(member)
             .collect::<Result<_, _>>()?,
+        renamed: opt_name(field(v, "from")?)?,
     })
 }
 

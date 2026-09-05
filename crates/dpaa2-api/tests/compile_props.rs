@@ -608,6 +608,7 @@ fn intent_and_inventory() -> impl Strategy<Value = (Intent, Inventory)> {
                     max_cores,
                     isolation,
                     pool,
+                    renamed: None,
                 });
             }
             let ports = ports
@@ -620,6 +621,7 @@ fn intent_and_inventory() -> impl Strategy<Value = (Intent, Inventory)> {
                     tenant,
                     mac: None,
                     mac_mode: MacMode::default(),
+                    renamed: None,
                 })
                 .collect();
             let links = links
@@ -628,6 +630,7 @@ fn intent_and_inventory() -> impl Strategy<Value = (Intent, Inventory)> {
                     name: "l1".into(),
                     interface_a: a,
                     interface_b: b,
+                    renamed: None,
                 })
                 .collect();
             let fabrics = fabrics
@@ -637,6 +640,7 @@ fn intent_and_inventory() -> impl Strategy<Value = (Intent, Inventory)> {
                     switching,
                     forwarded_by,
                     members,
+                    renamed: None,
                 })
                 .collect();
             let crypto = crypto
@@ -722,6 +726,7 @@ fn build_witness_plan(
                 Isolation::Isolated
             },
             pool: "".into(),
+            renamed: None,
         });
         specs.push(c);
     }
@@ -765,6 +770,7 @@ fn build_witness_plan(
                 tenant: t.name.clone(),
                 mac: None,
                 mac_mode: MacMode::default(),
+                renamed: None,
             };
             next_dpmac += 1;
             let (obj, edge) = port.terminate(t, ord, 1);
@@ -801,6 +807,7 @@ fn build_witness_plan(
             name: "w".into(),
             interface_a: ta.name.clone(),
             interface_b: tb.name.clone(),
+            renamed: None,
         };
         plan.edges.insert(link.wire(iface_a, iface_b));
     }

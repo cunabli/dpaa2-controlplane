@@ -998,6 +998,7 @@ mod compile_tests {
             max_cores: cores,
             isolation: iso,
             pool: pool.into(),
+            renamed: None,
         }
     }
 
@@ -1015,6 +1016,7 @@ mod compile_tests {
             tenant: owner.into(),
             mac: None,
             mac_mode: crate::model::MacMode::Assert,
+            renamed: None,
         }
     }
     fn link(name: &str, a: &str, b: &str) -> Link {
@@ -1022,6 +1024,7 @@ mod compile_tests {
             name: name.into(),
             interface_a: a.into(),
             interface_b: b.into(),
+            renamed: None,
         }
     }
 
@@ -1111,6 +1114,7 @@ mod compile_tests {
                 switching: Switching::Software,
                 forwarded_by: "sw".into(),
                 members: vec![Member::Tenant("ghost".into())],
+                renamed: None,
             }],
             ..Intent::default()
         };
@@ -1132,6 +1136,7 @@ mod compile_tests {
                 switching: Switching::Software,
                 forwarded_by: "sw".into(),
                 members: vec![Member::Tenant("sw".into())],
+                renamed: None,
             }],
             ..Intent::default()
         };
@@ -1239,6 +1244,7 @@ mod compile_tests {
                 switching: Switching::Hardware,
                 forwarded_by: "sw".into(),
                 members: vec![],
+                renamed: None,
             }],
             ..Intent::default()
         };
@@ -1261,6 +1267,7 @@ mod compile_tests {
                 switching: Switching::Hardware,
                 forwarded_by: "kernel".into(),
                 members: vec![Member::Port("p".into())],
+                renamed: None,
             }],
             ..Intent::default()
         };
@@ -1284,12 +1291,14 @@ mod compile_tests {
                     switching: Switching::Hardware,
                     forwarded_by: "kernel".into(),
                     members: vec![Member::Fabric("f2".into())],
+                    renamed: None,
                 },
                 Fabric {
                     name: "f2".into(),
                     switching: Switching::Hardware,
                     forwarded_by: "kernel".into(),
                     members: vec![],
+                    renamed: None,
                 },
             ],
             ..Intent::default()
@@ -1714,6 +1723,7 @@ mod compile_tests {
                 switching: Switching::Hardware,
                 forwarded_by: "kernel".into(),
                 members: vec![Member::Port("p7".into()), Member::Port("p8".into())],
+                renamed: None,
             }],
             ..Intent::default()
         };
