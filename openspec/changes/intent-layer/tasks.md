@@ -301,3 +301,34 @@ the change's only other operator sync point (design D12).
       (bead gqf.26): wire `model:verify` if a quint/Apalache upgrade or a
       compile-once restructure makes it affordable, else seal the gap in
       ADR-0002's escalation note with the measured costs
+
+## 6. Identity across time (operator review 2026-09-05; still intent, per
+## the amend-in-place rule — one bead per parcel, 6.1 gates the phase)
+
+- [ ] 6.1 docs: ADR-0015 amendment — the identity-across-time contract:
+      impossibility frame, anchor-first identity ladder, rename as
+      self-neutralizing match widening (with the swap fix),
+      indiscernibility and ambiguity-refusal, disruption classes, the
+      IFNAMSIZ ∖ family.N name rule, decision-5 reframed (ordinals =
+      clean-boot creation order, INTENT_I10 stands), stated model limits;
+      operator reviews the draft before any dependent parcel (bead gqf.49)
+- [ ] 6.2 name rule: construct names are valid Linux iface names
+      (≤15 chars), never matching the reserved `family.N` lexical
+      pattern — name == label lossless, id-confusion unrepresentable
+      (bead gqf.50)
+- [ ] 6.3 schema + raw model: `renamed = { from }` on nameable
+      constructs; `from` naming a declared construct refuses at parse
+      (bead gqf.51)
+- [ ] 6.4 model-first: `ObservedBoard`, the edit alphabet, pure
+      `match`/`apply`, and the new invariants — two-intent frame law,
+      rename self-neutralization, converge idempotence, swap
+      correctness; Rust twins red until 6.5/6.7 (bead gqf.52)
+- [ ] 6.5 `dpaa2-api` matcher + disruption-classed Plan (hitless /
+      boundary / disruptive); dry-run headline is the max class,
+      converge gates on `--allow` (bead gqf.54)
+- [ ] 6.6 label carries the construct name verbatim; drift repaired by
+      set-label, never recreate; ADR-0010 §4 cross-checked (bead gqf.53)
+- [ ] 6.7 `dpaa2-verify` pairing twin: the two-intent properties on real
+      strings plus MBT replay of the edit alphabet (bead gqf.55)
+- [ ] 6.8 phase close: COVERAGE rows, ROADMAP touch, ledger lint
+      (bead gqf.56)
