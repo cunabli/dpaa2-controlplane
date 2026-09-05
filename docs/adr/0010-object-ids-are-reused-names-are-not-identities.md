@@ -8,7 +8,9 @@
 - **Supersedes / relates to:** OpenSpec change `verify-foundation` task
   5.10; ADR-0001 (stateless, level-triggered convergence); ADR-0006
   (single initiating writer); ADR-0007 (creator-bound destroy);
-  `models/core` `nextNum`
+  `models/core` `nextNum`; ADR-0015 (the identity taxonomy that carries
+  this law forward — name/key is intent identity, N the reused runtime
+  handle, the label the seam)
 
 ## Context
 

@@ -284,7 +284,7 @@ the change's only other operator sync point (design D12).
 
 - [x] 5.1 Ledger pass: `COVERAGE.md` rows for the intent invariants and
       the DPDCEI-I1 re-anchor; ledger lint green
-- [ ] 5.2a docs: identity-taxonomy ADR — intent identity = name/key
+- [x] 5.2a docs: identity-taxonomy ADR — intent identity = name/key
       (structure- and type-enforced), runtime handle = N (MC-owned, reused,
       never referenced; N-invariance unpromisable per ADR-0010), label as
       the re-association seam, the position-independence law, and the

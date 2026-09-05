@@ -599,7 +599,9 @@ Each entry keeps the question as posed and records the decision.
   `invariants.qnt`, `alphabet.qnt`, `scenarios/`, `models/COVERAGE.md`).
 - ADR-0005 (intent layer, elaborated here), ADR-0012 (companion sizing),
   ADR-0011 (three-valued ceilings), ADR-0003 §3 (reserved dpmacs), ADR-0001
-  §§3–4 (DPMAC identity, DPL ownership), ADR-0010 (keys, not labels).
+  §§3–4 (DPMAC identity, DPL ownership), ADR-0010 (keys, not labels),
+  ADR-0015 (the identity taxonomy over §2's keyed tables and §6's
+  `keysAreIdentities`: name/key, reused N, and the label seam).
 - `docs/baseline/object-model.md` (the edge table) and the per-family
   baselines under `docs/baseline/`.
 - External anchors (design D7): RFC 9315 / RFC 9316 (intent is a declarative
