@@ -173,8 +173,11 @@ pub enum Member {
 /// `Fabric`). `forwarded_by` names the tenant that runs its forwarding plane (a
 /// dpsw for [`Switching::Hardware`], its own bridging for [`Switching::Software`]).
 /// That a hardware fabric is kernel-forwarded is a rule (`FabricNotKernelForwarded`),
-/// not a shape. Members are ordered: declaration order numbers the dpsw interfaces
-/// and dpni ordinals.
+/// not a shape. Members are ordered: member order numbers the dpsw interfaces (a
+/// structural within-object index, kept as-is like crypto, task 3.3d). It does NOT
+/// number dpni ordinals — those come from the fabric's NAME through the attach/wire
+/// origins (the `derive` module; `derive.qnt`), so a fabric block reorder never
+/// renumbers a dpni (ADR-0015 decision 5).
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub struct Fabric {
     /// The fabric's name (its construct identity, and the dpsw provenance key).
@@ -218,9 +221,16 @@ pub struct Extra {
 
 /// The complete intent an operator states (design D1; `types.qnt` `Intent`).
 ///
-/// Lists keep declaration order — it is the ordinal source (design D6): a
-/// `[[port]]`/`[[crypto]]` array is ordered, so a tenant's Nth block numbers its
-/// Nth dpseci. Only `extras` is a set — unordered, matched by `(tenant, family)`,
+/// Names are identities (ADR-0015 decision 1): design D6 keys every derived object by
+/// `(tenant, family, ordinal)`, and as of task 3.3d the ordinal is minted by NAME
+/// order, never by a construct's position in the document (ADR-0015 decision 5, the
+/// position-independence law — reordering cosmetic blocks never rewires hardware).
+/// tenants/ports/links/fabrics stay `Vec`s for a minimal shape, but the derivation
+/// sorts them by name (the `derive` module; `derive.qnt`) and no longer consumes their
+/// order. `crypto`
+/// is the sole exception (ADR-0015 decision 4 / task 2.6e): a `[[crypto]]` block is
+/// genuinely anonymous, so declaration order IS the dpseci ordinal and crypto is never
+/// sorted. Only `extras` is a set — unordered, matched by `(tenant, family)`,
 /// additive, never by position.
 #[derive(Clone, PartialEq, Eq, Debug, Default)]
 pub struct Intent {

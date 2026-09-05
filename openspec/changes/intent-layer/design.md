@@ -364,7 +364,7 @@ DesiredTopology → reconcile`. `Intent` and `Inventory` carry no serde;
 compiled plan (objects, edges, memberships, provenance) and `reconcile`
 keeps its signature, executing the objects it has executors for and
 reporting the rest as plan-only — not drift, not error. The port-only
-schema is replaced: a file with only `[[port]]` entries still parses
+schema is replaced: a file with only `[port.<name>]` entries still parses
 (ports default to the `kernel` tenant in root, today's behavior), but
 `DesiredTopology`'s old shape is not preserved and the README example
 is rewritten. Alternative rejected: keeping the port list as a parallel

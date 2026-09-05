@@ -10,9 +10,11 @@
 //! The harness that drives it lives in `tests/raw_conformance.rs`.
 //!
 //! Two encodings are reconciled here, nowhere else:
-//! - the raw surface: keyed maps for tenant/fabric/extra (a duplicate key is a
-//!   TOML parse error, so the model spells them as maps), arrays for port/link/
-//!   crypto (a duplicate name IS representable and IS refused by name), the model's
+//! - the raw surface: keyed maps for tenant/port/link/fabric/extra (a duplicate key
+//!   is a TOML parse error, so the model spells them as maps — task 3.3d keyed ports
+//!   and links too, ADR-0015 decision 1, so only a cross-family name collision still
+//!   reaches DuplicateName), an array for crypto (genuinely anonymous, declaration
+//!   order IS the dpseci ordinal), the model's
 //!   `""` tenant/pool meaning absent (omitted from the emitted TOML), and the
 //!   `dpmac` int emitted as the `"dpmac.N"` string the surface reads. Fields the
 //!   model deliberately does not carry (`mac`, `mac_mode`, `dpni`) are omitted —
@@ -59,11 +61,10 @@ pub struct RawTenant {
     pub pool: TenantName,
 }
 
-/// A `[[port]]` value. `dpmac` is the int the model carries, emitted `"dpmac.N"`.
+/// A `[port.<name>]` value (the name is the map key, task 3.3d). `dpmac` is the int
+/// the model carries, emitted `"dpmac.N"`.
 #[derive(Clone, Debug)]
 pub struct RawPort {
-    /// The interface name.
-    pub name: ConstructName,
     /// The DPMAC anchor index.
     pub dpmac: i64,
     /// The rate in Mbps.
@@ -72,11 +73,10 @@ pub struct RawPort {
     pub tenant: TenantName,
 }
 
-/// A `[[link]]` value: a pseudo-wire between two tenant ends.
+/// A `[link.<name>]` value (the name is the map key, task 3.3d): a pseudo-wire between
+/// two tenant ends.
 #[derive(Clone, Debug)]
 pub struct RawLink {
-    /// The link name.
-    pub name: ConstructName,
     /// One end.
     pub interface_a: TenantName,
     /// The other end.
@@ -108,10 +108,11 @@ pub struct RawCrypto {
 pub struct RawIntent {
     /// `[tenant.<name>]` tables, keyed (a duplicate key is a TOML parse error).
     pub tenants: BTreeMap<TenantName, RawTenant>,
-    /// `[[port]]` array (a duplicate name is representable and refused by name).
-    pub ports: Vec<RawPort>,
-    /// `[[link]]` array.
-    pub links: Vec<RawLink>,
+    /// `[port.<name>]` tables, keyed (task 3.3d — an intra-family duplicate is a TOML
+    /// parse error; only a cross-family collision reaches `DuplicateName`).
+    pub ports: BTreeMap<ConstructName, RawPort>,
+    /// `[link.<name>]` tables, keyed (task 3.3d).
+    pub links: BTreeMap<ConstructName, RawLink>,
     /// `[fabric.<name>]` tables, keyed.
     pub fabrics: BTreeMap<ConstructName, RawFabric>,
     /// `[[crypto]]` array.
@@ -229,7 +230,8 @@ impl RawRefusal {
         match self {
             // convert: "... declares the reserved tenant name `kernel`, which is reserved ...".
             RawRefusal::ReservedKernel { .. } => e.contains("reserved"),
-            // convert: "duplicate interface name `<n>`" / "duplicate construct name `<n>`".
+            // convert: "duplicate construct name `<n>`" (the cross-family collision, the
+            // only DuplicateName path left once ports/links are keyed, task 3.3d).
             RawRefusal::DuplicateName { name } => {
                 e.contains("duplicate") && e.contains(name.as_str())
             }
@@ -293,7 +295,7 @@ fn bare_key(k: &str) -> &str {
 
 /// Serializes a [`RawIntent`] to a TOML document on the real `dpaa2-config` surface,
 /// including the mandatory `[intent] schema = 1` envelope. A near-miss serializes to
-/// exactly its pathological TOML (duplicate `[[port]]` names, dangling references,
+/// exactly its pathological TOML (a cross-family name collision, dangling references,
 /// `[tenant.kernel]`, unknown family keys) — the emitter never fixes up a dirty state.
 #[must_use]
 pub fn to_toml(raw: &RawIntent) -> String {
@@ -309,19 +311,17 @@ pub fn to_toml(raw: &RawIntent) -> String {
         }
     }
 
-    for p in &raw.ports {
-        s.push_str("\n[[port]]\n");
+    for (name, p) in &raw.ports {
+        let _ = writeln!(s, "\n[port.{}]", bare_key(name.as_str()));
         let _ = writeln!(s, "dpmac = \"dpmac.{}\"", p.dpmac);
-        let _ = writeln!(s, "name = \"{}\"", p.name);
         let _ = writeln!(s, "rate = {}", p.rate);
         if !p.tenant.as_str().is_empty() {
             let _ = writeln!(s, "tenant = \"{}\"", p.tenant);
         }
     }
 
-    for l in &raw.links {
-        s.push_str("\n[[link]]\n");
-        let _ = writeln!(s, "name = \"{}\"", l.name);
+    for (name, l) in &raw.links {
+        let _ = writeln!(s, "\n[link.{}]", bare_key(name.as_str()));
         let _ = writeln!(s, "interface_a = \"{}\"", l.interface_a);
         let _ = writeln!(s, "interface_b = \"{}\"", l.interface_b);
     }
@@ -395,7 +395,6 @@ fn raw_tenant(v: &Value) -> Result<RawTenant, String> {
 
 fn raw_port(v: &Value) -> Result<RawPort, String> {
     Ok(RawPort {
-        name: cname(field(v, "name")?)?,
         dpmac: int64(field(v, "dpmac")?)?,
         rate: int64(field(v, "rate")?)?,
         tenant: tname(field(v, "tenant")?)?,
@@ -404,7 +403,6 @@ fn raw_port(v: &Value) -> Result<RawPort, String> {
 
 fn raw_link(v: &Value) -> Result<RawLink, String> {
     Ok(RawLink {
-        name: cname(field(v, "name")?)?,
         interface_a: tname(field(v, "interfaceA")?)?,
         interface_b: tname(field(v, "interfaceB")?)?,
     })
@@ -433,6 +431,14 @@ fn raw_intent(v: &Value) -> Result<RawIntent, String> {
     for pair in map_items(field(v, "tenants")?)? {
         tenants.insert(tname(&pair[0])?, raw_tenant(&pair[1])?);
     }
+    let mut ports = BTreeMap::new();
+    for pair in map_items(field(v, "ports")?)? {
+        ports.insert(cname(&pair[0])?, raw_port(&pair[1])?);
+    }
+    let mut links = BTreeMap::new();
+    for pair in map_items(field(v, "links")?)? {
+        links.insert(cname(&pair[0])?, raw_link(&pair[1])?);
+    }
     let mut fabrics = BTreeMap::new();
     for pair in map_items(field(v, "fabrics")?)? {
         fabrics.insert(cname(&pair[0])?, raw_fabric(&pair[1])?);
@@ -447,14 +453,8 @@ fn raw_intent(v: &Value) -> Result<RawIntent, String> {
     }
     Ok(RawIntent {
         tenants,
-        ports: list_items(field(v, "ports")?)?
-            .iter()
-            .map(raw_port)
-            .collect::<Result<_, _>>()?,
-        links: list_items(field(v, "links")?)?
-            .iter()
-            .map(raw_link)
-            .collect::<Result<_, _>>()?,
+        ports,
+        links,
         fabrics,
         crypto: list_items(field(v, "crypto")?)?
             .iter()
@@ -543,9 +543,12 @@ pub fn parse_raw_case(json: &str) -> Result<RawCase, String> {
 
 /// Normalizes a Rust [`Intent`] for order-insensitive comparison against the model's:
 /// tenants and fabrics come from unordered maps on both sides (Rust's `BTreeMap`, the
-/// model's `keys()` fold), so they are sorted here; ports, links, crypto, and fabric
-/// members keep declaration order on both sides (and in the emitted TOML), and extras
-/// are a `BTreeSet` — so those need no sorting.
+/// model's `keys()` fold), so they are sorted here. Ports and links are keyed maps now
+/// too (task 3.3d), and both sides linearize them in NAME order — the model's `toIntent`
+/// sorts by name, and the emitted TOML lists `[port.<name>]`/`[link.<name>]` tables in
+/// this `BTreeMap`'s name order, which `dpaa2-config` preserves — so they already agree
+/// without sorting. crypto is a declaration-ordered array and extras a `BTreeSet`, so
+/// those need no sorting either.
 pub fn normalize(i: &mut Intent) {
     i.tenants.sort();
     i.fabrics.sort();
@@ -577,15 +580,18 @@ mod tests {
     fn emits_the_schema_envelope_and_omits_empty_optional_slots() {
         let mut raw = RawIntent::default();
         raw.tenants.insert("router".into(), tenant(""));
-        raw.ports.push(RawPort {
-            name: "wan0".into(),
-            dpmac: 7,
-            rate: 10000,
-            tenant: "".into(),
-        });
+        raw.ports.insert(
+            "wan0".into(),
+            RawPort {
+                dpmac: 7,
+                rate: 10000,
+                tenant: "".into(),
+            },
+        );
         let doc = to_toml(&raw);
         assert!(doc.starts_with("[intent]\nschema = 1\n"), "{doc}");
         assert!(doc.contains("[tenant.router]"), "{doc}");
+        assert!(doc.contains("[port.wan0]"), "{doc}");
         assert!(doc.contains("dpmac = \"dpmac.7\""), "{doc}");
         // Empty pool and empty port tenant are omitted, not emitted as "".
         assert!(!doc.contains("pool ="), "{doc}");
@@ -593,19 +599,31 @@ mod tests {
     }
 
     #[test]
-    fn emits_duplicate_port_names_verbatim() {
-        // A near-miss serializes to exactly the pathological TOML — two [[port]]
-        // blocks share a name; the emitter never fixes it up.
+    fn emits_a_cross_family_name_collision_verbatim() {
+        // The only DuplicateName near-miss left once ports/links are keyed (task 3.3d):
+        // a port and a fabric of one name serialize to exactly that TOML — separate
+        // `[port.p1]` and `[fabric.p1]` tables the parser refuses cross-family; the
+        // emitter never fixes it up.
         let mut raw = RawIntent::default();
-        for dpmac in [7, 8] {
-            raw.ports.push(RawPort {
-                name: "p1".into(),
-                dpmac,
+        raw.ports.insert(
+            "p1".into(),
+            RawPort {
+                dpmac: 7,
                 rate: 10000,
                 tenant: "".into(),
-            });
-        }
-        assert_eq!(to_toml(&raw).matches("name = \"p1\"").count(), 2);
+            },
+        );
+        raw.fabrics.insert(
+            "p1".into(),
+            RawFabric {
+                switching: "hardware".into(),
+                forwarded_by: "kernel".into(),
+                members: vec![],
+            },
+        );
+        let doc = to_toml(&raw);
+        assert!(doc.contains("[port.p1]"), "{doc}");
+        assert!(doc.contains("[fabric.p1]"), "{doc}");
     }
 
     #[test]
@@ -621,7 +639,7 @@ mod tests {
             ),
             (
                 RawRefusal::DuplicateName { name: "p1".into() },
-                "duplicate interface name `p1`",
+                "duplicate construct name `p1`",
                 true,
             ),
             (

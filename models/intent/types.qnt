@@ -83,9 +83,11 @@ module intent_types {
   // A fabric: one switched domain over its members; `forwardedBy` names the
   // tenant that runs its forwarding plane (dpsw for Hardware, own bridging
   // for Software). That a hardware fabric is forwarded by the kernel is a
-  // rule (task 1.3), not a shape. Members are a List: declaration order numbers
-  // the dpsw interfaces and the dpni ordinals (same rationale as the other
-  // lists).
+  // rule (task 1.3), not a shape. Members are a List: member order numbers the
+  // dpsw interfaces (a structural within-object index, kept as-is like crypto,
+  // task 3.3d). It does NOT number dpni ordinals — those come from the fabric's
+  // NAME through the attach/wire origins (intent/derive.qnt), so a fabric block
+  // reorder never renumbers a dpni (ADR-0015 decision 5).
   type Fabric = { name: str, switching: Switching, forwardedBy: str, members: List[Member] }
 
   // An accelerator for one tenant; its dpseci queue count derives from this
@@ -104,15 +106,17 @@ module intent_types {
   // family is refused (task 1.3), and `count` must be >= 1.
   type Extra = { tenant: str, family: Family, count: int }
 
-  // Declaration order is the ordinal source: design D6 keys every derived
-  // object by (tenant, family, ordinal), and a TOML `[[port]]` array is
-  // ordered. Quint has no string ordering, so a Set would leave the third
-  // dpni's ordinal undefined; the lists carry the positions the derivation
-  // reads (intent/derive.qnt). crypto is a List for the same reason (task
-  // 2.6e): a `[[crypto]]` array-of-tables is ordered, and a tenant's block
-  // positions number its dpseci ordinals — each block sizes its own dpseci.
-  // Only extras stay a Set — unordered, matched by (tenant, family), additive,
-  // never by position.
+  // Names are identities (ADR-0015 decision 1): design D6 keys every derived
+  // object by (tenant, family, ordinal), and as of task 3.3d the ordinal is
+  // minted by NAME order, never by a construct's position in the document
+  // (ADR-0015 decision 5, the position-independence law — reordering cosmetic
+  // blocks never rewires hardware). tenants/ports/links/fabrics stay Lists here
+  // for a minimal diff, but the derivation sorts them by name (intent/derive.qnt
+  // sortByRank) and no longer consumes their order. crypto is the sole
+  // exception (ADR-0015 decision 4 / task 2.6e): a `[[crypto]]` block is
+  // genuinely anonymous, so declaration order IS the dpseci ordinal and crypto
+  // is never sorted. extras stay a Set — unordered, matched by (tenant, family),
+  // additive, never by position.
   type Intent = {
     tenants: List[Tenant],
     ports: List[Port],
@@ -126,6 +130,54 @@ module intent_types {
   // may pool it, and it never itself draws inside another holder.
   pure def kernelTenant(maxCores: int): Tenant =
     { name: KERNEL, dataplane: KernelNetlink, maxCores: maxCores, isolation: Public, pool: "" }
+
+  // ---- canonical name order (ADR-0015 decision 5; task 3.3d) ----
+
+  // Identity is the name, so an ordinal must be minted by name, not by a
+  // construct's position in the document (ADR-0015 decision 5, the position-
+  // independence law). Quint has no string comparison (see derive.qnt's "Quint
+  // has no string ops"), so sorting by name is sorting by a hand-maintained
+  // rank: NAME_RANK lists every name the model can utter — every alphabet
+  // domain, every scenario/directed construct, the reserved kernel — in
+  // lexicographic order, and nameRank reads a name's position in it.
+  //
+  // This is a hand-maintained enumeration in ADR-0014 territory: its lint is
+  // the Rust pairing/conformance harness (task 3.4), which sorts real strings
+  // lexicographically — a rank list out of lexicographic order makes the model
+  // plan and the Rust plan disagree and fails the pairing test. A name absent
+  // from the list is loud, not silent: nameRank is Map.get, so an unlisted name
+  // is a runtime error the test/simulate/coverage rungs raise by name (never a
+  // default rank that quietly collides two names into one ordinal).
+  pure val NAME_RANK: str -> int = Map(
+    "a" -> 0, "app" -> 1, "b" -> 2, "br" -> 3, "c1" -> 4, "c2" -> 5,
+    "clash0" -> 6, "d" -> 7, "e0" -> 8, "f1" -> 9, "f2" -> 10, "g" -> 11,
+    "ghost" -> 12, "h" -> 13, "hw" -> 14, "hw1" -> 15, "hw2" -> 16,
+    "kernel" -> 17, "ksw" -> 18, "l1" -> 19, "l2" -> 20, "lan" -> 21,
+    "lan0" -> 22, "lan1" -> 23, "mgmt" -> 24, "ns1" -> 25, "ns2" -> 26,
+    "p1" -> 27, "p10" -> 28, "p2" -> 29, "p3" -> 30, "p7" -> 31, "p8" -> 32,
+    "p9" -> 33, "primary" -> 34, "px" -> 35, "restr" -> 36, "router" -> 37,
+    "router2" -> 38, "routerA" -> 39, "routerB" -> 40, "routerC" -> 41,
+    "routerX" -> 42, "rsw" -> 43, "secondary" -> 44, "stray" -> 45, "sw" -> 46,
+    "up0" -> 47, "uplink" -> 48, "veth" -> 49, "vpp" -> 50, "w" -> 51,
+    "wan0" -> 52, "wan1" -> 53, "wan2" -> 54, "wire" -> 55, "x" -> 56)
+
+  // A name's lexicographic rank; a name not in NAME_RANK is a loud runtime
+  // error (see NAME_RANK), the totality guard the parcel requires.
+  pure def nameRank(n: str): int = NAME_RANK.get(n)
+
+  // Insert x into an already rank-sorted list, before the first element of
+  // strictly greater rank. Ranks are distinct within a family of unique names,
+  // so the insertion is deterministic.
+  pure def insertByRank(sorted: List[a], x: a, key: (a) => int): List[a] =
+    val r = sorted.foldl({ placed: false, out: [] }, (st, y) =>
+      if (not(st.placed) and key(y) > key(x)) { placed: true, out: st.out.append(x).append(y) }
+      else { placed: st.placed, out: st.out.append(y) })
+    if (r.placed) r.out else r.out.append(x)
+
+  // Sort a list into ascending name-rank order (insertion sort; the lists the
+  // derivation sorts are small). Sorting by rank == sorting by name.
+  pure def sortByRank(xs: List[a], key: (a) => int): List[a] =
+    xs.foldl([], (acc, x) => insertByRank(acc, x, key))
 
   // ---- the inventory: the observed hardware offer (design D2) ----
 

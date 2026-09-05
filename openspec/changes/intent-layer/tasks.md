@@ -225,7 +225,7 @@ the change's only other operator sync point (design D12).
       key, hand-written duplicate-name clauses deleted, members stay an
       ordered list; serde boundary only, scenario TOMLs and docs in
       lockstep (discovered by the gqf.40 review, bead gqf.45)
-- [ ] 3.3d model+config: port/link identity from name, not position —
+- [x] 3.3d model+config: port/link identity from name, not position —
       MODEL-GATED, Quint first: `derive.qnt` ordinals from names, a new
       position-independence invariant, ladder green before the Rust and
       `[port.<name>]`/`[link.<name>]` config re-shape; kills the

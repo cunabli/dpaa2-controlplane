@@ -124,10 +124,13 @@ pub fn parse_schema(text: &str) -> Result<(), Error> {
     require_schema(&raw)
 }
 
-/// Validates the raw document and converts it into the neutral [`Intent`]. Ports, links,
-/// and crypto keep declaration order (design D6); tenants and fabrics take name (key)
-/// order, order-free by the gqf.40 decision (dprc identity is plan-keyed by name); the
-/// extras fold into the plan's [`std::collections::BTreeSet`].
+/// Validates the raw document and converts it into the neutral [`Intent`]. Tenants,
+/// ports, links, and fabrics take name (key) order — since task 3.3d keys ports and
+/// links too (ADR-0015 decision 1), their order is canonical and cosmetic: the
+/// derivation mints the name-ordered dpni ordinal, not the document position (decision
+/// 5, the position-independence law). `crypto` keeps declaration order (its Nth block
+/// numbers the Nth dpseci, decision 4); the extras fold into the plan's
+/// [`std::collections::BTreeSet`].
 ///
 /// Every semantic name crosses into a [`TenantName`] or [`ConstructName`] here, at the
 /// deserialization boundary, so no bare `String` name flows through the validation or
@@ -146,7 +149,7 @@ fn convert(raw: &RawIntent) -> Result<Intent, Error> {
         }
         tenant_names.insert(name.clone());
     }
-    let port_names: HashSet<ConstructName> = raw.port.iter().map(|p| p.name.clone()).collect();
+    let port_names: HashSet<ConstructName> = raw.port.keys().cloned().collect();
     let fabric_names: HashSet<ConstructName> = raw.fabric.keys().cloned().collect();
 
     let tenants = raw
@@ -155,30 +158,31 @@ fn convert(raw: &RawIntent) -> Result<Intent, Error> {
         .map(|(name, t)| convert_tenant(name, t))
         .collect::<Result<Vec<_>, _>>()?;
 
-    // Interface names are unique, and every construct name (port, link, fabric) is
-    // unique so a fabric member resolves to exactly one construct.
-    let mut ifaces: HashSet<ConstructName> = HashSet::new();
+    // Ports, links, and fabrics share one construct namespace so a fabric member
+    // resolves to exactly one construct. Each family is keyed now, so a name is unique
+    // within its family (a duplicate is a TOML key redefinition); the only collision
+    // this set still catches is CROSS-family — a port and a link, or a fabric, of one
+    // name (task 3.3d, ADR-0015 decision 1) — which TOML's separate tables cannot dedupe.
     let mut constructs: HashSet<ConstructName> = HashSet::new();
     let ports = raw
         .port
         .iter()
-        .map(|p| {
-            if !ifaces.insert(p.name.clone()) {
-                return Err(cfg(format!("duplicate interface name `{}`", p.name)));
-            }
-            constructs.insert(p.name.clone());
-            convert_port(p, &tenant_names)
+        .map(|(name, p)| {
+            // Ports are processed first; a port name colliding with a later link or
+            // fabric is refused when that family inserts the shared name below.
+            constructs.insert(name.clone());
+            convert_port(name, p, &tenant_names)
         })
         .collect::<Result<Vec<_>, _>>()?;
 
     let links = raw
         .link
         .iter()
-        .map(|l| {
-            if !constructs.insert(l.name.clone()) {
-                return Err(cfg(format!("duplicate construct name `{}`", l.name)));
+        .map(|(name, l)| {
+            if !constructs.insert(name.clone()) {
+                return Err(cfg(format!("duplicate construct name `{name}`")));
             }
-            convert_link(l, &tenant_names)
+            convert_link(name, l, &tenant_names)
         })
         .collect::<Result<Vec<_>, _>>()?;
 
@@ -280,15 +284,18 @@ fn reject_counts(subject: &str, counts: &[(&str, Option<i64>)]) -> Result<(), Er
     Ok(())
 }
 
-fn convert_port(p: &RawPort, tenants: &HashSet<TenantName>) -> Result<Port, Error> {
+fn convert_port(
+    name: &ConstructName,
+    p: &RawPort,
+    tenants: &HashSet<TenantName>,
+) -> Result<Port, Error> {
     if let Some(dpni) = &p.dpni {
         return Err(cfg(format!(
-            "port `{}` pins a DPNI index (`dpni = \"{dpni}\"`); DPNI identity is derived from the \
-             DPMAC edge and must not be set",
-            p.name
+            "port `{name}` pins a DPNI index (`dpni = \"{dpni}\"`); DPNI identity is derived from \
+             the DPMAC edge and must not be set"
         )));
     }
-    let name = ConstructName::from(validate_name(p.name.as_str())?);
+    let name = ConstructName::from(validate_name(name.as_str())?);
     reject_counts(&format!("port `{name}`"), counts_of!(p))?;
     let dpmac =
         parse_dpmac(&p.dpmac).ok_or_else(|| cfg(format!("port `{name}` has malformed `dpmac`")))?;
@@ -320,8 +327,12 @@ fn convert_port(p: &RawPort, tenants: &HashSet<TenantName>) -> Result<Port, Erro
     })
 }
 
-fn convert_link(l: &RawLink, tenants: &HashSet<TenantName>) -> Result<Link, Error> {
-    let name = l.name.clone();
+fn convert_link(
+    name: &ConstructName,
+    l: &RawLink,
+    tenants: &HashSet<TenantName>,
+) -> Result<Link, Error> {
+    let name = name.clone();
     reject_counts(&format!("link `{name}`"), counts_of!(l))?;
     let interface_a = l.interface_a.clone();
     let interface_b = l.interface_b.clone();
@@ -523,9 +534,8 @@ mod tests {
             dataplane = "userspace-poll"
             max_cores = 16
 
-            [[port]]
+            [port.wan0]
             dpmac = "dpmac.7"
-            name = "wan0"
             rate = 10000
             tenant = "router"
             "#,
@@ -539,9 +549,8 @@ mod tests {
     fn scenario_dpni_index_is_rejected() {
         let err = parse_err(
             r#"
-            [[port]]
+            [port.wan0]
             dpmac = "dpmac.3"
-            name = "wan0"
             rate = 10000
             dpni = "dpni.3"
             "#,
@@ -583,9 +592,8 @@ mod tests {
         // is refused with the same "derived" wording (topology-config spec).
         let err = parse_err(
             r#"
-            [[port]]
+            [port.wan0]
             dpmac = "dpmac.7"
-            name = "wan0"
             rate = 10000
             workers = 4
             "#,
@@ -601,9 +609,8 @@ mod tests {
     fn scenario_port_without_tenant_belongs_to_kernel() {
         let intent = parse(
             r#"
-            [[port]]
+            [port.mgmt]
             dpmac = "dpmac.7"
-            name = "mgmt"
             rate = 10000
             "#,
         );
@@ -615,9 +622,8 @@ mod tests {
         // No [intent] table.
         let no_table = parse_str(
             r#"
-            [[port]]
+            [port.wan0]
             dpmac = "dpmac.7"
-            name = "wan0"
             rate = 10000
             "#,
         )
@@ -648,15 +654,13 @@ mod tests {
             dataplane = "userspace-poll"
             max_cores = 16
 
-            [[port]]
+            [port.wan0]
             dpmac = "dpmac.9"
-            name = "wan0"
             rate = 10000
             tenant = "router"
 
-            [[port]]
+            [port.wan1]
             dpmac = "dpmac.10"
-            name = "wan1"
             rate = 10000
             tenant = "router"
 
@@ -674,7 +678,7 @@ mod tests {
         );
         assert_eq!(intent.tenants[0].dataplane, Dataplane::UserspacePoll);
         assert_eq!(intent.tenants[0].isolation, Isolation::Isolated, "default");
-        // Ports keep declaration order.
+        // Ports take canonical name order (here wan0 < wan1, so also declaration order).
         assert_eq!(intent.ports[0].name.as_str(), "wan0");
         assert_eq!(intent.ports[1].name.as_str(), "wan1");
         // Crypto blocks keep declaration order (ordinal source).
@@ -687,12 +691,41 @@ mod tests {
     }
 
     #[test]
+    fn keyed_ports_take_canonical_name_order_regardless_of_declaration() {
+        // The port name lives in the table key (ADR-0015 decision 1), so the built Intent
+        // carries ports in canonical NAME order, never document order — declaring wan0
+        // before up0 still yields up0, wan0. The order is cosmetic: the derivation mints
+        // the name-ordered dpni ordinal (decision 5, the position-independence law), so
+        // whichever order the constructs appear in is inert. (The compiled plan is
+        // order-independent; the `dpaa2-verify` pairing/conformance rungs compare up to
+        // this name order.)
+        let intent = parse(
+            r#"
+            [tenant.router]
+            dataplane = "userspace-poll"
+            max_cores = 16
+
+            [port.wan0]
+            dpmac = "dpmac.9"
+            rate = 10000
+            tenant = "router"
+
+            [port.up0]
+            dpmac = "dpmac.4"
+            rate = 25000
+            tenant = "router"
+            "#,
+        );
+        let names: Vec<&str> = intent.ports.iter().map(|p| p.name.as_str()).collect();
+        assert_eq!(names, ["up0", "wan0"], "ports take canonical name order");
+    }
+
+    #[test]
     fn mac_and_mode_survive_conversion() {
         let intent = parse(
             r#"
-            [[port]]
+            [port.wan0]
             dpmac = "dpmac.7"
-            name = "wan0"
             rate = 10000
             mac = "02-00-00-00-00-07"
             mac_mode = "actuate"
@@ -715,8 +748,7 @@ mod tests {
             dataplane = "kernel-netlink"
             max_cores = 2
 
-            [[link]]
-            name = "uplink"
+            [link.uplink]
             interface_a = "ns1"
             interface_b = "kernel"
             "#,
@@ -733,8 +765,7 @@ mod tests {
             dataplane = "kernel-netlink"
             max_cores = 2
 
-            [[link]]
-            name = "loop"
+            [link.loop]
             interface_a = "ns1"
             interface_b = "ns1"
             "#,
@@ -750,9 +781,8 @@ mod tests {
             dataplane = "userspace-poll"
             max_cores = 16
 
-            [[port]]
+            [port.lan0]
             dpmac = "dpmac.7"
-            name = "lan0"
             rate = 10000
 
             [fabric.lan]
@@ -829,30 +859,57 @@ mod tests {
     // ---- Requirement: validated before use ----
 
     #[test]
-    fn scenario_duplicate_interface_name() {
+    fn scenario_duplicate_interface_name_is_a_parse_error() {
+        // Identity is structural (ADR-0015 decision 1): a second `[port.wan0]` table is a
+        // TOML key redefinition, so a duplicate interface name is unrepresentable, not
+        // validated — this is the law that replaces the old hand-written check.
         let err = parse_err(
             r#"
-            [[port]]
+            [port.wan0]
             dpmac = "dpmac.7"
-            name = "wan0"
             rate = 10000
 
-            [[port]]
+            [port.wan0]
             dpmac = "dpmac.8"
-            name = "wan0"
             rate = 10000
             "#,
         );
-        assert!(err.contains("duplicate interface name"), "{err}");
+        assert!(
+            err.contains("duplicate key"),
+            "the format refuses the redefinition: {err}"
+        );
+    }
+
+    #[test]
+    fn port_named_like_a_link_is_a_cross_family_collision() {
+        // Intra-family duplicates are TOML key redefinitions now, but a port and a link of
+        // one name is a cross-family collision the shared construct namespace still
+        // refuses (task 3.3d) — the only DuplicateName path left.
+        let err = parse_err(
+            r#"
+            [tenant.ns1]
+            dataplane = "kernel-netlink"
+            max_cores = 2
+
+            [port.x]
+            dpmac = "dpmac.7"
+            rate = 10000
+
+            [link.x]
+            interface_a = "ns1"
+            interface_b = "kernel"
+            "#,
+        );
+        assert!(err.contains("duplicate construct name"), "{err}");
+        assert!(err.contains('x'), "names the colliding name: {err}");
     }
 
     #[test]
     fn scenario_malformed_mac() {
         let err = parse_err(
             r#"
-            [[port]]
+            [port.wan0]
             dpmac = "dpmac.7"
-            name = "wan0"
             rate = 10000
             mac = "not-a-mac"
             "#,
@@ -865,9 +922,8 @@ mod tests {
     fn scenario_unknown_tenant_reference() {
         let err = parse_err(
             r#"
-            [[port]]
+            [port.wan0]
             dpmac = "dpmac.7"
-            name = "wan0"
             rate = 10000
             tenant = "router"
             "#,
@@ -918,9 +974,8 @@ mod tests {
         // namespace still refuses it.
         let err = parse_err(
             r#"
-            [[port]]
+            [port.lan0]
             dpmac = "dpmac.7"
-            name = "lan0"
             rate = 10000
 
             [fabric.lan0]
@@ -1009,9 +1064,8 @@ mod tests {
     fn unknown_field_is_rejected() {
         let err = parse_err(
             r#"
-            [[port]]
+            [port.wan0]
             dpmac = "dpmac.7"
-            name = "wan0"
             rate = 10000
             speed = "fast"
             "#,
@@ -1023,9 +1077,8 @@ mod tests {
     fn malformed_dpmac_is_rejected() {
         let err = parse_err(
             r#"
-            [[port]]
+            [port.wan0]
             dpmac = "eth3"
-            name = "wan0"
             rate = 10000
             "#,
         );
@@ -1038,14 +1091,12 @@ mod tests {
     fn kernel_port_only_document_parses() {
         let intent = parse(
             r#"
-            [[port]]
+            [port.lan0]
             dpmac = "dpmac.7"
-            name = "lan0"
             rate = 10000
 
-            [[port]]
+            [port.lan1]
             dpmac = "dpmac.8"
-            name = "lan1"
             rate = 10000
             "#,
         );
@@ -1086,9 +1137,8 @@ mod tests {
         ));
         let body = format!(
             "{HEADER}\
-             [[port]]\n\
+             [port.lan0]\n\
              dpmac = \"dpmac.7\"\n\
-             name = \"lan0\"\n\
              rate = 10000\n"
         );
         std::fs::File::create(&path)

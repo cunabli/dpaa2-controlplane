@@ -107,9 +107,9 @@ macro_rules! construct_table {
 }
 
 /// The whole intent document: the mandatory `[intent]` table, the keyed `[tenant.<name>]`,
-/// `[fabric.<name>]`, and `[extra.<tenant>]` tables, and the `[[port]]`/`[[link]]`/`[[crypto]]`
-/// arrays. `intent` is optional here only so [`crate::parse`] can emit the precise
-/// "no `[intent]` table" message rather than serde's generic missing-field one.
+/// `[port.<name>]`, `[link.<name>]`, `[fabric.<name>]`, and `[extra.<tenant>]` tables, and
+/// the `[[crypto]]` array. `intent` is optional here only so [`crate::parse`] can emit the
+/// precise "no `[intent]` table" message rather than serde's generic missing-field one.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RawIntent {
@@ -119,12 +119,18 @@ pub struct RawIntent {
     /// key-redefinition parse error, unrepresentable rather than validated.
     #[serde(default, deserialize_with = "keyed")]
     pub tenant: BTreeMap<TenantName, RawTenant>,
-    /// The `[[port]]` array.
-    #[serde(default)]
-    pub port: Vec<RawPort>,
-    /// The `[[link]]` array.
-    #[serde(default)]
-    pub link: Vec<RawLink>,
+    /// The `[port.<name>]` tables, keyed by interface name (ADR-0015 decision 1) — a
+    /// duplicate name is a TOML key-redefinition parse error, unrepresentable rather than
+    /// validated. Name-keyed, so the built `Intent` carries ports in canonical name
+    /// order; the order is cosmetic — the derivation mints the name-ordered dpni ordinal
+    /// (ADR-0015 decision 5, the position-independence law), not the document position.
+    #[serde(default, deserialize_with = "keyed")]
+    pub port: BTreeMap<ConstructName, RawPort>,
+    /// The `[link.<name>]` tables, keyed by link name (ADR-0015 decision 1) — a duplicate
+    /// name is a TOML key-redefinition parse error, unrepresentable rather than validated.
+    /// Name-keyed like [`Self::port`].
+    #[serde(default, deserialize_with = "keyed")]
+    pub link: BTreeMap<ConstructName, RawLink>,
     /// The `[fabric.<name>]` tables, keyed by fabric name — a duplicate name is a TOML
     /// key-redefinition parse error, unrepresentable rather than validated.
     #[serde(default, deserialize_with = "keyed")]
@@ -205,14 +211,13 @@ pub enum RawMacMode {
 }
 
 construct_table! {
-    /// A `[[port]]` table (design D1).
+    /// A `[port.<name>]` table (design D1). The interface name lives in the table key
+    /// (ADR-0015 decision 1), so a duplicate name is a TOML key-redefinition parse error,
+    /// unrepresentable rather than validated.
     RawPort {
         /// The stable DPMAC anchor, e.g. `"dpmac.7"`. Fallible, so it stays `String`:
         /// [`crate::parse`] must name the offending port when it is malformed.
         pub dpmac: String,
-        /// The stable interface name to assign.
-        #[serde(deserialize_with = "name")]
-        pub name: ConstructName,
         /// The rate the port must deliver, in Mbps.
         pub rate: i64,
         /// The owning tenant; absent ⇒ the reserved `kernel` terminates the port.
@@ -234,11 +239,10 @@ construct_table! {
 }
 
 construct_table! {
-    /// A `[[link]]` table: a dpni↔dpni pseudo-wire between two tenant ends (design D1).
+    /// A `[link.<name>]` table: a dpni↔dpni pseudo-wire between two tenant ends (design
+    /// D1). The link name lives in the table key (ADR-0015 decision 1), so a duplicate
+    /// name is a TOML key-redefinition parse error, unrepresentable rather than validated.
     RawLink {
-        /// The link's name.
-        #[serde(deserialize_with = "name")]
-        pub name: ConstructName,
         /// The tenant whose interface terminates one end.
         #[serde(deserialize_with = "name")]
         pub interface_a: TenantName,

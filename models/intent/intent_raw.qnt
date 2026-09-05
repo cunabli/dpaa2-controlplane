@@ -9,13 +9,18 @@
 // semantics, so the surface pathologies are representable and the laws that
 // refuse them are checkable.
 //
-// What is keyed in TOML is a map here, where the format itself makes duplicates
-// unrepresentable (a second `[tenant.<name>]`/`[fabric.<name>]` table or a
-// repeated `family = count` under one `[extra.<tenant>]` is a TOML
-// key-redefinition parse error, ADR-0013 §2): `tenants`, `fabrics`, `extras`.
-// What stays positional or referential stays representable-dirty: `ports`,
-// `links`, `crypto` as `List` (a duplicate name IS representable and IS refused
-// by name), every cross-construct reference as a raw `str` (a dangling one is
+// What is keyed in TOML is a map here, where the format itself makes an
+// intra-family duplicate unrepresentable (a second `[tenant.<name>]` /
+// `[fabric.<name>]` / `[port.<name>]` / `[link.<name>]` table or a repeated
+// `family = count` under one `[extra.<tenant>]` is a TOML key-redefinition
+// parse error, ADR-0013 §2): `tenants`, `fabrics`, `ports`, `links`, `extras`.
+// Task 3.3d hoisted the port/link name into the key (ADR-0015 decision 1), so
+// two ports of one name are no longer representable; a name shared ACROSS
+// families (a port and a fabric both "x") IS still representable across the
+// separate maps and IS refused DuplicateName. What stays positional or
+// referential stays representable-dirty: `crypto` as a `List` (ADR-0015
+// decision 4 — genuinely anonymous, declaration order IS the dpseci ordinal),
+// every cross-construct reference as a raw `str` (a dangling one is
 // representable), every count as an `int` (zero/negative representable), the
 // reserved `"kernel"` representable, and an extra family as a raw `str` (an
 // unknown family representable).
@@ -56,16 +61,20 @@ module intent_raw {
   // representable and left to compile (parse.rs does not resolve the pool).
   type RawTenant = { dataplane: Dataplane, maxCores: int, isolation: Isolation, pool: str }
 
-  // A `[[port]]` table. `name` is positional, so a duplicate is representable;
-  // `tenant` is a raw `str` ("" means the reserved kernel terminates it,
-  // parse.rs convert_port), a dangling owner representable; `dpmac`/`rate` are
-  // ints (the "dpmac.N" lexing is the format boundary, not modelled here).
-  type RawPort = { name: str, dpmac: int, rate: int, tenant: str }
+  // A `[port.<name>]` value (the name lives in the map key, task 3.3d / ADR-0015
+  // decision 1). An intra-family duplicate is a TOML key redefinition,
+  // unrepresentable; a name shared with a link or fabric is a cross-family
+  // collision that IS representable and refused DuplicateName. `tenant` is a raw
+  // `str` ("" means the reserved kernel terminates it, parse.rs convert_port), a
+  // dangling owner representable; `dpmac`/`rate` are ints (the "dpmac.N" lexing
+  // is the format boundary, not modelled here).
+  type RawPort = { dpmac: int, rate: int, tenant: str }
 
-  // A `[[link]]` table: a dpni↔dpni pseudo-wire between two tenant ends. Both
-  // ends are raw `str` (dangling representable); interfaceA == interfaceB is a
-  // self-loop parse.rs refuses (compile has no such refusal — a new raw variant).
-  type RawLink = { name: str, interfaceA: str, interfaceB: str }
+  // A `[link.<name>]` value (the name lives in the map key, task 3.3d): a
+  // dpni↔dpni pseudo-wire between two tenant ends. Both ends are raw `str`
+  // (dangling representable); interfaceA == interfaceB is a self-loop parse.rs
+  // refuses (compile has no such refusal — a new raw variant).
+  type RawLink = { interfaceA: str, interfaceB: str }
 
   // A `[fabric.<name>]` value (the name lives in the map key). `forwardedBy` is a
   // raw `str`; `members` are raw `str`s parse classifies into a `Member` or
@@ -76,23 +85,25 @@ module intent_raw {
   // A `[[crypto]]` table: one accelerator for one tenant, `flows` a raw int.
   type RawCrypto = { tenant: str, flows: int }
 
-  // The whole document. Keyed constructs are maps (duplicates unrepresentable —
-  // the format refuses them); positional/referential constructs are lists and
-  // raw strings (duplicates/dangles representable). `extras` is a
-  // tenant → (family-name → count) map: a duplicate (tenant, family) is a TOML
-  // key redefinition (ADR-0013 §2), the family key a raw `str` an unknown value
-  // is representable in.
+  // The whole document. Keyed constructs are maps (an intra-family duplicate is
+  // unrepresentable — the format refuses it): `tenants`, `ports`, `links`,
+  // `fabrics`. `crypto` stays a `List` (ADR-0015 decision 4 — anonymous,
+  // declaration order IS the dpseci ordinal). Referential fields stay raw
+  // strings (dangles representable). `extras` is a tenant → (family-name →
+  // count) map: a duplicate (tenant, family) is a TOML key redefinition
+  // (ADR-0013 §2), the family key a raw `str` an unknown value is representable
+  // in.
   type RawIntent = {
     tenants: str -> RawTenant,
-    ports: List[RawPort],
-    links: List[RawLink],
+    ports: str -> RawPort,
+    links: str -> RawLink,
     fabrics: str -> RawFabric,
     crypto: List[RawCrypto],
     extras: str -> (str -> int),
   }
 
   pure val emptyRaw: RawIntent =
-    { tenants: Map(), ports: [], links: [], fabrics: Map(), crypto: [], extras: Map() }
+    { tenants: Map(), ports: Map(), links: Map(), fabrics: Map(), crypto: [], extras: Map() }
 
   // ---- the refusal vocabulary ----
 
@@ -137,17 +148,19 @@ module intent_raw {
   pure def rawResolves(raw: RawIntent, n: str): bool =
     n == KERNEL or raw.tenants.keys().contains(n)
 
-  pure def portNamesSet(raw: RawIntent): Set[str] =
-    raw.ports.foldl(Set(), (acc, p) => acc.union(Set(p.name)))
+  pure def portNamesSet(raw: RawIntent): Set[str] = raw.ports.keys()
 
   // A port's effective owner: "" defaults to the reserved kernel (parse.rs).
   pure def effTenant(t: str): str = if (t == "") KERNEL else t
 
   // The port/link/fabric name namespace parse.rs checks for collisions; tenant
   // names live in their own namespace and are not included (parse.rs convert).
+  // Each family is now keyed, so a name appears at most once per family; a name
+  // appearing twice in this list is therefore a CROSS-family collision (task
+  // 3.3d) — the only DuplicateName path left.
   pure def constructNamesL(raw: RawIntent): List[str] =
-    raw.ports.foldl([], (a, p) => a.append(p.name))
-      .concat(raw.links.foldl([], (a, l) => a.append(l.name)))
+    raw.ports.keys().fold([], (a, n) => a.append(n))
+      .concat(raw.links.keys().fold([], (a, n) => a.append(n)))
       .concat(raw.fabrics.keys().fold([], (a, n) => a.append(n)))
 
   // Whether a fabric member string classifies to a declared port, tenant, or
@@ -166,8 +179,10 @@ module intent_raw {
   pure def reservedKernelRefusals(raw: RawIntent): Set[RawRefusal] =
     if (raw.tenants.keys().contains(KERNEL)) Set(ReservedKernel({ name: KERNEL })) else Set()
 
-  // parse.rs convert: a duplicate interface/construct name (TOML keys cannot
-  // dedupe positional port/link names, nor a fabric named like a port or link).
+  // parse.rs convert: a construct name shared ACROSS families (a port and a
+  // fabric, or a link and a port, of one name). Intra-family duplicates are now
+  // TOML key redefinitions the map cannot represent (task 3.3d), so only the
+  // cross-family collision remains for this rule to catch.
   pure def duplicateNameRefusals(raw: RawIntent): Set[RawRefusal] =
     val ns = constructNamesL(raw)
     ns.foldl(Set(), (acc, n) =>
@@ -188,15 +203,17 @@ module intent_raw {
   // a construct naming an undeclared tenant refuses TenantAbsent (reused from
   // compile); a link naming one tenant at both ends refuses LinkSelfLoop.
   pure def tenantRefRefusals(raw: RawIntent): Set[RawRefusal] =
-    val fromPorts = raw.ports.foldl(Set(), (acc, p) =>
+    val fromPorts = raw.ports.keys().fold(Set(), (acc, n) =>
+      val p = raw.ports.get(n)
       if (rawResolves(raw, effTenant(p.tenant))) acc
-      else acc.union(Set(FromCompile(TenantAbsent({ construct: p.name, tenant: effTenant(p.tenant) })))))
-    val fromLinks = raw.links.foldl(fromPorts, (acc, l) =>
+      else acc.union(Set(FromCompile(TenantAbsent({ construct: n, tenant: effTenant(p.tenant) })))))
+    val fromLinks = raw.links.keys().fold(fromPorts, (acc, n) =>
+      val l = raw.links.get(n)
       val a1 = if (rawResolves(raw, l.interfaceA)) acc
-               else acc.union(Set(FromCompile(TenantAbsent({ construct: l.name, tenant: l.interfaceA }))))
+               else acc.union(Set(FromCompile(TenantAbsent({ construct: n, tenant: l.interfaceA }))))
       val a2 = if (rawResolves(raw, l.interfaceB)) a1
-               else a1.union(Set(FromCompile(TenantAbsent({ construct: l.name, tenant: l.interfaceB }))))
-      if (l.interfaceA == l.interfaceB) a2.union(Set(LinkSelfLoop({ link: l.name, tenant: l.interfaceA }))) else a2)
+               else a1.union(Set(FromCompile(TenantAbsent({ construct: n, tenant: l.interfaceB }))))
+      if (l.interfaceA == l.interfaceB) a2.union(Set(LinkSelfLoop({ link: n, tenant: l.interfaceA }))) else a2)
     val fromFabrics = raw.fabrics.keys().fold(fromLinks, (acc, n) =>
       if (rawResolves(raw, raw.fabrics.get(n).forwardedBy)) acc
       else acc.union(Set(FromCompile(TenantAbsent({ construct: n, tenant: raw.fabrics.get(n).forwardedBy })))))
@@ -238,10 +255,18 @@ module intent_raw {
     { tenants: raw.tenants.keys().fold([], (acc, n) =>
         val t = raw.tenants.get(n)
         acc.append({ name: n, dataplane: t.dataplane, maxCores: t.maxCores, isolation: t.isolation, pool: t.pool })),
-      ports: raw.ports.foldl([], (acc, p) =>
-        acc.append({ name: p.name, dpmac: p.dpmac, rate: p.rate, tenant: effTenant(p.tenant) })),
-      links: raw.links.foldl([], (acc, l) =>
-        acc.append({ name: l.name, interfaceA: l.interfaceA, interfaceB: l.interfaceB })),
+      // Ports and links emit in canonical NAME order (task 3.3d): the neutral
+      // Intent keeps a List, but the order carries no identity — the derivation
+      // sorts by name (intent/derive.qnt) — so emitting name-sorted keeps the
+      // conversion deterministic and matches the Rust parser's sorted emission.
+      ports: sortByRank(raw.ports.keys().fold([], (acc, n) => acc.append(n)), n => nameRank(n))
+        .foldl([], (acc, n) =>
+          val p = raw.ports.get(n)
+          acc.append({ name: n, dpmac: p.dpmac, rate: p.rate, tenant: effTenant(p.tenant) })),
+      links: sortByRank(raw.links.keys().fold([], (acc, n) => acc.append(n)), n => nameRank(n))
+        .foldl([], (acc, n) =>
+          val l = raw.links.get(n)
+          acc.append({ name: n, interfaceA: l.interfaceA, interfaceB: l.interfaceB })),
       fabrics: raw.fabrics.keys().fold([], (acc, n) =>
         val f = raw.fabrics.get(n)
         acc.append({ name: n, switching: f.switching, forwardedBy: f.forwardedBy,
@@ -286,7 +311,7 @@ module intent_raw {
     ns.foldl(Set(), (a, x) => a.union(Set(x))).size() != ns.length()
 
   pure def hasSelfLoop(raw: RawIntent): bool =
-    raw.links.foldl(false, (a, l) => a or l.interfaceA == l.interfaceB)
+    raw.links.keys().exists(n => raw.links.get(n).interfaceA == raw.links.get(n).interfaceB)
 
   pure def hasUnknownExtraFamily(raw: RawIntent): bool =
     raw.extras.keys().exists(t => raw.extras.get(t).keys().exists(fam => familyOfName(fam) == None))
@@ -296,8 +321,8 @@ module intent_raw {
       raw.fabrics.get(n).members.foldl(false, (a, m) => a or not(memberResolvesRaw(raw, m))))
 
   pure def hasDanglingTenantRef(raw: RawIntent): bool = or {
-    raw.ports.foldl(false, (a, p) => a or not(rawResolves(raw, effTenant(p.tenant)))),
-    raw.links.foldl(false, (a, l) => a or not(rawResolves(raw, l.interfaceA)) or not(rawResolves(raw, l.interfaceB))),
+    raw.ports.keys().exists(n => not(rawResolves(raw, effTenant(raw.ports.get(n).tenant)))),
+    raw.links.keys().exists(n => not(rawResolves(raw, raw.links.get(n).interfaceA)) or not(rawResolves(raw, raw.links.get(n).interfaceB))),
     raw.fabrics.keys().exists(n => not(rawResolves(raw, raw.fabrics.get(n).forwardedBy))),
     raw.crypto.foldl(false, (a, k) => a or not(rawResolves(raw, k.tenant))),
     raw.extras.keys().exists(t => not(rawResolves(raw, t))),
@@ -360,7 +385,8 @@ module intent_raw {
               | None => true
             })),
           i.tenants.length() == raw.tenants.keys().size(),
-          i.ports.length() == raw.ports.length(),
+          i.ports.length() == raw.ports.keys().size(),
+          i.links.length() == raw.links.keys().size(),
           i.crypto.length() == raw.crypto.length(),
         }
     }
@@ -387,21 +413,24 @@ module intent_raw {
     val raw = emptyRaw.with("tenants", Map(KERNEL -> { dataplane: KernelNetlink, maxCores: 16, isolation: Isolated, pool: "" }))
     refusesWith(raw, isReservedKernel)
 
-  // Two ports of one name — a duplicate TOML keys cannot dedupe (parse.rs convert).
-  run rawDuplicatePortTest =
-    val raw = emptyRaw.with("ports",
-      [{ name: "p1", dpmac: 7, rate: 10000, tenant: "" }, { name: "p1", dpmac: 8, rate: 10000, tenant: "" }])
+  // A construct name shared across families (a port and a fabric both "p1") —
+  // the cross-family collision TOML keys cannot dedupe once each family is keyed
+  // (parse.rs convert; task 3.3d). Two ports of one name are now unrepresentable.
+  run rawDuplicateNameTest =
+    val raw = emptyRaw
+      .with("ports", Map("p1" -> { dpmac: 7, rate: 10000, tenant: "" }))
+      .with("fabrics", Map("p1" -> { switching: Hardware, forwardedBy: KERNEL, members: [] }))
     refusesWith(raw, isDuplicateName)
 
   // A port naming an undeclared tenant is refused TenantAbsent (reused from compile).
   run rawDanglingTenantTest =
-    val raw = emptyRaw.with("ports", [{ name: "p1", dpmac: 7, rate: 10000, tenant: "ghost" }])
+    val raw = emptyRaw.with("ports", Map("p1" -> { dpmac: 7, rate: 10000, tenant: "ghost" }))
     all { refusesWith(raw, isTenantAbsent), match parse(raw) { | ParseRefused(_) => true | ParseOk(_) => false } }
 
   // A link naming one tenant at both ends — a self-loop parse.rs refuses (compile
   // does not: the alphabet accepts a self-link).
   run rawLinkSelfLoopTest =
-    val raw = emptyRaw.with("tenants", Map("c1" -> rtPoll)).with("links", [{ name: "l1", interfaceA: "c1", interfaceB: "c1" }])
+    val raw = emptyRaw.with("tenants", Map("c1" -> rtPoll)).with("links", Map("l1" -> { interfaceA: "c1", interfaceB: "c1" }))
     refusesWith(raw, isLinkSelfLoop)
 
   // An [extra.<tenant>] naming a family not one of the 16 (parse.rs parse_family).
@@ -425,7 +454,7 @@ module intent_raw {
   run rawAcceptedVerbatimTest =
     val raw = emptyRaw
       .with("tenants", Map("router" -> rtPoll))
-      .with("ports", [{ name: "wan0", dpmac: 7, rate: 10000, tenant: "router" }])
+      .with("ports", Map("wan0" -> { dpmac: 7, rate: 10000, tenant: "router" }))
       .with("extras", Map("router" -> Map("dpio" -> 2)))
     match parse(raw) {
       | ParseOk(i) => all {
@@ -441,7 +470,7 @@ module intent_raw {
   // The surface-refusal and no-surprise laws hold on a clean raw and a dirty one.
   run rawLawsHoldTest =
     val clean = emptyRaw.with("tenants", Map("c1" -> rtPoll))
-    val dirty = emptyRaw.with("ports", [{ name: "p1", dpmac: 7, rate: -1, tenant: "ghost" }])
+    val dirty = emptyRaw.with("ports", Map("p1" -> { dpmac: 7, rate: -1, tenant: "ghost" }))
     all {
       parseOkWellFormed(clean), acceptedSurvives(clean), nearMissRefusedByName(clean),
       parseOkWellFormed(dirty), acceptedSurvives(dirty), nearMissRefusedByName(dirty),

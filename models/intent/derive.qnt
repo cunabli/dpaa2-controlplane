@@ -187,9 +187,14 @@ module intent_derive {
       f.members.select(m => memberIsPort(m, portName)).length() > 0).length() > 0
 
   // The tenant's terminated ports (owned and not switched into a hardware
-  // fabric), in declaration order.
+  // fabric), in NAME order (ADR-0015 decision 5, task 3.3d): the port ordinal
+  // is minted by name, never by `[[port]]` position. Every other consumer of
+  // this list (threadCount, seededRateClasses, port edges, the port-edge
+  // provenance keyed by port name) is order-free, so the one visible effect is
+  // that portOrigins — and thus the dpni ordinal — follows the name order.
   pure def terminatedPorts(intent: Intent, name: str): List[Port] =
-    intent.ports.select(p => p.tenant == name and not(isHwSwitchedPort(intent, p.name)))
+    sortByRank(intent.ports.select(p => p.tenant == name and not(isHwSwitchedPort(intent, p.name))),
+               p => nameRank(p.name))
 
   // The distinct seeded rate classes a tenant's terminated ports span. A set
   // larger than one is a cross-class mix: the formula prices it (each port by
@@ -250,35 +255,43 @@ module intent_derive {
   pure def portOrigins(intent: Intent, name: str): List[Origin] =
     terminatedPorts(intent, name).foldl([], (acc, p) => acc.append(OPort(p)))
 
+  // Link ends in link-NAME order (ADR-0015 decision 5, task 3.3d); a self-link
+  // keeps side 0 before side 1 (structural, per link).
   pure def linkOrigins(intent: Intent, name: str): List[Origin] =
-    intent.links.foldl([], (acc, l) =>
+    sortByRank(intent.links, l => nameRank(l.name)).foldl([], (acc, l) =>
       val a1 = if (l.interfaceA == name) acc.append(OLink({ link: l, side: 0 })) else acc
       if (l.interfaceB == name) a1.append(OLink({ link: l, side: 1 })) else a1)
 
   // One OAttach per Hardware fabric the tenant attaches to, once per
-  // (X, f) however many ways the attachment is implied.
+  // (X, f) however many ways the attachment is implied — in fabric-NAME order
+  // (ADR-0015 decision 5, task 3.3d).
   pure def attachOrigins(intent: Intent, name: str): List[Origin] =
-    intent.fabrics.foldl([], (acc, f) =>
+    sortByRank(intent.fabrics, f => nameRank(f.name)).foldl([], (acc, f) =>
       if (f.switching == Hardware and attachesToHwFabric(intent, name, f))
         acc.append(OAttach(f.name))
       else acc)
 
   // One OWireOwner per member of a Software fabric X owns that resolves to a
-  // tenant C ≠ X — X's end of the 6b pseudo-wire.
+  // tenant C ≠ X — X's end of the 6b pseudo-wire — in (fabric name, peer name)
+  // order (ADR-0015 decision 5, task 3.3d): fabrics sorted by name, and within
+  // a fabric the peers sorted by name.
   pure def wireOwnerOrigins(intent: Intent, name: str): List[Origin] =
-    intent.fabrics.foldl([], (acc, g) =>
+    sortByRank(intent.fabrics, f => nameRank(f.name)).foldl([], (acc, g) =>
       if (g.switching == Software and g.forwardedBy == name)
-        g.members.foldl(acc, (a2, m) =>
-          match memberTenant(intent, m) {
-            | Some(c) => if (c != name) a2.append(OWireOwner({ fabric: g.name, peer: c })) else a2
-            | None => a2
-          })
+        val peers = sortByRank(
+          g.members.foldl([], (a2, m) =>
+            match memberTenant(intent, m) {
+              | Some(c) => if (c != name) a2.append(c) else a2
+              | None => a2
+            }),
+          c => nameRank(c))
+        peers.foldl(acc, (a3, c) => a3.append(OWireOwner({ fabric: g.name, peer: c })))
       else acc)
 
   // One OWireMember per Software fabric X does not own but resolves into —
-  // X's end of the wire.
+  // X's end of the wire — in fabric-NAME order (ADR-0015 decision 5, task 3.3d).
   pure def wireMemberOrigins(intent: Intent, name: str): List[Origin] =
-    intent.fabrics.foldl([], (acc, g) =>
+    sortByRank(intent.fabrics, f => nameRank(f.name)).foldl([], (acc, g) =>
       if (g.switching == Software and g.forwardedBy != name and
           g.members.select(m => memberTenant(intent, m) == Some(name)).length() > 0)
         acc.append(OWireMember(g.name))
@@ -286,7 +299,10 @@ module intent_derive {
 
   // The ordered dpni sources of a tenant: terminated ports, link ends,
   // hardware-fabric attachments, then software-fabric wire ends (owner then
-  // member). Position + 1 is the dpni ordinal.
+  // member). The class concatenation order is structural (kept); WITHIN each
+  // class the origins are in name order (each sub-list is name-sorted, task
+  // 3.3d), so position + 1 — the dpni ordinal — is a function of names, never of
+  // document position (ADR-0015 decision 5).
   pure def originList(intent: Intent, name: str): List[Origin] =
     portOrigins(intent, name)
       .concat(linkOrigins(intent, name))
@@ -342,12 +358,17 @@ module intent_derive {
             | None => acc
           }
       })
-    intent.fabrics.foldl(fromMembers, (acc, g) =>
-      if (g.switching == Software and
-          g.members.select(m => memberIsFabric(m, f.name)).length() > 0 and
-          not(ownerAttachedViaMembers(intent, f, g.forwardedBy)))
-        acc.append(attachPoint(intent, g.forwardedBy, f.name))
-      else acc)
+    // the chained software fabrics that list f, in fabric-NAME order (ADR-0015
+    // decision 5, task 3.3d): this fold produces ordered dpsw interfaces, so a
+    // fabric reorder must not renumber them (the member-order interfaces above
+    // stay structural).
+    val chained = sortByRank(
+      intent.fabrics.select(g =>
+        g.switching == Software and
+        g.members.select(m => memberIsFabric(m, f.name)).length() > 0 and
+        not(ownerAttachedViaMembers(intent, f, g.forwardedBy))),
+      g => nameRank(g.name))
+    chained.foldl(fromMembers, (acc, g) => acc.append(attachPoint(intent, g.forwardedBy, f.name)))
 
   // ---- per-tenant sizing (design D3/D4/D5) ----
 
@@ -369,9 +390,13 @@ module intent_derive {
 
   // Only Hardware fabrics emit a dpsw; the software owner bridges its own
   // dpnis (open item), so "owned fabrics" for dpsw purposes are the Hardware
-  // fabrics owned by X.
+  // fabrics owned by X, in fabric-NAME order (ADR-0015 decision 5, task 3.3d):
+  // the dpsw ordinal is minted by name, so both dpswObjs and dpswOrdinalOf
+  // (which fold this list positionally) number a dpsw by its fabric's name, not
+  // its `[fabric.<name>]` position.
   pure def hwOwnedFabrics(intent: Intent, name: str): List[Fabric] =
-    intent.fabrics.select(f => f.switching == Hardware and f.forwardedBy == name)
+    sortByRank(intent.fabrics.select(f => f.switching == Hardware and f.forwardedBy == name),
+               f => nameRank(f.name))
 
   // A tenant's crypto blocks in declaration order — the list positions that
   // number its dpseci ordinals (task 2.6e). Each block sizes its own dpseci by
@@ -497,8 +522,9 @@ module intent_derive {
                container: Root, attributes: DprcAttrs({ options: DPRC_DEFAULT_OPTIONS }),
                provenance: { tenant: s.name, rule: "dprc", construct: "" } })
 
-  // One dpsw per owned Hardware fabric, ordinal by fabric list position among
-  // the owner's Hardware fabrics; the kernel-bindable predicate (dpsw.md,
+  // One dpsw per owned Hardware fabric, ordinal by fabric NAME among the
+  // owner's Hardware fabrics (hwOwnedFabrics is name-sorted, task 3.3d); the
+  // kernel-bindable predicate (dpsw.md,
   // read-not-verified): num_ifs = the fabric's interface count, max_fdbs =
   // num_ifs, PER_FDB flooding and broadcast, control interface enabled. The
   // dpsw node is keyed by the fabric name (construct), so two fabrics of one

@@ -49,8 +49,8 @@ module intent_raw_replay {
   run rawAcceptedTrace = feed(
     emptyRaw
       .with("tenants", Map("router" -> rtBase))
-      .with("ports", [{ name: "wan0", dpmac: 7, rate: 10000, tenant: "router" }])
-      .with("links", [{ name: "uplink", interfaceA: "router", interfaceB: KERNEL }])
+      .with("ports", Map("wan0" -> { dpmac: 7, rate: 10000, tenant: "router" }))
+      .with("links", Map("uplink" -> { interfaceA: "router", interfaceB: KERNEL }))
       .with("fabrics", Map("lan" -> { switching: Hardware, forwardedBy: KERNEL, members: ["wan0", "router"] }))
       .with("crypto", [{ tenant: "router", flows: 4 }])
       .with("extras", Map("router" -> Map("dpio" -> 2))))
@@ -59,16 +59,18 @@ module intent_raw_replay {
   run rawReservedKernelTrace = feed(
     emptyRaw.with("tenants", Map(KERNEL -> { dataplane: KernelNetlink, maxCores: 16, isolation: Isolated, pool: "" })))
 
-  // Two ports of one name — DuplicateName (parse.rs convert; TOML keys cannot
-  // dedupe a positional name).
-  run rawDuplicatePortTrace = feed(
-    emptyRaw.with("ports",
-      [{ name: "p1", dpmac: 7, rate: 10000, tenant: "" }, { name: "p1", dpmac: 8, rate: 10000, tenant: "" }]))
+  // A construct name shared across families (a port and a fabric both "p1") —
+  // DuplicateName (parse.rs convert; task 3.3d keyed each family, so intra-family
+  // duplicates are unrepresentable and only the cross-family collision remains).
+  run rawDuplicateNameTrace = feed(
+    emptyRaw
+      .with("ports", Map("p1" -> { dpmac: 7, rate: 10000, tenant: "" }))
+      .with("fabrics", Map("p1" -> { switching: Hardware, forwardedBy: KERNEL, members: [] })))
 
   // A link naming one tenant at both ends — LinkSelfLoop (parse.rs convert_link).
   run rawSelfLoopTrace = feed(
     emptyRaw.with("tenants", Map("c1" -> rtBase))
-      .with("links", [{ name: "l1", interfaceA: "c1", interfaceB: "c1" }]))
+      .with("links", Map("l1" -> { interfaceA: "c1", interfaceB: "c1" })))
 
   // A fabric member classifying to nothing — RawMemberUnresolved (classify_member).
   run rawUnresolvedMemberTrace = feed(
@@ -80,7 +82,7 @@ module intent_raw_replay {
 
   // A port naming an undeclared tenant — TenantAbsent (the dangling reference).
   run rawDanglingTenantTrace = feed(
-    emptyRaw.with("ports", [{ name: "p1", dpmac: 7, rate: 10000, tenant: "ghost" }]))
+    emptyRaw.with("ports", Map("p1" -> { dpmac: 7, rate: 10000, tenant: "ghost" })))
 
   // The two isolation/pool contradictions in one document — RestrictedWithoutPool
   // (restricted, no pool) and PoolWithoutRestricted (a pool on a non-restricted
@@ -90,11 +92,12 @@ module intent_raw_replay {
       "restr" -> rtBase.with("isolation", Restricted),
       "stray" -> rtBase.with("pool", "restr"))))
 
-  // Several near-misses at once: a duplicated dangling port. `parse.rs` reports
-  // the first (TenantAbsent), the model carries the whole set — the replayer's
+  // Several near-misses at once: a port and a link of one name (a cross-family
+  // DuplicateName), both dangling to "ghost", the link a self-loop. `parse.rs`
+  // reports the first, the model carries the whole set — the replayer's
   // any-match over the set is what reconciles the short-circuit DEVIATION.
   run rawDirtyMixTrace = feed(
-    emptyRaw.with("ports",
-      [{ name: "p1", dpmac: 7, rate: -1, tenant: "ghost" },
-       { name: "p1", dpmac: 8, rate: 0, tenant: "ghost" }]))
+    emptyRaw
+      .with("ports", Map("p1" -> { dpmac: 7, rate: -1, tenant: "ghost" }))
+      .with("links", Map("p1" -> { interfaceA: "ghost", interfaceB: "ghost" })))
 }

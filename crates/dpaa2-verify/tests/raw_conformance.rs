@@ -20,7 +20,7 @@ use dpaa2_verify::raw_itf::{Kind, ModelVerdict, kinds, normalize, parse_raw_case
 const TRACES: &[&str] = &[
     "rawAcceptedTrace",
     "rawReservedKernelTrace",
-    "rawDuplicatePortTrace",
+    "rawDuplicateNameTrace",
     "rawSelfLoopTrace",
     "rawUnresolvedMemberTrace",
     "rawUnknownFamilyTrace",

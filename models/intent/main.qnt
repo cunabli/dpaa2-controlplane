@@ -334,8 +334,13 @@ module intent_main {
       p.edges.contains({ a: ObjectAttach({ key: { tenant: "kernel", family: Dpsw, ordinal: 1 }, port: 2 }),
                          b: ObjectAttach({ key: { tenant: "vpp", family: Dpni, ordinal: 3 }, port: 0 }),
                          provenance: { tenant: "kernel", rule: "fabric-edge", construct: "hw" } }),
-      p.edges.contains({ a: ObjectAttach({ key: { tenant: "vpp", family: Dpni, ordinal: 1 }, port: 0 }),
+      // vpp's terminated ports are p7 and p10; name order puts p10 first, so p7
+      // is dpni ordinal 2 (task 3.3d: the ordinal follows the name, not the
+      // p7-before-p10 declaration order).
+      p.edges.contains({ a: ObjectAttach({ key: { tenant: "vpp", family: Dpni, ordinal: 2 }, port: 0 }),
                          b: MacAttach(7), provenance: { tenant: "vpp", rule: "port-edge", construct: "p7" } }),
+      p.edges.contains({ a: ObjectAttach({ key: { tenant: "vpp", family: Dpni, ordinal: 1 }, port: 0 }),
+                         b: MacAttach(10), provenance: { tenant: "vpp", rule: "port-edge", construct: "p10" } }),
       p.edges.filter(e => e.provenance.rule == "fabric-wire") == Set(),
     }
 
@@ -734,4 +739,15 @@ module intent_main {
       not(emissionOrderLawful(badOrder)),
       not(companionsOnlyDerived(badCompanion)),
     }
+
+  // Position-independence (INTENT_I10, task 3.3d; ADR-0015 decision 5):
+  // reversing an intent's ports and links compiles to the identical result.
+  // chainIntent (ports p7, p10 — declaration order is NOT name order) is the
+  // meaningful witness: were the ordinal position-derived, the reversal would
+  // re-key its dpnis; because it is name-derived, the plan is invariant.
+  run positionIndependenceTest = all {
+    positionIndependence(chainIntent, REF_INVENTORY),
+    positionIndependence(mixedClassIntent, REF_INVENTORY),
+    positionIndependence(routerIntent, REF_INVENTORY),
+  }
 }

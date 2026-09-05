@@ -931,6 +931,23 @@ proptest! {
         prop_assert_eq!(raised_node.request, base_node.request, "request unchanged");
     }
 
+    // INTENT_I10 positionIndependence — names, not positions, are identity (ADR-0015
+    // decision 5, task 3.3d; `invariants.qnt` `positionIndependence`): no plan key is
+    // ever derived from a construct's position in the document, so reversing the
+    // `ports` and `links` lists (the witness permutation — for any list of >=2, a
+    // position-derived key would move) compiles to the IDENTICAL `Compiled`: same plan
+    // keys, wiring, emission order and provenance on the accepted arm, the same refusal
+    // set on the refused arm. crypto is exempt (declaration order IS the dpseci
+    // ordinal, ADR-0015 decision 4); fabrics/tenants are name-keyed tables the parser
+    // canonicalises, so they carry no document-position axis to permute.
+    #[test]
+    fn compile_is_position_independent((intent, inv) in intent_and_inventory()) {
+        let mut reversed = intent.clone();
+        reversed.ports.reverse();
+        reversed.links.reverse();
+        prop_assert_eq!(compile(&intent, &inv), compile(&reversed, &inv));
+    }
+
     // Rung (b) — the structural invariants over arbitrary WITNESS-BUILT plans (design
     // D11), the hand-built surface the ITF replay never sees. I1/I2/I5 are the
     // type-level guarantees the witness constructors make; I3/I4/I6 are compile-only

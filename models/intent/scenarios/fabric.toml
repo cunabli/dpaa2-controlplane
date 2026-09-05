@@ -15,25 +15,22 @@ dataplane = "userspace-poll"
 max_cores = 8            # the budget the derived thread count must fit under
 
 # The fabric's member ports: no tenant named, so the kernel terminates them.
-[[port]]
-name = "lan0"
+# The port name is the table key (ADR-0015 decision 1, task 3.3d).
+[port.lan0]
 dpmac = "dpmac.7"
 rate = 10000             # Mbps, the unit `dpmac info` reports maxima in
 
-[[port]]
-name = "lan1"
+[port.lan1]
 dpmac = "dpmac.8"
 rate = 10000
 
 # The router's terminated ports: 2×10G, the seeded rate class (T = 5).
-[[port]]
-name = "wan0"
+[port.wan0]
 dpmac = "dpmac.9"
 rate = 10000
 tenant = "router"
 
-[[port]]
-name = "wan1"
+[port.wan1]
 dpmac = "dpmac.10"
 rate = 10000
 tenant = "router"

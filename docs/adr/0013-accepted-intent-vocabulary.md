@@ -82,30 +82,32 @@ named tenant, implicitly `public`, and materialised only when a port omits a
 tenant or a link end names it — the operator never writes a
 `[tenant.kernel]` table.
 
-**`[[port]]`** — a physical port the tenant must deliver at `rate`. Anchors to
+**`[port.<name>]`** — a physical port the tenant must deliver at `rate`. Anchors to
 a dpmac (ADR-0001 §3). Derives a dpni terminating the dpmac (DPAA2 User
 Manual §2.2.2 figure 6a) and its dpni↔dpmac edge, and — through `rate` — the
-port's contribution to T (§4).
+port's contribution to T (§4). The interface name lives in the table key:
+identity is structural (ADR-0015 decision 1), so a duplicate port name is a TOML
+key-redefinition parse error, unrepresentable rather than validated.
 
 ```toml
-[[port]]
-name = "wan0"
+[port.wan0]
 dpmac = "dpmac.9"
 rate = 10000                    # Mbps, the unit `dpmac info` reports maxima in
 tenant = "router"               # omit ⇒ the reserved kernel terminates it
 ```
 
-**`[[link]]`** — a point-to-point dpni↔dpni pseudo-wire between two tenants
+**`[link.<name>]`** — a point-to-point dpni↔dpni pseudo-wire between two tenants
 (object-model.md §2, DPNI-I9; figure 6b). Each end names the tenant whose
 *interface* terminates the wire (an interface, not a port — room for
 tunnels). A link end may name the reserved `kernel` without declaring it; the
 derivation materialises the reserved kernel's dpni in Root (design D6a).
 Derives one dpni at each named end and the edge between them — no dpmac, no
-hardware.
+hardware. The link name lives in the table key: identity is structural
+(ADR-0015 decision 1), so a duplicate link name is a TOML key-redefinition parse
+error, unrepresentable rather than validated.
 
 ```toml
-[[link]]
-name = "uplink"
+[link.uplink]
 interface_a = "ns1"
 interface_b = "kernel"          # the reserved kernel end, undeclared
 ```
@@ -118,8 +120,10 @@ runs the forwarding plane. `switching = "hardware"` derives one dpsw (figure 6c)
 forwarder, `num_ifs` = its interface count; only the kernel can drive a dpsw,
 so a hardware fabric not forwarded by the kernel is refused. `switching =
 "software"` emits no dpsw — the forwarding tenant bridges its own dpnis, which
-the MC never sees. Members are ordered: declaration order numbers the dpsw
-interfaces and the dpni ordinals. A chain of switches is a software fabric
+the MC never sees. Members are ordered: member order numbers the dpsw
+interfaces (a within-object index, like a `[[crypto]]` ordinal). It does **not**
+number the dpni ordinals — those follow the constructs' NAMES (ADR-0015
+decision 5), so reordering a member list never renumbers a dpni. A chain of switches is a software fabric
 listing a hardware fabric; a hardware fabric listing a hardware fabric is
 refused until a baseline verifies dpsw↔dpsw.
 
@@ -166,9 +170,11 @@ dpmcp = 2                       # e.g. provision a secondary-process portal
 ```
 
 This surface — the constructs above and the parse-time refusals `parse.rs`
-makes over them (a reserved `kernel` declared, a duplicate positional name, a
-self-loop link, an unresolved member, an unknown extra family, a dangling tenant
-reference) — is modelled in `models/intent/intent_raw.qnt` alongside its `parse`,
+makes over them (a reserved `kernel` declared, a cross-family name collision — a
+port and a link, or a fabric, of one name, intra-family duplicates being TOML key
+redefinitions now — a self-loop link, an unresolved member, an unknown extra
+family, a dangling tenant reference) — is modelled in
+`models/intent/intent_raw.qnt` alongside its `parse`,
 and held in lockstep with `crates/dpaa2-config/src/parse.rs` by the MBT-conformance
 rung (`crates/dpaa2-verify/tests/raw_conformance.rs`, over the traces
 `models/intent/raw_replay.qnt` freezes), so a clause one side gains without the
@@ -248,6 +254,19 @@ ADR-0012; this record prices by reference:
 The kernel `dpmcp = cpus + dpnis` is ADR-0012's forgotten draw: every kernel
 dpio draws its own MC portal, so dpmcp ≥ dpio there; on the DPDK bus it is one
 portal per process regardless of dpio count.
+
+**Ordinals are minted by name, not position (ADR-0015 decision 5).** Every
+derived object's ordinal in its `(tenant, family, ordinal)` key follows the
+NAME order of the constructs that source it — a tenant's dpni ordinals from its
+ports and link ends taken in name order, a forwarder's dpsw ordinals from its
+hardware fabrics in name order — never a construct's position in the document.
+Reordering cosmetic `[port.<name>]` / `[link.<name>]` / `[fabric.<name>]` blocks
+is therefore inert: it never rewires hardware or renumbers a handle (the
+position-independence law INTENT_I10, §6). The sole exception is `[[crypto]]`
+(ADR-0015 decision 4, task 2.6e): a crypto block is genuinely anonymous, carries
+no name, so its declaration order IS the dpseci ordinal. A fabric member list's
+order still numbers the dpsw *interfaces* (a within-object index), but not the
+dpni ordinals, which follow names like every other.
 
 **Isolation and the container tree (design D6a, task 2.6c).** The MC container
 tree already enforces a private-VLAN shape, and the vocabulary names it —
@@ -364,7 +383,7 @@ unmeasured).
 
 The plan relationships design D6 wants unrepresentable in Rust, first stated
 as named predicates over the derived `Plan` (`invariants.qnt`, ids
-INTENT_I1–I9); the Rust type surface (task 3.1) transcribes what they prove.
+INTENT_I1–I10); the Rust type surface (task 3.1) transcribes what they prove.
 
 - **INTENT_I1 `containmentByTenant`** — every object sits in a real container:
   the kernel's own in Root, a child dprc marker in Root at ordinal 1, no
@@ -399,6 +418,12 @@ INTENT_I1–I9); the Rust type surface (task 3.1) transcribes what they prove.
 - **INTENT_I9 `isolatedContainerPrivate`** — an isolated tenant's objects live
   only in its own child dprc, and no other tenant's objects appear there; a
   holder must be public, so an isolated container is never a pool target.
+- **INTENT_I10 `positionIndependence`** — names, not positions, are identity
+  (ADR-0015 decision 5): no plan key is ever derived from a construct's position
+  in the document, so reordering cosmetic `[port.<name>]` / `[link.<name>]`
+  blocks yields the identical compile — the same plan on the accepted arm, the
+  same refusal set on the refused arm. `[[crypto]]` is exempt (decision 4: its
+  declaration order IS the dpseci ordinal), so it is not permuted.
 
 ### 7. The scenarios as worked witnesses
 
@@ -481,7 +506,7 @@ asserting the derived plan (design D8); numbers are the model's.
   kernel-source anchors, and the ledger keeps DPSW-I1/I2 board-pending.
 - ADR-0005 §§1–5 are elaborated here in place (see §11); its numbered section
   references resolve through this record.
-- This record's enumerations — the 24 refusal variants (§5), INTENT_I1–I9
+- This record's enumerations — the 24 refusal variants (§5), INTENT_I1–I10
   (§6), and the five scenarios (§7) — are hand-maintained copies of what
   `models/intent/*.qnt` states, and copies drift (the `COVERAGE.md` narrative
   drifted exactly this way across tasks 2.6b/2.6c until 2.6d caught it). They
@@ -555,7 +580,7 @@ Each entry keeps the question as posed and records the decision.
 - **Crypto `max_cores` split** — a future `[[crypto]]` core budget, so an
   accelerator's threads ration against a per-block budget rather than sizing
   purely by `flows`. Not built.
-- **Port commitment = `line-rate` | `best-effort`** — a future `[[port]]`
+- **Port commitment = `line-rate` | `best-effort`** — a future `[port.<name>]`
   qualifier stating whether `rate` is a hard commitment or best-effort,
   feeding the worker table. Not built.
 - **Rate classes from the boot configuration.** The rate-class set is

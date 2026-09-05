@@ -31,21 +31,20 @@ max_cores = 2
 dataplane = "userspace-poll"
 max_cores = 8
 
-# The veth pair: a pseudo-wire between the two namespaces, no dpmac.
-[[link]]
-name = "veth"
+# The veth pair: a pseudo-wire between the two namespaces, no dpmac. The link
+# name is the table key (ADR-0015 decision 1, task 3.3d): the dpni ordinal is
+# minted by name (app < uplink < veth), not by the order these tables appear.
+[link.veth]
 interface_a = "ns1"
 interface_b = "ns2"
 
 # The uplink: a pseudo-wire from ns1 to the reserved kernel. The kernel is
 # never declared as a tenant — naming it at a link end is enough (design D1).
-[[link]]
-name = "uplink"
+[link.uplink]
 interface_a = "ns1"
 interface_b = "kernel"
 
 # The app wire: ns2 to the userspace-poll tenant, child <-> child.
-[[link]]
-name = "app"
+[link.app]
 interface_a = "ns2"
 interface_b = "vpp"

@@ -129,15 +129,19 @@ module vwire {
             countFam(p, "vpp", Dpcon) == 1,   // dpnis · T = 1·1
             p.objs.filter(o => o.key.family == Dpsw) == Set(),
             p.objs.filter(o => o.key.family == Dpseci) == Set(),
-            // the three pseudo-wires are the whole edge set (no dpmac, no port)
+            // the three pseudo-wires are the whole edge set (no dpmac, no port);
+            // each tenant's dpni ordinal follows the link NAME, not the
+            // declaration order (task 3.3d): links sort app < uplink < veth.
+            // ns1 ends: uplink (dpni.1) then veth (dpni.2); ns2 ends: app
+            // (dpni.1) then veth (dpni.2). kernel/vpp have one end each.
             p.edges == Set(
-              { a: ObjectAttach({ key: { tenant: "ns1", family: Dpni, ordinal: 1 }, port: 0 }),
-                b: ObjectAttach({ key: { tenant: "ns2", family: Dpni, ordinal: 1 }, port: 0 }),
-                provenance: { tenant: "ns1", rule: "link-edge", construct: "veth" } },
               { a: ObjectAttach({ key: { tenant: "ns1", family: Dpni, ordinal: 2 }, port: 0 }),
+                b: ObjectAttach({ key: { tenant: "ns2", family: Dpni, ordinal: 2 }, port: 0 }),
+                provenance: { tenant: "ns1", rule: "link-edge", construct: "veth" } },
+              { a: ObjectAttach({ key: { tenant: "ns1", family: Dpni, ordinal: 1 }, port: 0 }),
                 b: ObjectAttach({ key: { tenant: KERNEL, family: Dpni, ordinal: 1 }, port: 0 }),
                 provenance: { tenant: "ns1", rule: "link-edge", construct: "uplink" } },
-              { a: ObjectAttach({ key: { tenant: "ns2", family: Dpni, ordinal: 2 }, port: 0 }),
+              { a: ObjectAttach({ key: { tenant: "ns2", family: Dpni, ordinal: 1 }, port: 0 }),
                 b: ObjectAttach({ key: { tenant: "vpp", family: Dpni, ordinal: 1 }, port: 0 }),
                 provenance: { tenant: "ns2", rule: "link-edge", construct: "app" } }),
           }

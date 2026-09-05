@@ -2,9 +2,12 @@
 // gqf.48; intent/alphabet.qnt is the accepted-intent counterpart). The finite
 // alphabet random simulation draws `RawIntent`s from, grown one construct per
 // step from the empty document — deliberately producing the near-misses the
-// gqf.39 hole hid: duplicate port/link names, dangling references, the reserved
-// `kernel` declared, zero/negative counts, self-loop links, unresolved fabric
-// members, and non-companion/unknown extra families. Validity is NOT encoded in
+// gqf.39 hole hid: dangling references, the reserved `kernel` declared,
+// zero/negative counts, self-loop links, unresolved fabric members, and
+// non-companion/unknown extra families. (Duplicate port/link names are no longer
+// among them: task 3.3d keyed each family, so an intra-family duplicate is
+// unrepresentable and the cross-family collision — disjoint name pools here — is
+// covered by the directed rawDuplicateNameTest, a recorded unknown in the sweep.) Validity is NOT encoded in
 // the generator — that is exactly how gqf.39 stayed invisible; the draw sets
 // mix clean and dirty values freely, and `parse` (intent/intent_raw.qnt) is what
 // separates them.
@@ -32,8 +35,13 @@ module intent_raw_alphabet {
   // Two non-kernel tenant names; the reserved kernel is drawable only through
   // addKernelTenant (the reserved-name near-miss).
   pure val R_TENANTS: Set[str] = Set("c1", "c2")
-  // A small port-name set so a duplicate is a frequent draw (the DuplicateName
-  // near-miss) — the generator never guards uniqueness.
+  // Ports and links are keyed maps now (task 3.3d), so an intra-family duplicate
+  // is unrepresentable — a repeated key overwrites. The DuplicateName near-miss
+  // survives only across families (a port and a fabric of one name); these name
+  // pools are disjoint from R_FABRIC_NAMES, so that cross-family collision is
+  // unreachable in the random sweep and is covered by the directed
+  // rawDuplicateNameTest instead (intent_raw.qnt) — a recorded unknown, never a
+  // silent gap (COVERAGE.md raw section).
   pure val R_PORT_NAMES: Set[str] = Set("p1", "p2")
   pure val R_LINK_NAMES: Set[str] = Set("l1", "l2")
   pure val R_FABRIC_NAMES: Set[str] = Set("f1", "f2")
@@ -77,29 +85,29 @@ module intent_raw_alphabet {
       raw.tenants.put(KERNEL, { dataplane: KernelNetlink, maxCores: 16, isolation: Isolated, pool: "" })),
   }
 
-  // A port appended (never dedup-guarded): a repeated name is the DuplicateName
-  // near-miss, a "ghost"/"" owner the dangling/kernel case, a <= 0 rate the
-  // zero/negative case.
+  // A port put under its name key (task 3.3d): a "ghost"/"" owner is the
+  // dangling/kernel case, a <= 0 rate the zero/negative case. A repeat of an
+  // existing name overwrites (the intra-family duplicate is unrepresentable).
   action addPort = {
     nondet nm = R_PORT_NAMES.oneOf()
     nondet dp = R_DPMACS.oneOf()
     nondet rt = R_RATES.oneOf()
     nondet tn = R_TENANT_REFS.oneOf()
     all {
-      raw.ports.length() < 3,
-      raw' = raw.with("ports", raw.ports.append({ name: nm, dpmac: dp, rate: rt, tenant: tn })),
+      raw.ports.keys().size() < 3,
+      raw' = raw.with("ports", raw.ports.put(nm, { dpmac: dp, rate: rt, tenant: tn })),
     }
   }
 
-  // A link with ends drawn freely: equal ends are the LinkSelfLoop near-miss, a
-  // "ghost" end the dangling case.
+  // A link put under its name key (task 3.3d): equal ends are the LinkSelfLoop
+  // near-miss, a "ghost" end the dangling case.
   action addLink = {
     nondet nm = R_LINK_NAMES.oneOf()
     nondet a = R_TENANT_REFS.oneOf()
     nondet b = R_TENANT_REFS.oneOf()
     all {
-      raw.links.length() < 2,
-      raw' = raw.with("links", raw.links.append({ name: nm, interfaceA: a, interfaceB: b })),
+      raw.links.keys().size() < 2,
+      raw' = raw.with("links", raw.links.put(nm, { interfaceA: a, interfaceB: b })),
     }
   }
 
@@ -163,11 +171,11 @@ module intent_raw_alphabet {
   // carries it through; compile refuses it) — witnessed on the raw shape.
   val wNonPositiveExtra =
     raw.extras.keys().exists(t => raw.extras.get(t).keys().exists(f => raw.extras.get(t).get(f) <= 0))
-  val wNonPositiveRate = raw.ports.foldl(false, (a, p) => a or p.rate <= 0)
+  val wNonPositiveRate = raw.ports.keys().exists(n => raw.ports.get(n).rate <= 0)
   // Structure: the shapes a trace must reach to exercise the clauses.
   val wKernelDeclared = raw.tenants.keys().contains(KERNEL)
-  val wRawPortPresent = raw.ports.length() > 0
-  val wRawLinkPresent = raw.links.length() > 0
+  val wRawPortPresent = raw.ports.keys().size() > 0
+  val wRawLinkPresent = raw.links.keys().size() > 0
   val wRawFabricPresent = raw.fabrics.keys().size() > 0
   val wRawExtraPresent = raw.extras.keys().size() > 0
 }

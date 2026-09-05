@@ -118,9 +118,24 @@ fn every_toml_compiles_to_its_frozen_plan() {
             completed.tenants.insert(0, kernel);
         }
 
+        // Task 3.3d keys ports and links by name (ADR-0015 decision 1), so the parsed
+        // Intent carries them in canonical NAME order (the `toml` crate sorts table keys,
+        // and identity is the name, not the position). The frozen scenario literal keeps
+        // its declaration order (e.g. `router.qnt` declares wan0, wan1, up0; `vwire.qnt`
+        // veth, uplink, app), which INTENT_I10 (`positionIndependence`, ADR-0015 decision
+        // 5) makes cosmetic — reordering never rewires the plan. So compare the constructs
+        // up to name order here; the order-sensitive-free truth is the compiled plan
+        // asserted below (`rust_outcome` == the frozen outcome). crypto is exempt (its
+        // order IS the dpseci ordinal, decision 4), so it is left as declared.
+        let mut expected = case.intent.clone();
+        for i in [&mut completed, &mut expected] {
+            i.ports.sort_by(|a, b| a.name.cmp(&b.name));
+            i.links.sort_by(|a, b| a.name.cmp(&b.name));
+        }
         assert_eq!(
-            completed, case.intent,
-            "{stem}.toml: parsed+completed intent diverges from the frozen trace intent"
+            completed, expected,
+            "{stem}.toml: parsed+completed intent diverges from the frozen trace intent \
+             (up to construct name order)"
         );
 
         let replay = ReplayCase {

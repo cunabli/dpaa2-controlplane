@@ -129,14 +129,25 @@ pub(crate) fn is_hw_switched_port(intent: &Intent, port_name: &ConstructName) ->
 }
 
 /// The tenant's terminated ports (owned and not switched into a hardware fabric), in
-/// declaration order.
+/// NAME order (ADR-0015 decision 5, task 3.3d; `derive.qnt` `terminatedPorts`): the
+/// port's dpni ordinal is minted by name, never by `[[port]]` position, so a cosmetic
+/// reorder of the array never re-keys a plan. Every other consumer of this list
+/// (thread count, seeded rate classes, port edges, port-edge provenance keyed by port
+/// name) is order-free, so the one visible effect of the sort is `portOrigins` — and
+/// thus the dpni ordinal — following name order.
+///
+/// Rust sorts the real strings; `ConstructName`'s derived `Ord` is byte-wise on the
+/// name, which agrees with the model's hand-ranked `NAME_RANK` list (`types.qnt`) —
+/// this pairing is that rank list's lint (task 3.4).
 #[must_use]
 pub(crate) fn terminated_ports<'a>(intent: &'a Intent, name: &TenantName) -> Vec<&'a Port> {
-    intent
+    let mut ports: Vec<&Port> = intent
         .ports
         .iter()
         .filter(|p| &p.tenant == name && !is_hw_switched_port(intent, &p.name))
-        .collect()
+        .collect();
+    ports.sort_by(|a, b| a.name.cmp(&b.name));
+    ports
 }
 
 /// The distinct seeded rate classes a tenant's terminated ports span; a set larger
@@ -175,12 +186,19 @@ fn attaches_to_hw_fabric(intent: &Intent, x: &TenantName, f: &Fabric) -> bool {
     owner_attached_via_members(intent, f, x) || via_software_chain
 }
 
+/// The Hardware fabrics owned by `name`, in fabric-NAME order (ADR-0015 decision 5,
+/// task 3.3d; `derive.qnt` `hwOwnedFabrics`): both the dpsw objects and
+/// [`dpsw_ordinal_of`] fold this list positionally, so the dpsw ordinal is minted by
+/// the fabric's name, not its `[fabric.<name>]` position. (Sorting by `ConstructName`'s
+/// byte-wise `Ord` == sorting by name; see [`terminated_ports`] for the rank-list lint.)
 fn hw_owned_fabrics<'a>(intent: &'a Intent, name: &TenantName) -> Vec<&'a Fabric> {
-    intent
+    let mut fabrics: Vec<&Fabric> = intent
         .fabrics
         .iter()
         .filter(|f| f.switching == Switching::Hardware && &f.forwarded_by == name)
-        .collect()
+        .collect();
+    fabrics.sort_by(|a, b| a.name.cmp(&b.name));
+    fabrics
 }
 
 fn crypto_blocks_of<'a>(intent: &'a Intent, name: &TenantName) -> Vec<&'a Crypto> {
@@ -223,15 +241,22 @@ fn is_wire_member_of(o: &Origin, g: &ConstructName) -> bool {
 
 /// The ordered dpni sources of a tenant: terminated ports, link ends,
 /// hardware-fabric attachments, then software-fabric wire ends (owner then member).
-/// Position + 1 is the dpni ordinal.
+/// The class concatenation order is structural (kept); WITHIN each class the origins
+/// are in name order (ADR-0015 decision 5, task 3.3d; `derive.qnt` `originList`), so
+/// position + 1 — the dpni ordinal — is a function of names, never of document
+/// position. Sorting by the newtype's byte-wise `Ord` == sorting by name (see
+/// [`terminated_ports`] for the rank-list lint).
 fn origin_list(intent: &Intent, name: &TenantName) -> Vec<Origin> {
     let mut out = Vec::new();
-    // terminated ports (6a)
+    // terminated ports (6a) — already name-sorted by `terminated_ports`
     for p in terminated_ports(intent, name) {
         out.push(Origin::Port(p.clone()));
     }
-    // link ends (6b); a self-link yields two
-    for l in &intent.links {
+    // link ends (6b) in link-NAME order; a self-link keeps side 0 before side 1
+    // (structural, per link).
+    let mut links: Vec<&Link> = intent.links.iter().collect();
+    links.sort_by(|a, b| a.name.cmp(&b.name));
+    for l in links {
         if &l.interface_a == name {
             out.push(Origin::Link {
                 link: l.clone(),
@@ -245,29 +270,38 @@ fn origin_list(intent: &Intent, name: &TenantName) -> Vec<Origin> {
             });
         }
     }
+    // fabrics in fabric-NAME order, shared by the attach and both wire classes below.
+    let mut fabrics: Vec<&Fabric> = intent.fabrics.iter().collect();
+    fabrics.sort_by(|a, b| a.name.cmp(&b.name));
     // one attach per hardware fabric the tenant attaches to (6c)
-    for f in &intent.fabrics {
+    for f in &fabrics {
         if f.switching == Switching::Hardware && attaches_to_hw_fabric(intent, name, f) {
             out.push(Origin::Attach(f.name.clone()));
         }
     }
-    // owner's end of each software-fabric pseudo-wire (6b)
-    for g in &intent.fabrics {
+    // owner's end of each software-fabric pseudo-wire (6b): fabrics by name, and within
+    // a fabric the peers by name.
+    for g in &fabrics {
         if g.switching == Switching::Software && &g.forwarded_by == name {
+            let mut peers: Vec<TenantName> = Vec::new();
             for m in &g.members {
                 if let Some(c) = member_tenant(intent, m)
                     && c != *name
                 {
-                    out.push(Origin::WireOwner {
-                        fabric: g.name.clone(),
-                        peer: c,
-                    });
+                    peers.push(c);
                 }
+            }
+            peers.sort();
+            for c in peers {
+                out.push(Origin::WireOwner {
+                    fabric: g.name.clone(),
+                    peer: c,
+                });
             }
         }
     }
-    // member's end of each software fabric the tenant is wired into (6b)
-    for g in &intent.fabrics {
+    // member's end of each software fabric the tenant is wired into (6b), fabric-NAME order
+    for g in &fabrics {
         if g.switching == Switching::Software
             && &g.forwarded_by != name
             && g.members
@@ -342,13 +376,22 @@ fn hw_fabric_attach_points(intent: &Intent, f: &Fabric) -> Vec<AttachPoint> {
             }
         }
     }
-    for g in &intent.fabrics {
-        if g.switching == Switching::Software
-            && g.members.iter().any(|m| member_is_fabric(m, &f.name))
-            && !owner_attached_via_members(intent, f, &g.forwarded_by)
-        {
-            ends.push(attach_point(intent, &g.forwarded_by, &f.name));
-        }
+    // the chained software fabrics that list `f`, in fabric-NAME order (ADR-0015
+    // decision 5, task 3.3d; `derive.qnt` `hwFabricAttachPoints`): this fold produces
+    // ordered dpsw interfaces, so a fabric reorder must not renumber them (the
+    // member-order interfaces above stay structural).
+    let mut chained: Vec<&Fabric> = intent
+        .fabrics
+        .iter()
+        .filter(|g| {
+            g.switching == Switching::Software
+                && g.members.iter().any(|m| member_is_fabric(m, &f.name))
+                && !owner_attached_via_members(intent, f, &g.forwarded_by)
+        })
+        .collect();
+    chained.sort_by(|a, b| a.name.cmp(&b.name));
+    for g in chained {
+        ends.push(attach_point(intent, &g.forwarded_by, &f.name));
     }
     ends
 }

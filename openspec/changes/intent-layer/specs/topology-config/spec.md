@@ -9,14 +9,16 @@ which every other object is derived from the constructs the operator
 declares: `[tenant.<name>]` (keyed by tenant name — dataplane, `max_cores`,
 an optional `isolation` of `public|restricted|isolated` defaulting to
 `isolated`, and an optional `pool` naming a holder),
-`[[port]]` (dpmac, name, rate, tenant, MAC and MAC
-mode), `[[link]]` (two tenant ends, `interface_a`/`interface_b`),
-`[fabric.<name>]` (keyed by fabric name — switching
+`[port.<name>]` (keyed by interface name — dpmac, rate, tenant, MAC and MAC
+mode), `[link.<name>]` (keyed by link name — two tenant ends,
+`interface_a`/`interface_b`), `[fabric.<name>]` (keyed by fabric name — switching
 `hardware|software`, forwarded_by, members: ports, tenants, or fabrics), and `[[crypto]]` (tenant, flows).
-A `[tenant.<name>]` or `[fabric.<name>]` table keys identity in the TOML
-structure, so a duplicate tenant or fabric name is unrepresentable — a key
-redefinition — never validated, while `[[port]]`/`[[link]]`/`[[crypto]]`
-remain ordered arrays. A `[[crypto]]`
+A `[tenant.<name>]`, `[port.<name>]`, `[link.<name>]`, or `[fabric.<name>]` table
+keys identity in the TOML structure (ADR-0015 decision 1), so a duplicate name
+within a family is unrepresentable — a key redefinition — never validated; only a
+name shared ACROSS families (a port and a link, or a fabric) is still a validated
+`DuplicateName` refusal. `[[crypto]]` remains an ordered array (genuinely
+anonymous). A `[[crypto]]`
 array-of-tables is ordered, so a tenant's blocks are read in declaration
 order: the Nth `[[crypto]]` block for a tenant sizes that tenant's Nth
 dpseci (ordinal N), each dpseci by its own block's `flows`. A block's
@@ -50,7 +52,7 @@ validated.
   naming the field and stating that the count is derived
 
 #### Scenario: A port without a tenant belongs to the kernel
-- **WHEN** a `[[port]]` entry names no tenant
+- **WHEN** a `[port.<name>]` entry names no tenant
 - **THEN** it is owned by the reserved `kernel` tenant in the root
   container
 
@@ -81,9 +83,10 @@ gNMI) can produce the same `Intent`. `ConfigSource::load` SHALL return
 ### Requirement: Configuration is validated before use
 The system SHALL validate the topology for structural correctness
 before any compilation or reconciliation, including well-formed DPMAC
-references, unique interface and tenant names, well-formed MAC
+references, construct names unique across families (an intra-family
+duplicate being a TOML key redefinition the format refuses), well-formed MAC
 addresses, tenant references that resolve — the reserved `kernel`
-resolving at a `[[link]]` end without being declared — the reserved
+resolving at a `[link.<name>]` end without being declared — the reserved
 `kernel` name not declared as a `[tenant.kernel]` table, link ends that name two
 distinct tenants, and fabric members that exist. A `restricted` tenant
 SHALL name a `pool`, and a `pool` SHALL be named only on a `restricted`

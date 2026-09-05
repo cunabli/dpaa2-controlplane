@@ -1,7 +1,8 @@
 # DPAA2 desired topology for the LX2160A board.
 #
-# Each [[port]] is keyed by its stable DPMAC anchor. The DPNI index is NEVER named
-# here — a managed DPNI's identity is derived from its connection edge to the DPMAC
+# Each [port.<name>] carries the interface name in its table key (ADR-0015 decision 1)
+# and its stable DPMAC anchor as `dpmac`. The DPNI index is NEVER named here — a managed
+# DPNI's identity is derived from its connection edge to the DPMAC
 # (design D1). Board mapping (verified 2026-07-04, MC 10.32.0):
 #   dpmac.3-6   = QSFP28 breakout, 25G (CAUI)
 #   dpmac.7-10  = SFP+ cage, 10G (XFI)
@@ -11,25 +12,22 @@
 # netdev's inherited DPMAC MAC, never written). Set `mac_mode = "actuate"` only to
 # have the reconciler set the DPNI primary MAC.
 #
-# A [[port]] with no `tenant` belongs to the reserved `kernel` dataplane (design D1).
+# A [port.<name>] with no `tenant` belongs to the reserved `kernel` dataplane (design D1).
 # This example is kernel-port-only, the subset `dpaa2ctl` executes today; construct
 # intents (tenants, links, fabrics, crypto) are documented in ADR-0013.
 
 [intent]
 schema = 1
 
-[[port]]
+[port.lan0]
 dpmac = "dpmac.7"
-name = "lan0"
 rate = 10000
 
-[[port]]
+[port.lan1]
 dpmac = "dpmac.8"
-name = "lan1"
 rate = 10000
 
 # Example 25G port on the QSFP28 breakout:
-# [[port]]
+# [port.wan0]
 # dpmac = "dpmac.3"
-# name = "wan0"
 # rate = 25000

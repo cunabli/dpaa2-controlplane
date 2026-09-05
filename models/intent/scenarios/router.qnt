@@ -88,14 +88,17 @@ module router {
                 attributes: DpseciAttrs({ numQueues: 2, hasCg: true }),
                 provenance: { tenant: "router", rule: "dpseci", construct: "" } }),
             p.objs.filter(o => o.key.family == Dpsw) == Set(),
-            // the three terminated ports are the whole edge set (fig. 6a)
+            // the three terminated ports are the whole edge set (fig. 6a); the
+            // dpni ordinal follows the port NAME, not the declaration order
+            // (task 3.3d): up0 < wan0 < wan1, so up0 is dpni.1, wan0 dpni.2,
+            // wan1 dpni.3 (declared wan0, wan1, up0).
             p.edges == Set(
               { a: ObjectAttach({ key: { tenant: "router", family: Dpni, ordinal: 1 }, port: 0 }),
-                b: MacAttach(9), provenance: { tenant: "router", rule: "port-edge", construct: "wan0" } },
+                b: MacAttach(4), provenance: { tenant: "router", rule: "port-edge", construct: "up0" } },
               { a: ObjectAttach({ key: { tenant: "router", family: Dpni, ordinal: 2 }, port: 0 }),
-                b: MacAttach(10), provenance: { tenant: "router", rule: "port-edge", construct: "wan1" } },
+                b: MacAttach(9), provenance: { tenant: "router", rule: "port-edge", construct: "wan0" } },
               { a: ObjectAttach({ key: { tenant: "router", family: Dpni, ordinal: 3 }, port: 0 }),
-                b: MacAttach(4), provenance: { tenant: "router", rule: "port-edge", construct: "up0" } }),
+                b: MacAttach(10), provenance: { tenant: "router", rule: "port-edge", construct: "wan1" } }),
             p.provenance.get({ tenant: "router", rule: "T", construct: "" }).value == 10,
             p.provenance.get({ tenant: "router", rule: "T", construct: "" }).mark == Unmeasured,
           }

@@ -11,7 +11,8 @@
 // constant sets; `stutter` keeps `step` total once every bound is hit.
 //
 // Named invariants: intentInvariants (simulator rung: compileInvariants plus
-//   planInvariants of every accepted plan).
+//   planInvariants of every accepted plan plus positionIndependence
+//   (INTENT_I10, task 3.3d) over every reachable intent).
 // Apalache-marked subset: compileLaws — feasibleAgainstCeilings,
 //   companionCountsByRegime and isolatedContainerPrivate (INTENT_I7/I8/I9) —
 //   defined but simulator-only.
@@ -255,8 +256,13 @@ module intent_alphabet {
       | Refused(_) => true
     }
 
-  // The simulator rung: both, over the alphabet's reachable intents.
-  val intentInvariants = and { compileLaws, acceptedPlanLaws }
+  // The position-independence law (INTENT_I10, task 3.3d; ADR-0015 decision 5):
+  // reversing the reachable intent's ports and links yields the identical
+  // Compiled — no plan key rides a construct's document position.
+  val positionLaw = positionIndependence(intent, REF_INVENTORY)
+
+  // The simulator rung: all three, over the alphabet's reachable intents.
+  val intentInvariants = and { compileLaws, acceptedPlanLaws, positionLaw }
 
   // ---- coverage witnesses (task 2.4) ----
   // One named predicate per coverage dimension, counted by `pnpm

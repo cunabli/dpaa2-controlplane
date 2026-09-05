@@ -16,6 +16,8 @@
 // Named invariants: containmentByTenant … isolatedContainerPrivate
 //   (ids INTENT_I1..I9, below); planInvariants gathers I1–I6 over any Plan,
 //   compileInvariants gathers I7–I9 over (intent, inventory).
+//   positionIndependence (INTENT_I10, task 3.3d) is a standalone
+//   (intent, inventory) law wired into intent/alphabet.qnt `intentInvariants`.
 // Apalache-marked subset: feasibleAgainstCeilings and companionCountsByRegime
 //   (INTENT_I7/I8) — collected as intent/alphabet.qnt `compileLaws`, defined
 //   for Apalache but simulator-only today: the translation succeeds, the
@@ -279,6 +281,24 @@ module intent_invariants {
           }))
       | Refused(_) => true
     }
+
+  // ---- positionIndependence (INTENT_I10): names, not positions, are identity ----
+  // ADR-0015 decision 5 (task 3.3d, bead gqf.46): the enforceable guarantee is
+  // not that the MC handle N is stable but that no plan key is ever derived from
+  // a construct's position in the document — reordering cosmetic `[[port]]` /
+  // `[[link]]` blocks never rewires hardware or renumbers a dpni. Reversal is
+  // the witness permutation: for a list of >=2 any position-derived key moves
+  // under it, so compiling the reversed intent must yield the IDENTICAL Compiled
+  // — the same plan (keys, wiring, emission order, provenance) on the accepted
+  // arm, the same refusal set on the refused arm. crypto is exempt (ADR-0015
+  // decision 4 / task 2.6e: declaration order IS the dpseci ordinal), so it is
+  // not permuted. The Rust pairing/conformance test (task 3.4) is the
+  // conformance twin; here it is a checkable law over every alphabet intent.
+  pure def positionIndependence(intent: Intent, inv: Inventory): bool =
+    val reversed = intent
+      .with("ports", intent.ports.foldl([], (acc, p) => [p].concat(acc)))
+      .with("links", intent.links.foldl([], (acc, l) => [l].concat(acc)))
+    compile(intent, inv) == compile(reversed, inv)
 
   // ---- the two rungs ----
 

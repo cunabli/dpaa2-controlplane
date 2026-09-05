@@ -181,11 +181,14 @@ Tally: 54 modeled, 47 deferred, 7 board-settled, 0 board-pending — 108 candida
 ## Intent invariants (task 5.1)
 
 These are the `intent-layer` change's own plan invariants
-(`models/intent/invariants.qnt`, ids INTENT_I1–I9), the laws design D6 makes
-unrepresentable in Rust. Each row ties an invariant to the baseline and ADR
-anchors it derives from, the same honesty mechanism the candidate ledger above
-applies to the family invariants. The section is linted (R12) against
-`invariants.qnt` and ADR-0013 §6 both ways, so a drift fails in CI, not review.
+(`models/intent/invariants.qnt`, ids INTENT_I1–I10), the laws design D6 — and,
+for INTENT_I10, ADR-0015 decision 5 — make unrepresentable/checkable in Rust.
+Each row ties an invariant to the baseline and ADR anchors it derives from, the
+same honesty mechanism the candidate ledger above applies to the family
+invariants. The section is linted (R12) against `invariants.qnt` and ADR-0013 §6
+both ways, so a drift fails in CI, not review. (INTENT_I10 lands here and in
+`invariants.qnt` with task 3.3d, bead gqf.46; its ADR-0013 §6 mirror is carried
+by the crate parcels that restore the cargo side.)
 
 | Invariant | Name | CI rung | Anchors / baseline ties |
 |-----------|------|---------|-------------------------|
@@ -198,6 +201,7 @@ applies to the family invariants. The section is linted (R12) against
 | INTENT_I7 | feasibleAgainstCeilings | simulate (apalache-marked, front-end heap wall — bead gqf.26) | ADR-0011; design D2 |
 | INTENT_I8 | companionCountsByRegime | simulate (apalache-marked, front-end heap wall — bead gqf.26) | ADR-0012 via companionDraw |
 | INTENT_I9 | isolatedContainerPrivate | simulate | design D6a; task 2.6c |
+| INTENT_I10 | positionIndependence | simulate | ADR-0015 decision 5; task 3.3d (bead gqf.46) |
 
 ## Intent alphabet coverage (task 2.4)
 
@@ -243,8 +247,11 @@ The `intent-layer` change's config-surface laws (`models/intent/intent_raw.qnt`,
 bead gqf.48). Before this module the model's state space began after the lossy
 parse, so the gqf.39/gqf.40 bug class — a duplicated block, a dangling
 reference, the reserved `kernel` declared — was unrepresentable and unstatable.
-`RawIntent` mirrors the post-3.3b/3.3c TOML surface and `parse` mirrors
-`crates/dpaa2-config/src/parse.rs`; these three named laws are checked over the
+`RawIntent` mirrors the post-3.3b/3.3c/3.3d TOML surface — task 3.3d keyed ports
+and links too (`[port.<name>]` / `[link.<name>]`, ADR-0015 decision 1), so a
+duplicated port/link block is now a TOML key redefinition, unrepresentable, and
+only a cross-family name collision still reaches DuplicateName — and `parse`
+mirrors `crates/dpaa2-config/src/parse.rs`; these three named laws are checked over the
 dirty raw alphabet (`models/intent/raw_alphabet.qnt`, `rawInvariants`), which
 deliberately generates the near-misses today's guards hide. Not linted by R12
 (these are surface laws, not the `INTENT_I*` plan invariants). The Rust
@@ -263,8 +270,17 @@ reverse, fails the harness (`models/intent/raw_replay.qnt` freezes the corpus,
 | MBT-conformance | raw_conformance | itf-replay | ADR-0013 §2/§5; parse.rs (verdict + accepted-`Intent` agreement, per-variant error matcher; the DEVIATION reconciled by any-match over the model set) |
 
 Every near-miss the dirty alphabet reaches (seed 20260905, 10 steps, 2000
-samples): `wReservedKernel` 1636, `wDuplicateName` 1061, `wLinkSelfLoop` 488,
-`wRawMemberUnresolved` 1224, `wUnknownExtraFamily` 850, `wTenantAbsent` 1973,
-`wPoolWithoutRestricted` 811, `wRestrictedWithoutPool` 439, `wNonPositiveExtra`
-1149, `wNonPositiveRate` 1370; `wRawAccepted`/`wRawRefused` both 2000. No law
-was violated.
+samples, re-run for task 3.3d's keyed ports/links): `wReservedKernel` 1633,
+`wLinkSelfLoop` 500, `wRawMemberUnresolved` 1188, `wUnknownExtraFamily` 849,
+`wTenantAbsent` 1982, `wPoolWithoutRestricted` 813, `wRestrictedWithoutPool` 454,
+`wNonPositiveExtra` 1181, `wNonPositiveRate` 1358; `wRawAccepted`/`wRawRefused`
+both 2000. No law was violated.
+
+- **`wDuplicateName` 0 (recorded unknown, covered elsewhere)**: once ports and
+  links are keyed (task 3.3d), an intra-family duplicate is unrepresentable, and
+  the only DuplicateName path left is a name shared across families. The dirty
+  alphabet's port/link/fabric name pools are disjoint, so that cross-family
+  collision is unreachable in the random sweep; it is covered by the directed
+  `rawDuplicateNameTest` (a port and a fabric of one name, `intent_raw.qnt`) and
+  its frozen `rawDuplicateNameTrace` — never a silent gap, the same honesty
+  mechanism `wForeignAnchor` uses on the intent side.

@@ -44,22 +44,20 @@ dataplane = "userspace-poll"   # kernel-netlink | userspace-poll | userspace-eve
 max_cores = 16                 # a budget the derived thread count must fit under
 isolation = "isolated"         # public | restricted | isolated (default isolated)
 
-# Two 10G ports the router terminates, each anchored on a stable DPMAC.
-[[port]]
-name = "wan0"
+# Two 10G ports the router terminates, each anchored on a stable DPMAC. The interface
+# name lives in the table key (ADR-0015 decision 1); its dpni ordinal is minted by name.
+[port.wan0]
 dpmac = "dpmac.9"
 rate = 10000                   # Mbps, the unit `dpmac info` reports maxima in
 tenant = "router"
 
-[[port]]
-name = "wan1"
+[port.wan1]
 dpmac = "dpmac.10"
 rate = 10000
 tenant = "router"
 
 # A management port with no tenant: the kernel's own driver terminates it.
-[[port]]
-name = "mgmt"
+[port.mgmt]
 dpmac = "dpmac.7"
 rate = 10000
 
