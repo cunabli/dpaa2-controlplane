@@ -60,7 +60,12 @@ Cheapest rung first (ADR-0002 §6); a failure stops the validation there.
    simulation grows an intent one construct per step from the finite
    alphabet of `intent/alphabet.qnt` and checks `intentInvariants`
    (the compile and plan relationships of `intent/invariants.qnt`) over
-   every reachable intent.
+   every reachable intent. A second intent machine, `intent/edits.qnt`,
+   steps `(intent, board)` through a bounded edit alphabet
+   (Add/Remove/Rename/Swap/ConfigEdit + label drift) with converges
+   interleaved and checks `identityLaws` — the four ADR-0015 §8–12
+   identity-across-time families (frame law, rename self-neutralization,
+   converge idempotence, swap correctness) — over every synced state.
 3. **ITF replay** — frozen traces from `traces/` replay against the
    Rust core in `cargo test` (`crates/dpaa2-verify`), keeping model and
    code honest against each other with no board attached. The replayer
@@ -146,6 +151,16 @@ models/
 │   ├── invariants.qnt    named plan/compile invariants, ids INTENT_I1..I8 (D6)
 │   ├── alphabet.qnt      the finite intent alphabet as a machine — the
 │   │                     simulate/verify target (intentInvariants, compileLaws)
+│   ├── observed.qnt      identity-across-time value machinery (ADR-0015 §8–12):
+│   │                     ObservedBoard, the compiled construct-object, apply, and
+│   │                     the decision-12 disruption classing (task 6.4)
+│   ├── match.qnt         the identity ladder as a pure two-pass relation
+│   │                     (anchor-first, label-second) plus the four laws it owes:
+│   │                     frameLaw, renameSelfNeutralizes, convergeIdempotent,
+│   │                     swapCorrect, with directed runs (task 6.4)
+│   ├── edits.qnt         the bounded edit alphabet (Add/Remove/Rename/Swap/
+│   │                     ConfigEdit + drift) as a perturb/converge machine —
+│   │                     identityLaws over every synced state (task 6.4)
 │   ├── main.qnt          the directed *Test runs (tasks 1.2–1.4)
 │   └── scenarios/        each <name>.qnt sits beside a <name>.toml (task 2.1);
 │                         intent-pairing.py fails the ladder on an orphan

@@ -319,7 +319,7 @@ the change's only other operator sync point (design D12).
 - [x] 6.3 schema + raw model: `renamed = { from }` on nameable
       constructs; `from` naming a declared construct refuses at parse
       (bead gqf.51)
-- [ ] 6.4 model-first: `ObservedBoard`, the edit alphabet, pure
+- [x] 6.4 model-first: `ObservedBoard`, the edit alphabet, pure
       `match`/`apply`, and the new invariants — two-intent frame law,
       rename self-neutralization, converge idempotence, swap
       correctness; Rust twins red until 6.5/6.7 (bead gqf.52)

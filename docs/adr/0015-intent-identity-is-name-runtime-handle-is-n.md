@@ -169,8 +169,14 @@ and the board already carries objects from the last converge. Decisions
     it: (i) a `from` naming a currently-declared construct refuses at
     parse, unless that construct itself carries a `renamed` clause — the
     swap and the chain declare every `from`-target renamed away, so no
-    object is claimed twice; and (ii) matching runs two passes, and pass 1 excludes every
-    construct named by any `from`-clause. Rule (ii) is required by the
+    object is claimed twice; and (ii) matching runs two passes, and pass
+    1 excludes a construct named by a `from`-clause only while its config
+    still disagrees with its exact-label claimant — the exclusion is
+    config-gated, not flat, so the widening self-neutralizes: once a
+    converge has carried the labels the exact-label bind is sound by
+    decision 11's indiscernibility and the `from` matches nothing,
+    whereas a flat exclusion would re-defer the settled objects on every
+    converge and oscillate. Rule (ii) is required by the
     swap counterexample — `wan0` and `eth0` renamed to each other in one
     edit: naive pass-1 label matching would bind new-`eth0` to
     old-`eth0`'s object and "repair" its attributes disruptively instead
