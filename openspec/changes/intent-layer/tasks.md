@@ -232,6 +232,16 @@ the change's only other operator sync point (design D12).
       reorder-rewires hazard and the boundary N churn that breaks external
       `dpni.N` consumers; `[[crypto]]` stays an array by the 2.6e decision
       (discovered by the gqf.40 review, bead gqf.46)
+- [ ] 3.3e models/intent: the config surface enters the model — `intent_raw.qnt`
+      mirrors the post-migration TOML surface (duplicates, dangling references,
+      reserved names representable), `parse` as a pure function, and the law
+      the gqf.39 hole violated as named invariants: everything the surface can
+      express that the model cannot represent is refused by name, and accepted
+      declarations survive verbatim; a dirty alphabet generates the near-misses
+      today's guards hide, and MBT conformance replays raw states as TOML
+      through `dpaa2-config` so a clause the model has and parse.rs forgot
+      fails the harness; runs after 3.3b/3.3c and gates 3.3d, whose raw layer
+      it provides (operator direction 2026-09-05, bead gqf.48)
 - [x] 3.4 `dpaa2-verify`: the pairing test — every `scenarios/<name>.toml`
       parses, compiles against the snapshot inventory, and equals its
       `<name>.itf.json` plan; the ladder fails on an unpaired scenario
