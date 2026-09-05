@@ -323,12 +323,14 @@ the change's only other operator sync point (design D12).
       `match`/`apply`, and the new invariants — two-intent frame law,
       rename self-neutralization, converge idempotence, swap
       correctness; Rust twins red until 6.5/6.7 (bead gqf.52)
-- [ ] 6.5 `dpaa2-api` matcher + disruption-classed Plan (hitless /
+- [x] 6.5 `dpaa2-api` matcher + disruption-classed Plan (hitless /
       boundary / disruptive); dry-run headline is the max class,
       converge gates on `--allow` (bead gqf.54)
 - [ ] 6.6 label carries the construct name verbatim; drift repaired by
       set-label, never recreate; ADR-0010 §4 cross-checked (bead gqf.53)
 - [ ] 6.7 `dpaa2-verify` pairing twin: the two-intent properties on real
-      strings plus MBT replay of the edit alphabet (bead gqf.55)
+      strings plus MBT replay of the edit alphabet; owes the Rust twins of
+      the model's `frameLawTest`/`addFrameTest` (deliberately not
+      transcribed in 6.5) (bead gqf.55)
 - [ ] 6.8 phase close: COVERAGE rows, ROADMAP touch, ledger lint
       (bead gqf.56)

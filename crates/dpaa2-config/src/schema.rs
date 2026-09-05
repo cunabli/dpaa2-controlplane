@@ -84,7 +84,8 @@ where
 pub struct RawRenamed<T> {
     /// The construct's prior name. [`crate::parse`] validates it as an interface
     /// name (task 6.2), applies rule (i), then carries the accepted clause into the
-    /// neutral model as `renamed` (task 6.5), where the rename matcher consumes it.
+    /// neutral model as `renamed` (task 6.5), which the rename matcher will consume
+    /// once wired into the live path (task 6.6).
     #[serde(deserialize_with = "name")]
     pub from: T,
 }

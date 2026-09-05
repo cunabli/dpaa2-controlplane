@@ -37,3 +37,29 @@ offending construct, exit non-zero, and change nothing.
 - **THEN** it prints each managed object's lifecycle state and the
   delta from desired, and exits non-zero if the system has diverged
   from desired
+
+## ADDED Requirements
+
+### Requirement: Dry-run reports the disruption headline and converge gates on `--allow`
+`dry-run` SHALL print each planned transition with its disruption class
+and the plan's headline — the maximum class over its transitions
+(ADR-0015 decision 12). `ensure` SHALL accept `--allow=<hitless|boundary
+|disruptive>`, defaulting to `hitless`, and SHALL proceed only when the
+plan's headline is within the allowed class; a plan whose headline
+exceeds it SHALL be refused with a message naming the headline and the
+`--allow` value needed, exit non-zero, and change nothing — no
+transition and no `.link` file. Disruptive SHALL never be implied: it is
+actuated only under an explicit `--allow=disruptive`.
+
+#### Scenario: Dry-run shows per-transition classes and the headline
+- **WHEN** the operator dry-runs a plan that would create and connect
+  ports
+- **THEN** each transition line carries its class and the block names
+  the headline `disruptive`
+
+#### Scenario: Converge refuses a plan above the allowed class
+- **WHEN** `ensure` runs with the default allowance against a board that
+  needs a disruptive plan to provision
+- **THEN** it refuses, names the `disruptive` headline and the
+  `--allow=disruptive` needed to proceed, changes nothing, and exits
+  non-zero

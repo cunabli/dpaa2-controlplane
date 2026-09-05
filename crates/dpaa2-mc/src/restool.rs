@@ -10,8 +10,8 @@
 use std::collections::BTreeMap;
 
 use dpaa2_api::{
-    Availability, Ceiling, DERIVED_FAMILIES, DpmacId, DpmacOffer, DpniId, Error, Family, Inventory,
-    McControl, ObservedDpmac, ObservedDpni, ObservedTopology,
+    Availability, Ceiling, ConstructName, DERIVED_FAMILIES, DpmacId, DpmacOffer, DpniId, Error,
+    Family, Inventory, McControl, ObservedDpmac, ObservedDpni, ObservedTopology,
 };
 
 use crate::parse;
@@ -312,12 +312,22 @@ impl<R: Runner> McControl for RestoolMc<R> {
         let show = self.runner.run(&["dprc", "show", &self.container])?;
         let (dpni_ids, dpmac_ids) = parse::parse_dprc_show(&show);
 
+        // The label column is the identity seam the matcher leans on (ADR-0015
+        // decisions 9-10, 13). It rides on the `dprc show` row, not `dpni info`, so
+        // map dpni id -> label from the rows already read; an empty label is drift.
+        let labels: BTreeMap<DpniId, ConstructName> = parse::parse_dprc_rows(&show)
+            .into_iter()
+            .filter(|r| r.family == Family::Dpni && !r.label.is_empty())
+            .map(|r| (DpniId::from(r.num), ConstructName::from(r.label)))
+            .collect();
+
         let mut dpnis = Vec::with_capacity(dpni_ids.len());
         for id in dpni_ids {
             let obj = id.to_string();
             let info = parse::parse_dpni_info(&self.runner.run(&["dpni", "info", &obj])?);
             dpnis.push(ObservedDpni {
                 id,
+                label: labels.get(&id).cloned(),
                 connected_to: info.endpoint,
                 mac: info.mac,
                 // netdev is a kernel concern; the shell enriches it via KernelControl.

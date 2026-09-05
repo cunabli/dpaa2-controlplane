@@ -193,7 +193,8 @@ fn convert(raw: &RawIntent) -> Result<Intent, Error> {
     // `from` resolves against declared tenants, a port/link/fabric's against the
     // shared construct namespace. Validation stays up front here; each converter
     // then carries the accepted clause into the neutral `Intent` as `renamed`
-    // (task 6.5), where the rename matcher consumes it.
+    // (task 6.5), which the rename matcher will consume once wired into the live
+    // path (task 6.6).
     check_renames(raw)?;
 
     let tenants = raw
@@ -303,7 +304,8 @@ fn construct_is_declared_unrenamed(raw: &RawIntent, target: &ConstructName) -> b
 /// a `from` that itself carries a `renamed` clause (the swap, the chain) or names an
 /// undeclared construct (the plain rename) is admitted. This gate only validates and
 /// refuses; the accepted clause is carried into the neutral `Intent` by each converter
-/// (task 6.5), where the rename matcher consumes it.
+/// (task 6.5), which the rename matcher will consume once wired into the live path
+/// (task 6.6).
 fn check_renames(raw: &RawIntent) -> Result<(), Error> {
     for (name, t) in &raw.tenant {
         let Some(r) = &t.renamed else { continue };
@@ -607,7 +609,8 @@ mod tests {
 
     use super::{parse_schema, parse_str};
     use dpaa2_api::{
-        Dataplane, DpmacId, Extra, Family, Isolation, MacAddr, MacMode, Member, Switching,
+        ConstructName, Dataplane, DpmacId, Extra, Family, Isolation, MacAddr, MacMode, Member,
+        Switching,
     };
 
     /// The mandatory `[intent]` header, prepended to the construct-only fixtures.
@@ -1416,8 +1419,14 @@ mod tests {
             .iter()
             .find(|p| p.name.as_str() == "wan1")
             .expect("wan1 present");
-        assert_eq!(eth0.renamed.as_ref().map(|n| n.as_str()), Some("old0"));
-        assert!(wan1.renamed.is_none(), "a construct without a clause is None");
+        assert_eq!(
+            eth0.renamed.as_ref().map(ConstructName::as_str),
+            Some("old0")
+        );
+        assert!(
+            wan1.renamed.is_none(),
+            "a construct without a clause is None"
+        );
     }
 
     #[test]

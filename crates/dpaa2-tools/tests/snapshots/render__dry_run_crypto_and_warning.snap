@@ -182,13 +182,13 @@ plan: 40 object(s), 2 edge(s)
 edges:
   router/dpni/1#0 <-> dpmac.7  [port-edge]
   router/dpni/2#0 <-> dpmac.4  [port-edge]
-6 planned transition(s):
-  Create { port: dpmac.7 }
-  Connect { port: dpmac.7 }
-  Bind { port: dpmac.7 }
-  Create { port: dpmac.4 }
-  Connect { port: dpmac.4 }
-  Bind { port: dpmac.4 }
+6 planned transition(s) [headline: disruptive]:
+  [disruptive] Create { port: dpmac.7 }
+  [disruptive] Connect { port: dpmac.7 }
+  [hitless] Bind { port: dpmac.7 }
+  [disruptive] Create { port: dpmac.4 }
+  [disruptive] Connect { port: dpmac.4 }
+  [hitless] Bind { port: dpmac.4 }
 plan-only (38) [no port-facet executor; reported, not drift or error]:
   dprc x1
   dpbp x2

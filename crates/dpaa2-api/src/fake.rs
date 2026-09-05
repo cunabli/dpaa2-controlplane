@@ -109,6 +109,7 @@ impl FakeBackend {
             };
             st.dpnis.push(ObservedDpni {
                 id: dpni,
+                label: None,
                 connected_to: Some(dpmac),
                 mac,
                 netdev,
@@ -191,6 +192,7 @@ impl McControl for FakeBackend {
         st.next_index += 1;
         st.dpnis.push(ObservedDpni {
             id,
+            label: None,
             connected_to: None,
             mac: None,
             netdev: None,

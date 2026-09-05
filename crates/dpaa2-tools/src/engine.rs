@@ -11,8 +11,8 @@ use std::thread::sleep;
 use std::time::{Duration, Instant};
 
 use dpaa2_api::{
-    DesiredTopology, DpmacId, DpniId, Error, KernelControl, McControl, ObservedTopology, Plan,
-    ReconcileOptions, Transition, reconcile_with,
+    Class, DesiredTopology, DpmacId, DpniId, Error, KernelControl, McControl, ObservedTopology,
+    Plan, ReconcileOptions, Transition, reconcile_with,
 };
 
 /// Policy for a convergence run.
@@ -24,6 +24,10 @@ pub struct ConvergeConfig {
     pub poll_interval: Duration,
     /// Whether to tear down ports declared absent (design D7).
     pub prune: bool,
+    /// The maximum disruption class the run may actuate (ADR-0015 decision 12). A
+    /// plan whose headline exceeds this is refused, not applied — the default allows
+    /// [`Class::Hitless`] only, and [`Class::Disruptive`] is never implied.
+    pub allow: Class,
 }
 
 impl Default for ConvergeConfig {
@@ -32,6 +36,7 @@ impl Default for ConvergeConfig {
             deadline: Duration::from_secs(30),
             poll_interval: Duration::from_millis(250),
             prune: false,
+            allow: Class::Hitless,
         }
     }
 }
@@ -45,6 +50,14 @@ pub enum Outcome {
     DeadlineExceeded {
         /// Anchors whose ports had not converged when the deadline hit.
         unconverged: Vec<DpmacId>,
+    },
+    /// The plan's headline disruption class exceeded the run's `--allow` gate
+    /// (ADR-0015 decision 12); nothing was actuated.
+    DisruptionRefused {
+        /// The headline class the plan would have actuated.
+        headline: Class,
+        /// The maximum class the run allowed.
+        allowed: Class,
     },
 }
 
@@ -120,6 +133,18 @@ pub fn ensure<M: McControl, K: KernelControl>(
             return Ok(Outcome::Converged);
         }
 
+        // Gate on the plan's headline before touching the board (ADR-0015 decision
+        // 12): the run may proceed only when the headline is within the allowed
+        // class, and disruptive is never implied.
+        let headline = plan.headline();
+        if headline > cfg.allow {
+            tracing::error!(%headline, allowed = %cfg.allow, "plan exceeds allowed disruption class");
+            return Ok(Outcome::DisruptionRefused {
+                headline,
+                allowed: cfg.allow,
+            });
+        }
+
         if start.elapsed() >= cfg.deadline {
             let unconverged = unconverged_anchors(&plan);
             tracing::error!(?unconverged, "deadline exceeded before convergence");
@@ -179,6 +204,12 @@ pub fn apply<M: McControl, K: KernelControl>(
             Transition::Destroy { dpni } => {
                 mc.destroy(*dpni)?;
                 tracing::info!(%dpni, "destroyed dpni");
+            }
+            Transition::SetLabel { dpni, label } => {
+                // The matcher's relabel lowering (ADR-0015 decisions 9-10). `reconcile`
+                // does not yet emit this — the set-label write convention is task 6.6 —
+                // so the arm only logs; wiring the McControl set-label call lands there.
+                tracing::info!(%dpni, %label, "relabel (set-label emission is task 6.6)");
             }
         }
     }

@@ -56,6 +56,7 @@ fn project(v: &ModelView) -> ObservedTopology {
             .iter()
             .map(|(n, d)| ObservedDpni {
                 id: DpniId::new(*n),
+                label: None,
                 connected_to: d.connected_to.map(DpmacId::new),
                 mac: None,
                 netdev: d.bound.then(|| format!("eth{n}")),

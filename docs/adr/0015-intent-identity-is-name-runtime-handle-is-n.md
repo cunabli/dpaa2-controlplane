@@ -198,6 +198,12 @@ and the board already carries objects from the last converge. Decisions
       new face);
     - **disruptive** — a destroy/create, a link flap, or a rewired path.
 
+    Each transition carries its own intrinsic class — its effect on the
+    traffic already flowing, so binding a DPNI (a wait-to-observe nudge that
+    makes a netdev appear where nothing yet carried traffic) is hitless — and
+    a plan's class is the join over its transitions, so containment in a
+    larger plan never softens nor hardens an individual class.
+
     Dry-run's headline is the plan's maximum class; converge gates on an
     explicit allow of that class, and disruptive is never implied. This
     bounds decision 6's blast radius into a checkable law: an intent edit

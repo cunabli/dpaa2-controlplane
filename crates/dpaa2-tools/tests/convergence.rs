@@ -4,7 +4,7 @@
 use std::time::Duration;
 
 use dpaa2_api::fake::FakeBackend;
-use dpaa2_api::{DesiredPort, DesiredTopology, DpmacId, LinkType, MacAddr};
+use dpaa2_api::{Class, DesiredPort, DesiredTopology, DpmacId, LinkType, MacAddr};
 use dpaa2_tools::StatusReport;
 use dpaa2_tools::engine::{self, ConvergeConfig, Outcome};
 
@@ -23,6 +23,9 @@ fn fast_cfg() -> ConvergeConfig {
         deadline: Duration::from_secs(5),
         poll_interval: Duration::ZERO,
         prune: false,
+        // Provisioning from an empty board is disruptive; these tests exercise the
+        // convergence loop, so they allow it explicitly (ADR-0015 decision 12).
+        allow: Class::Disruptive,
     }
 }
 
@@ -60,6 +63,7 @@ fn deadline_exceeded_reports_unconverged_ports() {
         deadline: Duration::ZERO, // give up after the first non-converged pass
         poll_interval: Duration::ZERO,
         prune: false,
+        allow: Class::Disruptive,
     };
     // First pass creates+connects; because deadline is zero it reports on the next
     // evaluation that it did not converge.
@@ -69,6 +73,7 @@ fn deadline_exceeded_reports_unconverged_ports() {
             assert_eq!(unconverged, vec![DpmacId::new(7)]);
         }
         Outcome::Converged => panic!("should not converge with unbounded latency"),
+        Outcome::DisruptionRefused { .. } => panic!("disruptive was allowed; must not refuse"),
     }
 }
 
@@ -88,6 +93,29 @@ fn interrupted_run_completes_on_rerun() {
         engine::ensure(&desired, &backend, &backend, fast_cfg()).unwrap(),
         Outcome::Converged
     );
+}
+
+#[test]
+fn allow_gate_refuses_a_disruptive_plan_and_changes_nothing() {
+    // Provisioning from an empty board headlines disruptive; a run allowing only the
+    // default hitless refuses before touching the board (ADR-0015 decision 12).
+    let (backend, desired) = one_port_backend(0);
+    let cfg = ConvergeConfig {
+        deadline: Duration::from_secs(5),
+        poll_interval: Duration::ZERO,
+        prune: false,
+        allow: Class::Hitless,
+    };
+    let outcome = engine::ensure(&desired, &backend, &backend, cfg).unwrap();
+    assert_eq!(
+        outcome,
+        Outcome::DisruptionRefused {
+            headline: Class::Disruptive,
+            allowed: Class::Hitless,
+        }
+    );
+    // Nothing was actuated: no netdev appeared for the port.
+    assert_eq!(backend.netdev_for_dpmac(DpmacId::new(7)), None);
 }
 
 #[test]

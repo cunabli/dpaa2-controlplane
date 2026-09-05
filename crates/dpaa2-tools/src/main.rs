@@ -8,9 +8,10 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 use std::time::Duration;
 
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 use dpaa2_api::{
-    Compiled, Error, Intent, McControl, ReconcileOptions, compile, kernel_tenant, reconcile_with,
+    Class, Compiled, Error, Intent, McControl, ReconcileOptions, compile, kernel_tenant,
+    reconcile_with,
 };
 use dpaa2_mc::{RestoolMc, SysfsKernel};
 use dpaa2_tools::engine::{self, ConvergeConfig, Outcome};
@@ -32,6 +33,30 @@ struct Cli {
     command: Command,
 }
 
+/// The `--allow` gate value (ADR-0015 decision 12): the maximum disruption class an
+/// `ensure` run may actuate. A CLI-side mirror of [`Class`] so `dpaa2-api` stays free
+/// of the `clap` dependency; disruptive is never implied, so the default is `hitless`.
+#[derive(Clone, Copy, Debug, Default, ValueEnum)]
+enum AllowArg {
+    /// Only set-label relabels and attribute asserts (the default).
+    #[default]
+    Hitless,
+    /// Also an externally-held name change (a netdev rename).
+    Boundary,
+    /// Also destroy/create, link flap, disconnect, rewire.
+    Disruptive,
+}
+
+impl From<AllowArg> for Class {
+    fn from(a: AllowArg) -> Self {
+        match a {
+            AllowArg::Hitless => Class::Hitless,
+            AllowArg::Boundary => Class::Boundary,
+            AllowArg::Disruptive => Class::Disruptive,
+        }
+    }
+}
+
 #[derive(Subcommand, Debug)]
 enum Command {
     /// Observe and print the current MC/kernel state.
@@ -44,6 +69,11 @@ enum Command {
         /// Tear down ports declared absent (opt-in).
         #[arg(long)]
         prune: bool,
+        /// Maximum disruption class the run may actuate (ADR-0015 decision 12); a
+        /// plan whose headline exceeds it is refused, changing nothing. Disruptive is
+        /// never implied.
+        #[arg(long, value_enum, default_value_t = AllowArg::Hitless)]
+        allow: AllowArg,
         /// Skip generating and reloading `systemd.link` files.
         #[arg(long)]
         no_link: bool,
@@ -132,18 +162,23 @@ fn run(cli: &Cli) -> Result<ExitCode, Error> {
         Command::Ensure {
             deadline,
             prune,
+            allow,
             no_link,
             link_dir,
-        } => ensure(&mc, &kernel, cli, *deadline, *prune, *no_link, link_dir),
+        } => ensure(
+            &mc, &kernel, cli, *deadline, *prune, *allow, *no_link, link_dir,
+        ),
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn ensure(
     mc: &RestoolMc<dpaa2_mc::RestoolRunner>,
     kernel: &SysfsKernel,
     cli: &Cli,
     deadline: u64,
     prune: bool,
+    allow: AllowArg,
     no_link: bool,
     link_dir: &std::path::Path,
 ) -> Result<ExitCode, Error> {
@@ -161,9 +196,20 @@ fn ensure(
     let cfg = ConvergeConfig {
         deadline: Duration::from_secs(deadline),
         prune,
+        allow: allow.into(),
         ..ConvergeConfig::default()
     };
     let outcome = engine::ensure(&desired, mc, kernel, cfg)?;
+
+    // A refused run changed nothing, so write no `.link` files either.
+    if let Outcome::DisruptionRefused { headline, allowed } = &outcome {
+        println!(
+            "refused: this plan's headline is `{headline}`, but the run allows only up to \
+             `{allowed}`.\nre-run with `--allow={headline}` to actuate it (disruptive is never \
+             implied)."
+        );
+        return Ok(ExitCode::FAILURE);
+    }
 
     // Apply stable names *after* convergence: the matchable MAC lives on the DPNI,
     // which does not exist until provisioning creates it. `link::apply` writes the
@@ -180,6 +226,8 @@ fn ensure(
             tracing::error!(?unconverged, "did not converge before deadline");
             Ok(ExitCode::FAILURE)
         }
+        // Handled above (returns before link application); listed for exhaustiveness.
+        Outcome::DisruptionRefused { .. } => Ok(ExitCode::FAILURE),
     }
 }
 

@@ -118,13 +118,20 @@ fn render_prov_tree(
 }
 
 /// Renders the transitions, drift, and assertions `reconcile` produced (design D0):
-/// part (c) of the dry-run, the lines `dry-run` printed before this parcel.
+/// part (c) of the dry-run, the lines `dry-run` printed before this parcel. Each
+/// transition leads with its disruption class and the block leads with the plan's
+/// headline — the maximum class, the one converge gates on (ADR-0015 decision 12).
 #[must_use]
 pub fn render_transitions(plan: &Plan) -> String {
     let mut out = String::new();
-    let _ = writeln!(out, "{} planned transition(s):", plan.transitions.len());
+    let _ = writeln!(
+        out,
+        "{} planned transition(s) [headline: {}]:",
+        plan.transitions.len(),
+        plan.headline(),
+    );
     for t in &plan.transitions {
-        let _ = writeln!(out, "  {t:?}");
+        let _ = writeln!(out, "  [{}] {t:?}", t.class());
     }
     for d in &plan.drift {
         let _ = writeln!(out, "  DRIFT {} {}: {}", d.dpni, d.attribute, d.detail);

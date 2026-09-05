@@ -16,6 +16,7 @@ pub mod error;
 pub mod family;
 pub mod intent;
 pub mod inventory;
+pub mod matcher;
 pub mod model;
 pub mod plan;
 pub mod port;
@@ -37,11 +38,16 @@ pub use intent::{
     Tenant, kernel_tenant,
 };
 pub use inventory::{Availability, Ceiling, DpmacLinkType, DpmacOffer, EthInterface, Inventory};
+pub use matcher::{
+    Ambiguity, BoardObject, ConfigFacet, Handle, MatchObject, MatchPair, MatchPlan, MatchVerdict,
+    apply as apply_match, converge as converge_match, converge_class as converge_match_class,
+    match_board, pair_class,
+};
 pub use model::{
     DesiredPort, DesiredTopology, DpmacId, DpniId, FacetMismatch, Lifecycle, LinkType, MacAddr,
     MacMode, MacParseError, ObjectKind, ObservedDpmac, ObservedDpni, ObservedTopology, Presence,
 };
-pub use plan::{AssertMismatch, DriftReport, Plan, Transition};
+pub use plan::{AssertMismatch, Class, DriftReport, Plan, Transition};
 pub use port::{ConfigSource, KernelControl, McControl};
 pub use reconcile::{ReconcileOptions, reconcile, reconcile_with};
 pub use refuse::{Compiled, REFUSAL_VARIANTS, Refusal, Warning, compile};

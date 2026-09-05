@@ -17,6 +17,7 @@ use thiserror::Error;
 
 use crate::compiled::CompiledPlan;
 use crate::intent::kernel_tenant;
+use crate::types::ConstructName;
 
 /// A 48-bit Ethernet MAC address.
 ///
@@ -418,6 +419,12 @@ impl DesiredTopology {
 pub struct ObservedDpni {
     /// The MC-assigned index of this DPNI.
     pub id: DpniId,
+    /// The set-label seam read back from the MC (ADR-0015 decisions 9-10, 13): the
+    /// construct name the object carries, or `None` when the label column is empty —
+    /// drift, never-written, or wiped by a firmware reset. This is the facet the
+    /// identity matcher's [`crate::matcher::BoardObject`] leans on for unanchored
+    /// constructs; anchored ports re-associate by their dpmac edge, never the label.
+    pub label: Option<ConstructName>,
     /// The DPMAC this DPNI is connected to, if any.
     pub connected_to: Option<DpmacId>,
     /// The DPNI's primary MAC, if readable.

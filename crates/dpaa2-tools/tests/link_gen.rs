@@ -57,6 +57,7 @@ fn mac_is_sourced_from_the_connected_dpni_when_the_dpmac_reports_none() {
     let observed = ObservedTopology {
         dpnis: vec![ObservedDpni {
             id: DpniId::new(1),
+            label: None,
             connected_to: Some(DpmacId::new(3)),
             mac: Some(MAC_7),
             netdev: Some("eth1".to_owned()),

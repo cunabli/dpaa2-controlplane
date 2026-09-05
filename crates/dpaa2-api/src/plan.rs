@@ -6,10 +6,46 @@
 //! assigns it at create time (design D1). Transitions that *tear down* an existing
 //! object reference the observed [`DpniId`].
 
+use core::fmt;
 use std::collections::BTreeMap;
 
 use crate::family::Family;
 use crate::model::{DpmacId, DpniId, MacAddr};
+use crate::types::ConstructName;
+
+/// The disruption class of a plan or one of its transitions (ADR-0015 decision 12).
+///
+/// The three classes are ordered low to high, so the derived [`Ord`] lets a plan's
+/// headline be the maximum over its parts ([`Plan::headline`], the matcher's
+/// [`crate::MatchPlan::headline`]). Dry-run reports the headline; converge gates on an explicit
+/// allow of that class, and [`Class::Disruptive`] is never implied — the default allow
+/// is [`Class::Hitless`] only. Both the port-edge reconciler ([`Transition::class`])
+/// and the identity matcher share this one classing so a mixed plan has a single
+/// comparable headline.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Default)]
+pub enum Class {
+    /// No traffic effect: a `set-label` relabel, an attribute assert, or a
+    /// wait-to-observe nudge (ADR-0015 decision 12). The default and the floor.
+    #[default]
+    Hitless,
+    /// No traffic-path change, but an externally-held name changes — the netdev name
+    /// systemd-networkd matches, or a VPP allowlist token held as text (ADR-0015
+    /// decision 12, the decision-6 boundary wearing a new face).
+    Boundary,
+    /// A destroy/create, a link flap, a disconnect, or a rewired path (ADR-0015
+    /// decision 12).
+    Disruptive,
+}
+
+impl fmt::Display for Class {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::Hitless => "hitless",
+            Self::Boundary => "boundary",
+            Self::Disruptive => "disruptive",
+        })
+    }
+}
 
 /// A single MC- or kernel-granularity action in a plan.
 ///
@@ -54,6 +90,60 @@ pub enum Transition {
         /// The observed DPNI to destroy.
         dpni: DpniId,
     },
+    /// Relabel an observed DPNI to its intended construct name — the actuation the
+    /// matcher's re-association lowers to (ADR-0015 decisions 9-10; the plan seam of
+    /// the parcel review). A relabel is `set-label`, decision 9's repair verb, never a
+    /// destroy/create; whether it is a hitless drift-repair or a boundary rename is
+    /// the matcher's [`crate::matcher::MatchPlan::headline`] to judge from the prior
+    /// label. This carries only the variant; its *emission* from a reconcile pass is
+    /// task 6.6 (the set-label write convention), so `reconcile` does not yet produce it.
+    SetLabel {
+        /// The observed DPNI to relabel.
+        dpni: DpniId,
+        /// The construct name to write as the label (ADR-0015 decision 13: the name
+        /// IS the label, byte-for-byte).
+        label: ConstructName,
+    },
+}
+
+impl Transition {
+    /// The disruption class of this transition (ADR-0015 decision 12). Each port-edge
+    /// action is classed by its honest traffic effect:
+    // Each variant keeps its own arm and rationale even where two share a class
+    // (decision 12 asks the classing be stated per variant), so the identical bodies
+    // are deliberate.
+    #[allow(clippy::match_same_arms)]
+    #[must_use]
+    pub fn class(&self) -> Class {
+        match self {
+            // Minting the DPNI object — a create is disruptive by definition.
+            Self::Create { .. } => Class::Disruptive,
+            // Brings the dpni↔dpmac traffic path up: a new path, disruptive.
+            Self::Connect { .. } => Class::Disruptive,
+            // A class is intrinsic — a transition's effect on traffic already flowing
+            // (ADR-0015 decision 12). Binding a DPNI to `dpaa2-eth` makes a netdev
+            // appear where nothing yet carried traffic, so it perturbs no existing
+            // flow: hitless, a wait-to-observe nudge. Containment never softens this —
+            // a bind inside a destructive plan is already refused by the join
+            // ([`Plan::headline`]). A future re-bind-after-unbind is a distinct
+            // variant with its own intrinsic class, not a context-sensitive `class()`.
+            Self::Bind { .. } => Class::Hitless,
+            // An attribute actuate/assert on the DPNI primary MAC — no traffic
+            // effect, so hitless (decision 12).
+            Self::SetMac { .. } => Class::Hitless,
+            // Teardown verbs: a disconnect flaps the link, an unbind drops the
+            // netdev, a destroy removes the object — all disruptive.
+            Self::Disconnect { .. } | Self::Unbind { .. } | Self::Destroy { .. } => {
+                Class::Disruptive
+            }
+            // A relabel is never disruptive (ADR-0015 decision 12). A bare transition
+            // cannot tell a hitless drift-repair from a boundary rename — that needs
+            // the prior label the matcher holds — so it takes the conservative
+            // boundary reading for gating; the matcher's headline judges the exact
+            // class per pair when task 6.6 wires emission.
+            Self::SetLabel { .. } => Class::Boundary,
+        }
+    }
 }
 
 /// A refusal: an immutable, create-time-only attribute differs from desired.
@@ -118,6 +208,19 @@ impl Plan {
     pub fn has_divergence(&self) -> bool {
         !self.drift.is_empty() || !self.assertions.is_empty()
     }
+
+    /// The plan's headline disruption class (ADR-0015 decision 12): the maximum class
+    /// over its transitions, or [`Class::Hitless`] for a converged (empty) plan. Only
+    /// actuating transitions carry a class — drift, assertions and plan-only are
+    /// non-actuating reports, so they never raise the headline.
+    #[must_use]
+    pub fn headline(&self) -> Class {
+        self.transitions
+            .iter()
+            .map(Transition::class)
+            .max()
+            .unwrap_or(Class::Hitless)
+    }
 }
 
 #[cfg(test)]
@@ -133,5 +236,34 @@ mod tests {
         plan.plan_only.insert(Family::Dpbp, 1);
         assert!(plan.is_converged());
         assert!(!plan.has_divergence());
+    }
+
+    #[test]
+    fn headline_is_the_max_transition_class() {
+        // A converged plan is hitless; a plan with a create and a set-mac headlines
+        // disruptive (the create wins the max), per ADR-0015 decision 12.
+        assert_eq!(Plan::new().headline(), Class::Hitless);
+        let plan = Plan {
+            transitions: vec![
+                Transition::SetMac {
+                    port: DpmacId::new(7),
+                    mac: MacAddr::ZERO,
+                },
+                Transition::Create {
+                    port: DpmacId::new(7),
+                },
+            ],
+            ..Plan::new()
+        };
+        assert_eq!(plan.headline(), Class::Disruptive);
+        // A bind is intrinsically hitless: it makes a netdev appear where nothing
+        // carried traffic, so it perturbs no existing flow (ADR-0015 decision 12).
+        assert_eq!(
+            Transition::Bind {
+                port: DpmacId::new(7)
+            }
+            .class(),
+            Class::Hitless
+        );
     }
 }

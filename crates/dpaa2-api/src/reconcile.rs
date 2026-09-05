@@ -186,6 +186,7 @@ mod tests {
     ) -> ObservedDpni {
         ObservedDpni {
             id: DpniId::new(id),
+            label: None,
             connected_to: connected.map(DpmacId::new),
             mac,
             netdev: netdev.map(str::to_owned),
