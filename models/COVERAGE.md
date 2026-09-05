@@ -236,3 +236,35 @@ CryptoFlowsOverDevice fires (task 2.6e).
   reachable but unhit in 3000 samples (a clean accepted cross-class mix is a
   narrow draw — the sole Free 25G dpmac is 4); its shape precursor is counted
   (`wMixedRates` 444) and the warning is covered by `mixedRateClassWarnsTest`.
+
+## Raw surface laws (task 3.3e)
+
+The `intent-layer` change's config-surface laws (`models/intent/intent_raw.qnt`,
+bead gqf.48). Before this module the model's state space began after the lossy
+parse, so the gqf.39/gqf.40 bug class — a duplicated block, a dangling
+reference, the reserved `kernel` declared — was unrepresentable and unstatable.
+`RawIntent` mirrors the post-3.3b/3.3c TOML surface and `parse` mirrors
+`crates/dpaa2-config/src/parse.rs`; these three named laws are checked over the
+dirty raw alphabet (`models/intent/raw_alphabet.qnt`, `rawInvariants`), which
+deliberately generates the near-misses today's guards hide. Not linted by R12
+(these are surface laws, not the `INTENT_I*` plan invariants). The Rust
+MBT-conformance rung serializes each frozen raw state to a TOML document on the
+real `dpaa2-config` surface, feeds it through `parse_str`, and asserts the Rust
+verdict (and, on the accepted arm, the resulting `Intent`) agrees with the
+model's frozen `parse` — so a clause the model has and `parse.rs` forgot, or the
+reverse, fails the harness (`models/intent/raw_replay.qnt` freezes the corpus,
+`pnpm model:freeze-raw`; `crates/dpaa2-verify/tests/raw_conformance.rs` replays it).
+
+| Law | Name | CI rung | Anchors / ties |
+|-----|------|---------|----------------|
+| Surface-refusal | parseOkWellFormed | simulate | ADR-0013 §2 (the constructs), §5 (the refusal vocabulary); parse.rs convert |
+| No-surprise | acceptedSurvives | simulate | ADR-0013 §2 (extras additive, unordered — no collapse); design D5 |
+| Near-miss-by-name | nearMissRefusedByName | simulate | ADR-0013 §5; parse.rs (reserved kernel, duplicate name, self-loop link, unresolved member, unknown family, dangling tenant) |
+| MBT-conformance | raw_conformance | itf-replay | ADR-0013 §2/§5; parse.rs (verdict + accepted-`Intent` agreement, per-variant error matcher; the DEVIATION reconciled by any-match over the model set) |
+
+Every near-miss the dirty alphabet reaches (seed 20260905, 10 steps, 2000
+samples): `wReservedKernel` 1636, `wDuplicateName` 1061, `wLinkSelfLoop` 488,
+`wRawMemberUnresolved` 1224, `wUnknownExtraFamily` 850, `wTenantAbsent` 1973,
+`wPoolWithoutRestricted` 811, `wRestrictedWithoutPool` 439, `wNonPositiveExtra`
+1149, `wNonPositiveRate` 1370; `wRawAccepted`/`wRawRefused` both 2000. No law
+was violated.

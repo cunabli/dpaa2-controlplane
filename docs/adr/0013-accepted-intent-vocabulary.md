@@ -165,6 +165,15 @@ resolving the 3.3a design question).
 dpmcp = 2                       # e.g. provision a secondary-process portal
 ```
 
+This surface — the constructs above and the parse-time refusals `parse.rs`
+makes over them (a reserved `kernel` declared, a duplicate positional name, a
+self-loop link, an unresolved member, an unknown extra family, a dangling tenant
+reference) — is modelled in `models/intent/intent_raw.qnt` alongside its `parse`,
+and held in lockstep with `crates/dpaa2-config/src/parse.rs` by the MBT-conformance
+rung (`crates/dpaa2-verify/tests/raw_conformance.rs`, over the traces
+`models/intent/raw_replay.qnt` freezes), so a clause one side gains without the
+other fails CI (task 3.3e).
+
 ### 3. The two inputs: intent and the observed inventory
 
 `compile` takes the intent above and the **inventory** — what the hardware

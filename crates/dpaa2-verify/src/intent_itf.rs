@@ -132,7 +132,7 @@ fn project(r: &Result<Compiled, BTreeSet<Refusal>>) -> Outcome {
 
 // ---- generic ITF shape helpers (atop itf.rs's num/int64/tag) ----
 
-fn field<'a>(v: &'a Value, name: &str) -> Result<&'a Value, String> {
+pub(crate) fn field<'a>(v: &'a Value, name: &str) -> Result<&'a Value, String> {
     let f = &v[name];
     if f.is_null() {
         return Err(format!("missing field `{name}` in {v}"));
@@ -140,7 +140,7 @@ fn field<'a>(v: &'a Value, name: &str) -> Result<&'a Value, String> {
     Ok(f)
 }
 
-fn text(v: &Value) -> Result<String, String> {
+pub(crate) fn text(v: &Value) -> Result<String, String> {
     v.as_str()
         .ok_or_else(|| format!("not a string: {v}"))
         .map(str::to_owned)
@@ -148,12 +148,12 @@ fn text(v: &Value) -> Result<String, String> {
 
 /// A JSON string as a [`TenantName`] — the boundary conversion for a name slot the
 /// model spells as a bare `str` but the Rust intent types distinguish.
-fn tname(v: &Value) -> Result<TenantName, String> {
+pub(crate) fn tname(v: &Value) -> Result<TenantName, String> {
     Ok(text(v)?.into())
 }
 
 /// A JSON string as a [`ConstructName`] (a port/link/fabric or any construct name).
-fn cname(v: &Value) -> Result<ConstructName, String> {
+pub(crate) fn cname(v: &Value) -> Result<ConstructName, String> {
     Ok(text(v)?.into())
 }
 
@@ -162,20 +162,20 @@ fn flag(v: &Value) -> Result<bool, String> {
 }
 
 /// The elements of an ITF `#set`.
-fn set_items(v: &Value) -> Result<&Vec<Value>, String> {
+pub(crate) fn set_items(v: &Value) -> Result<&Vec<Value>, String> {
     v["#set"]
         .as_array()
         .ok_or_else(|| format!("not a #set: {v}"))
 }
 
 /// The `[key, value]` pairs of an ITF `#map`.
-fn map_items(v: &Value) -> Result<&Vec<Value>, String> {
+pub(crate) fn map_items(v: &Value) -> Result<&Vec<Value>, String> {
     v["#map"]
         .as_array()
         .ok_or_else(|| format!("not a #map: {v}"))
 }
 
-fn list_items(v: &Value) -> Result<&Vec<Value>, String> {
+pub(crate) fn list_items(v: &Value) -> Result<&Vec<Value>, String> {
     v.as_array().ok_or_else(|| format!("not a list: {v}"))
 }
 
@@ -285,7 +285,7 @@ fn extra(v: &Value) -> Result<Extra, String> {
     })
 }
 
-fn intent(v: &Value) -> Result<Intent, String> {
+pub(crate) fn intent(v: &Value) -> Result<Intent, String> {
     Ok(Intent {
         tenants: list_items(field(v, "tenants")?)?
             .iter()

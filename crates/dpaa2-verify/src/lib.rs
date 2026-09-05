@@ -20,6 +20,9 @@ pub mod itf;
 pub mod ledger;
 /// The MC command status table as code (task 6.4).
 pub mod mcstatus;
+/// Reader, TOML emitter, and verdict matcher for frozen raw-conformance ITF
+/// traces (task 3.3e).
+pub mod raw_itf;
 pub mod replay;
 pub mod safety;
 pub mod snapshot;

@@ -1,0 +1,460 @@
+// The config surface enters the model (openspec change `intent-layer`, task
+// 3.3e, bead gqf.48; ADR-0013 §2 the constructs, §5 the refusal vocabulary;
+// design D1/D5/D10). Until this module the model's state space began AFTER the
+// lossy parse: `Intent` is what `dpaa2-config` already validated, so a
+// duplicated block, a dangling reference, or the reserved `kernel` declared
+// were unrepresentable — the gqf.39/gqf.40 bug class was a question Quint could
+// not state. `RawIntent` mirrors the post-3.3b/3.3c TOML surface faithfully, and
+// `parse` mirrors `crates/dpaa2-config/src/parse.rs`'s convert/validation
+// semantics, so the surface pathologies are representable and the laws that
+// refuse them are checkable.
+//
+// What is keyed in TOML is a map here, where the format itself makes duplicates
+// unrepresentable (a second `[tenant.<name>]`/`[fabric.<name>]` table or a
+// repeated `family = count` under one `[extra.<tenant>]` is a TOML
+// key-redefinition parse error, ADR-0013 §2): `tenants`, `fabrics`, `extras`.
+// What stays positional or referential stays representable-dirty: `ports`,
+// `links`, `crypto` as `List` (a duplicate name IS representable and IS refused
+// by name), every cross-construct reference as a raw `str` (a dangling one is
+// representable), every count as an `int` (zero/negative representable), the
+// reserved `"kernel"` representable, and an extra family as a raw `str` (an
+// unknown family representable).
+//
+// DELIBERATELY NOT MODELLED (format/lexical rejections `parse.rs` makes over
+// fields the neutral `Intent` does not carry — the serde/format boundary, not
+// the surface-vs-model representability gap this parcel targets, and analogous
+// to TOML's own key-uniqueness and enum-value rejection): the `dpmac = "N"`
+// string lexing (`dpmac` is carried as `int`, as the model `Port` does), the
+// `mac`/`mac_mode`/`dpni`-pinning slots, the six rejected derived-count keys,
+// the `name` IFNAMSIZ/charset check, the `[intent]` schema version, and an
+// unknown `dataplane`/`isolation`/`switching` enum value (`Dataplane` /
+// `Isolation` / `Switching` are reused verbatim — a bad enum value is a format
+// error, exactly like a duplicate key). Each is reported in the parcel summary.
+//
+// DEVIATION (`parse.rs` short-circuits on the first `?`; `parse` here collects
+// every violation and refuses iff the set is non-empty, matching refuse.qnt's
+// "all violations at once" compiler idiom): the accept/reject decision is
+// identical to `parse.rs`; the refusal SET is a superset of `parse.rs`'s single
+// reported error, which the near-miss laws below rely on.
+//
+// Named invariants: parseOkWellFormed (surface-refusal law), acceptedSurvives
+//   (no-surprise law), nearMissRefusedByName (each near-miss refuses by name) —
+//   collected as intent/raw_alphabet.qnt `rawInvariants`, simulator-only.
+// Apalache-marked subset: none (the quantifier shape is measured in the parcel
+//   summary; the seal decision is upstream, per the compileLaws precedent).
+module intent_raw {
+  import types.* from "../core/types"            // Family, Option, and the 16 family constructors
+  import intent_types.* from "./types"           // Intent, Tenant, Port, Link, Fabric, Crypto, Extra, Member, Dataplane, Isolation, Switching, KERNEL
+  import intent_refuse.* from "./refuse"         // Refusal (TenantAbsent, PoolWithoutRestricted, RestrictedWithoutPool reused verbatim)
+
+  // ---- the raw TOML surface (ADR-0013 §2) ----
+
+  // A `[tenant.<name>]` value (the name lives in the map key). `dataplane` and
+  // `isolation` reuse the neutral enums: a bad enum value is a format error, not
+  // a surface pathology, so the surface cannot express one (like a duplicate
+  // key). `pool` is a raw `str` — "" means absent; a dangling holder is
+  // representable and left to compile (parse.rs does not resolve the pool).
+  type RawTenant = { dataplane: Dataplane, maxCores: int, isolation: Isolation, pool: str }
+
+  // A `[[port]]` table. `name` is positional, so a duplicate is representable;
+  // `tenant` is a raw `str` ("" means the reserved kernel terminates it,
+  // parse.rs convert_port), a dangling owner representable; `dpmac`/`rate` are
+  // ints (the "dpmac.N" lexing is the format boundary, not modelled here).
+  type RawPort = { name: str, dpmac: int, rate: int, tenant: str }
+
+  // A `[[link]]` table: a dpni↔dpni pseudo-wire between two tenant ends. Both
+  // ends are raw `str` (dangling representable); interfaceA == interfaceB is a
+  // self-loop parse.rs refuses (compile has no such refusal — a new raw variant).
+  type RawLink = { name: str, interfaceA: str, interfaceB: str }
+
+  // A `[fabric.<name>]` value (the name lives in the map key). `forwardedBy` is a
+  // raw `str`; `members` are raw `str`s parse classifies into a `Member` or
+  // refuses unresolved (parse.rs classify_member) — a duplicate/dangling member
+  // is representable.
+  type RawFabric = { switching: Switching, forwardedBy: str, members: List[str] }
+
+  // A `[[crypto]]` table: one accelerator for one tenant, `flows` a raw int.
+  type RawCrypto = { tenant: str, flows: int }
+
+  // The whole document. Keyed constructs are maps (duplicates unrepresentable —
+  // the format refuses them); positional/referential constructs are lists and
+  // raw strings (duplicates/dangles representable). `extras` is a
+  // tenant → (family-name → count) map: a duplicate (tenant, family) is a TOML
+  // key redefinition (ADR-0013 §2), the family key a raw `str` an unknown value
+  // is representable in.
+  type RawIntent = {
+    tenants: str -> RawTenant,
+    ports: List[RawPort],
+    links: List[RawLink],
+    fabrics: str -> RawFabric,
+    crypto: List[RawCrypto],
+    extras: str -> (str -> int),
+  }
+
+  pure val emptyRaw: RawIntent =
+    { tenants: Map(), ports: [], links: [], fabrics: Map(), crypto: [], extras: Map() }
+
+  // ---- the refusal vocabulary ----
+
+  // A parse refusal. `FromCompile` reuses refuse.qnt's `Refusal` verbatim where
+  // parse.rs refuses something the compile-stage vocabulary already names
+  // (TenantAbsent for a dangling tenant reference, PoolWithoutRestricted /
+  // RestrictedWithoutPool for the isolation/pool contradictions). The remaining
+  // variants are raw-surface refusals parse.rs makes that the compile vocabulary
+  // lacks: the reserved kernel declared, a duplicate construct name TOML keys
+  // cannot dedupe, a self-loop link, a fabric member string that classifies to
+  // nothing (compile's MemberUnresolved carries an already-classified `Member`,
+  // so it cannot name an unclassifiable string), and an unknown extra family.
+  type RawRefusal =
+    | FromCompile(Refusal)                                // TenantAbsent / PoolWithoutRestricted / RestrictedWithoutPool
+    | ReservedKernel({ name: str })                       // [tenant.kernel] declares the reserved name (parse.rs convert)
+    | DuplicateName({ name: str })                        // a port/link/fabric name TOML keys cannot dedupe (parse.rs convert)
+    | LinkSelfLoop({ link: str, tenant: str })            // a link naming one tenant at both ends (parse.rs convert_link)
+    | RawMemberUnresolved({ fabric: str, member: str })   // a fabric member string resolving to no port/tenant/fabric (parse.rs classify_member)
+    | UnknownExtraFamily({ tenant: str, family: str })    // an [extra.<tenant>] family not one of the 16 (parse.rs parse_family)
+
+  // Ok(Intent) or Refused(refusals). Named apart from Compiled's Ok/Refused
+  // (refuse.qnt), whose constructors are already in scope through the flat import.
+  type Parsed = ParseOk(Intent) | ParseRefused(Set[RawRefusal])
+
+  // ---- family-name mapping (parse.rs parse_family over ALL_FAMILIES) ----
+
+  pure val FAMILY_NAMES: List[(str, Family)] = [
+    ("dprc", Dprc), ("dpni", Dpni), ("dpmac", Dpmac), ("dpbp", Dpbp),
+    ("dpio", Dpio), ("dpcon", Dpcon), ("dpmcp", Dpmcp), ("dpseci", Dpseci),
+    ("dpsw", Dpsw), ("dpdmux", Dpdmux), ("dpaiop", Dpaiop), ("dpci", Dpci),
+    ("dpdcei", Dpdcei), ("dpdmai", Dpdmai), ("dprtc", Dprtc), ("dpdbg", Dpdbg)]
+
+  pure def familyOfName(s: str): Option[Family] =
+    FAMILY_NAMES.foldl(None, (acc, pair) => if (pair._1 == s) Some(pair._2) else acc)
+
+  // ---- shared lookups over the raw surface ----
+
+  pure def declaredTenants(raw: RawIntent): Set[str] = raw.tenants.keys()
+
+  // A tenant reference resolves: a declared tenant, or the reserved kernel
+  // (parse.rs `resolves`; the kernel is never declared yet always nameable).
+  pure def rawResolves(raw: RawIntent, n: str): bool =
+    n == KERNEL or raw.tenants.keys().contains(n)
+
+  pure def portNamesSet(raw: RawIntent): Set[str] =
+    raw.ports.foldl(Set(), (acc, p) => acc.union(Set(p.name)))
+
+  // A port's effective owner: "" defaults to the reserved kernel (parse.rs).
+  pure def effTenant(t: str): str = if (t == "") KERNEL else t
+
+  // The port/link/fabric name namespace parse.rs checks for collisions; tenant
+  // names live in their own namespace and are not included (parse.rs convert).
+  pure def constructNamesL(raw: RawIntent): List[str] =
+    raw.ports.foldl([], (a, p) => a.append(p.name))
+      .concat(raw.links.foldl([], (a, l) => a.append(l.name)))
+      .concat(raw.fabrics.keys().fold([], (a, n) => a.append(n)))
+
+  // Whether a fabric member string classifies to a declared port, tenant, or
+  // fabric (parse.rs classify_member; port first, then tenant, then fabric).
+  pure def memberResolvesRaw(raw: RawIntent, m: str): bool =
+    portNamesSet(raw).contains(m) or rawResolves(raw, m) or raw.fabrics.keys().contains(m)
+
+  pure def classifyMember(raw: RawIntent, m: str): Member =
+    if (portNamesSet(raw).contains(m)) MPort(m)
+    else if (rawResolves(raw, m)) MTenant(m)
+    else MFabric(m)
+
+  // ---- the refusals, one clause per parse.rs check ----
+
+  // parse.rs convert: `[tenant.kernel]` declares the reserved name.
+  pure def reservedKernelRefusals(raw: RawIntent): Set[RawRefusal] =
+    if (raw.tenants.keys().contains(KERNEL)) Set(ReservedKernel({ name: KERNEL })) else Set()
+
+  // parse.rs convert: a duplicate interface/construct name (TOML keys cannot
+  // dedupe positional port/link names, nor a fabric named like a port or link).
+  pure def duplicateNameRefusals(raw: RawIntent): Set[RawRefusal] =
+    val ns = constructNamesL(raw)
+    ns.foldl(Set(), (acc, n) =>
+      if (ns.select(x => x == n).length() >= 2) acc.union(Set(DuplicateName({ name: n }))) else acc)
+
+  // parse.rs convert_tenant: an isolation/pool contradiction (holder resolution
+  // is compile's, not parse's — so it is not checked here).
+  pure def poolContradictionRefusals(raw: RawIntent): Set[RawRefusal] =
+    raw.tenants.keys().fold(Set(), (acc, n) =>
+      val t = raw.tenants.get(n)
+      if (t.isolation == Restricted and t.pool == "")
+        acc.union(Set(FromCompile(RestrictedWithoutPool({ tenant: n }))))
+      else if (t.isolation != Restricted and t.pool != "")
+        acc.union(Set(FromCompile(PoolWithoutRestricted({ tenant: n, pool: t.pool }))))
+      else acc)
+
+  // parse.rs convert_port/convert_link/convert_fabric/convert_crypto/convert_extra:
+  // a construct naming an undeclared tenant refuses TenantAbsent (reused from
+  // compile); a link naming one tenant at both ends refuses LinkSelfLoop.
+  pure def tenantRefRefusals(raw: RawIntent): Set[RawRefusal] =
+    val fromPorts = raw.ports.foldl(Set(), (acc, p) =>
+      if (rawResolves(raw, effTenant(p.tenant))) acc
+      else acc.union(Set(FromCompile(TenantAbsent({ construct: p.name, tenant: effTenant(p.tenant) })))))
+    val fromLinks = raw.links.foldl(fromPorts, (acc, l) =>
+      val a1 = if (rawResolves(raw, l.interfaceA)) acc
+               else acc.union(Set(FromCompile(TenantAbsent({ construct: l.name, tenant: l.interfaceA }))))
+      val a2 = if (rawResolves(raw, l.interfaceB)) a1
+               else a1.union(Set(FromCompile(TenantAbsent({ construct: l.name, tenant: l.interfaceB }))))
+      if (l.interfaceA == l.interfaceB) a2.union(Set(LinkSelfLoop({ link: l.name, tenant: l.interfaceA }))) else a2)
+    val fromFabrics = raw.fabrics.keys().fold(fromLinks, (acc, n) =>
+      if (rawResolves(raw, raw.fabrics.get(n).forwardedBy)) acc
+      else acc.union(Set(FromCompile(TenantAbsent({ construct: n, tenant: raw.fabrics.get(n).forwardedBy })))))
+    val fromCrypto = raw.crypto.foldl(fromFabrics, (acc, k) =>
+      if (rawResolves(raw, k.tenant)) acc
+      else acc.union(Set(FromCompile(TenantAbsent({ construct: "crypto", tenant: k.tenant })))))
+    raw.extras.keys().fold(fromCrypto, (acc, t) =>
+      if (rawResolves(raw, t)) acc
+      else acc.union(Set(FromCompile(TenantAbsent({ construct: "extra", tenant: t })))))
+
+  // parse.rs classify_member: a fabric member that classifies to nothing.
+  pure def memberRefusals(raw: RawIntent): Set[RawRefusal] =
+    raw.fabrics.keys().fold(Set(), (acc, n) =>
+      raw.fabrics.get(n).members.foldl(acc, (a2, m) =>
+        if (memberResolvesRaw(raw, m)) a2
+        else a2.union(Set(RawMemberUnresolved({ fabric: n, member: m })))))
+
+  // parse.rs parse_family: an [extra.<tenant>] family name not one of the 16.
+  pure def extraFamilyRefusals(raw: RawIntent): Set[RawRefusal] =
+    raw.extras.keys().fold(Set(), (acc, t) =>
+      raw.extras.get(t).keys().fold(acc, (a2, fam) =>
+        match familyOfName(fam) {
+          | Some(_) => a2
+          | None => a2.union(Set(UnknownExtraFamily({ tenant: t, family: fam })))
+        }))
+
+  // Every clause runs; the refusal set is their union (the compiler idiom).
+  pure def parseRefusals(raw: RawIntent): Set[RawRefusal] =
+    reservedKernelRefusals(raw)
+      .union(duplicateNameRefusals(raw))
+      .union(poolContradictionRefusals(raw))
+      .union(tenantRefRefusals(raw))
+      .union(memberRefusals(raw))
+      .union(extraFamilyRefusals(raw))
+
+  // ---- conversion into the neutral Intent (parse.rs convert) ----
+
+  pure def toIntent(raw: RawIntent): Intent =
+    { tenants: raw.tenants.keys().fold([], (acc, n) =>
+        val t = raw.tenants.get(n)
+        acc.append({ name: n, dataplane: t.dataplane, maxCores: t.maxCores, isolation: t.isolation, pool: t.pool })),
+      ports: raw.ports.foldl([], (acc, p) =>
+        acc.append({ name: p.name, dpmac: p.dpmac, rate: p.rate, tenant: effTenant(p.tenant) })),
+      links: raw.links.foldl([], (acc, l) =>
+        acc.append({ name: l.name, interfaceA: l.interfaceA, interfaceB: l.interfaceB })),
+      fabrics: raw.fabrics.keys().fold([], (acc, n) =>
+        val f = raw.fabrics.get(n)
+        acc.append({ name: n, switching: f.switching, forwardedBy: f.forwardedBy,
+          members: f.members.foldl([], (a2, m) => a2.append(classifyMember(raw, m))) })),
+      crypto: raw.crypto.foldl([], (acc, k) => acc.append({ tenant: k.tenant, flows: k.flows })),
+      extras: raw.extras.keys().fold(Set(), (acc, t) =>
+        raw.extras.get(t).keys().fold(acc, (a2, fam) =>
+          match familyOfName(fam) {
+            | Some(f) => a2.union(Set({ tenant: t, family: f, count: raw.extras.get(t).get(fam) }))
+            | None => a2
+          })),
+    }
+
+  // The total parse: Ok(Intent) with an empty refusal set, else Refused(set).
+  pure def parse(raw: RawIntent): Parsed =
+    val rs = parseRefusals(raw)
+    if (rs == Set()) ParseOk(toIntent(raw)) else ParseRefused(rs)
+
+  // ---- refusal predicates (for the near-miss laws and witnesses) ----
+
+  pure def isReservedKernel(r: RawRefusal): bool = match r { | ReservedKernel(_) => true | _ => false }
+  pure def isDuplicateName(r: RawRefusal): bool = match r { | DuplicateName(_) => true | _ => false }
+  pure def isLinkSelfLoop(r: RawRefusal): bool = match r { | LinkSelfLoop(_) => true | _ => false }
+  pure def isRawMemberUnresolved(r: RawRefusal): bool = match r { | RawMemberUnresolved(_) => true | _ => false }
+  pure def isUnknownExtraFamily(r: RawRefusal): bool = match r { | UnknownExtraFamily(_) => true | _ => false }
+  pure def isTenantAbsent(r: RawRefusal): bool =
+    match r { | FromCompile(x) => match x { | TenantAbsent(_) => true | _ => false } | _ => false }
+  pure def isPoolWithoutRestricted(r: RawRefusal): bool =
+    match r { | FromCompile(x) => match x { | PoolWithoutRestricted(_) => true | _ => false } | _ => false }
+  pure def isRestrictedWithoutPool(r: RawRefusal): bool =
+    match r { | FromCompile(x) => match x { | RestrictedWithoutPool(_) => true | _ => false } | _ => false }
+
+  // ---- shape predicates (the near-miss is present in the raw surface) ----
+  // Each is derived from parse's resolution independently of parseRefusals, so
+  // an omission in a refusal clause fails nearMissRefusedByName rather than
+  // hiding — the gqf.39 hole was exactly a shape the generator could not state.
+
+  pure def hasReservedKernelDecl(raw: RawIntent): bool = raw.tenants.keys().contains(KERNEL)
+
+  pure def hasDuplicateConstruct(raw: RawIntent): bool =
+    val ns = constructNamesL(raw)
+    ns.foldl(Set(), (a, x) => a.union(Set(x))).size() != ns.length()
+
+  pure def hasSelfLoop(raw: RawIntent): bool =
+    raw.links.foldl(false, (a, l) => a or l.interfaceA == l.interfaceB)
+
+  pure def hasUnknownExtraFamily(raw: RawIntent): bool =
+    raw.extras.keys().exists(t => raw.extras.get(t).keys().exists(fam => familyOfName(fam) == None))
+
+  pure def hasUnresolvedMember(raw: RawIntent): bool =
+    raw.fabrics.keys().exists(n =>
+      raw.fabrics.get(n).members.foldl(false, (a, m) => a or not(memberResolvesRaw(raw, m))))
+
+  pure def hasDanglingTenantRef(raw: RawIntent): bool = or {
+    raw.ports.foldl(false, (a, p) => a or not(rawResolves(raw, effTenant(p.tenant)))),
+    raw.links.foldl(false, (a, l) => a or not(rawResolves(raw, l.interfaceA)) or not(rawResolves(raw, l.interfaceB))),
+    raw.fabrics.keys().exists(n => not(rawResolves(raw, raw.fabrics.get(n).forwardedBy))),
+    raw.crypto.foldl(false, (a, k) => a or not(rawResolves(raw, k.tenant))),
+    raw.extras.keys().exists(t => not(rawResolves(raw, t))),
+  }
+
+  // ---- the named laws ----
+
+  // Well-formed: the neutral Intent carries none of the surface pathologies parse
+  // guards — no reserved kernel among the declared tenants, unique construct
+  // names, every tenant reference resolved, no self-loop link, the isolation/pool
+  // contradiction absent, and every fabric member classified to a real construct.
+  pure def intentTenantNames(i: Intent): Set[str] = i.tenants.foldl(Set(), (a, t) => a.union(Set(t.name)))
+  pure def intentPortNames(i: Intent): Set[str] = i.ports.foldl(Set(), (a, p) => a.union(Set(p.name)))
+  pure def intentFabricNames(i: Intent): Set[str] = i.fabrics.foldl(Set(), (a, f) => a.union(Set(f.name)))
+  pure def refResolves(i: Intent, n: str): bool = n == KERNEL or intentTenantNames(i).contains(n)
+  pure def intentConstructNamesL(i: Intent): List[str] =
+    i.ports.foldl([], (a, p) => a.append(p.name))
+      .concat(i.links.foldl([], (a, l) => a.append(l.name)))
+      .concat(i.fabrics.foldl([], (a, f) => a.append(f.name)))
+  pure def memberResolvesI(i: Intent, m: Member): bool =
+    match m {
+      | MPort(p) => intentPortNames(i).contains(p)
+      | MTenant(c) => refResolves(i, c)
+      | MFabric(h) => intentFabricNames(i).contains(h)
+    }
+
+  pure def wellFormed(i: Intent): bool =
+    val cn = intentConstructNamesL(i)
+    and {
+      not(intentTenantNames(i).contains(KERNEL)),
+      cn.foldl(Set(), (a, x) => a.union(Set(x))).size() == cn.length(),
+      i.ports.foldl(true, (a, p) => a and refResolves(i, p.tenant)),
+      i.links.foldl(true, (a, l) => a and refResolves(i, l.interfaceA) and refResolves(i, l.interfaceB) and l.interfaceA != l.interfaceB),
+      i.fabrics.foldl(true, (a, f) => a and refResolves(i, f.forwardedBy) and f.members.foldl(true, (b, m) => b and memberResolvesI(i, m))),
+      i.crypto.foldl(true, (a, k) => a and refResolves(i, k.tenant)),
+      i.extras.forall(e => refResolves(i, e.tenant)),
+      i.tenants.foldl(true, (a, t) => a and ((t.isolation == Restricted) iff (t.pool != ""))),
+    }
+
+  // Surface-refusal law: everything the surface can express that `Intent` cannot
+  // represent is refused — a parse that accepts yields a well-formed Intent.
+  pure def parseOkWellFormed(raw: RawIntent): bool =
+    match parse(raw) { | ParseOk(i) => wellFormed(i) | ParseRefused(_) => true }
+
+  // No-surprise law: an accepted declaration survives verbatim. Stated against
+  // the RAW declarations (not toIntent, which would be tautological): every
+  // declared extra pair is present with its own declared count — never a sum,
+  // never a collapse — and the counts of tenants/ports/crypto match, so nothing
+  // is dropped, merged, or invented (the gqf.40 collapse made checkable).
+  pure def extraPairCount(raw: RawIntent): int =
+    raw.extras.keys().fold(0, (acc, t) => acc + raw.extras.get(t).keys().size())
+  pure def acceptedSurvives(raw: RawIntent): bool =
+    match parse(raw) {
+      | ParseRefused(_) => true
+      | ParseOk(i) => and {
+          i.extras.size() == extraPairCount(raw),
+          raw.extras.keys().forall(t => raw.extras.get(t).keys().forall(fam =>
+            match familyOfName(fam) {
+              | Some(f) => i.extras.contains({ tenant: t, family: f, count: raw.extras.get(t).get(fam) })
+              | None => true
+            })),
+          i.tenants.length() == raw.tenants.keys().size(),
+          i.ports.length() == raw.ports.length(),
+          i.crypto.length() == raw.crypto.length(),
+        }
+    }
+
+  // Each near-miss present in the raw surface is refused by its own name — the
+  // law the gqf.39 hole violated, made statable now the surface is representable.
+  pure def refusesWith(raw: RawIntent, pred: (RawRefusal) => bool): bool =
+    parseRefusals(raw).exists(pred)
+  pure def nearMissRefusedByName(raw: RawIntent): bool = and {
+    hasReservedKernelDecl(raw) implies refusesWith(raw, isReservedKernel),
+    hasDuplicateConstruct(raw) implies refusesWith(raw, isDuplicateName),
+    hasSelfLoop(raw) implies refusesWith(raw, isLinkSelfLoop),
+    hasUnresolvedMember(raw) implies refusesWith(raw, isRawMemberUnresolved),
+    hasUnknownExtraFamily(raw) implies refusesWith(raw, isUnknownExtraFamily),
+    hasDanglingTenantRef(raw) implies refusesWith(raw, isTenantAbsent),
+  }
+
+  // ---- directed runs (pnpm model:test) ----
+
+  pure val rtPoll: RawTenant = { dataplane: UserspacePoll, maxCores: 8, isolation: Isolated, pool: "" }
+
+  // The reserved kernel declared as a tenant is refused by name (parse.rs convert).
+  run rawReservedKernelTest =
+    val raw = emptyRaw.with("tenants", Map(KERNEL -> { dataplane: KernelNetlink, maxCores: 16, isolation: Isolated, pool: "" }))
+    refusesWith(raw, isReservedKernel)
+
+  // Two ports of one name — a duplicate TOML keys cannot dedupe (parse.rs convert).
+  run rawDuplicatePortTest =
+    val raw = emptyRaw.with("ports",
+      [{ name: "p1", dpmac: 7, rate: 10000, tenant: "" }, { name: "p1", dpmac: 8, rate: 10000, tenant: "" }])
+    refusesWith(raw, isDuplicateName)
+
+  // A port naming an undeclared tenant is refused TenantAbsent (reused from compile).
+  run rawDanglingTenantTest =
+    val raw = emptyRaw.with("ports", [{ name: "p1", dpmac: 7, rate: 10000, tenant: "ghost" }])
+    all { refusesWith(raw, isTenantAbsent), match parse(raw) { | ParseRefused(_) => true | ParseOk(_) => false } }
+
+  // A link naming one tenant at both ends — a self-loop parse.rs refuses (compile
+  // does not: the alphabet accepts a self-link).
+  run rawLinkSelfLoopTest =
+    val raw = emptyRaw.with("tenants", Map("c1" -> rtPoll)).with("links", [{ name: "l1", interfaceA: "c1", interfaceB: "c1" }])
+    refusesWith(raw, isLinkSelfLoop)
+
+  // An [extra.<tenant>] naming a family not one of the 16 (parse.rs parse_family).
+  run rawUnknownFamilyTest =
+    val raw = emptyRaw.with("tenants", Map("c1" -> rtPoll)).with("extras", Map("c1" -> Map("dpwidget" -> 1)))
+    refusesWith(raw, isUnknownExtraFamily)
+
+  // A fabric member classifying to nothing (parse.rs classify_member).
+  run rawMemberUnresolvedTest =
+    val raw = emptyRaw.with("fabrics", Map("f1" -> { switching: Hardware, forwardedBy: KERNEL, members: ["ghost"] }))
+    refusesWith(raw, isRawMemberUnresolved)
+
+  // The two isolation/pool contradictions (parse.rs convert_tenant).
+  run rawPoolContradictionTest =
+    val restrNoPool = emptyRaw.with("tenants", Map("c1" -> rtPoll.with("isolation", Restricted)))
+    val poolNonRestr = emptyRaw.with("tenants", Map("c1" -> rtPoll.with("pool", "c2")))
+    all { refusesWith(restrNoPool, isRestrictedWithoutPool), refusesWith(poolNonRestr, isPoolWithoutRestricted) }
+
+  // A clean document parses, and the accepted extra survives verbatim — count
+  // 2 stays 2, one pair stays one pair (the no-surprise law on a concrete raw).
+  run rawAcceptedVerbatimTest =
+    val raw = emptyRaw
+      .with("tenants", Map("router" -> rtPoll))
+      .with("ports", [{ name: "wan0", dpmac: 7, rate: 10000, tenant: "router" }])
+      .with("extras", Map("router" -> Map("dpio" -> 2)))
+    match parse(raw) {
+      | ParseOk(i) => all {
+          i.extras == Set({ tenant: "router", family: Dpio, count: 2 }),
+          i.ports.length() == 1,
+          i.tenants.length() == 1,
+          acceptedSurvives(raw),
+          wellFormed(i),
+        }
+      | ParseRefused(_) => false
+    }
+
+  // The surface-refusal and no-surprise laws hold on a clean raw and a dirty one.
+  run rawLawsHoldTest =
+    val clean = emptyRaw.with("tenants", Map("c1" -> rtPoll))
+    val dirty = emptyRaw.with("ports", [{ name: "p1", dpmac: 7, rate: -1, tenant: "ghost" }])
+    all {
+      parseOkWellFormed(clean), acceptedSurvives(clean), nearMissRefusedByName(clean),
+      parseOkWellFormed(dirty), acceptedSurvives(dirty), nearMissRefusedByName(dirty),
+    }
+
+  // A value use for every sum-type constructor in the module (QNT404; see
+  // intent/types.qnt ETH_IFS block and intent/refuse.qnt REFUSALS_USE).
+  pure val RAW_REFUSALS_USE: Set[RawRefusal] = Set(
+    FromCompile(TenantAbsent({ construct: "c", tenant: "t" })),
+    ReservedKernel({ name: KERNEL }),
+    DuplicateName({ name: "n" }),
+    LinkSelfLoop({ link: "l", tenant: "t" }),
+    RawMemberUnresolved({ fabric: "f", member: "m" }),
+    UnknownExtraFamily({ tenant: "t", family: "x" }))
+  pure val PARSED_USE: Set[Parsed] = Set(ParseOk(toIntent(emptyRaw)), ParseRefused(Set()))
+}

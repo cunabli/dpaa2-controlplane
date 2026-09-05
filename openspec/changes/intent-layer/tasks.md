@@ -232,7 +232,7 @@ the change's only other operator sync point (design D12).
       reorder-rewires hazard and the boundary N churn that breaks external
       `dpni.N` consumers; `[[crypto]]` stays an array by the 2.6e decision
       (discovered by the gqf.40 review, bead gqf.46)
-- [ ] 3.3e models/intent: the config surface enters the model — `intent_raw.qnt`
+- [x] 3.3e models/intent: the config surface enters the model — `intent_raw.qnt`
       mirrors the post-migration TOML surface (duplicates, dangling references,
       reserved names representable), `parse` as a pure function, and the law
       the gqf.39 hole violated as named invariants: everything the surface can
