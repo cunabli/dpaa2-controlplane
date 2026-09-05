@@ -18,19 +18,16 @@ schema = 1
 # The two network namespaces: kernel-netlink, each its own kernel-bound child
 # dprc. max_cores is small — under the online-CPU reading of open question 2 the
 # kernel-netlink budget never binds, so the derived 16-queue dpnis still fit.
-[[tenant]]
-name = "ns1"
+[tenant.ns1]
 dataplane = "kernel-netlink"
 max_cores = 2
 
-[[tenant]]
-name = "ns2"
+[tenant.ns2]
 dataplane = "kernel-netlink"
 max_cores = 2
 
 # The userspace tenant reached by the app wire: portless, so T = 1.
-[[tenant]]
-name = "vpp"
+[tenant.vpp]
 dataplane = "userspace-poll"
 max_cores = 8
 

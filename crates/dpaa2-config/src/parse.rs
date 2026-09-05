@@ -10,7 +10,7 @@
 //! Validation runs before conversion and each failure is a named, actionable
 //! [`Error::Config`]. The reserved `kernel` tenant (design D6a) resolves as a tenant
 //! reference — a port owner, a link end, a fabric forwarder — without being declared,
-//! and declaring it as a `[[tenant]]` is refused.
+//! and declaring it as a `[tenant.kernel]` table is refused.
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -124,33 +124,35 @@ pub fn parse_schema(text: &str) -> Result<(), Error> {
     require_schema(&raw)
 }
 
-/// Validates the raw document and converts it into the neutral [`Intent`], preserving
-/// declaration order (design D6); the extras fold into the plan's [`std::collections::BTreeSet`].
+/// Validates the raw document and converts it into the neutral [`Intent`]. Ports, links,
+/// and crypto keep declaration order (design D6); tenants and fabrics take name (key)
+/// order, order-free by the gqf.40 decision (dprc identity is plan-keyed by name); the
+/// extras fold into the plan's [`std::collections::BTreeSet`].
 ///
 /// Every semantic name crosses into a [`TenantName`] or [`ConstructName`] here, at the
 /// deserialization boundary, so no bare `String` name flows through the validation or
 /// the built [`Intent`] (types.rs: names cannot be confused among one another).
 fn convert(raw: &RawIntent) -> Result<Intent, Error> {
     // Collected declaration namespaces, needed before members and references resolve.
+    // The map keys are unique by construction (a duplicate name is a TOML key-redefinition
+    // parse error), so only the reserved `kernel` refusal remains.
     let mut tenant_names: HashSet<TenantName> = HashSet::new();
-    for t in &raw.tenant {
-        if t.name.is_kernel() {
+    for name in raw.tenant.keys() {
+        if name.is_kernel() {
             return Err(cfg(format!(
-                "`[[tenant]]` names `{KERNEL}`, which is reserved for the root dataplane and \
-                 never declared"
+                "`[tenant.kernel]` declares the reserved tenant name `{KERNEL}`, which is \
+                 reserved for the root dataplane and never declared"
             )));
         }
-        if !tenant_names.insert(t.name.clone()) {
-            return Err(cfg(format!("duplicate tenant name `{}`", t.name)));
-        }
+        tenant_names.insert(name.clone());
     }
     let port_names: HashSet<ConstructName> = raw.port.iter().map(|p| p.name.clone()).collect();
-    let fabric_names: HashSet<ConstructName> = raw.fabric.iter().map(|f| f.name.clone()).collect();
+    let fabric_names: HashSet<ConstructName> = raw.fabric.keys().cloned().collect();
 
     let tenants = raw
         .tenant
         .iter()
-        .map(convert_tenant)
+        .map(|(name, t)| convert_tenant(name, t))
         .collect::<Result<Vec<_>, _>>()?;
 
     // Interface names are unique, and every construct name (port, link, fabric) is
@@ -183,11 +185,14 @@ fn convert(raw: &RawIntent) -> Result<Intent, Error> {
     let fabrics = raw
         .fabric
         .iter()
-        .map(|f| {
-            if !constructs.insert(f.name.clone()) {
-                return Err(cfg(format!("duplicate construct name `{}`", f.name)));
+        .map(|(name, f)| {
+            // Fabric-vs-fabric duplicates are now format-enforced (the map keys are unique),
+            // but `constructs` spans ports, links, and fabrics, so this still catches the
+            // cross-type collision — a fabric named like a port or link — that TOML does not.
+            if !constructs.insert(name.clone()) {
+                return Err(cfg(format!("duplicate construct name `{name}`")));
             }
-            convert_fabric(f, &tenant_names, &port_names, &fabric_names)
+            convert_fabric(name, f, &tenant_names, &port_names, &fabric_names)
         })
         .collect::<Result<Vec<_>, _>>()?;
 
@@ -225,8 +230,8 @@ fn resolves(name: &TenantName, tenants: &HashSet<TenantName>) -> bool {
     name.is_kernel() || tenants.contains(name)
 }
 
-fn convert_tenant(t: &RawTenant) -> Result<Tenant, Error> {
-    let name = t.name.clone();
+fn convert_tenant(name: &TenantName, t: &RawTenant) -> Result<Tenant, Error> {
+    let name = name.clone();
     reject_counts(&format!("tenant `{name}`"), counts_of!(t))?;
 
     let isolation = match t.isolation {
@@ -341,12 +346,13 @@ fn convert_link(l: &RawLink, tenants: &HashSet<TenantName>) -> Result<Link, Erro
 }
 
 fn convert_fabric(
+    name: &ConstructName,
     f: &RawFabric,
     tenants: &HashSet<TenantName>,
     ports: &HashSet<ConstructName>,
     fabrics: &HashSet<ConstructName>,
 ) -> Result<Fabric, Error> {
-    let name = f.name.clone();
+    let name = name.clone();
     reject_counts(&format!("fabric `{name}`"), counts_of!(f))?;
     let forwarded_by = f.forwarded_by.clone();
     if !resolves(&forwarded_by, tenants) {
@@ -513,8 +519,7 @@ mod tests {
     fn scenario_port_defined_by_dpmac() {
         let intent = parse(
             r#"
-            [[tenant]]
-            name = "router"
+            [tenant.router]
             dataplane = "userspace-poll"
             max_cores = 16
 
@@ -549,8 +554,7 @@ mod tests {
     fn scenario_count_field_is_rejected() {
         let err = parse_err(
             r#"
-            [[tenant]]
-            name = "router"
+            [tenant.router]
             dataplane = "userspace-poll"
             max_cores = 16
             dpio = 10
@@ -564,8 +568,7 @@ mod tests {
 
         let workers = parse_err(
             r#"
-            [[tenant]]
-            name = "router"
+            [tenant.router]
             dataplane = "userspace-poll"
             max_cores = 16
             workers = 4
@@ -641,8 +644,7 @@ mod tests {
     fn toml_converts_to_neutral_intent_preserving_order() {
         let intent = parse(
             r#"
-            [[tenant]]
-            name = "router"
+            [tenant.router]
             dataplane = "userspace-poll"
             max_cores = 16
 
@@ -709,8 +711,7 @@ mod tests {
     fn link_names_two_tenants_and_the_kernel_end_needs_no_declaration() {
         let intent = parse(
             r#"
-            [[tenant]]
-            name = "ns1"
+            [tenant.ns1]
             dataplane = "kernel-netlink"
             max_cores = 2
 
@@ -728,8 +729,7 @@ mod tests {
     fn link_with_identical_ends_is_rejected() {
         let err = parse_err(
             r#"
-            [[tenant]]
-            name = "ns1"
+            [tenant.ns1]
             dataplane = "kernel-netlink"
             max_cores = 2
 
@@ -746,8 +746,7 @@ mod tests {
     fn fabric_members_resolve_as_ports_tenants_or_fabrics() {
         let intent = parse(
             r#"
-            [[tenant]]
-            name = "router"
+            [tenant.router]
             dataplane = "userspace-poll"
             max_cores = 16
 
@@ -756,8 +755,7 @@ mod tests {
             name = "lan0"
             rate = 10000
 
-            [[fabric]]
-            name = "lan"
+            [fabric.lan]
             switching = "hardware"
             forwarded_by = "kernel"
             members = ["lan0", "router"]
@@ -776,8 +774,7 @@ mod tests {
     fn unresolved_fabric_member_is_rejected() {
         let err = parse_err(
             r#"
-            [[fabric]]
-            name = "lan"
+            [fabric.lan]
             switching = "hardware"
             forwarded_by = "kernel"
             members = ["ghost"]
@@ -790,8 +787,7 @@ mod tests {
     fn restricted_tenant_needs_a_pool_and_a_pool_needs_restricted() {
         let no_pool = parse_err(
             r#"
-            [[tenant]]
-            name = "sec"
+            [tenant.sec]
             dataplane = "userspace-poll"
             max_cores = 16
             isolation = "restricted"
@@ -801,8 +797,7 @@ mod tests {
 
         let stray_pool = parse_err(
             r#"
-            [[tenant]]
-            name = "sec"
+            [tenant.sec]
             dataplane = "userspace-poll"
             max_cores = 16
             pool = "prim"
@@ -815,14 +810,12 @@ mod tests {
     fn restricted_tenant_with_pool_converts() {
         let intent = parse(
             r#"
-            [[tenant]]
-            name = "prim"
+            [tenant.prim]
             dataplane = "userspace-poll"
             max_cores = 16
             isolation = "public"
 
-            [[tenant]]
-            name = "sec"
+            [tenant.sec]
             dataplane = "userspace-poll"
             max_cores = 16
             isolation = "restricted"
@@ -887,8 +880,7 @@ mod tests {
     fn scenario_reserved_name_declared() {
         let err = parse_err(
             r#"
-            [[tenant]]
-            name = "kernel"
+            [tenant.kernel]
             dataplane = "kernel-netlink"
             max_cores = 16
             "#,
@@ -898,29 +890,53 @@ mod tests {
     }
 
     #[test]
-    fn duplicate_tenant_name_is_rejected() {
+    fn duplicate_tenant_name_is_a_parse_error() {
+        // Identity is structural: a second `[tenant.router]` table is a TOML key
+        // redefinition, so a duplicate tenant name is unrepresentable, not validated —
+        // this is the law that replaces the old hand-written check.
         let err = parse_err(
             r#"
-            [[tenant]]
-            name = "router"
+            [tenant.router]
             dataplane = "userspace-poll"
             max_cores = 16
 
-            [[tenant]]
-            name = "router"
+            [tenant.router]
             dataplane = "kernel-netlink"
             max_cores = 16
             "#,
         );
-        assert!(err.contains("duplicate tenant name"), "{err}");
+        assert!(
+            err.contains("duplicate key"),
+            "the format refuses the redefinition: {err}"
+        );
+    }
+
+    #[test]
+    fn fabric_named_like_a_port_is_rejected() {
+        // Fabric-vs-fabric duplicates are format-enforced now, but a fabric named like a
+        // port is a cross-type collision TOML does not prevent — the `constructs`
+        // namespace still refuses it.
+        let err = parse_err(
+            r#"
+            [[port]]
+            dpmac = "dpmac.7"
+            name = "lan0"
+            rate = 10000
+
+            [fabric.lan0]
+            switching = "hardware"
+            forwarded_by = "kernel"
+            members = ["lan0"]
+            "#,
+        );
+        assert!(err.contains("duplicate construct name"), "{err}");
     }
 
     #[test]
     fn unknown_extra_family_is_rejected() {
         let err = parse_err(
             r#"
-            [[tenant]]
-            name = "router"
+            [tenant.router]
             dataplane = "userspace-poll"
             max_cores = 16
 
@@ -938,8 +954,7 @@ mod tests {
         // validated — this is the law that replaces the old hand-written check.
         let err = parse_err(
             r#"
-            [[tenant]]
-            name = "router"
+            [tenant.router]
             dataplane = "userspace-poll"
             max_cores = 16
 
@@ -960,8 +975,7 @@ mod tests {
         // (tenant, family) pair lands in the set.
         let intent = parse(
             r#"
-            [[tenant]]
-            name = "router"
+            [tenant.router]
             dataplane = "userspace-poll"
             max_cores = 16
 

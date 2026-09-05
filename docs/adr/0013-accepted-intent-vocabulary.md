@@ -55,12 +55,13 @@ schema = 1
 Field names are those of `models/intent/types.qnt` and the scenario `.toml`
 files. Five declarative constructs plus the additive override channel.
 
-**`[[tenant]]`** — a consumer of hardware capacity, a network dataplane in a
-container. Anchors to a DPRC.
+**`[tenant.<name>]`** — a consumer of hardware capacity, a network dataplane in a
+container. Anchors to a DPRC. The name lives in the table key: identity is
+structural, so a duplicate tenant name is a TOML key-redefinition parse error,
+unrepresentable rather than validated (decision 2026-09-05).
 
 ```toml
-[[tenant]]
-name = "router"
+[tenant.router]
 dataplane = "userspace-poll"    # kernel-netlink | userspace-poll | userspace-event
 max_cores = 16
 isolation = "isolated"          # public | restricted | isolated (default isolated)
@@ -79,7 +80,7 @@ tenant in the container tree (§4). The tenant name `kernel` is **reserved**
 (design D1): the kernel's own driver in the root container (dprc.1), never a
 named tenant, implicitly `public`, and materialised only when a port omits a
 tenant or a link end names it — the operator never writes a
-`[[tenant]] name = "kernel"` block.
+`[tenant.kernel]` table.
 
 **`[[port]]`** — a physical port the tenant must deliver at `rate`. Anchors to
 a dpmac (ADR-0001 §3). Derives a dpni terminating the dpmac (DPAA2 User
@@ -109,9 +110,11 @@ interface_a = "ns1"
 interface_b = "kernel"          # the reserved kernel end, undeclared
 ```
 
-**`[[fabric]]`** — one switched domain over its members (ports, tenants, or
-other fabrics). `forwarded_by` names the tenant that runs the forwarding
-plane. `switching = "hardware"` derives one dpsw (figure 6c) owned by the
+**`[fabric.<name>]`** — one switched domain over its members (ports, tenants, or
+other fabrics). The name lives in the table key: identity is structural, so a
+duplicate fabric name is a TOML key-redefinition parse error, unrepresentable
+rather than validated (decision 2026-09-05). `forwarded_by` names the tenant that
+runs the forwarding plane. `switching = "hardware"` derives one dpsw (figure 6c) owned by the
 forwarder, `num_ifs` = its interface count; only the kernel can drive a dpsw,
 so a hardware fabric not forwarded by the kernel is refused. `switching =
 "software"` emits no dpsw — the forwarding tenant bridges its own dpnis, which
@@ -121,8 +124,7 @@ listing a hardware fabric; a hardware fabric listing a hardware fabric is
 refused until a baseline verifies dpsw↔dpsw.
 
 ```toml
-[[fabric]]
-name = "lan"
+[fabric.lan]
 switching = "hardware"
 forwarded_by = "kernel"
 members = ["lan0", "lan1", "router"]

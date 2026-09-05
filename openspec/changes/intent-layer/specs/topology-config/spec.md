@@ -6,13 +6,17 @@ The system SHALL read a declarative topology that opens with an
 which each port is identified by
 its static DPMAC anchor and never by an MC-assigned DPNI index, and in
 which every other object is derived from the constructs the operator
-declares: `[[tenant]]` (name, dataplane, `max_cores`, an optional
-`isolation` of `public|restricted|isolated` defaulting to `isolated`,
-and an optional `pool` naming a holder),
+declares: `[tenant.<name>]` (keyed by tenant name — dataplane, `max_cores`,
+an optional `isolation` of `public|restricted|isolated` defaulting to
+`isolated`, and an optional `pool` naming a holder),
 `[[port]]` (dpmac, name, rate, tenant, MAC and MAC
 mode), `[[link]]` (two tenant ends, `interface_a`/`interface_b`),
-`[[fabric]]` (switching
-`hardware|software`, forwarded_by, members: ports, tenants, or fabrics), and `[[crypto]]` (tenant, flows). A `[[crypto]]`
+`[fabric.<name>]` (keyed by fabric name — switching
+`hardware|software`, forwarded_by, members: ports, tenants, or fabrics), and `[[crypto]]` (tenant, flows).
+A `[tenant.<name>]` or `[fabric.<name>]` table keys identity in the TOML
+structure, so a duplicate tenant or fabric name is unrepresentable — a key
+redefinition — never validated, while `[[port]]`/`[[link]]`/`[[crypto]]`
+remain ordered arrays. A `[[crypto]]`
 array-of-tables is ordered, so a tenant's blocks are read in declaration
 order: the Nth `[[crypto]]` block for a tenant sizes that tenant's Nth
 dpseci (ordinal N), each dpseci by its own block's `flows`. A block's
@@ -80,7 +84,7 @@ before any compilation or reconciliation, including well-formed DPMAC
 references, unique interface and tenant names, well-formed MAC
 addresses, tenant references that resolve — the reserved `kernel`
 resolving at a `[[link]]` end without being declared — the reserved
-`kernel` name not declared as a `[[tenant]]`, link ends that name two
+`kernel` name not declared as a `[tenant.kernel]` table, link ends that name two
 distinct tenants, and fabric members that exist. A `restricted` tenant
 SHALL name a `pool`, and a `pool` SHALL be named only on a `restricted`
 tenant. Validation failures SHALL be reported with actionable messages
@@ -96,11 +100,11 @@ and SHALL prevent compilation.
   port
 
 #### Scenario: Unknown tenant reference
-- **WHEN** a port names `tenant = "router"` and no `[[tenant]]`
-  named `router` exists
+- **WHEN** a port names `tenant = "router"` and no `[tenant.router]`
+  table exists
 - **THEN** validation fails naming the port and the missing tenant
 
 #### Scenario: Reserved name declared
-- **WHEN** a `[[tenant]]` entry is named `kernel`
+- **WHEN** a `[tenant.kernel]` table is declared
 - **THEN** validation fails stating the name is reserved for the root
   dataplane

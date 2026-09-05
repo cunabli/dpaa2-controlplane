@@ -10,8 +10,7 @@
 [intent]
 schema = 1
 
-[[tenant]]
-name = "router"
+[tenant.router]
 dataplane = "userspace-poll"
 max_cores = 8            # the budget the derived thread count must fit under
 
@@ -39,8 +38,7 @@ dpmac = "dpmac.10"
 rate = 10000
 tenant = "router"
 
-[[fabric]]
-name = "lan"
+[fabric.lan]
 switching = "hardware"   # a dpsw; only the kernel can forward it
 forwarded_by = "kernel"
 members = ["lan0", "lan1", "router"]

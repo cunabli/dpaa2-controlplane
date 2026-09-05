@@ -224,13 +224,15 @@ pub struct Extra {
 /// additive, never by position.
 #[derive(Clone, PartialEq, Eq, Debug, Default)]
 pub struct Intent {
-    /// The declared tenants, in order.
+    /// The declared tenants, in name order — order-free by construction (dprc identity is
+    /// keyed by name, not position; the config keys them as `[tenant.<name>]` tables).
     pub tenants: Vec<Tenant>,
     /// The declared ports, in order.
     pub ports: Vec<Port>,
     /// The declared links, in order.
     pub links: Vec<Link>,
-    /// The declared fabrics, in order.
+    /// The declared fabrics, in name order — order-free by construction (the config keys
+    /// them as `[fabric.<name>]` tables).
     pub fabrics: Vec<Fabric>,
     /// The declared crypto blocks, in order.
     pub crypto: Vec<Crypto>,

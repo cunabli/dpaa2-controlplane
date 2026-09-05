@@ -39,8 +39,7 @@ dpmcp, queue, or worker count. The compiler derives every MC object and size, an
 schema = 1                 # the version hook; the only document-level property today
 
 # A userspace poll-mode dataplane (VPP/DPDK) in its own isolated container.
-[[tenant]]
-name = "router"
+[tenant.router]
 dataplane = "userspace-poll"   # kernel-netlink | userspace-poll | userspace-event
 max_cores = 16                 # a budget the derived thread count must fit under
 isolation = "isolated"         # public | restricted | isolated (default isolated)

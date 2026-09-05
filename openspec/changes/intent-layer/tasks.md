@@ -220,7 +220,7 @@ the change's only other operator sync point (design D12).
       error, unrepresentable rather than validated; model/API unchanged,
       ADR-0013 records collapse/sum as unreachable from config (resolves the
       3.3a design question, decision 2026-09-05, bead gqf.40)
-- [ ] 3.3c `dpaa2-config`: `[[tenant]]`/`[[fabric]]` migrated to keyed
+- [x] 3.3c `dpaa2-config`: `[[tenant]]`/`[[fabric]]` migrated to keyed
       tables (`[tenant.<name>]`, `[fabric.<name>]`) — name hoisted into the
       key, hand-written duplicate-name clauses deleted, members stay an
       ordered list; serde boundary only, scenario TOMLs and docs in

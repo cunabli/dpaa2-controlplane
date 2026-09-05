@@ -54,18 +54,20 @@ where
         .collect())
 }
 
-/// Deserializes the `[extra.<tenant>]` map: an outer table keyed by tenant name whose
-/// values are inner `family = count` tables. The outer key crosses into [`TenantName`]
-/// through its infallible `From<String>` (design D10), like the [`name`] family of
-/// helpers; the inner family key stays `String` on purpose, so [`crate::parse`] can name
-/// an unknown family in the error a `deserialize_with` type error would lose.
-fn extra_map<'de, D>(de: D) -> Result<BTreeMap<TenantName, BTreeMap<String, i64>>, D::Error>
+/// Deserializes a keyed table — `[tenant.<name>]`, `[fabric.<name>]`, `[extra.<tenant>]` —
+/// whose outer key names the construct. The key crosses into its dpaa2-api newtype through
+/// the infallible `From<String>` (design D10), like the [`name`] family of helpers, so
+/// identity lives in the TOML structure: a duplicate name is a key-redefinition parse
+/// error, unrepresentable rather than validated. The value deserializes as itself.
+fn keyed<'de, D, K, V>(de: D) -> Result<BTreeMap<K, V>, D::Error>
 where
     D: Deserializer<'de>,
+    K: From<String> + Ord,
+    V: Deserialize<'de>,
 {
-    Ok(BTreeMap::<String, BTreeMap<String, i64>>::deserialize(de)?
+    Ok(BTreeMap::<String, V>::deserialize(de)?
         .into_iter()
-        .map(|(tenant, families)| (TenantName::from(tenant), families))
+        .map(|(name, value)| (K::from(name), value))
         .collect())
 }
 
@@ -104,7 +106,8 @@ macro_rules! construct_table {
     };
 }
 
-/// The whole intent document: the mandatory `[intent]` table plus the construct
+/// The whole intent document: the mandatory `[intent]` table, the keyed `[tenant.<name>]`,
+/// `[fabric.<name>]`, and `[extra.<tenant>]` tables, and the `[[port]]`/`[[link]]`/`[[crypto]]`
 /// arrays. `intent` is optional here only so [`crate::parse`] can emit the precise
 /// "no `[intent]` table" message rather than serde's generic missing-field one.
 #[derive(Debug, Deserialize)]
@@ -112,26 +115,29 @@ macro_rules! construct_table {
 pub struct RawIntent {
     /// The document-level `[intent]` table (schema version).
     pub intent: Option<RawIntentTable>,
-    /// The `[[tenant]]` array.
-    #[serde(default)]
-    pub tenant: Vec<RawTenant>,
+    /// The `[tenant.<name>]` tables, keyed by tenant name — a duplicate name is a TOML
+    /// key-redefinition parse error, unrepresentable rather than validated.
+    #[serde(default, deserialize_with = "keyed")]
+    pub tenant: BTreeMap<TenantName, RawTenant>,
     /// The `[[port]]` array.
     #[serde(default)]
     pub port: Vec<RawPort>,
     /// The `[[link]]` array.
     #[serde(default)]
     pub link: Vec<RawLink>,
-    /// The `[[fabric]]` array.
-    #[serde(default)]
-    pub fabric: Vec<RawFabric>,
+    /// The `[fabric.<name>]` tables, keyed by fabric name — a duplicate name is a TOML
+    /// key-redefinition parse error, unrepresentable rather than validated.
+    #[serde(default, deserialize_with = "keyed")]
+    pub fabric: BTreeMap<ConstructName, RawFabric>,
     /// The `[[crypto]]` array (ordered — declaration order numbers each dpseci).
     #[serde(default)]
     pub crypto: Vec<RawCrypto>,
     /// The `[extra.<tenant>]` map: the additive raise-only override channel (design D5),
     /// each per-tenant table carrying `family = count` pairs. Identity is structural, so
     /// a duplicate (tenant, family) is a TOML key-redefinition parse error,
-    /// unrepresentable rather than validated.
-    #[serde(default, deserialize_with = "extra_map")]
+    /// unrepresentable rather than validated. The inner family key stays `String` on
+    /// purpose, so [`crate::parse`] can name an unknown family a type error would lose.
+    #[serde(default, deserialize_with = "keyed")]
     pub extra: BTreeMap<TenantName, BTreeMap<String, i64>>,
 }
 
@@ -170,11 +176,10 @@ pub enum RawIsolation {
 }
 
 construct_table! {
-    /// A `[[tenant]]` table (design D1).
+    /// A `[tenant.<name>]` table (design D1). The name lives in the table key, so a
+    /// duplicate name is a TOML key-redefinition parse error, unrepresentable rather than
+    /// validated; the reserved `kernel` key is refused in [`crate::parse`].
     RawTenant {
-        /// The tenant's name (the reserved `kernel` is refused here — design D1).
-        #[serde(deserialize_with = "name")]
-        pub name: TenantName,
         /// Where its dataplane runs, and the sizing regime it selects.
         pub dataplane: RawDataplane,
         /// The core budget the derived thread count must fit under.
@@ -254,11 +259,10 @@ pub enum RawSwitching {
 }
 
 construct_table! {
-    /// A `[[fabric]]` table: one switched domain over its members (design D1).
+    /// A `[fabric.<name>]` table: one switched domain over its members (design D1). The
+    /// name lives in the table key (the dpsw provenance key), so a duplicate name is a TOML
+    /// key-redefinition parse error, unrepresentable rather than validated.
     RawFabric {
-        /// The fabric's name (and the dpsw provenance key).
-        #[serde(deserialize_with = "name")]
-        pub name: ConstructName,
         /// Hardware (a dpsw) or software (own bridging).
         pub switching: RawSwitching,
         /// The tenant that runs the forwarding plane.

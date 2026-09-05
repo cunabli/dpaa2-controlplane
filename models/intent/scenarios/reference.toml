@@ -14,8 +14,7 @@
 [intent]
 schema = 1
 
-[[tenant]]
-name = "router"
+[tenant.router]
 dataplane = "userspace-poll"
 max_cores = 16           # the board's online-CPU count; T = 5 sits well under
 

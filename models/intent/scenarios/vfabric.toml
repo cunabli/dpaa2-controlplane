@@ -1,7 +1,7 @@
 # Scenario (2) of the intent gate (intent-layer design D8; task 2.2): the
 # operator's file for scenarios/vfabric.qnt — a virtual fabric of two
 # userspace-poll tenants joined by a single link, with no dpmac anywhere. No
-# [[port]] and no [[fabric]] appears below: that absence is the point — the
+# [[port]] and no [fabric.<name>] appears below: that absence is the point — the
 # scenario proves child dprcs and the dpni↔dpni pseudo-wire stand on
 # their own, with no hardware to lean on. No dpio, dpbp, dpcon, dpmcp, queue
 # or worker count appears either: every object and count is derived
@@ -12,13 +12,11 @@
 [intent]
 schema = 1
 
-[[tenant]]
-name = "routerA"
+[tenant.routerA]
 dataplane = "userspace-poll"
 max_cores = 8            # portless ⇒ T = 1, well under the budget
 
-[[tenant]]
-name = "routerB"
+[tenant.routerB]
 dataplane = "userspace-poll"
 max_cores = 8
 
