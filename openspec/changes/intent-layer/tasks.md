@@ -292,7 +292,7 @@ the change's only other operator sync point (design D12).
       as text: determinism from clean boot, no churn without intent change,
       bindings by read-back — export recorded as a revisit trigger); the
       rejected array+trait alternative on record (bead gqf.47)
-- [ ] 5.2 Docs: ROADMAP row 3 delivered; ADR-0005 amendment sealed;
+- [x] 5.2 Docs: ROADMAP row 3 delivered; ADR-0005 amendment sealed;
       CHANGELOG flows from commits; spec deltas ready to promote
 - [ ] 5.3 Quality floor: `cargo build | fmt | clippy | clippy --tests |
       doc | test` and the model ladder green; epic closed with every
