@@ -916,4 +916,84 @@ mod tests {
             BTreeSet::from([tenant_board(10, Some("t1"), unpooled)])
         );
     }
+
+    /// The board objects OUTSIDE the touched cone (`observed.qnt` `outsideCone`): those
+    /// whose label is not a name the edit touches. A `None` label is the model's `""`,
+    /// never in any cone, so a drifted object always stays outside.
+    fn outside_cone(
+        board: &BTreeSet<BoardObject>,
+        touched: &BTreeSet<ConstructName>,
+    ) -> BTreeSet<BoardObject> {
+        board
+            .iter()
+            .filter(|o| o.label.as_ref().is_none_or(|l| !touched.contains(l)))
+            .cloned()
+            .collect()
+    }
+
+    /// The frame law (`match.qnt` `frameLaw`, ADR-0015 decision 12): the objects outside
+    /// the touched cone are byte-identical across a converge.
+    fn frame_law(
+        pre: &BTreeSet<BoardObject>,
+        post: &BTreeSet<BoardObject>,
+        touched: &BTreeSet<ConstructName>,
+    ) -> bool {
+        outside_cone(pre, touched) == outside_cone(post, touched)
+    }
+
+    /// frameLawTest (`match.qnt`, decision 12): a config edit to `e0` over a two-object
+    /// board leaves `wan0` byte-identical, while `e0` itself genuinely changes.
+    ///
+    /// The model flips an abstract config int on an ANCHORED object, but
+    /// [`ConfigFacet::Anchored`] deliberately carries no attributes (the anchor decides
+    /// identity, decision 9), so a config flip on an anchored object is invisible to the
+    /// twin. The twin therefore runs the law on two UNANCHORED link-facet objects — the
+    /// same substitution the 6.5 transcription made (the model's abstract unanchored
+    /// `Dpni` objects become links) — where the config is real: `e0`'s link ends change.
+    #[test]
+    fn frame_law_holds_on_config_edit() {
+        let base = BTreeSet::from([
+            compiled("wan0", BTreeSet::new(), link_config("a"), None),
+            compiled("e0", BTreeSet::new(), link_config("b"), None),
+        ]);
+        let pre = converge(&base, &BTreeSet::new());
+        let edited = BTreeSet::from([
+            compiled("wan0", BTreeSet::new(), link_config("a"), None),
+            compiled("e0", BTreeSet::new(), link_config("c"), None), // config bumped on e0 only
+        ]);
+        let post = converge(&edited, &pre);
+        assert!(
+            frame_law(&pre, &post, &BTreeSet::from([name("e0")])),
+            "wan0 untouched"
+        );
+        assert!(
+            !frame_law(&pre, &post, &BTreeSet::new()),
+            "e0 genuinely changed (cone non-empty)"
+        );
+        assert_eq!(converge_class(&edited, &pre), Class::Hitless);
+    }
+
+    /// addFrameTest (`match.qnt`, decision 8, the payoff of an ordinal-free matcher):
+    /// adding `lan0` leaves `wan0` and `e0` byte-identical — an additive edit never
+    /// renumbers or perturbs siblings, the whole point of matching without ordinals.
+    #[test]
+    fn additive_edit_leaves_siblings_intact() {
+        let base = BTreeSet::from([
+            compiled("wan0", anchor(7), ConfigFacet::Anchored, None),
+            compiled("e0", anchor(8), ConfigFacet::Anchored, None),
+        ]);
+        let pre = converge(&base, &BTreeSet::new());
+        let added = {
+            let mut s = base.clone();
+            s.insert(compiled("lan0", BTreeSet::new(), link_config("lan"), None));
+            s
+        };
+        let post = converge(&added, &pre);
+        assert!(frame_law(&pre, &post, &BTreeSet::from([name("lan0")])));
+        assert_eq!(
+            converge_class(&added, &pre),
+            Class::Disruptive,
+            "the create itself is disruptive"
+        );
+    }
 }

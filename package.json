@@ -9,7 +9,8 @@
 		"model:validation": "pnpm model:typecheck && pnpm model:test && pnpm model:simulate && pnpm model:replay && pnpm model:verify",
 		"model:freeze": "quint test models/retro/reconciler.qnt --main=retro --out-itf='models/traces/{test}.itf.json'",
 		"model:freeze-intent": "quint test models/intent/replay.qnt --main=intent_replay --match 'AcceptedTrace|RefusedTrace' --out-itf='models/intent/traces/{test}.itf.json'",
-		"model:freeze-raw": "quint test models/intent/raw_replay.qnt --main=intent_raw_replay --match 'raw.*Trace' --out-itf='models/intent/traces/{test}.itf.json'"
+		"model:freeze-raw": "quint test models/intent/raw_replay.qnt --main=intent_raw_replay --match 'raw.*Trace' --out-itf='models/intent/traces/{test}.itf.json'",
+		"model:freeze-edits": "quint run models/intent/edits.qnt --main=intent_edits --invariant=identityLaws --max-steps=16 --max-samples=1 --seed=13 --out-itf=models/intent/traces/editsSweep1.itf.json && quint run models/intent/edits.qnt --main=intent_edits --invariant=identityLaws --max-steps=16 --max-samples=1 --seed=27 --out-itf=models/intent/traces/editsSweep2.itf.json && quint run models/intent/edits.qnt --main=intent_edits --invariant=identityLaws --max-steps=16 --max-samples=1 --seed=4 --out-itf=models/intent/traces/editsSweep3.itf.json"
 	},
 	"dependencies": {
 		"@fission-ai/openspec": "^1.5.0"

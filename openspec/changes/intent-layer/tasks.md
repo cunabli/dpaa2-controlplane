@@ -333,9 +333,12 @@ the change's only other operator sync point (design D12).
       inventory) — the fixed tag could not coexist with name labels; the
       matcher's live wiring for unanchored constructs awaits an executor
       for those families (follow-up bead gqf.57)
-- [ ] 6.7 `dpaa2-verify` pairing twin: the two-intent properties on real
+- [x] 6.7 `dpaa2-verify` pairing twin: the two-intent properties on real
       strings plus MBT replay of the edit alphabet; owes the Rust twins of
       the model's `frameLawTest`/`addFrameTest` (deliberately not
-      transcribed in 6.5) (bead gqf.55)
+      transcribed in 6.5) (bead gqf.55) — frame twins in the matcher tests,
+      four proptest laws over generated names, `editsSweep{1,2,3}` frozen
+      via `model:freeze-edits` and replayed through the `dpaa2-config`
+      parser (a dropped edit clause fails the round-trip equality)
 - [ ] 6.8 phase close: COVERAGE rows, ROADMAP touch, ledger lint
       (bead gqf.56)

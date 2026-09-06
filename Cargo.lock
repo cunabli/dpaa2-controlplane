@@ -202,6 +202,7 @@ dependencies = [
  "dpaa2-api",
  "dpaa2-config",
  "dpaa2-mc",
+ "proptest",
  "serde",
  "serde_json",
 ]

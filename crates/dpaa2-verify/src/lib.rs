@@ -8,6 +8,7 @@
 
 pub mod adapter;
 pub mod driver;
+pub mod edits_itf;
 /// The read-only fit-check emitter: renders a board sitting from a probe
 /// plan (task 4.1, design D12).
 pub mod fitcheck;
