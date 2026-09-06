@@ -75,12 +75,12 @@ fn poll(name: &str) -> Tenant {
     }
 }
 
-fn port(name: &str, dpmac: u32, rate: i64, owner: &str) -> Port {
+fn port(name: &str, dpmac: u32, rate: i64, tenant: &str) -> Port {
     Port {
         name: name.into(),
         dpmac: DpmacId::new(dpmac),
         rate,
-        tenant: owner.into(),
+        tenant: tenant.into(),
         mac: None,
         mac_mode: MacMode::Assert,
         renamed: None,

@@ -16,7 +16,7 @@
 //! a non-kernel tenant's object can never land in the root dprc.
 //!
 //! This module assumes an intent the refusals of [`crate::refuse`] have not rejected
-//! (the total function's other half): a claimed dpmac is anchored and single-owner, a
+//! (the total function's other half): a claimed dpmac is anchored and single-claimant, a
 //! hardware fabric is kernel-forwarded, a rate class is seeded. The derivation of a
 //! refused intent is *defined* (total, never a panic), not wrong — `refusals` runs
 //! `derive` for its feasibility count on any intent.
@@ -107,7 +107,7 @@ fn member_is_fabric(m: &Member, fname: &ConstructName) -> bool {
 }
 
 /// The tenant a member resolves to: a tenant member, or a software fabric member's
-/// owner (its bridging). Ports and hardware fabrics resolve to no tenant.
+/// forwarder (its bridging). Ports and hardware fabrics resolve to no tenant.
 fn member_tenant(intent: &Intent, m: &Member) -> Option<TenantName> {
     match m {
         Member::Tenant(c) => Some(c.clone()),
@@ -240,7 +240,7 @@ fn is_wire_member_of(o: &Origin, g: &ConstructName) -> bool {
 }
 
 /// The ordered dpni sources of a tenant: terminated ports, link ends,
-/// hardware-fabric attachments, then software-fabric wire ends (owner then member).
+/// hardware-fabric attachments, then software-fabric wire ends (forwarder then member).
 /// The class concatenation order is structural (kept); WITHIN each class the origins
 /// are in name order (ADR-0015 decision 5, task 3.3d; `derive.qnt` `originList`), so
 /// position + 1 — the dpni ordinal — is a function of names, never of document
@@ -279,7 +279,7 @@ fn origin_list(intent: &Intent, name: &TenantName) -> Vec<Origin> {
             out.push(Origin::Attach(f.name.clone()));
         }
     }
-    // owner's end of each software-fabric pseudo-wire (6b): fabrics by name, and within
+    // forwarder's end of each software-fabric pseudo-wire (6b): fabrics by name, and within
     // a fabric the peers by name.
     for g in &fabrics {
         if g.switching == Switching::Software && &g.forwarded_by == name {
@@ -360,9 +360,9 @@ fn attach_point(intent: &Intent, tenant: &TenantName, fabric_name: &ConstructNam
 
 /// The ordered endpoints of a hardware fabric's dpsw interfaces (`derive.qnt`
 /// `hwFabricAttachPoints`): members in list order — a member port's dpmac, a member tenant's
-/// or member software-fabric-owner's attach dpni, hardware-in-hardware skipped
+/// or member software-fabric-forwarder's attach dpni, hardware-in-hardware skipped
 /// (refused at [`crate::refuse`]); then one interface per software fabric listing `f`
-/// whose owner is not already attached through `f`'s own members.
+/// whose forwarder is not already attached through `f`'s own members.
 fn hw_fabric_attach_points(intent: &Intent, f: &Fabric) -> Vec<AttachPoint> {
     let mut ends = Vec::new();
     for m in &f.members {
@@ -999,7 +999,7 @@ fn build_edges(
     sizing: &BTreeMap<TenantName, Sizing>,
     edges: &mut BTreeSet<crate::compiled::Edge>,
 ) {
-    // Port (6a): the owner's dpni for the port <-> its dpmac.
+    // Port (6a): the tenant's dpni for the port <-> its dpmac.
     for c in &intent.tenants {
         let (Some(s), Some(ct)) = (sizing.get(&c.name), tenant_by_name(ets, &c.name)) else {
             continue;
@@ -1050,12 +1050,12 @@ fn build_edges(
             edges.insert(f.edge(&dpsw_key, u32::try_from(ifx).unwrap_or(0), endpoint));
         }
     }
-    // Software fabric (6b): the owner's wire dpni <-> each member tenant's wire dpni.
+    // Software fabric (6b): the forwarder's wire dpni <-> each member tenant's wire dpni.
     for g in &intent.fabrics {
         if g.switching != Switching::Software {
             continue;
         }
-        let (Some(so), Some(owner)) = (
+        let (Some(so), Some(forwarder)) = (
             sizing.get(&g.forwarded_by),
             tenant_by_name(ets, &g.forwarded_by),
         ) else {
@@ -1077,7 +1077,7 @@ fn build_edges(
             let ord_member =
                 ordinal_where(&origin_list(intent, &c), |o| is_wire_member_of(o, &g.name));
             // Only the interfaces are kept; the label rides along inertly (the fabric).
-            let (_o, owner_if) = owner.dpni(ord_owner, u(so.num_queues), g.name.clone());
+            let (_o, owner_if) = forwarder.dpni(ord_owner, u(so.num_queues), g.name.clone());
             let (_mm, member_if) = ct.dpni(ord_member, u(sc.num_queues), g.name.clone());
             edges.insert(g.wire(owner_if, member_if));
         }

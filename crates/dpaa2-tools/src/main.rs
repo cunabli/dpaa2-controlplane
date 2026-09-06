@@ -263,7 +263,7 @@ fn compile_intent(
 }
 
 /// Reserved-kernel completion (design D1): the config parser never creates a kernel
-/// [`dpaa2_api::Tenant`] — a port with no owner defaults to the reserved name — so the
+/// [`dpaa2_api::Tenant`] — a port with no tenant defaults to the reserved name — so the
 /// frontend injects `kernel_tenant(cpus)` at index 0 when a port terminates the kernel
 /// and no kernel tenant is declared. A link naming the kernel is materialised inside
 /// `compile`'s `effective_tenants`, so this completes the port case only (the
@@ -289,12 +289,12 @@ mod tests {
 
     use super::complete_kernel;
 
-    fn port(owner: &str) -> Port {
+    fn port(tenant: &str) -> Port {
         Port {
             name: "wan0".into(),
             dpmac: DpmacId::new(7),
             rate: 10_000,
-            tenant: owner.into(),
+            tenant: tenant.into(),
             mac: None,
             mac_mode: MacMode::Assert,
             renamed: None,

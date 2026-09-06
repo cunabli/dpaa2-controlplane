@@ -41,7 +41,7 @@
 // CryptoFlowsOverDevice) — never silent. The 2.6e change (crypto is now a
 // List and FLOWS gained 17, the first value past one dpseci's 16-queue-pair
 // ceiling) leaves every non-crypto count byte-identical to the 2.6c run: the
-// two addCrypto nondets (owner, flows) draw in the same order and consume the
+// two addCrypto nondets (tenant, flows) draw in the same order and consume the
 // same RNG whether crypto is a Set or a List, and widening FLOWS by one
 // element changes only which flows value a draw selects — so only the two
 // crypto-flows witnesses move. CryptoFlowsNotPositive falls (0 is now one of
@@ -164,16 +164,16 @@ module intent_alphabet {
   }
 
   // A port anchored on an alphabet dpmac at an alphabet rate, owned by a
-  // declared tenant (an undeclared owner is unreachable here).
+  // declared tenant (an undeclared tenant is unreachable here).
   action addPort = {
     nondet dpmac = DPMACS.oneOf()
     nondet rate = RATES.oneOf()
-    nondet owner = tenantNames(intent).oneOf()
+    nondet tenant = tenantNames(intent).oneOf()
     all {
       intent.ports.length() < 3,
       intent' = intent.with("ports", intent.ports.append({
         name: PORT_NAMES.nth(intent.ports.length()),
-        dpmac: dpmac, rate: rate, tenant: owner, from: "" })),
+        dpmac: dpmac, rate: rate, tenant: tenant, from: "" })),
     }
   }
 
@@ -191,26 +191,26 @@ module intent_alphabet {
   // The single fabric, over a member list from the alphabet.
   action addFabric = {
     nondet switching = SWITCHINGS.oneOf()
-    nondet owner = tenantNames(intent).oneOf()
+    nondet forwardedBy = tenantNames(intent).oneOf()
     nondet members = MEMBER_LISTS.oneOf()
     all {
       intent.fabrics.length() == 0,
       intent' = intent.with("fabrics", intent.fabrics.append({
-        name: "f1", switching: switching, forwardedBy: owner, members: members, from: "" })),
+        name: "f1", switching: switching, forwardedBy: forwardedBy, members: members, from: "" })),
     }
   }
 
-  // One accelerator per tenant at most: an owner already in crypto is a
+  // One accelerator per tenant at most: a tenant already in crypto is a
   // no-op pick (the guard disables the action, stutter keeps step total). The
   // flows demand is drawn here (design D1: crypto owns its flows). crypto is a
   // List now (task 2.6e), so a block is appended; the alphabet never draws two
   // blocks for one tenant (the directed twoCryptoBlocksTest covers that shape).
   action addCrypto = {
-    nondet owner = tenantNames(intent).oneOf()
+    nondet tenant = tenantNames(intent).oneOf()
     nondet flows = FLOWS.oneOf()
     all {
-      intent.crypto.select(k => k.tenant == owner).length() == 0,
-      intent' = intent.with("crypto", intent.crypto.append({ tenant: owner, flows: flows })),
+      intent.crypto.select(k => k.tenant == tenant).length() == 0,
+      intent' = intent.with("crypto", intent.crypto.append({ tenant: tenant, flows: flows })),
     }
   }
 

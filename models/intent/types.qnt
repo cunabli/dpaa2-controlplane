@@ -255,7 +255,7 @@ module intent_types {
   pure val SWITCHINGS: Set[Switching] = Set(Hardware, Software)
   pure val MEMBERS: Set[Member] = Set(MPort("p"), MTenant("c"), MFabric("f"))
   pure val LINK_TYPES: Set[LinkType] = Set(LinkNone, LinkFixed, LinkPhy, LinkBackplane)
-  pure val AVAILABILITIES: Set[Availability] = Set(Free, Reserved("why"), Foreign("owner"))
+  pure val AVAILABILITIES: Set[Availability] = Set(Free, Reserved("why"), Foreign("dpl"))
   pure val CEILINGS: Set[Ceiling] =
     Set(Counted(0), Observed({ n: 0, provenance: "anchor" }), Unknown)
 }

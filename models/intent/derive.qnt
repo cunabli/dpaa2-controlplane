@@ -9,12 +9,12 @@
 // The topology the fabric rules transcribe is DPAA2 User Manual §2.2.2,
 // figure 6 (a)–(c): (a) a dpni↔dpmac port, (b) a dpni↔dpni pseudo-wire,
 // (c) a dpsw with dpmac and dpni endpoints. A fabric carries a switching
-// qualifier: Hardware is a dpsw (6c); Software is the owner bridging its
+// qualifier: Hardware is a dpsw (6c); Software is the forwarder bridging its
 // own dpnis, seen only as 6b wires and 6a ports.
 //
 // This module assumes an intent the refusals of task 1.3 have not rejected
 // (the total function's other half lands in intent/refuse.qnt): a claimed
-// dpmac is anchored and single-owner, an extra is a companion family with a
+// dpmac is anchored and single-claimant, an extra is a companion family with a
 // positive count, a hardware fabric is kernel-forwarded, a rate class is
 // seeded. The
 // derivation of a refused intent is undefined, not wrong.
@@ -71,7 +71,7 @@ module intent_derive {
   // count rules use construct "" (one node per tenant); per-construct
   // rules carry the construct name — the fabric for dpsw/fabric-edge/
   // fabric-wire, the port for port-edge, the link for link-edge — so two
-  // fabrics of one owner no longer collide on a single node.
+  // fabrics of one forwarder no longer collide on a single node.
   type ProvenanceKey = { tenant: str, rule: str, construct: str }
 
   // Whether the value stands on measured evidence or on the declared,
@@ -163,7 +163,7 @@ module intent_derive {
     match m { | MFabric(h) => h == fn | _ => false }
 
   // The tenant a member resolves to: a tenant member, or a software
-  // fabric member's owner (its bridging). Ports and hardware fabrics resolve
+  // fabric member's forwarder (its bridging). Ports and hardware fabrics resolve
   // to no tenant.
   pure def memberTenant(intent: Intent, m: Member): Option[str] =
     match m {
@@ -229,7 +229,7 @@ module intent_derive {
   // Each dpni a tenant terminates, in the concatenation order that fixes
   // its ordinal: an owned terminated port (6a), a link end (6b, a self-link
   // yields two), an attachment to a Hardware fabric (a dpsw interface, 6c),
-  // the owner's end of a Software fabric's pseudo-wire (6b), or a member's
+  // the forwarder's end of a Software fabric's pseudo-wire (6b), or a member's
   // end of a Software fabric it does not own (6b).
   type Origin =
       OPort(Port)
@@ -295,7 +295,7 @@ module intent_derive {
       else acc)
 
   // The ordered dpni sources of a tenant: terminated ports, link ends,
-  // hardware-fabric attachments, then software-fabric wire ends (owner then
+  // hardware-fabric attachments, then software-fabric wire ends (forwarder then
   // member). The class concatenation order is structural (kept); WITHIN each
   // class the origins are in name order (each sub-list is name-sorted, task
   // 3.3d), so position + 1 — the dpni ordinal — is a function of names, never of
@@ -338,9 +338,9 @@ module intent_derive {
 
   // The ordered endpoints of a Hardware fabric's dpsw interfaces: f.members
   // in list order — a member port's dpmac (MacAttach), a member tenant's or
-  // member software-fabric-owner's attach dpni (ObjectAttach), Hardware-in-
+  // member software-fabric-forwarder's attach dpni (ObjectAttach), Hardware-in-
   // Hardware skipped (open item (d), refused at 1.3); then one interface per
-  // Software fabric listing f (a chain of switches) whose owner is not
+  // Software fabric listing f (a chain of switches) whose forwarder is not
   // already attached through f's own members.
   pure def hwFabricAttachPoints(intent: Intent, f: Fabric): List[AttachPoint] =
     val fromMembers = f.members.foldl([], (acc, m) =>
@@ -385,7 +385,7 @@ module intent_derive {
     if (ev == 0) { request: request, extra: None, value: request }
     else { request: request, extra: Some(ev), value: request + ev }
 
-  // Only Hardware fabrics emit a dpsw; the software owner bridges its own
+  // Only Hardware fabrics emit a dpsw; the software forwarder bridges its own
   // dpnis (open item), so "owned fabrics" for dpsw purposes are the Hardware
   // fabrics owned by X, in fabric-NAME order (ADR-0015 decision 5, task 3.3d):
   // the dpsw ordinal is minted by name, so both dpswObjs and dpswOrdinalOf
@@ -520,12 +520,12 @@ module intent_derive {
                provenance: { tenant: s.name, rule: "dprc", construct: "" } })
 
   // One dpsw per owned Hardware fabric, ordinal by fabric NAME among the
-  // owner's Hardware fabrics (hwOwnedFabrics is name-sorted, task 3.3d); the
+  // forwarder's Hardware fabrics (hwOwnedFabrics is name-sorted, task 3.3d); the
   // kernel-bindable predicate (dpsw.md,
   // read-not-verified): num_ifs = the fabric's interface count, max_fdbs =
   // num_ifs, PER_FDB flooding and broadcast, control interface enabled. The
   // dpsw node is keyed by the fabric name (construct), so two fabrics of one
-  // owner do not collide.
+  // forwarder do not collide.
   pure def dpswObjs(intent: Intent, s: Sizing): Set[PlannedObject] =
     hwOwnedFabrics(intent, s.name).foldl({ i: 0, set: Set() }, (acc, f) =>
       val ni = hwFabricAttachPoints(intent, f).length()
@@ -675,8 +675,8 @@ module intent_derive {
       request: 0, extra: None, value: 0, inputs: Set({ tenant: f.forwardedBy, rule: "dpsw", construct: f.name }),
       constructs: Set(f.name) }
 
-  // The owner's end of every 6b pseudo-wire a Software fabric carries; inputs
-  // are the owner's and each wired peer's dpnis.
+  // The forwarder's end of every 6b pseudo-wire a Software fabric carries; inputs
+  // are the forwarder's and each wired peer's dpnis.
   pure def fabricWireNode(intent: Intent, g: Fabric): ProvenanceNode =
     { rule: "fabric-wire", anchor: "DPAA2 User Manual §2.2.2 fig. 6b; object-model.md §2 DPNI-I9", mark: Measured,
       request: 0, extra: None, value: 0,
@@ -753,7 +753,7 @@ module intent_derive {
 
   // ---- edges ----
 
-  // Port (6a): the owner's dpni for the port ↔ its dpmac (object-model.md §2).
+  // Port (6a): the tenant's dpni for the port ↔ its dpmac (object-model.md §2).
   pure def portEdges(intent: Intent): Set[Edge] =
     intent.tenants.foldl(Set(), (acc, c) =>
       acc.union(terminatedPorts(intent, c.name).foldl(Set(), (a2, p) =>
@@ -790,8 +790,8 @@ module intent_derive {
     intent.fabrics.foldl(Set(), (acc, f) =>
       if (f.switching == Hardware) acc.union(edgesForHwFabric(intent, f)) else acc)
 
-  // Software fabric (6b): for each member resolving to a tenant C ≠ owner,
-  // the owner's wire dpni ↔ C's wire dpni. MPort members contribute only
+  // Software fabric (6b): for each member resolving to a tenant C ≠ forwarder,
+  // the forwarder's wire dpni ↔ C's wire dpni. MPort members contribute only
   // their port-edge; MFabric(Hardware) members contribute their fabric-edge
   // on the hardware side.
   pure def wireEdges(intent: Intent): Set[Edge] =

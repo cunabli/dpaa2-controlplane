@@ -73,7 +73,7 @@ module intent_raw {
   // unrepresentable; a name shared with a link or fabric is a cross-family
   // collision that IS representable and refused DuplicateName. `tenant` is a raw
   // `str` ("" means the reserved kernel terminates it, parse.rs convert_port), a
-  // dangling owner representable; `dpmac`/`rate` are ints (the "dpmac.N" lexing
+  // dangling tenant representable; `dpmac`/`rate` are ints (the "dpmac.N" lexing
   // is the format boundary, not modelled here).
   // `from` (TOML key `renamed.from`, ADR-0015 decision 10 / task 6.3) declares the
   // port's prior name; "" means absent. It shares the port/link/fabric namespace.
@@ -171,7 +171,7 @@ module intent_raw {
 
   pure def portNamesSet(raw: RawIntent): Set[str] = raw.ports.keys()
 
-  // A port's effective owner: "" defaults to the reserved kernel (parse.rs).
+  // A port's effective tenant: "" defaults to the reserved kernel (parse.rs).
   pure def effTenant(t: str): str = if (t == "") KERNEL else t
 
   // The port/link/fabric name namespace parse.rs checks for collisions; tenant

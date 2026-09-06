@@ -48,7 +48,7 @@ module intent_raw_alphabet {
   pure val R_LINK_NAMES: Set[str] = Set("l1", "l2")
   pure val R_FABRIC_NAMES: Set[str] = Set("f1", "f2")
   // Tenant references: two declared, the reserved kernel, "" (a kernel-defaulting
-  // port owner), and "ghost" — undeclared, the dangling-reference near-miss.
+  // port tenant), and "ghost" — undeclared, the dangling-reference near-miss.
   pure val R_TENANT_REFS: Set[str] = Set("c1", "c2", "kernel", "", "ghost")
   // Counts: negative and zero are representable (parse carries them; compile
   // refuses ExtraNotPositive) — the zero/negative near-miss.
@@ -93,7 +93,7 @@ module intent_raw_alphabet {
       raw.tenants.put(KERNEL, { dataplane: KernelNetlink, maxCores: 16, isolation: Isolated, pool: "", from: "" })),
   }
 
-  // A port put under its name key (task 3.3d): a "ghost"/"" owner is the
+  // A port put under its name key (task 3.3d): a "ghost"/"" tenant is the
   // dangling/kernel case, a <= 0 rate the zero/negative case. A repeat of an
   // existing name overwrites (the intra-family duplicate is unrepresentable).
   action addPort = {

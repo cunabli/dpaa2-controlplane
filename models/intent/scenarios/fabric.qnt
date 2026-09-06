@@ -8,7 +8,7 @@
 //
 // The twin: the same intent with `max_cores` = 4 sits below the derived
 // T = 5 and is refused as CoreBudgetExceeded naming the tenant, T, and
-// the budget. The kernel owner's budget never binds under the online-CPU
+// the budget. The kernel tenant's budget never binds under the online-CPU
 // reading of open question 2, so the poll-mode member is what makes the
 // refusal reachable (design D8) — pinned by kernelBudgetNeverBindsTest.
 //
@@ -117,7 +117,7 @@ module fabric {
 
   // Why the twin needs the poll-mode member: under the online-CPU reading
   // (open question 2, KERNEL_BUDGET_IS_DPIO_COUNT = false) the kernel
-  // owner's budget never binds — the same fabric with a starved kernel
+  // tenant's budget never binds — the same fabric with a starved kernel
   // budget still compiles (design D8).
   run kernelBudgetNeverBindsTest =
     val lowKernel = accepted.with("tenants",

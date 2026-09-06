@@ -33,10 +33,10 @@ module intent_refuse {
   type Refusal =
     | TenantAbsent({ construct: str, tenant: str })         // a construct names a tenant not declared (DPDCEI-I1 generalised)
     | MemberUnresolved({ fabric: str, member: Member })         // a fabric member names a port/tenant/fabric not declared
-    | SelfMember({ fabric: str, member: Member })               // a fabric member resolves to the fabric's own owner
+    | SelfMember({ fabric: str, member: Member })               // a fabric member resolves to the fabric's own forwarder
     | Unanchored({ port: str, dpmac: int })                     // dpmac not in the inventory
     | ReservedAnchor({ port: str, dpmac: int, why: str })       // ADR-0003 §3 matrix, from Availability (spec name: Reserved)
-    | ForeignAnchor({ port: str, dpmac: int, owner: str })      // ADR-0001 §4, from Availability (spec name: Foreign)
+    | ForeignAnchor({ port: str, dpmac: int, owner: str })      // the DPL owner label — ADR-0001 §4, from Availability (spec name: Foreign)
     | DoubleClaimed({ dpmac: int, constructs: Set[str] })       // two ports on one dpmac, or one port in two fabrics
     | OverRate({ port: str, rate: int, maxRate: int })          // rate > dpmac maxRate
     | FabricNotKernelForwarded({ fabric: str, forwardedBy: str })       // Hardware fabric whose forwarding tenant != KERNEL (dpsw.md)
@@ -118,10 +118,10 @@ module intent_refuse {
           | MFabric(h) => if (fabricByName(intent, h) == None) a2.union(Set(MemberUnresolved({ fabric: f.name, member: m }))) else a2
         }))
 
-  // ---- rule 3: a fabric member resolves to the fabric's own owner ----
-  // A hardware fabric may list its own owner (the kernel's dpni on its own
+  // ---- rule 3: a fabric member resolves to the fabric's own forwarder ----
+  // A hardware fabric may list its own forwarder (the kernel's dpni on its own
   // dpsw, figure 5); a software fabric wiring itself is a refusal.
-  // A software fabric listing a same-owner software fabric wires the owner
+  // A software fabric listing a same-forwarder software fabric wires the forwarder
   // to itself through the chain. Hoisted out of the match arm: the
   // quint→Apalache translator (0.56.1) dies without a message on a match
   // nested inside a match arm next to a constructor-wildcard arm.
