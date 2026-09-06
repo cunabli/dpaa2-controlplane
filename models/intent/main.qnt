@@ -7,7 +7,7 @@
 // `pnpm model:test` now covers these directed runs alongside the core corpus.
 //
 // Named invariants: containmentByTenant … isolatedContainerPrivate
-//   (ids INTENT_I1..I9) in intent/invariants.qnt; planInvariants /
+//   (ids in intent/invariants.qnt); planInvariants /
 //   compileInvariants gather them, pinned by the planInvariantsHoldTest /
 //   compileInvariantsHoldTest / invariantsBiteTest runs below.
 // Apalache-marked subset: feasibleAgainstCeilings, companionCountsByRegime and
@@ -698,7 +698,8 @@ module intent_main {
     planInvariants(derive(kernelLinkIntent, REF_INVENTORY)),
   }
 
-  // compileInvariants (INTENT_I7 feasibility, INTENT_I8 companion counts) hold
+  // compileInvariants (INTENT_I7 feasibility, INTENT_I8 companion counts,
+  // INTENT_I9 isolated-container privacy) hold
   // over the same intents and over the refused ones — a refusal set is never
   // empty, and Ok plans keep every count within its ceiling and dataplane draw.
   run compileInvariantsHoldTest = all {

@@ -1177,7 +1177,7 @@ fn r11_refusals(
 /// R12: the plan invariants agree across `invariants.qnt` (truth) and its two
 /// copies — ADR-0013 §6 and `COVERAGE.md`'s intent-invariants section — by id
 /// and name, each checked both ways. Since task 5.1 the ledger carries one row
-/// per `INTENT_I1..I9` tying it to its baseline anchors (`invariants.qnt`
+/// per invariant tying it to its baseline anchors (`invariants.qnt`
 /// header); this leg keeps that copy from drifting from the model the same way
 /// the ADR §6 leg does.
 fn r12_invariants(invariants_qnt: &str, coverage_md: &str, adr_md: &str, out: &mut Vec<String>) {
@@ -1221,7 +1221,7 @@ fn r12_invariants(invariants_qnt: &str, coverage_md: &str, adr_md: &str, out: &m
 }
 
 /// R13: every scenario `.qnt` has a same-stem `.toml` and vice versa (the
-/// file-level pairing; the semantic toml→plan equality is task 3.4), and the
+/// file-level pairing; the semantic toml→plan equality lives in `tests/intent_pairing.rs`, task 3.4), and the
 /// scenario set equals ADR-0013 §7's five worked witnesses.
 fn r13_scenarios(qnt_stems: &[String], toml_stems: &[String], adr_md: &str, out: &mut Vec<String>) {
     for s in qnt_stems {

@@ -185,7 +185,7 @@ module intent_derive {
 
   // The tenant's terminated ports (owned and not switched into a hardware
   // fabric), in NAME order (ADR-0015 decision 5, task 3.3d): the port ordinal
-  // is minted by name, never by `[[port]]` position. Every other consumer of
+  // is minted by name, never by `[port.<name>]` table order. Every other consumer of
   // this list (threadCount, seededRateClasses, port edges, the port-edge
   // provenance keyed by port name) is order-free, so the one visible effect is
   // that portOrigins — and thus the dpni ordinal — follows the name order.

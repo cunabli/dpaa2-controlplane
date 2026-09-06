@@ -7,7 +7,7 @@
 // UnmeasuredCombination warning — flagged, never silent. `max_cores` = 16 is
 // the reference board's online-CPU count (intent/inventory.qnt), comfortably
 // above the derived T = 10. router.toml beside this file is what the operator
-// types; the pairing is by convention until dpaa2-verify's test (task 3.4).
+// types; the pairing is enforced by dpaa2-verify's `tests/intent_pairing.rs` (task 3.4).
 //
 // The twin (model-only, no operator file): a second userspace-poll tenant
 // router2 claims dpmac.9 with a port of its own — one dpmac claimed by two
@@ -21,7 +21,7 @@
 // Manual §2.2.2 fig. 6a the dpni↔dpmac port.
 //
 // Named invariants: none new — the runs assert planInvariants /
-//   compileInvariants (INTENT_I1..I8) over the scenario and its twin.
+//   compileInvariants over the scenario and its twin.
 // Apalache-marked subset: none (directed runs; the alphabet rung carries
 //   the marked laws).
 module router {
@@ -114,7 +114,7 @@ module router {
       | Refused(_) => false
     }
 
-  // The invariant run: INTENT_I7/I8 over the scenario and its twin, INTENT_I1..I6
+  // The invariant run: INTENT_I7/I8/I9 over the scenario and its twin, INTENT_I1..I6
   // over the accepted plan.
   run routerInvariantsTest = all {
     compileInvariants(accepted, REF_INVENTORY),

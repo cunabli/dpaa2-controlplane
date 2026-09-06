@@ -52,7 +52,7 @@
 //   wAccepted 3000, wRefused 3000, wUnknownCeiling 3000, wPublicTenant 3000,
 //   wCryptoPresent 2867, wExtraPresent 2845, wFabricPresent 2791,
 //   wThreeTenants 2354, wLinkPresent 2342, wPoolWithoutRestricted 2087,
-//   wUnpricedDataplane 2075, wInterruptDrawn 2075, wOverRate 1722,
+//   wUnpricedDataplane 2075, wEventDrawn 2075, wOverRate 1722,
 //   wMemberUnresolved 1629, wRestrictedTenant 1492, wReservedAnchor 1488,
 //   wCryptoFlowsOverDevice 1199, wCryptoFlowsNotPositive 1172,
 //   wExtraNotPositive 1129, wExtraNotCompanion 979,
@@ -243,8 +243,8 @@ module intent_alphabet {
 
   // ---- the two rungs (design Risks; intent/invariants.qnt) ----
 
-  // The Apalache-marked subset: feasibleAgainstCeilings and
-  // companionCountsByRegime (INTENT_I7/I8) over (intent, REF_INVENTORY).
+  // The Apalache-marked subset: feasibleAgainstCeilings, companionCountsByRegime
+  // and isolatedContainerPrivate (INTENT_I7/I8/I9) over (intent, REF_INVENTORY).
   val compileLaws = compileInvariants(intent, REF_INVENTORY)
 
   // The plan relationships (containmentByTenant … provenanceClosed,
@@ -322,7 +322,7 @@ module intent_alphabet {
   val wFabricPresent = intent.fabrics.length() > 0
   val wCryptoPresent = intent.crypto.length() > 0
   val wExtraPresent = intent.extras.size() > 0
-  val wInterruptDrawn = intent.tenants.select(c => c.dataplane == UserspaceEvent).length() > 0
+  val wEventDrawn = intent.tenants.select(c => c.dataplane == UserspaceEvent).length() > 0
   val wRestrictedTenant = intent.tenants.select(c => c.isolation == Restricted).length() > 0
   val wPublicTenant = intent.tenants.select(c => c.isolation == Public).length() > 0
   // A tenant terminating both seeded rate classes (10G and 25G): the

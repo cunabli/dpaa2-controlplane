@@ -4,8 +4,8 @@
 # queue or worker count appears anywhere: every object and count is derived
 # (ADR-0005). The [[crypto]] block states flows (a demand, not a dpseci queue
 # count); the compiler derives one dpseci with num_queues = flows and the
-# HAS_CG safety bit. Pairing with router.qnt is by
-# convention until dpaa2-verify's test (task 3.4). The twin — a second tenant
+# HAS_CG safety bit. Pairing with router.qnt is enforced by
+# dpaa2-verify's `tests/intent_pairing.rs` (task 3.4). The twin — a second tenant
 # claiming dpmac.9, model-only, with no operator file — is refused
 # DoubleClaimed.
 

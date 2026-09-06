@@ -8,7 +8,7 @@
 # implicit (design D1), named at a link end but never written, and it carries
 # the full per-CPU kernel draw. No dpio, dpbp, dpcon, dpmcp, queue or worker
 # count appears: every object and count is derived (ADR-0005). Pairing with
-# vwire.qnt is by convention until dpaa2-verify's test (task 3.4). The twin — vpp
+# vwire.qnt is enforced by dpaa2-verify's `tests/intent_pairing.rs` (task 3.4). The twin — vpp
 # turned into a userspace-poll drawer pooling the kernel, model-only, with no
 # operator file — is refused PoolDataplaneMismatch.
 

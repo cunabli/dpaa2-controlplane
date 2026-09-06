@@ -3,14 +3,14 @@
 //! oracle; three laws are cheap enough to restate in Rust so the transcription
 //! stays honest — `compile` is deterministic, an extra only ever raises a count,
 //! every companion precedes the consumer that draws it — plus totality (a total
-//! function never panics) and the nine `INTENT_I1..I9` invariants
+//! function never panics) and the `INTENT_I*` invariants
 //! (`models/intent/invariants.qnt`; ADR-0013 §6) as runtime predicates.
 //!
 //! # Two rungs, mirroring the model
 //!
 //! The predicates run in two places (requirement 4):
 //!
-//! - **(a) over every `Ok(compile)` output** — all nine, the model's
+//! - **(a) over every `Ok(compile)` output** — the model's
 //!   `planInvariants` (I1–I6) plus `compileInvariants` (I7–I9).
 //! - **(b) over arbitrary WITNESS-BUILT plans** ([`witness_plan`]) — the D11
 //!   hand-built surface the ITF replay never sees, guarded by types alone today.
@@ -25,7 +25,7 @@
 //!
 //! # ADR-0014 hygiene
 //!
-//! The nine predicates are semantic transcriptions of `invariants.qnt`, named
+//! The predicates are semantic transcriptions of `invariants.qnt`, named
 //! `intent_i1_*`..`intent_i9_*`. They are not a new prose/table enumeration of the
 //! invariant list: the single enumeration pair the ledger ties is the model ⇄
 //! ADR-0013 §6 one (lint R12).
@@ -153,12 +153,19 @@ fn dprtc_key() -> ObjectKey {
 }
 
 // ===========================================================================
-// INTENT_I1..I9 as runtime predicates (invariants.qnt; ADR-0013 §6)
+// INTENT_I* as runtime predicates (invariants.qnt; ADR-0013 §6)
 // ===========================================================================
 
 /// `INTENT_I1` containmentByTenant: every object sits in a real container
 /// (`invariants.qnt` `containmentByTenant`; object-model.md §1). Structural — runs
 /// on rungs (a) and (b).
+///
+/// ponytail: a compile-legal Restricted kernel-netlink drawer pooling the
+/// reserved kernel places its objects in `Container::Root` and this predicate
+/// returns false — the model records the same plan-only hole (`invariants.qnt`
+/// `containmentByTenant` ponytail marker); rung (a) never sees it because
+/// `userspace_tenant` draws userspace dataplanes only, mirroring the alphabet's
+/// never-kernel-netlink tenants.
 fn intent_i1_containment_by_tenant(p: &CompiledPlan) -> bool {
     let ks = obj_keys(p);
     p.objects.iter().all(|o| {
@@ -483,7 +490,10 @@ fn member_list() -> impl Strategy<Value = Vec<Member>> {
 
 /// A userspace tenant (`alphabet.qnt` `addTenant`): dataplane from
 /// `USERSPACE_DATAPLANES`, isolation from `ISOLATIONS`, pool from `POOL_NAMES`,
-/// `max_cores` from `CORES`. Named `c1`/`c2` by position at assembly.
+/// `max_cores` from `CORES`. Named `c1`/`c2` by position at assembly. Never
+/// `KernelNetlink`, like the alphabet's tenants — which keeps the
+/// kernel-pooled-Restricted I1 hole (`intent_i1_containment_by_tenant`'s
+/// ponytail note) out of rung (a).
 fn userspace_tenant() -> impl Strategy<Value = (Dataplane, Isolation, i64, TenantName)> {
     (
         prop::sample::select(vec![Dataplane::UserspacePoll, Dataplane::UserspaceEvent]),
@@ -772,16 +782,18 @@ fn witness_plan() -> impl Strategy<Value = CompiledPlan> {
 proptest! {
     // D9 law 1 — `compile` is deterministic: the same inputs give the same output,
     // structurally. `extras` is a set, so it carries no order to be sensitive to;
-    // every other field is a Vec whose order IS the ordinal source (design D6), so
-    // determinism is the pure function returning equal results across calls.
+    // crypto is the one Vec whose order is an ordinal source (ADR-0015 decision 4);
+    // every other Vec's order is cosmetic (INTENT_I10, the position-independence
+    // prop below), so determinism is the pure function returning equal results
+    // across calls.
     #[test]
     fn compile_is_deterministic((intent, inv) in intent_and_inventory()) {
         prop_assert_eq!(compile(&intent, &inv), compile(&intent, &inv));
     }
 
     // D9 law 4 — `compile` is total: for EVERY generated intent it returns Ok or a
-    // NON-EMPTY refusal set, never a panic (proptest catches the panic). On Ok, all
-    // nine INTENT_I* invariants hold (rung (a)).
+    // NON-EMPTY refusal set, never a panic (proptest catches the panic). On Ok, the
+    // INTENT_I* invariants hold (rung (a)).
     #[test]
     fn compile_is_total_and_invariants_hold((intent, inv) in intent_and_inventory()) {
         match compile(&intent, &inv) {

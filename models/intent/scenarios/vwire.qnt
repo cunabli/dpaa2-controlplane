@@ -21,8 +21,8 @@
 //     dpmcp 1, dpcon 1}, in Child("vpp").
 // Under the online-CPU reading of open question 2 the kernel-netlink budget
 // never binds, so the ns tenants' small max_cores admits the 16-queue dpnis.
-// vwire.toml beside this file is what the operator types; the pairing is by
-// convention until dpaa2-verify's test (task 3.4).
+// vwire.toml beside this file is what the operator types; the pairing is
+// enforced by dpaa2-verify's `tests/intent_pairing.rs` (task 3.4).
 //
 // The twin (model-only, no operator file): vpp turned into a userspace-poll
 // drawer that pools the reserved kernel (Restricted, pool "kernel"). The
@@ -39,7 +39,7 @@
 // §2 / DPNI-I9 the dpni↔dpni pseudo-wire; ADR-0012 the companion draws.
 //
 // Named invariants: none new — the runs assert planInvariants /
-//   compileInvariants (INTENT_I1..I9) over the scenario and its twin.
+//   compileInvariants over the scenario and its twin.
 // Apalache-marked subset: none (directed runs; the alphabet rung carries
 //   the marked laws).
 module vwire {

@@ -10,9 +10,11 @@
 //! to carry (design D10), so adopting it would need serde mirror types in verify
 //! plus ~7 new dependencies (quint-connect, -macros, itf, tempfile, colored,
 //! rand, similar) — code and deps ADDED, none retired. The few-dependencies
-//! tenet decides against it (design D9). Revisit if the intent model grows a
-//! stepped state machine (then a step-driver earns its keep) or if `dpaa2-api`
-//! ever gains serde.
+//! tenet decides against it (design D9). The stepped-machine revisit trigger
+//! fired at task 6.7 — `edits.qnt` is a perturb/converge stepped machine and
+//! `tests/intent_edit_replay.rs` walks its frozen sweeps — and was re-judged
+//! for hand-rolled trace replay: the D10 no-serde stance and the ~7 added
+//! dependencies decide it alone. Revisit if `dpaa2-api` ever gains serde.
 //!
 //! Structural comparison (design D9): the model is the oracle. Each trace's
 //! frozen `intent`/`inv` are parsed into the Rust [`Intent`]/[`Inventory`] and

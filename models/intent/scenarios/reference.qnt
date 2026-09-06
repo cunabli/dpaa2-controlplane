@@ -55,10 +55,10 @@
 // ownership; ADR-0003 §3 reserved dpmacs; design D4/D8/D12; DPMCP-I6
 // (models/board/README.md); DPAA2 User Manual §2.2.2 fig. 6a the dpni<->dpmac
 // port. reference.toml beside this file is what the operator types; the
-// pairing is by convention until dpaa2-verify's test (task 3.4).
+// pairing is enforced by dpaa2-verify's `tests/intent_pairing.rs` (task 3.4).
 //
 // Named invariants: none new — the runs assert planInvariants /
-//   compileInvariants (INTENT_I1..I8) over the scenario.
+//   compileInvariants over the scenario.
 // Apalache-marked subset: none (directed runs; the alphabet rung carries the
 //   marked laws).
 module reference {
@@ -235,7 +235,7 @@ module reference {
       | Refused(_) => false
     }
 
-  // (c) invariants: INTENT_I7/I8 over the intent, INTENT_I1..I6 over the plan.
+  // (c) invariants: INTENT_I7/I8/I9 over the intent, INTENT_I1..I6 over the plan.
   run referenceInvariantsTest = all {
     compileInvariants(accepted, REF_INVENTORY),
     match compile(accepted, REF_INVENTORY) {

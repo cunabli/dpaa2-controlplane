@@ -6,7 +6,7 @@
 // Portless ⇒ T = 1 (main-only, ADR-0012), so each side takes one dpni with
 // numQueues = 1 and the ADR-0012 poll-mode companion draws at T = 1.
 // vfabric.toml beside this file is what the operator types for the same
-// intent; the pairing is by convention until dpaa2-verify's test (task 3.4).
+// intent; the pairing is enforced by dpaa2-verify's `tests/intent_pairing.rs` (task 3.4).
 //
 // The twin (model-only, no operator file): the same intent plus a third
 // child dprc routerC. Each portless userspace-poll child draws 2 dpbps (ADR-0012),
@@ -20,7 +20,7 @@
 // §2 / DPNI-I9 the dpni↔dpni pseudo-wire.
 //
 // Named invariants: none new — the runs assert planInvariants /
-//   compileInvariants (INTENT_I1..I8) over the scenario and its twin.
+//   compileInvariants over the scenario and its twin.
 // Apalache-marked subset: none (directed runs; the alphabet rung carries
 //   the marked laws).
 module vfabric {
@@ -92,7 +92,7 @@ module vfabric {
       | Refused(_) => false
     }
 
-  // The invariant run: INTENT_I7/I8 over the scenario and its twin, INTENT_I1..I6
+  // The invariant run: INTENT_I7/I8/I9 over the scenario and its twin, INTENT_I1..I6
   // over the accepted plan.
   run vfabricInvariantsTest = all {
     compileInvariants(accepted, REF_INVENTORY),

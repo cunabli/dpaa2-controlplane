@@ -3,7 +3,7 @@
 //! `models/intent/raw_replay.qnt`).
 //!
 //! MBT conformance (task 3.3e, bead gqf.48): the model is the oracle. Each trace's
-//! frozen `raw` (a `RawIntent` mirroring the post-3.3b/3.3c TOML surface) is
+//! frozen `raw` (a `RawIntent` mirroring the post-3.3b/3.3c/3.3d TOML surface) is
 //! serialized here to a TOML document on the *real* `dpaa2-config` surface, fed
 //! through `dpaa2_config::parse_str`, and the Rust verdict is asserted to agree
 //! with the model's frozen `verdict` (`ModelVerdict`, the model's own `parse`).

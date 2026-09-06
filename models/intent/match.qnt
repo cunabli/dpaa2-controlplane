@@ -55,21 +55,21 @@
 // Apalache-marked subset: none (simulator-only, corpus-wide seal — see
 //   intent/alphabet.qnt compileLaws and intent/observed.qnt header).
 //
-// RED RUST TWINS THIS MODULE AWAITS (documented by name, not written — task 6.4
-// is pure Quint; ADR-0015 "the Rust pairing/property twin runs the same relation
-// on real strings"):
+// RUST TWINS OF THIS MODULE (shipped, tasks 6.5–6.7; ADR-0015 "the Rust
+// pairing/property twin runs the same relation on real strings"):
 //   - dpaa2-api: the reconciler's matcher (this two-pass relation on real
-//     construct names and dpmac sets) and a disruption-classed `Plan` whose
-//     headline is `planClass` (task 6.5). Its cone is the derived-object closure,
-//     not this layer's per-construct singleton (intent/observed.qnt outsideCone).
+//     construct names and dpmac sets) and the disruption-classed `MatchPlan`
+//     whose headline is `planClass` (`crates/dpaa2-api/src/matcher.rs`, task
+//     6.5). Its cone is the derived-object closure, not this layer's
+//     per-construct singleton (intent/observed.qnt outsideCone).
 //   - dpaa2-verify: the pairing twin that runs `matchRelation` against the Rust
-//     matcher the way NAME_RANK is linted against `str::cmp`, plus an MBT edit
-//     replay that drives the edit alphabet (intent/edits.qnt) through the Rust
-//     converge and diffs the board (task 6.7).
-// These laws are model-only today; no failing Rust test is written here.
+//     matcher the way NAME_RANK is linted against `str::cmp`
+//     (`tests/intent_identity_props.rs`), plus the MBT edit replay that drives
+//     the edit alphabet (intent/edits.qnt) through the Rust converge and diffs
+//     the board (`tests/intent_edit_replay.rs`, task 6.7).
 module intent_match {
   import types.* from "../core/types"            // Family (Dpni, Dpsw, ...)
-  import intent_observed.* from "./observed"     // CompiledObject, Observed, ObservedBoard, Plan, Verdict, apply, planClass, outsideCone, ...
+  import intent_observed.* from "./observed"     // CompiledObject, Observed, ObservedBoard, MatchPlan, Verdict, apply, planClass, outsideCone, ...
 
   // ---- stage helpers ----
 
@@ -268,7 +268,7 @@ module intent_match {
 
   // The plan of a successful match, or a sentinel empty plan on refusal (only the
   // ambiguity run reads the refused arm, through matchRelation directly).
-  pure def planOf(board: ObservedBoard, compiled: Set[CompiledObject]): Plan =
+  pure def planOf(board: ObservedBoard, compiled: Set[CompiledObject]): MatchPlan =
     match matchRelation(board, compiled) {
       | MatchOk(plan) => plan
       | MatchRefused(_) => { pairs: Set(), renamed: Set(), created: Set(), removed: Set() }

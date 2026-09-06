@@ -4,7 +4,7 @@
 // lossy parse: `Intent` is what `dpaa2-config` already validated, so a
 // duplicated block, a dangling reference, or the reserved `kernel` declared
 // were unrepresentable — the gqf.39/gqf.40 bug class was a question Quint could
-// not state. `RawIntent` mirrors the post-3.3b/3.3c TOML surface faithfully, and
+// not state. `RawIntent` mirrors the post-3.3b/3.3c/3.3d TOML surface faithfully, and
 // `parse` mirrors `crates/dpaa2-config/src/parse.rs`'s convert/validation
 // semantics, so the surface pathologies are representable and the laws that
 // refuse them are checkable.

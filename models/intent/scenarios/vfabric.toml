@@ -5,8 +5,8 @@
 # scenario proves child dprcs and the dpni↔dpni pseudo-wire stand on
 # their own, with no hardware to lean on. No dpio, dpbp, dpcon, dpmcp, queue
 # or worker count appears either: every object and count is derived
-# (ADR-0005). Pairing with vfabric.qnt is by convention until vfabric.qnt's
-# dpaa2-verify test (task 3.4). The twin — a third tenant routerC, model-only,
+# (ADR-0005). Pairing with vfabric.qnt is enforced by dpaa2-verify's
+# `tests/intent_pairing.rs` (task 3.4). The twin — a third tenant routerC, model-only,
 # with no operator file — overdraws the dpbp ceiling and is refused Infeasible.
 
 [intent]

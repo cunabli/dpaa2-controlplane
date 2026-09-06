@@ -85,8 +85,9 @@ Cheapest rung first (ADR-0002 §6); a failure stops the validation there.
    flattener loses sum-type constructors whose only value use is in the
    main module (QNT404), and integer ranges must be constant
    (`machine.MAX_ENDPOINT_PORTS`). The intent corpus's marked subset is
-   `intent/alphabet.qnt` `compileLaws` — feasibleAgainstCeilings and
-   companionCountsByRegime (INTENT_I7/I8) — but it stays simulator-only:
+   `intent/alphabet.qnt` `compileLaws` — feasibleAgainstCeilings,
+   companionCountsByRegime and isolatedContainerPrivate (INTENT_I7/I8/I9) —
+   but it stays simulator-only:
    the model obeys the constant-range rule (`derive` sizes objects under
    `MAX_DERIVED_COUNT`) and the 0.56.1 translator crash is worked around
    (refuse.qnt hoists match-in-arm shapes; quint exits 0 on the server
@@ -148,7 +149,7 @@ models/
 │   ├── inventory.qnt     the reference offer, generated from the board snapshot
 │   ├── derive.qnt        the pure derivation intent+inventory -> plan (D3/D4/D6)
 │   ├── refuse.qnt        the refusal half, so compile() is total (D5)
-│   ├── invariants.qnt    named plan/compile invariants, ids INTENT_I1..I8 (D6)
+│   ├── invariants.qnt    named plan/compile invariants, ids INTENT_I* (D6)
 │   ├── alphabet.qnt      the finite intent alphabet as a machine — the
 │   │                     simulate/verify target (intentInvariants, compileLaws)
 │   ├── observed.qnt      identity-across-time value machinery (ADR-0015 §8–12):

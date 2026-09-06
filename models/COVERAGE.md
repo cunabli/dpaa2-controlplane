@@ -200,7 +200,7 @@ by the crate parcels that restore the cargo side.)
 | INTENT_I6 | provenanceClosed | simulate | design D6 |
 | INTENT_I7 | feasibleAgainstCeilings | simulate (apalache-marked, front-end heap wall — bead gqf.26) | ADR-0011; design D2 |
 | INTENT_I8 | companionCountsByRegime | simulate (apalache-marked, front-end heap wall — bead gqf.26) | ADR-0012 via companionDraw |
-| INTENT_I9 | isolatedContainerPrivate | simulate | design D6a; task 2.6c |
+| INTENT_I9 | isolatedContainerPrivate | simulate (apalache-marked, front-end heap wall — bead gqf.26) | design D6a; task 2.6c |
 | INTENT_I10 | positionIndependence | simulate | ADR-0015 decision 5; task 3.3d (bead gqf.46) |
 
 ## Intent alphabet coverage (task 2.4)

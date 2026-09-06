@@ -4,7 +4,7 @@
 // terminating dpmac.9/10 at 2×10G — the seeded rate class (design D3), so
 // the router's T = 5 derives from the table and `max_cores` = 8 admits it.
 // fabric.toml beside this file is what the operator types for the same
-// intent; the pairing is by convention until dpaa2-verify's test (task 3.4).
+// intent; the pairing is enforced by dpaa2-verify's `tests/intent_pairing.rs` (task 3.4).
 //
 // The twin: the same intent with `max_cores` = 4 sits below the derived
 // T = 5 and is refused as CoreBudgetExceeded naming the tenant, T, and
@@ -16,7 +16,7 @@
 // ADR-0012 companion draws; DPAA2 User Manual §2.2.2 fig. 6c.
 //
 // Named invariants: none new — the runs assert planInvariants /
-//   compileInvariants (INTENT_I1..I8) over the scenario and its twin.
+//   compileInvariants over the scenario and its twin.
 // Apalache-marked subset: none (directed runs; the alphabet rung carries
 //   the marked laws).
 module fabric {
@@ -96,7 +96,7 @@ module fabric {
       | Refused(_) => false
     }
 
-  // The invariant run: INTENT_I7/I8 over both intents, INTENT_I1..I6 over
+  // The invariant run: INTENT_I7/I8/I9 over both intents, INTENT_I1..I6 over
   // the accepted plan.
   run fabricInvariantsTest = all {
     compileInvariants(accepted, REF_INVENTORY),

@@ -3,8 +3,8 @@
 # over dpmac.7/8 at 10G, kernel-forwarded, with a userspace-poll router
 # joined as a member and terminating dpmac.9/10. No dpio, dpbp, dpcon,
 # dpmcp, queue or worker count appears anywhere: every object and count is
-# derived (ADR-0005). Pairing with fabric.qnt is by convention until
-# dpaa2-verify's test (task 3.4). The twin — max_cores = 4, below the
+# derived (ADR-0005). Pairing with fabric.qnt is enforced by
+# dpaa2-verify's `tests/intent_pairing.rs` (task 3.4). The twin — max_cores = 4, below the
 # derived T = 5 — is refused as CoreBudgetExceeded.
 
 [intent]

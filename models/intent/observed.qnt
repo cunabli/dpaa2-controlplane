@@ -98,7 +98,7 @@ module intent_observed {
   // watches this go empty on a converged board), the compiled objects that
   // matched nothing (to create fresh) and the board ids that matched nothing (to
   // remove).
-  type Plan = {
+  type MatchPlan = {
     pairs: Set[MatchPair],
     renamed: Set[MatchPair],
     created: Set[CompiledObject],
@@ -107,7 +107,7 @@ module intent_observed {
 
   // Total verdict: a plan, or a non-empty refusal set (ADR-0013 §5 posture —
   // never an empty refusal, mirroring compile()'s Refused).
-  type Verdict = MatchOk(Plan) | MatchRefused(Set[MatchRefusal])
+  type Verdict = MatchOk(MatchPlan) | MatchRefused(Set[MatchRefusal])
 
   // ---- board lookups ----
 
@@ -136,7 +136,7 @@ module intent_observed {
   // surviving board and the ids already handed out this converge (folding the
   // created set with a running counter), so two creates never collide — the id
   // scheme is irrelevant to identity (decision 8), only distinctness matters.
-  pure def apply(board: ObservedBoard, plan: Plan): ObservedBoard =
+  pure def apply(board: ObservedBoard, plan: MatchPlan): ObservedBoard =
     // id -> intended (name, config) for every matched pair.
     val relabelName: int -> str =
       plan.pairs.fold(Map(), (m, p) => m.put(p.id, p.compiled.name))
@@ -195,7 +195,7 @@ module intent_observed {
   // The plan's headline class (decision 12: dry-run reports the maximum, converge
   // gates on an explicit allow of it, disruptive is never implied). Every create
   // and every remove is disruptive; each matched pair contributes its pairClass.
-  pure def planClass(preBoard: ObservedBoard, plan: Plan): Class =
+  pure def planClass(preBoard: ObservedBoard, plan: MatchPlan): Class =
     val newLabels = plan.pairs.map(p => p.compiled.name).union(plan.created.map(c => c.name))
     val pairClasses = plan.pairs.map(p => pairClass(observedById(preBoard, p.id), p.compiled, newLabels))
     val churn = (if (plan.created != Set()) Set(Disruptive) else Set())

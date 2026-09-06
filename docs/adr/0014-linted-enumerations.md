@@ -81,11 +81,11 @@ the assumption the intent-layer drift falsified.
 - The lint is a growing surface, not a fixed one. Each new enumeration adds
   its own R-rule or its own bead; the `dpaa2-verify` ledger lint is where
   they accrue, alongside the four ledgers R1–R6 already guard.
-- ADR-0013 is the first record to comply: its §Consequences declares the 24
-  refusal variants (§5), the INTENT_I1–I9 invariants (§6), and the five
-  scenarios (§7) hand-maintained copies of `models/intent/*.qnt`, slated for
-  the ledger lint in phase 3 under bead `dpaa2-controlplane-gqf.34` — the
-  first application of this law.
+- ADR-0013 is the first record to comply: its §Consequences declares the
+  refusal variants (§5), the INTENT_I* invariants (§6), and the five
+  scenarios (§7) hand-maintained copies of `models/intent/*.qnt`, linted as
+  R11/R12/R13 in the `dpaa2-verify` ledger (task 5.1, bead
+  `dpaa2-controlplane-gqf.34`) — the first application of this law.
 - The cost is one obligation per table at authoring time. That is cheaper
   than the alternative this ADR replaces: a reader misled by a copy the
   program stopped honouring, discovered only when someone happens to look.

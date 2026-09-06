@@ -194,7 +194,7 @@ ADR-0013's copies to the `models/intent/` model: R11 checks the refusal
 vocabulary — `refuse.qnt`'s `type Refusal =` against `alphabet.qnt`'s
 witnesses (one per variant), ADR-0013 §5 (with the `Reserved`/`Foreign`
 spelling alias) and `COVERAGE.md`'s intent-coverage section; R12 the plan
-invariants — `invariants.qnt`'s `INTENT_I1..I9` against ADR-0013 §6 by id and
+invariants — `invariants.qnt`'s `INTENT_I*` against ADR-0013 §6 by id and
 name; R13 the scenario set — every `scenarios/*.qnt` paired with a same-stem
 `.toml` and equal to ADR-0013 §7's five witnesses (the semantic
 toml→plan check is task 3.4). The model wins every disagreement.

@@ -9,17 +9,17 @@
 // plan type admits. Each `INTENT_In` cites its evidence anchor and names what
 // the Rust constructor makes unrepresentable.
 //
-// The ids `INTENT_I1..I9` are this change's own; the ledger rows that tie
+// The ids `INTENT_I*` are this change's own; the ledger rows that tie
 // them to the baseline invariants live in `models/COVERAGE.md`'s
 // intent-invariants section (task 5.1) and are linted by R12.
 //
 // Named invariants: containmentByTenant … isolatedContainerPrivate
-//   (ids INTENT_I1..I9, below); planInvariants gathers I1–I6 over any Plan,
+//   (ids below); planInvariants gathers I1–I6 over any Plan,
 //   compileInvariants gathers I7–I9 over (intent, inventory).
 //   positionIndependence (INTENT_I10, task 3.3d) is a standalone
 //   (intent, inventory) law wired into intent/alphabet.qnt `intentInvariants`.
-// Apalache-marked subset: feasibleAgainstCeilings and companionCountsByRegime
-//   (INTENT_I7/I8) — collected as intent/alphabet.qnt `compileLaws`, defined
+// Apalache-marked subset: feasibleAgainstCeilings, companionCountsByRegime and
+//   isolatedContainerPrivate (INTENT_I7/I8/I9) — collected as intent/alphabet.qnt `compileLaws`, defined
 //   for Apalache but simulator-only today: the translation succeeds, the
 //   front-end heap does not (intent/alphabet.qnt header; bead
 //   dpaa2-controlplane-gqf.26, task 1.5).
@@ -287,7 +287,7 @@ module intent_invariants {
   // ADR-0015 decision 5 (task 3.3d, bead gqf.46): the enforceable guarantee is
   // not that the MC handle N is stable but that no plan key or emission ordinal is
   // ever derived from a construct's position in the document — reordering cosmetic
-  // `[tenant]` / `[[port]]` / `[[link]]` / `[fabric]` blocks never rewires hardware,
+  // `[tenant.<name>]` / `[port.<name>]` / `[link.<name>]` / `[fabric.<name>]` tables never rewires hardware,
   // renumbers a dpni, or reorders emission. Reversal is the witness permutation: for
   // a list of >=2 any position-derived key moves under it, so compiling the reversed
   // intent must yield the IDENTICAL Compiled — the same plan (keys, wiring, emission

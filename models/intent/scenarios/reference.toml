@@ -8,8 +8,8 @@
 # dpcon = 10 and one dpmcp for the child. This scenario has no negative twin:
 # its counterpart is the recovered boot census in
 # models/board/baselines/reference.json, which reference.qnt diffs the compiled
-# plan against object-for-object. Pairing with reference.qnt is by convention
-# until dpaa2-verify's test (task 3.4).
+# plan against object-for-object. Pairing with reference.qnt is enforced by
+# dpaa2-verify's `tests/intent_pairing.rs` (task 3.4).
 
 [intent]
 schema = 1

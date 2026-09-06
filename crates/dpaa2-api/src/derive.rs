@@ -130,8 +130,8 @@ pub(crate) fn is_hw_switched_port(intent: &Intent, port_name: &ConstructName) ->
 
 /// The tenant's terminated ports (owned and not switched into a hardware fabric), in
 /// NAME order (ADR-0015 decision 5, task 3.3d; `derive.qnt` `terminatedPorts`): the
-/// port's dpni ordinal is minted by name, never by `[[port]]` position, so a cosmetic
-/// reorder of the array never re-keys a plan. Every other consumer of this list
+/// port's dpni ordinal is minted by name, never by `[port.<name>]` table order, so a
+/// cosmetic reorder of the tables never re-keys a plan. Every other consumer of this list
 /// (thread count, seeded rate classes, port edges, port-edge provenance keyed by port
 /// name) is order-free, so the one visible effect of the sort is `portOrigins` — and
 /// thus the dpni ordinal — following name order.
