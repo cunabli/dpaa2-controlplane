@@ -86,17 +86,20 @@ fn the_four_ledgers_agree() {
 }
 
 /// The intent-layer copies (design-D9 for `models/intent/`): the `refuse.qnt`
-/// refusal vocabulary, the `invariants.qnt` plan invariants, the `match.qnt`
-/// identity-across-time laws, and the scenario file set are the truth;
-/// `alphabet.qnt`'s witnesses, `COVERAGE.md`'s intent and identity-laws
-/// sections, ADR-0013 §5/§6/§7, and the `.qnt`/`.toml` pairing are copies that
-/// drift, so a disagreement fails here (ADR-0014, ADR-0002 §2).
+/// refusal and warning vocabularies, the `invariants.qnt` plan invariants, the
+/// `match.qnt` identity-across-time laws, `intent_raw.qnt`'s `FAMILY_NAMES` and
+/// its three raw-surface laws, and the scenario file set are the truth;
+/// `alphabet.qnt`'s witnesses, `COVERAGE.md`'s intent, identity-laws and
+/// raw-surface-laws sections, ADR-0013 §5/§6/§7, the `dpaa2_api` `Warning` list
+/// and lowercase `Family::as_str` names, and the `.qnt`/`.toml` pairing are
+/// copies that drift, so a disagreement fails here (ADR-0014, ADR-0002 §2).
 #[test]
 fn the_intent_copies_agree() {
     let root = repo_root();
 
     let refuse = read(&root, "models/intent/refuse.qnt");
     let types = read(&root, "models/core/types.qnt");
+    let intent_raw = read(&root, "models/intent/intent_raw.qnt");
     let alphabet = read(&root, "models/intent/alphabet.qnt");
     let invariants = read(&root, "models/intent/invariants.qnt");
     let match_qnt = read(&root, "models/intent/match.qnt");
@@ -120,16 +123,19 @@ fn the_intent_copies_agree() {
         }
     }
 
-    // The Rust domain copies: the `dpaa2_api::Refusal` name list and the
-    // `dpaa2_api::Family` variant set (ADR-0014 R14).
+    // The Rust domain copies: the `dpaa2_api::Refusal` name list, the
+    // `dpaa2_api::Family` variant set, the `dpaa2_api::Warning` name list, and
+    // the lowercase `Family::as_str` family names (ADR-0014 R14).
     let rust_families: Vec<&str> = dpaa2_api::ALL_FAMILIES
         .iter()
         .map(|f| f.variant_name())
         .collect();
+    let rust_family_strs: Vec<&str> = dpaa2_api::ALL_FAMILIES.iter().map(|f| f.as_str()).collect();
 
     let findings = intent_lint(
         &refuse,
         &types,
+        &intent_raw,
         &alphabet,
         &invariants,
         &match_qnt,
@@ -139,6 +145,8 @@ fn the_intent_copies_agree() {
         &toml_stems,
         &dpaa2_api::REFUSAL_VARIANTS,
         &rust_families,
+        &dpaa2_api::WARNING_VARIANTS,
+        &rust_family_strs,
     );
     assert!(
         findings.is_empty(),

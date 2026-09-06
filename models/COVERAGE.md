@@ -254,7 +254,10 @@ only a cross-family name collision still reaches DuplicateName — and `parse`
 mirrors `crates/dpaa2-config/src/parse.rs`; these three named laws are checked over the
 dirty raw alphabet (`models/intent/raw_alphabet.qnt`, `rawInvariants`), which
 deliberately generates the near-misses today's guards hide. Not linted by R12
-(these are surface laws, not the `INTENT_I*` plan invariants). The Rust
+(these are surface laws, not the `INTENT_I*` plan invariants); the three law
+names are linted by R16 against `intent_raw.qnt`'s named-invariants header both
+ways, the same mechanism R15 applies to the identity laws (the `raw_conformance`
+row names the Rust harness, outside the leg). The Rust
 MBT-conformance rung serializes each frozen raw state to a TOML document on the
 real `dpaa2-config` surface, feeds it through `parse_str`, and asserts the Rust
 verdict (and, on the accepted arm, the resulting `Intent`) agrees with the

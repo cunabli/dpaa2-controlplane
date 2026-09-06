@@ -831,15 +831,19 @@ fn r10_register(input: &LintInput<'_>, out: &mut Vec<String>) {
 // section — is a linted copy, never a sibling (ADR-0014). ADR-0013 is the
 // accepted-vocabulary record whose §5 (refusals), §6 (invariants) and §7
 // (scenarios) are exactly such copies, and its own Consequences note says
-// they "drift ... exactly this way" and belong under this lint. R11–R15
+// they "drift ... exactly this way" and belong under this lint. R11–R16
 // cross-check those copies against the model so a drift fails in CI, the same
 // design-D9 mechanism R1–R10 apply to the board ledgers. R14 extends the reach
 // to the Rust domain enums (`dpaa2_api::Refusal`, `dpaa2_api::Family`), which
-// restate `refuse.qnt`/`types.qnt` and so are linted copies too (ADR-0014). R15
-// ties `match.qnt`'s four identity-across-time laws to the COVERAGE identity-laws
-// table (task 6.4), so a renamed or dropped law fails in CI, not review.
-// Parsing is pure over `&str`; the scenario file set arrives as two stem lists
-// and the Rust variant sets as two name lists the harness reads.
+// restate `refuse.qnt`/`types.qnt` and so are linted copies too (ADR-0014); it
+// also ties `dpaa2_api::Warning` (WARNING_VARIANTS) to refuse.qnt's
+// `type Warning =` and the lowercase `Family::as_str` names to intent_raw.qnt's
+// FAMILY_NAMES mapping. R15 ties `match.qnt`'s four identity-across-time laws to
+// the COVERAGE identity-laws table (task 6.4), so a renamed or dropped law fails
+// in CI, not review; R16 ties intent_raw.qnt's three raw-surface laws to the
+// COVERAGE raw-surface-laws table the same way. Parsing is pure over `&str`; the
+// scenario file set arrives as two stem lists and the Rust variant sets as name
+// lists the harness reads.
 
 /// The body of the markdown/Quint section whose heading line first starts with
 /// `heading` (the heading line excluded), up to the next `## ` / `### `
@@ -917,6 +921,71 @@ fn parse_family_variants(types_qnt: &str) -> Vec<String> {
                     out.push(name);
                 }
             }
+        }
+    }
+    out
+}
+
+/// The constructor names of `refuse.qnt`'s `type Warning =` sum type, in
+/// declaration order — the source of truth for the warning vocabulary.
+fn parse_warning_variants(refuse_qnt: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut in_block = false;
+    for line in refuse_qnt.lines() {
+        if line.trim_start().starts_with("type Warning =") {
+            in_block = true;
+            continue;
+        }
+        if in_block {
+            let Some(rest) = line.trim().strip_prefix("| ") else {
+                break; // the first non-`|` line closes the sum type
+            };
+            let name: String = rest
+                .chars()
+                .take_while(char::is_ascii_alphanumeric)
+                .collect();
+            if !name.is_empty() {
+                out.push(name);
+            }
+        }
+    }
+    out
+}
+
+/// The lowercase restool names of `intent_raw.qnt`'s `FAMILY_NAMES` mapping —
+/// the model's hand-maintained copy of [`dpaa2_api::Family::as_str`]'s
+/// vocabulary (parse.rs `parse_family`). Scans from the `pure val FAMILY_NAMES`
+/// line to the line closing the list (`]`) and returns every double-quoted
+/// string in order — the `("dprc", Dprc)`-style tuples' left elements.
+fn parse_raw_family_names(intent_raw_qnt: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut in_block = false;
+    // The declaration line itself carries `]` (in the `List[(str, Family)]`
+    // annotation), so the list literal's close is found by bracket balance, not
+    // the first `]`: the block ends when the running `[`-minus-`]` depth (which
+    // the `= [` opener raises above zero) returns to zero.
+    let mut depth: i32 = 0;
+    for line in intent_raw_qnt.lines() {
+        if !in_block {
+            if line.trim_start().starts_with("pure val FAMILY_NAMES") {
+                in_block = true;
+            } else {
+                continue;
+            }
+        }
+        let mut rest = line;
+        while let Some(open) = rest.find('"') {
+            let after = &rest[open + 1..];
+            let Some(close) = after.find('"') else {
+                break;
+            };
+            out.push(after[..close].to_owned());
+            rest = &after[close + 1..];
+        }
+        depth += i32::try_from(line.matches('[').count()).unwrap_or(0);
+        depth -= i32::try_from(line.matches(']').count()).unwrap_or(0);
+        if depth <= 0 {
+            break; // the list literal's closing bracket ends the mapping
         }
     }
     out
@@ -1197,11 +1266,22 @@ fn r13_scenarios(qnt_stems: &[String], toml_stems: &[String], adr_md: &str, out:
 /// leg; the Rust list-vs-enum tie is the crate-local exhaustive `match`
 /// (`Refusal::name`, `Family::variant_name`) that will not compile until the
 /// list moves with the enum.
+///
+/// The warning list ([`dpaa2_api::WARNING_VARIANTS`], tied to the enum by
+/// `Warning::name`) is checked the same way against `refuse.qnt`'s
+/// `type Warning =`, and the lowercase restool family names (`Family::as_str`
+/// over `ALL_FAMILIES`) against `intent_raw.qnt`'s `FAMILY_NAMES` mapping —
+/// both copies kept deliberately, the mapping layer and the model each owning
+/// one (ADR-0014 rule 9).
+#[allow(clippy::too_many_arguments)] // one name list per linted copy, all read-only
 fn r14_rust_copies(
     refuse_qnt: &str,
     types_qnt: &str,
+    intent_raw_qnt: &str,
     rust_refusals: &[&str],
     rust_families: &[&str],
+    rust_warnings: &[&str],
+    rust_family_strs: &[&str],
     out: &mut Vec<String>,
 ) {
     // Refusals: model spelling (ReservedAnchor/ForeignAnchor) is canonical; map
@@ -1222,6 +1302,23 @@ fn r14_rust_copies(
         }
     }
 
+    // Warnings: names identical on both sides.
+    let model_warnings = parse_warning_variants(refuse_qnt);
+    for v in &model_warnings {
+        if !rust_warnings.contains(&v.as_str()) {
+            out.push(format!(
+                "R14 rust: refuse.qnt Warning variant {v} has no dpaa2_api::Warning counterpart"
+            ));
+        }
+    }
+    for w in rust_warnings {
+        if !model_warnings.iter().any(|v| v == w) {
+            out.push(format!(
+                "R14 rust: dpaa2_api::Warning variant {w} is absent from refuse.qnt"
+            ));
+        }
+    }
+
     // Families: names identical on both sides.
     let model_families = parse_family_variants(types_qnt);
     for v in &model_families {
@@ -1235,6 +1332,23 @@ fn r14_rust_copies(
         if !model_families.iter().any(|v| v == f) {
             out.push(format!(
                 "R14 rust: dpaa2_api::Family {f} is absent from types.qnt"
+            ));
+        }
+    }
+
+    // Lowercase family names: Family::as_str vs intent_raw.qnt FAMILY_NAMES.
+    let model_family_names = parse_raw_family_names(intent_raw_qnt);
+    for v in &model_family_names {
+        if !rust_family_strs.contains(&v.as_str()) {
+            out.push(format!(
+                "R14 rust: intent_raw.qnt FAMILY_NAMES entry {v} has no Family::as_str counterpart"
+            ));
+        }
+    }
+    for f in rust_family_strs {
+        if !model_family_names.iter().any(|v| v == f) {
+            out.push(format!(
+                "R14 rust: Family::as_str name {f} is absent from intent_raw.qnt FAMILY_NAMES"
             ));
         }
     }
@@ -1306,7 +1420,77 @@ fn r15_identity_laws(match_qnt: &str, coverage_md: &str, out: &mut Vec<String>) 
     }
 }
 
-/// Runs the intent-layer cross-checks (R11–R15) over the `models/intent/` and
+/// The raw-surface law names from `intent_raw.qnt`'s "Named invariants" header
+/// block — the source of truth for the config-surface laws. The block spans the
+/// `// Named invariants` line (its tail included) up to but excluding the
+/// `// Apalache-marked` footer; the lines are stripped of their `//` and joined
+/// with spaces (a law's name and its `(descriptor)` can straddle a line break),
+/// then every maximal ascii-alphanumeric token that is lowercase-led and
+/// immediately followed (after optional spaces) by `(` is a law name — the same
+/// comment-header source of truth [`parse_match_laws`] reads for the identity
+/// laws. Against the real file this yields `parseOkWellFormed`,
+/// `acceptedSurvives`, `nearMissRefusedByName`.
+fn parse_raw_laws(intent_raw_qnt: &str) -> Vec<String> {
+    let joined = intent_raw_qnt
+        .lines()
+        .skip_while(|l| !l.trim_start().starts_with("// Named invariants"))
+        .take_while(|l| !l.trim_start().starts_with("// Apalache-marked"))
+        .map(|l| l.trim_start().trim_start_matches('/').trim_start())
+        .collect::<Vec<_>>()
+        .join(" ");
+    let b = joined.as_bytes();
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < b.len() {
+        if b[i].is_ascii_alphanumeric() {
+            let start = i;
+            while i < b.len() && b[i].is_ascii_alphanumeric() {
+                i += 1;
+            }
+            let mut j = i;
+            while j < b.len() && b[j] == b' ' {
+                j += 1;
+            }
+            let tok = &joined[start..i];
+            if j < b.len()
+                && b[j] == b'('
+                && tok.chars().next().is_some_and(|c| c.is_ascii_lowercase())
+            {
+                out.push(tok.to_owned());
+            }
+        } else {
+            i += 1;
+        }
+    }
+    out
+}
+
+/// R16: the three raw-surface laws agree across `intent_raw.qnt` (truth) and its
+/// COVERAGE copy — the "Raw surface laws" table — by name, checked both ways,
+/// the same design-D9 mechanism R15 applies to the identity laws. The table's
+/// `raw_conformance` row names the Rust MBT harness, not a model law; its
+/// underscore keeps it outside [`parse_coverage_laws`]'s lowercase-led
+/// all-alphanumeric identifier filter, so it is deliberately outside this leg.
+fn r16_raw_laws(intent_raw_qnt: &str, coverage_md: &str, out: &mut Vec<String>) {
+    let model = parse_raw_laws(intent_raw_qnt);
+    let table = parse_coverage_laws(&md_section(coverage_md, "## Raw surface laws"));
+    for name in &model {
+        if !table.iter().any(|t| t == name) {
+            out.push(format!(
+                "R16 raw laws: intent_raw.qnt law `{name}` has no row in COVERAGE.md's raw-surface-laws table"
+            ));
+        }
+    }
+    for name in &table {
+        if !model.iter().any(|m| m == name) {
+            out.push(format!(
+                "R16 raw laws: COVERAGE.md's raw-surface-laws table lists `{name}`, absent from intent_raw.qnt's named laws"
+            ));
+        }
+    }
+}
+
+/// Runs the intent-layer cross-checks (R11–R16) over the `models/intent/` and
 /// `models/core/` copies and returns one finding per drift; an empty vector is
 /// the green verdict. Distinct from [`lint`] because it reads a different
 /// document set (the model files, ADR-0013, and the `dpaa2_api` domain enums,
@@ -1316,6 +1500,7 @@ fn r15_identity_laws(match_qnt: &str, coverage_md: &str, out: &mut Vec<String>) 
 pub fn intent_lint(
     refuse_qnt: &str,
     types_qnt: &str,
+    intent_raw_qnt: &str,
     alphabet_qnt: &str,
     invariants_qnt: &str,
     match_qnt: &str,
@@ -1325,6 +1510,8 @@ pub fn intent_lint(
     scenario_toml_stems: &[String],
     rust_refusals: &[&str],
     rust_families: &[&str],
+    rust_warnings: &[&str],
+    rust_family_strs: &[&str],
 ) -> Vec<String> {
     let mut out = Vec::new();
     r11_refusals(refuse_qnt, alphabet_qnt, coverage_md, adr_md, &mut out);
@@ -1333,11 +1520,15 @@ pub fn intent_lint(
     r14_rust_copies(
         refuse_qnt,
         types_qnt,
+        intent_raw_qnt,
         rust_refusals,
         rust_families,
+        rust_warnings,
+        rust_family_strs,
         &mut out,
     );
     r15_identity_laws(match_qnt, coverage_md, &mut out);
+    r16_raw_laws(intent_raw_qnt, coverage_md, &mut out);
     out
 }
 
@@ -2209,8 +2400,19 @@ module core_types {
         // accepted `Reserved` spelling, so the alias must bridge them.
         let refusals = ["TenantAbsent", "Reserved", "Infeasible"];
         let families = ["Dprc", "Dpni", "Dpmac"];
+        let warnings = ["UnknownCeiling"]; // REFUSE's lone Warning variant
+        let family_strs: Vec<&str> = dpaa2_api::ALL_FAMILIES.iter().map(|f| f.as_str()).collect();
         let mut out = Vec::new();
-        r14_rust_copies(REFUSE, TYPES, &refusals, &families, &mut out);
+        r14_rust_copies(
+            REFUSE,
+            TYPES,
+            RAW_QNT,
+            &refusals,
+            &families,
+            &warnings,
+            &family_strs,
+            &mut out,
+        );
         assert!(out.is_empty(), "{out:?}");
     }
 
@@ -2221,8 +2423,19 @@ module core_types {
         // all in memory.
         let refusals_bad = ["TenantAbsent", "Reserved"]; // Infeasible gone
         let families_bad = ["Dprc", "Dpni", "Dpmax"]; // renamed
+        let warnings = ["UnknownCeiling"]; // matches REFUSE, no warning drift here
+        let family_strs: Vec<&str> = dpaa2_api::ALL_FAMILIES.iter().map(|f| f.as_str()).collect();
         let mut out = Vec::new();
-        r14_rust_copies(REFUSE, TYPES, &refusals_bad, &families_bad, &mut out);
+        r14_rust_copies(
+            REFUSE,
+            TYPES,
+            RAW_QNT,
+            &refusals_bad,
+            &families_bad,
+            &warnings,
+            &family_strs,
+            &mut out,
+        );
         // Model has Infeasible, the Rust copy does not.
         assert!(
             out.iter()
@@ -2258,12 +2471,16 @@ module core_types {
             .iter()
             .map(|f| f.variant_name())
             .collect();
+        let family_strs: Vec<&str> = dpaa2_api::ALL_FAMILIES.iter().map(|f| f.as_str()).collect();
         let mut out = Vec::new();
         r14_rust_copies(
             &refuse,
             &types,
+            RAW_QNT,
             &dpaa2_api::REFUSAL_VARIANTS,
             &families,
+            &dpaa2_api::WARNING_VARIANTS,
+            &family_strs,
             &mut out,
         );
         assert!(out.is_empty(), "{out:?}");
@@ -2350,6 +2567,137 @@ Identity laws of `match.qnt`, linted by R15.
         assert!(
             out.iter()
                 .any(|m| m.contains("match.qnt law `swapCorrect` has no row")),
+            "{out:?}"
+        );
+    }
+
+    // --- intent-layer raw-surface laws + Rust warning/family-name copies (R16, R14) ---
+
+    /// An `intent_raw.qnt` slice: the real three-line `// Named invariants:`
+    /// header and its `// Apalache-marked` footer (verbatim, lines 49-53), plus
+    /// the real 16-pair `FAMILY_NAMES` mapping (lines 153-157). The header block
+    /// feeds `parse_raw_laws`; the mapping feeds `parse_raw_family_names`.
+    const RAW_QNT: &str = "\
+// Named invariants: parseOkWellFormed (surface-refusal law), acceptedSurvives
+//   (no-surprise law), nearMissRefusedByName (each near-miss refuses by name) —
+//   collected as intent/raw_alphabet.qnt `rawInvariants`, simulator-only.
+// Apalache-marked subset: none (the quantifier shape is measured in the parcel
+//   summary; the seal decision is upstream, per the compileLaws precedent).
+module intent_raw {
+  pure val FAMILY_NAMES: List[(str, Family)] = [
+    (\"dprc\", Dprc), (\"dpni\", Dpni), (\"dpmac\", Dpmac), (\"dpbp\", Dpbp),
+    (\"dpio\", Dpio), (\"dpcon\", Dpcon), (\"dpmcp\", Dpmcp), (\"dpseci\", Dpseci),
+    (\"dpsw\", Dpsw), (\"dpdmux\", Dpdmux), (\"dpaiop\", Dpaiop), (\"dpci\", Dpci),
+    (\"dpdcei\", Dpdcei), (\"dpdmai\", Dpdmai), (\"dprtc\", Dprtc), (\"dpdbg\", Dpdbg)]
+}";
+
+    /// The COVERAGE.md raw-surface-laws section (task 3.3e): a preamble line the
+    /// parser skips, then the real 4-row table. The `raw_conformance` row names
+    /// the Rust harness, and its underscore keeps it outside the leg.
+    const COV_RAW: &str = "\
+## Raw surface laws (task 3.3e)
+
+The `intent-layer` change's config-surface laws.
+
+| Law | Name | CI rung | Anchors / ties |
+|-----|------|---------|----------------|
+| Surface-refusal | parseOkWellFormed | simulate | ADR-0013 §2, §5; parse.rs convert |
+| No-surprise | acceptedSurvives | simulate | ADR-0013 §2; design D5 |
+| Near-miss-by-name | nearMissRefusedByName | simulate | ADR-0013 §5; parse.rs |
+| MBT-conformance | raw_conformance | itf-replay | ADR-0013 §2/§5; parse.rs |
+";
+
+    #[test]
+    fn parse_raw_laws_reads_the_three_named_laws() {
+        assert_eq!(
+            parse_raw_laws(RAW_QNT),
+            vec![
+                "parseOkWellFormed",
+                "acceptedSurvives",
+                "nearMissRefusedByName",
+            ]
+        );
+    }
+
+    #[test]
+    fn r16_passes_when_the_table_matches_the_model() {
+        let mut ok = Vec::new();
+        r16_raw_laws(RAW_QNT, COV_RAW, &mut ok);
+        assert!(ok.is_empty(), "{ok:?}");
+    }
+
+    #[test]
+    fn r16_flags_a_dropped_law_and_a_renamed_table_name() {
+        // COVERAGE drops the parseOkWellFormed row and renames
+        // nearMissRefusedByName → the missing-law findings plus the phantom
+        // table-name finding.
+        let cov_bad = COV_RAW
+            .replace(
+                "| Surface-refusal | parseOkWellFormed | simulate | ADR-0013 §2, §5; parse.rs convert |\n",
+                "",
+            )
+            .replace("nearMissRefusedByName", "nearMissRenamed");
+        let mut out = Vec::new();
+        r16_raw_laws(RAW_QNT, &cov_bad, &mut out);
+        assert!(
+            out.iter()
+                .any(|m| m.contains("intent_raw.qnt law `parseOkWellFormed` has no row")),
+            "{out:?}"
+        );
+        assert!(
+            out.iter()
+                .any(|m| m.contains("raw-surface-laws table lists `nearMissRenamed`")),
+            "{out:?}"
+        );
+        assert!(
+            out.iter()
+                .any(|m| m.contains("intent_raw.qnt law `nearMissRefusedByName` has no row")),
+            "{out:?}"
+        );
+    }
+
+    #[test]
+    fn r14_flags_warning_and_family_name_drift() {
+        // A refuse.qnt fixture whose Warning block adds a seeded third variant
+        // (the two real ones plus FutureWarning), and a Rust family-name list
+        // that drops `dpdbg` and adds `dpfoo` — both drifts, in memory.
+        let refuse_bad = REFUSE.replace(
+            "  type Warning =\n    | UnknownCeiling({ family: Family, needed: int })\n",
+            "  type Warning =\n    | UnknownCeiling({ family: Family, needed: int })\n    | UnmeasuredCombination({ tenant: str, rates: Set[int] })\n    | FutureWarning({ tenant: str })\n",
+        );
+        let refusals = ["TenantAbsent", "Reserved", "Infeasible"];
+        let families = ["Dprc", "Dpni", "Dpmac"];
+        let warnings = ["UnknownCeiling", "UnmeasuredCombination"]; // FutureWarning absent
+        let family_strs: Vec<&str> = dpaa2_api::ALL_FAMILIES
+            .iter()
+            .map(|f| f.as_str())
+            .filter(|s| *s != "dpdbg") // drop dpdbg
+            .chain(std::iter::once("dpfoo")) // add a phantom
+            .collect();
+        let mut out = Vec::new();
+        r14_rust_copies(
+            &refuse_bad,
+            TYPES,
+            RAW_QNT,
+            &refusals,
+            &families,
+            &warnings,
+            &family_strs,
+            &mut out,
+        );
+        assert!(
+            out.iter()
+                .any(|m| m.contains("Warning variant FutureWarning has no")),
+            "{out:?}"
+        );
+        assert!(
+            out.iter()
+                .any(|m| m.contains("as_str name dpfoo is absent")),
+            "{out:?}"
+        );
+        assert!(
+            out.iter()
+                .any(|m| m.contains("FAMILY_NAMES entry dpdbg has no")),
             "{out:?}"
         );
     }

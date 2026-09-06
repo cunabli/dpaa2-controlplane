@@ -344,6 +344,27 @@ pub enum Warning {
     },
 }
 
+/// The 2 `Warning` variant names, in declaration order — the Rust copy of the
+/// `refuse.qnt` warning vocabulary as a `&str` list the model lint can read
+/// (ADR-0014: an enumeration that restates the model is a linted copy, tied
+/// back to it by `intent_lint` R14). `Warning` is payload-carrying, so this
+/// list stands in, kept honest by the exhaustive `match` in [`Warning::name`].
+pub const WARNING_VARIANTS: [&str; 2] = ["UnknownCeiling", "UnmeasuredCombination"];
+
+impl Warning {
+    /// This variant's name, the same token [`WARNING_VARIANTS`] lists and the
+    /// ITF trace tag carries. The exhaustive `match` ties the list to the enum
+    /// (ADR-0014): a variant added, removed, or renamed forces this arm — and
+    /// so the adjacent list — to change.
+    #[must_use]
+    pub fn name(&self) -> &'static str {
+        match self {
+            Self::UnknownCeiling { .. } => "UnknownCeiling",
+            Self::UnmeasuredCombination { .. } => "UnmeasuredCombination",
+        }
+    }
+}
+
 /// A successful compile: the object plan and its non-fatal [`Warning`]s (design D5;
 /// `refuse.qnt` `Compiled::Ok`). The failing half is the complete refusal set
 /// [`compile`] returns as its `Err`, so the model's `Compiled` sum maps onto Rust's
@@ -904,6 +925,32 @@ mod tests {
         seen.sort_unstable();
         seen.dedup();
         assert_eq!(seen.len(), REFUSAL_VARIANTS.len(), "duplicate variant name");
+    }
+
+    /// The list and the enum name a warning variant the same way, and the list
+    /// is a duplicate-free 2 — the runtime half of the tie the exhaustive
+    /// [`Warning::name`] match makes at compile time (ADR-0014).
+    #[test]
+    fn warning_variants_match_the_enum() {
+        let samples = [
+            Warning::UnknownCeiling {
+                family: Family::Dpni,
+                needed: 1,
+            },
+            Warning::UnmeasuredCombination {
+                tenant: "t".into(),
+                rates: vec![10_000, 25_000],
+            },
+        ];
+        for s in &samples {
+            assert!(WARNING_VARIANTS.contains(&s.name()), "{}", s.name());
+        }
+
+        let mut seen = WARNING_VARIANTS.to_vec();
+        seen.sort_unstable();
+        seen.dedup();
+        assert_eq!(seen.len(), WARNING_VARIANTS.len(), "duplicate variant name");
+        assert_eq!(WARNING_VARIANTS.len(), 2);
     }
 }
 

@@ -541,20 +541,25 @@ fn edge(v: &Value) -> Result<PlainEdge, String> {
 
 fn warning(v: &Value) -> Result<Warning, String> {
     let p = &v["value"];
-    match tag(v)? {
-        "UnknownCeiling" => Ok(Warning::UnknownCeiling {
+    let t = tag(v)?;
+    let w = match t {
+        "UnknownCeiling" => Warning::UnknownCeiling {
             family: family(field(p, "family")?)?,
             needed: int64(field(p, "needed")?)?,
-        }),
+        },
         // `rates` is a model `Set[int]`; sorted matches the `BTreeSet`-derived
         // order the Rust compiler emits (the mapping-layer note). `UnknownRateClass`
         // below carries a `List[int]` instead, kept in declaration order.
-        "UnmeasuredCombination" => Ok(Warning::UnmeasuredCombination {
+        "UnmeasuredCombination" => Warning::UnmeasuredCombination {
             tenant: tname(field(p, "tenant")?)?,
             rates: ints_sorted(field(p, "rates")?)?,
-        }),
-        t => Err(format!("unknown warning `{t}`")),
-    }
+        },
+        t => return Err(format!("unknown warning `{t}`")),
+    };
+    // The decoder's tag vocabulary is `Warning::name()`'s (ADR-0014; lint R14):
+    // a decoded value must answer to the tag that built it.
+    debug_assert_eq!(w.name(), t);
+    Ok(w)
 }
 
 fn plain_ok(v: &Value) -> Result<PlainOk, String> {
@@ -750,4 +755,35 @@ pub fn parse_case(json: &str) -> Result<ReplayCase, String> {
         inv: inventory(field(state, "inv")?)?,
         outcome: outcome(field(state, "outcome")?)?,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Each of the two `Warning` decoder arms answers to the tag that built it —
+    /// the tie `Warning::name()` makes (ADR-0014; lint R14). No frozen trace
+    /// reaches a warning (synthesis PASS7 Q1), so this is the only exercise of
+    /// these arms; it fails if an arm's tag drifts from `name()`. The JSON is the
+    /// `{"tag", "value"}` shape the decoder reads, with `#bigint` ints and a
+    /// `#set` of rates, mirroring the field helpers (`family`, `int64`, `tname`,
+    /// `ints_sorted`).
+    #[test]
+    fn warning_decoder_answers_to_name() {
+        let cases = [
+            (
+                "UnknownCeiling",
+                r##"{"tag":"UnknownCeiling","value":{"family":{"tag":"Dpni"},"needed":{"#bigint":"3"}}}"##,
+            ),
+            (
+                "UnmeasuredCombination",
+                r##"{"tag":"UnmeasuredCombination","value":{"tenant":"router","rates":{"#set":[{"#bigint":"10000"},{"#bigint":"25000"}]}}}"##,
+            ),
+        ];
+        for (tag, json) in cases {
+            let v: Value = serde_json::from_str(json).expect("valid ITF json");
+            let w = warning(&v).expect("decodes");
+            assert_eq!(w.name(), tag);
+        }
+    }
 }
