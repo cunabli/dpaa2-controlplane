@@ -1016,12 +1016,12 @@ mod compile_tests {
     fn knl(name: &str) -> Tenant {
         tenant(name, Dataplane::KernelNetlink, 16, Isolation::Isolated, "")
     }
-    fn port(name: &str, dpmac: u32, rate: i64, owner: &str) -> Port {
+    fn port(name: &str, dpmac: u32, rate: i64, tenant: &str) -> Port {
         Port {
             name: name.into(),
             dpmac: DpmacId::new(dpmac),
             rate,
-            tenant: owner.into(),
+            tenant: tenant.into(),
             mac: None,
             mac_mode: crate::model::MacMode::Assert,
             renamed: None,

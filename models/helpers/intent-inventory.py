@@ -2,7 +2,7 @@
 """Emit the reference board's inventory as a Quint value (intent-layer task 1.1, gqf.4).
 
 What: the intent compiler takes two inputs, the operator's intent and the
-hardware's offer (design D2 of openspec/changes/intent-layer). This script
+hardware's offer (design D2 of openspec/changes/archive/2026-09-06-intent-layer). This script
 reads the change-#2 board snapshot (models/board/baselines/reference.json —
 every dpmac's `dpmac info` attributes and the container's pool listing) and
 writes models/intent/inventory.qnt: one `Inventory` value the model and the
