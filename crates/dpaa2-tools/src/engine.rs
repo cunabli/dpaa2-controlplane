@@ -172,8 +172,12 @@ pub fn apply<M: McControl, K: KernelControl>(
 
     for t in &plan.transitions {
         match t {
-            Transition::Create { port, label } => {
-                let id = mc.create_dpni(label)?;
+            Transition::Create {
+                port,
+                label,
+                num_queues,
+            } => {
+                let id = mc.create_dpni(label, *num_queues)?;
                 created.insert(*port, id);
                 tracing::info!(%port, %id, %label, "created dpni");
             }

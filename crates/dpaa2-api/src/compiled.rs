@@ -449,6 +449,24 @@ impl CompiledPlan {
         }
         summary
     }
+
+    /// The compiled transmit-queue count of the dpni terminating the port anchored
+    /// at `dpmac`, or `None` when the plan has no such port-edge. This is the one
+    /// sizing authority `reconcile` carries into `Transition::Create` so `ensure`
+    /// executes exactly what dry-run rendered (synthesis L2/B3).
+    #[must_use]
+    pub fn port_dpni_num_queues(&self, dpmac: DpmacId) -> Option<u32> {
+        let key = self.edges.iter().find_map(|e| {
+            e.port_edge_dpni()
+                .filter(|&(_, m)| m == dpmac)
+                .map(|(key, _)| key)
+        })?;
+        let obj = self.objects.iter().find(|o| o.key() == key)?;
+        match obj.attributes() {
+            Attributes::Dpni { num_queues } => Some(*num_queues),
+            _ => None,
+        }
+    }
 }
 
 /// The child-DPRC option mask restool creates by default, verified on the reference

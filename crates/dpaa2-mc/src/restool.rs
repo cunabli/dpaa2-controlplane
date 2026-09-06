@@ -120,8 +120,10 @@ impl<R: Runner> RestoolMc<R> {
         }
     }
 
-    /// Overrides the DPNI queue count (and thus the private DPCON count). Clamped to
-    /// the core count, mirroring `ls-addni` (`num_dpcons = min(num_queues, nproc)`).
+    /// Overrides the host-derived fallback queue count — used only when a `Create`
+    /// carries the unsized marker (`num_queues == 0`); a compiled nonzero value is
+    /// honored exactly and never overridden here. Clamped to the core count, mirroring
+    /// `ls-addni` (`num_dpcons = min(num_queues, nproc)`).
     #[must_use]
     pub fn with_queues(mut self, queues: usize) -> Self {
         self.queues = queues.clamp(1, self.cores);
@@ -136,9 +138,10 @@ impl<R: Runner> RestoolMc<R> {
         self
     }
 
-    /// The number of private DPCONs a DPNI needs: `min(queues, cores)`.
-    fn num_dpcons(&self) -> usize {
-        self.queues.clamp(1, self.cores)
+    /// The number of private DPCONs a DPNI with `queues` transmit queues needs:
+    /// `min(queues, cores)`, mirroring `ls-addni` (`num_dpcons = min(num_queues, nproc)`).
+    fn num_dpcons(&self, queues: usize) -> usize {
+        queues.clamp(1, self.cores)
     }
 
     /// `restool --script <type> create …` then plug the result into the container,
@@ -219,7 +222,7 @@ impl<R: Runner> RestoolMc<R> {
     /// them the driver fails with "No more resources of type dpcon left". A plain
     /// data builder; [`Self::provision_chain`] does the actual creation and any
     /// rollback.
-    fn dpni_dep_steps(&self) -> Vec<ProvisionStep> {
+    fn dpni_dep_steps(&self, queues: usize) -> Vec<ProvisionStep> {
         let container = format!("--container={}", self.container);
         let mut steps = vec![
             ProvisionStep {
@@ -241,7 +244,7 @@ impl<R: Runner> RestoolMc<R> {
                 ],
             },
         ];
-        for _ in 0..self.num_dpcons() {
+        for _ in 0..self.num_dpcons(queues) {
             steps.push(ProvisionStep {
                 kind: "dpcon",
                 args: vec![
@@ -454,7 +457,16 @@ impl<R: Runner> McControl for RestoolMc<R> {
         })
     }
 
-    fn create_dpni(&self, label: &ConstructName) -> Result<DpniId, Error> {
+    fn create_dpni(&self, label: &ConstructName, num_queues: u32) -> Result<DpniId, Error> {
+        // The compiled sizing is honored exactly (synthesis L2/B3): a nonzero
+        // `num_queues` is written verbatim, never re-derived; 0 (the unsized port-only
+        // projection) falls back to the host-derived default `self.queues`. The private
+        // DPCON count follows the same effective count (`ls-addni` min(num_queues, nproc)).
+        let queues = if num_queues == 0 {
+            self.queues
+        } else {
+            num_queues as usize
+        };
         // A DPNI is not usable alone: `dpaa2-eth` allocates a DPBP, a DPMCP, and one
         // DPCON per queue from the container's pool at probe, backed by a per-core
         // DPIO pool. These must exist first (mirrors `ls-addni`'s create_dpni).
@@ -465,9 +477,11 @@ impl<R: Runner> McControl for RestoolMc<R> {
         // attempt never leaves orphaned private objects plugged in the container. The
         // whole chain wears `label`, the owning construct's name (ADR-0015 decision 9).
         self.ensure_dpio(label)?;
-        self.provision_chain(&self.dpni_dep_steps(), label, |this| {
-            let queues = format!("--num-queues={}", this.queues);
-            let out = this.runner.run(&["--script", "dpni", "create", &queues])?;
+        self.provision_chain(&self.dpni_dep_steps(queues), label, |this| {
+            let queues_arg = format!("--num-queues={queues}");
+            let out = this
+                .runner
+                .run(&["--script", "dpni", "create", &queues_arg])?;
             let id = parse::parse_dpni_object_id(&out).ok_or_else(|| {
                 Error::Parse(format!("could not parse created dpni id from `{out}`"))
             })?;

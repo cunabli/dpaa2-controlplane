@@ -63,6 +63,10 @@ pub enum Transition {
         /// unlabelled (ADR-0010 §4 ABA guard). The name IS the label, byte-for-byte
         /// (decision 13).
         label: ConstructName,
+        /// The compiled transmit-queue sizing (`Attributes::Dpni`) carried so the shim
+        /// never re-derives it; 0 = unsized port-only projection, the backend falls
+        /// back to its host-derived default (synthesis L2/B3).
+        num_queues: u32,
     },
     /// Connect the port's DPNI to its DPMAC (single edge).
     Connect {
@@ -258,6 +262,7 @@ mod tests {
                 Transition::Create {
                     port: DpmacId::new(7),
                     label: "wan0".into(),
+                    num_queues: 0,
                 },
             ],
             ..Plan::new()

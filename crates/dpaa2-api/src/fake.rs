@@ -186,7 +186,11 @@ impl McControl for FakeBackend {
         Ok(self.state.borrow().inventory.clone())
     }
 
-    fn create_dpni(&self, label: &crate::types::ConstructName) -> Result<DpniId, Error> {
+    fn create_dpni(
+        &self,
+        label: &crate::types::ConstructName,
+        _num_queues: u32,
+    ) -> Result<DpniId, Error> {
         let mut st = self.state.borrow_mut();
         let id = DpniId::new(st.next_index);
         st.next_index += 1;

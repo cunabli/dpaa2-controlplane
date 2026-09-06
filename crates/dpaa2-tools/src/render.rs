@@ -17,7 +17,10 @@ use dpaa2_api::{
 
 /// Renders the whole dry-run text: the compiled objects with their provenance trees
 /// and edges, the transitions `reconcile` would execute, the plan-only report, and
-/// any warnings (design D9/D10). This is the exact plan `ensure` executes, printed.
+/// any warnings (design D9/D10). This is the exact plan `ensure` executes, printed —
+/// including the compiled `num_queues` each Create carries; a Create showing
+/// `num_queues: 0` is the unsized port-only projection, which the backend sizes from the
+/// host at execute time (synthesis L2/B3).
 #[must_use]
 pub fn render_dry_run(
     plan: &CompiledPlan,

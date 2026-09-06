@@ -86,6 +86,9 @@ fn hand_built_plan_reconciles_and_locks_relationships() {
             Transition::Create {
                 port: DpmacId::new(7),
                 label: "lan0".into(),
+                // The hand-built dpni is sized at 4 (see `kernel.dpni(1, 4, ..)`), and
+                // `reconcile` carries that compiled count into the Create.
+                num_queues: 4,
             },
             Transition::Connect {
                 port: DpmacId::new(7)

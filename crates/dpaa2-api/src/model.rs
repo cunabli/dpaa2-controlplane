@@ -387,8 +387,8 @@ impl DesiredTopology {
     /// it terminates (design D10; the port-only projection).
     pub fn push(&mut self, port: DesiredPort) {
         let ordinal = u32::try_from(self.ports.len() + 1).unwrap_or(u32::MAX);
-        // ponytail: num_queues 0 in the port-only projection — real sizing is the
-        // compiler's (task 3.2); reconcile reads it from `ports`, not the plan.
+        // ponytail: num_queues 0 in the port-only projection — the unsized marker the
+        // shim maps to its host-derived default; real sizing is the compiler's (task 3.2).
         let kernel = kernel_tenant(0);
         // The kernel dpni serves this port; its name is the label (ADR-0015 decision 13).
         let (dpni, iface) = kernel.dpni(ordinal, 0, port.name.clone());

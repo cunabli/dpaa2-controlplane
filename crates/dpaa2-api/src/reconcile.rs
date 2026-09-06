@@ -47,7 +47,13 @@ pub fn reconcile_with(
 
     for port in desired.ports() {
         match port.presence {
-            Presence::Present => plan_present(port, observed, &mut plan),
+            Presence::Present => {
+                // The one sizing authority: the compiled dpni's queue count, carried
+                // into Create so the shim never re-derives it (synthesis L2/B3). 0 = the
+                // unsized port-only projection, which the backend sizes from the host.
+                let num_queues = desired.plan().port_dpni_num_queues(port.dpmac).unwrap_or(0);
+                plan_present(port, observed, num_queues, &mut plan);
+            }
             Presence::Absent => plan_absent(port, observed, options, &mut plan),
         }
     }
@@ -56,7 +62,7 @@ pub fn reconcile_with(
 }
 
 /// Plans convergence for a port the operator wants present.
-fn plan_present(port: &DesiredPort, observed: &ObservedTopology, plan: &mut Plan) {
+fn plan_present(port: &DesiredPort, observed: &ObservedTopology, num_queues: u32, plan: &mut Plan) {
     let link_type = observed
         .dpmac(port.dpmac)
         .map_or(LinkType::Phy, |m| m.link_type);
@@ -69,6 +75,7 @@ fn plan_present(port: &DesiredPort, observed: &ObservedTopology, plan: &mut Plan
         plan.transitions.push(Transition::Create {
             port: port.dpmac,
             label: port.name.clone(),
+            num_queues,
         });
         if port.mac_mode == MacMode::Actuate
             && let Some(mac) = port.mac
@@ -245,6 +252,7 @@ mod tests {
                 Transition::Create {
                     port: DpmacId::new(3),
                     label: "wan0".into(),
+                    num_queues: 0,
                 },
                 Transition::Connect {
                     port: DpmacId::new(3)
@@ -273,6 +281,7 @@ mod tests {
                 Transition::Create {
                     port: DpmacId::new(3),
                     label: "wan0".into(),
+                    num_queues: 0,
                 },
                 Transition::SetMac {
                     port: DpmacId::new(3),
@@ -285,6 +294,39 @@ mod tests {
                     port: DpmacId::new(3)
                 },
             ]
+        );
+    }
+
+    #[test]
+    fn create_carries_the_compiled_num_queues() {
+        // A sized compiled plan (num_queues=5) is carried verbatim into the Create, so
+        // `ensure` executes exactly what dry-run rendered (synthesis L2/B3) — unlike the
+        // port-only projection above, whose Create is the unsized 0.
+        use crate::compiled::CompiledPlan;
+        use crate::intent::kernel_tenant;
+
+        let kernel = kernel_tenant(5);
+        let (obj, iface) = kernel.dpni(1, 5, "wan0".into());
+        let mut compiled = CompiledPlan::default();
+        compiled.order.push(obj.key().clone());
+        compiled.objects.insert(obj);
+        compiled.edges.insert(iface.into_port_edge(DpmacId::new(3)));
+
+        let desired =
+            DesiredTopology::from_parts(compiled, vec![DesiredPort::new(DpmacId::new(3), "wan0")])
+                .expect("plan port-edge and port agree on dpmac.3");
+        let observed = ObservedTopology {
+            dpnis: vec![],
+            dpmacs: vec![phy(3, MAC_3)],
+        };
+        let plan = reconcile(&desired, &observed);
+        assert_eq!(
+            plan.transitions[0],
+            Transition::Create {
+                port: DpmacId::new(3),
+                label: "wan0".into(),
+                num_queues: 5,
+            }
         );
     }
 
@@ -572,8 +614,10 @@ mod tests {
             }
             for t in &plan.transitions {
                 match t {
-                    Transition::Create { label, .. } => {
-                        let id = backend.create_dpni(label).unwrap();
+                    Transition::Create {
+                        label, num_queues, ..
+                    } => {
+                        let id = backend.create_dpni(label, *num_queues).unwrap();
                         backend.connect(id, DpmacId::new(3)).unwrap();
                     }
                     Transition::Connect { .. } | Transition::Bind { .. } => {}

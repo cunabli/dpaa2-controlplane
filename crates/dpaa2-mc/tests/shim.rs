@@ -105,8 +105,10 @@ fn observe_composes_show_info_calls_into_topology() {
 fn create_provisions_private_deps_then_creates_dpni_unplugged() {
     // Pin cores=queues=1 so the sequence is bounded and deterministic.
     let mc = RestoolMc::with_runner(RecordingRunner::new(), "dprc.1").with_cores(1);
+    // 0 = the unsized port-only projection, so the shim falls back to its host-derived
+    // default (here `queues == cores == 1`), keeping this determinism assertion unchanged.
     let id = mc
-        .create_dpni(&ConstructName::from("wan0"))
+        .create_dpni(&ConstructName::from("wan0"), 0)
         .expect("create");
     assert_eq!(id, DpniId::new(7));
 
@@ -179,7 +181,7 @@ fn create_rolls_back_deps_when_dpni_create_fails() {
     let mc =
         RestoolMc::with_runner(FailingRunner::new(("--script", "dpni")), "dprc.1").with_cores(1);
     let err = mc
-        .create_dpni(&ConstructName::from("wan0"))
+        .create_dpni(&ConstructName::from("wan0"), 0)
         .expect_err("dpni create fails");
     assert!(matches!(err, dpaa2_api::Error::Backend(_)));
 
@@ -198,7 +200,7 @@ fn create_rolls_back_deps_when_dpni_create_fails() {
 fn create_tops_up_dpio_pool_idempotently() {
     // DPRC_SHOW has no dpio; with cores=2 the shim creates two DPIOs (+companion mcp).
     let mc = RestoolMc::with_runner(RecordingRunner::new(), "dprc.1").with_cores(2);
-    mc.create_dpni(&ConstructName::from("wan0"))
+    mc.create_dpni(&ConstructName::from("wan0"), 0)
         .expect("create");
     let calls = mc.runner_calls();
     let dpio_creates = calls
@@ -209,6 +211,41 @@ fn create_tops_up_dpio_pool_idempotently() {
         })
         .count();
     assert_eq!(dpio_creates, 2, "topped up to the core count");
+}
+
+#[test]
+fn create_honors_compiled_num_queues_over_host_derivation() {
+    // The acceptance anchor (synthesis L2/B3): cores=16 would derive 16 queues, but a
+    // Create carrying the compiled num_queues=5 pins `--num-queues=5` and five private
+    // dpcons — the compiled attribute is honored exactly, not re-derived from the host.
+    let mc = RestoolMc::with_runner(RecordingRunner::new(), "dprc.1").with_cores(16);
+    mc.create_dpni(&ConstructName::from("wan0"), 5)
+        .expect("create");
+    let calls = mc.runner_calls();
+
+    let dpni_create = calls
+        .iter()
+        .find(|c| {
+            c.first().map(String::as_str) == Some("--script")
+                && c.get(1).map(String::as_str) == Some("dpni")
+        })
+        .expect("dpni created");
+    assert!(
+        dpni_create.iter().any(|a| a == "--num-queues=5"),
+        "compiled num_queues honored exactly, not host-derived"
+    );
+
+    let dpcon_creates = calls
+        .iter()
+        .filter(|c| {
+            c.first().map(String::as_str) == Some("--script")
+                && c.get(1).map(String::as_str) == Some("dpcon")
+        })
+        .count();
+    assert_eq!(
+        dpcon_creates, 5,
+        "one dpcon per compiled queue (min(5, cores))"
+    );
 }
 
 #[test]

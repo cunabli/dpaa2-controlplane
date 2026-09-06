@@ -92,6 +92,9 @@ fn deltas(prev: &ModelView, next: &ModelView, port: u32) -> Option<Transition> {
                 return Some(Transition::Create {
                     port: anchor,
                     label: ConstructName::from(RETRO_PORT_NAME),
+                    // The retro traces replay the port-only projection, whose plan facet
+                    // is unsized (0), matching what `reconcile` emits for a `from_ports`.
+                    num_queues: 0,
                 });
             }
             Some(p) => {
