@@ -12,6 +12,10 @@ change series that consumes this map is sequenced in
 ADR-0003 (board envelope) and ADR-0006 (single-initiating-writer) under
 [../adr/](../adr/).
 
+The intent layer (ADR-0013/ADR-0015) compiles constructs onto this map;
+where this document says *regime* or *consumer*, the intent vocabulary
+spells the operator-facing selector `dataplane` (ADR-0013:71).
+
 ## 1. Containment: the DPRC tree
 
 Every object lives in exactly one DPRC at a time. The tree on the

@@ -72,8 +72,9 @@ dpio = 2
 ```
 
 From this the compiler derives the router's child DPRC, its dpni per port, its
-companion pool (dpio, dpbp, dpcon, dpmcp) sized by the poll-mode regime and thread
-count, one dpseci sized to `flows`, and the kernel-terminated `mgmt` port — or, if a
+companion pool (dpio, dpbp, dpcon, dpmcp) sized by the poll-mode dataplane's
+ADR-0012 draw and thread count, one dpseci sized to `flows`, and the
+kernel-terminated `mgmt` port — or, if a
 request cannot fit the board, the complete list of refusals naming each one. The full
 vocabulary, its derived quantities, and its refusals are
 [ADR-0013](docs/adr/0013-accepted-intent-vocabulary.md).

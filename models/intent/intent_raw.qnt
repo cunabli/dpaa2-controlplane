@@ -129,6 +129,7 @@ module intent_raw {
   // cannot dedupe, a self-loop link, a fabric member string that classifies to
   // nothing (compile's MemberUnresolved carries an already-classified `Member`,
   // so it cannot name an unclassifiable string), and an unknown extra family.
+  // The vocabulary graduates to ADR-0013 §5 + R14 when dpaa2-config exposes a typed parse-error enum.
   type RawRefusal =
     | FromCompile(Refusal)                                // TenantAbsent / PoolWithoutRestricted / RestrictedWithoutPool
     | ReservedKernel({ name: str })                       // [tenant.kernel] declares the reserved name (parse.rs convert)

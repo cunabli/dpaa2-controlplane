@@ -11,7 +11,11 @@
   ceilings the census can see);
   `docs/baseline/dpio.md`, `docs/baseline/dpbp.md`,
   `docs/baseline/dpmcp.md`, `docs/baseline/dpni.md`,
-  `docs/baseline/object-model.md` §4 (allocation pools: sizing couplings)
+  `docs/baseline/object-model.md` §4 (allocation pools: sizing couplings);
+  elaborated by ADR-0013 (the intent vocabulary spells the operator-facing
+  selector `dataplane`; if this record's draws ever change, ADR-0013 §4's
+  pricing follows in the same change); ADR-0015 (the name-keyed identity
+  the intent surface rests on)
 
 ## Context
 

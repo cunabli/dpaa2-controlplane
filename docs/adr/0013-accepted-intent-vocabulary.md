@@ -414,7 +414,9 @@ INTENT_I1–I10); the Rust type surface (task 3.1) transcribes what they prove.
   request is exactly `companionDraw`'s field (drawCpus 0 for a child-resident
   namespace, online CPUs for the root kernel), every dpni carries ≥ T
   (poll-mode) or exactly `cpus` (kernel) transmit queues, and every object of
-  a tenant lives in that tenant's container.
+  a tenant lives in that tenant's container. The id deliberately carries
+  ADR-0012's pricing term *regime* — the model records the bridge at
+  `types.qnt:35-37`.
 - **INTENT_I9 `isolatedContainerPrivate`** — an isolated tenant's objects live
   only in its own child dprc, and no other tenant's objects appear there; a
   holder must be public, so an isolated container is never a pool target.
@@ -509,12 +511,12 @@ asserting the derived plan (design D8); numbers are the model's.
 - This record's enumerations — the 24 refusal variants (§5), INTENT_I1–I10
   (§6), and the five scenarios (§7) — are hand-maintained copies of what
   `models/intent/*.qnt` states, and copies drift (the `COVERAGE.md` narrative
-  drifted exactly this way across tasks 2.6b/2.6c until 2.6d caught it). They
-  are slated for the `dpaa2-verify` ledger lint — the design-D9 cross-check of
-  the archived `verify-foundation` change — in phase 3, tracked as bead
-  `dpaa2-controlplane-gqf.34`, alongside the `.qnt`/`.toml` pairing test the
-  scenario files already promise (task 3.4). Until that lands, the models are
-  the source of truth and this record is the reader's copy.
+  drifted exactly this way across tasks 2.6b/2.6c until 2.6d caught it). The
+  `dpaa2-verify` ledger lint — the design-D9 cross-check of the archived
+  `verify-foundation` change — now holds them: R11 checks the §5 refusal
+  vocabulary, R12 the §6 invariants, R13 the scenario `.qnt`/`.toml` pairing
+  (task 3.4), and R14 the Rust domain copies (task 5.1). The models remain
+  the source of truth and this record is the reader's linted copy.
 
 ## 8. Open questions — decided at gate close (2026-09-02)
 

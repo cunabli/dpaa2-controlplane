@@ -1,7 +1,7 @@
 # ADR-0005: Intent layer — network constructs compile to MC objects
 
 - **Status:** Accepted — scoping session 2026-08-22; elaborated in place by
-  ADR-0013 (2026-09-02); amendment sealed 2026-09-05 with OpenSpec change
+  ADR-0013 (2026-09-02); amendment sealed 2026-09-06 with OpenSpec change
   `intent-layer` delivered
 - **Date:** 2026-08-22
 - **Supersedes / relates to:** OpenSpec change `restool-baseline` (design D7);
