@@ -35,7 +35,7 @@ use serde_json::Value;
 ///
 /// The domain type is [`dpaa2_api::Family`], not a sibling copy: one Rust
 /// transcription of `models/core/types.qnt`, tied to the model by `intent_lint`
-/// R14 (ADR-0014, ADR-0013 §5). This adapter keeps only the ITF/serde plumbing
+/// R14 (ADR-0014; `models/intent/types.qnt` `Family`). This adapter keeps only the ITF/serde plumbing
 /// that stays local because `dpaa2-api` carries no serde (design D10): the
 /// variant-name serde (`family_serde`), the ITF-tag and restool-name parsers
 /// (`family_from_tag`, `family_from_str`).
@@ -44,9 +44,7 @@ pub use dpaa2_api::Family;
 /// The family whose `variant_name` is `tag` — the ITF constructor tag
 /// (`"Dpni"`, `"Dprc"`, …), the same token the batch plan serialises.
 fn family_from_variant(tag: &str) -> Option<Family> {
-    dpaa2_api::ALL_FAMILIES
-        .into_iter()
-        .find(|f| f.variant_name() == tag)
+    crate::itf::family_of_tag(tag)
 }
 
 /// Parses the ITF constructor tag (`"Dpni"`, `"Dprc"`, …).

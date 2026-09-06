@@ -13,7 +13,10 @@
 //!
 //! 1. a free-standing companion — only [`Tenant::companion`] emits one;
 //! 2. a dpmac at a link end — [`Link::wire`] takes [`Interface`], never an [`AttachPoint`];
-//! 3. a double connect — an [`Interface`] is consumed when it is wired;
+//! 3. re-wiring one interface handle — an [`Interface`] is moved when it is wired, so
+//!    the same handle cannot be wired twice (plan-wide single connect is the runtime
+//!    invariant `INTENT_I2`, not this type lock: [`Interface::attach_point`] re-mints a
+//!    fresh [`AttachPoint`] view on demand);
 //! 4. a tenant's object in the root dprc — [`Tenant::companion`]/[`Tenant::dpni`]
 //!    place in the tenant's own [`Container::Child`], and no witness places one in
 //!    [`Container::Root`].
@@ -335,7 +338,11 @@ impl Interface {
         &self.key
     }
 
-    /// The connect endpoint this interface presents (non-consuming view).
+    /// The connect endpoint this interface presents — a non-consuming view, re-minted
+    /// from `&self` on each call. Only [`into_port_edge`](Self::into_port_edge) and
+    /// [`Link::wire`]/[`Fabric::wire`] consume the handle, so the type lock stops one
+    /// *handle* from being wired twice; plan-wide single connect stays the runtime
+    /// invariant `INTENT_I2`, not a type guarantee.
     #[must_use]
     pub fn attach_point(&self) -> AttachPoint {
         AttachPoint::Object {

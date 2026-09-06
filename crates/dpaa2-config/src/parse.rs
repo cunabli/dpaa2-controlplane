@@ -250,7 +250,8 @@ fn convert(raw: &RawIntent) -> Result<Intent, Error> {
     let crypto = raw
         .crypto
         .iter()
-        .map(|k| convert_crypto(k, &tenant_names))
+        .enumerate()
+        .map(|(i, k)| convert_crypto(i + 1, k, &tenant_names))
         .collect::<Result<Vec<_>, _>>()?;
 
     let names = &tenant_names;
@@ -366,6 +367,9 @@ fn convert_tenant(name: &TenantName, t: &RawTenant) -> Result<Tenant, Error> {
         RawIsolation::Isolated => Isolation::Isolated,
     };
     let pool = t.pool.clone().unwrap_or_else(|| "".into());
+    // `compile` also refuses these (`RestrictedWithoutPool`, `PoolWithoutRestricted`);
+    // the config duplicates the pool/restricted checks deliberately — a dedup would
+    // silently break raw-conformance.
     if isolation == Isolation::Restricted && pool.is_empty() {
         return Err(cfg(format!(
             "tenant `{name}` is `restricted` but names no `pool` holder"
@@ -437,6 +441,8 @@ fn convert_port(
     };
     // A port with no tenant belongs to the reserved kernel (topology-config spec).
     let tenant = p.tenant.clone().unwrap_or_else(|| TenantName::from(KERNEL));
+    // `compile` also refuses this (`TenantAbsent`); the config duplicates the check
+    // deliberately — a dedup would silently break raw-conformance.
     if !resolves(&tenant, tenants) {
         return Err(cfg(format!(
             "port `{name}` names tenant `{tenant}`, which is not declared"
@@ -462,6 +468,8 @@ fn convert_link(
     reject_counts(&format!("link `{name}`"), counts_of!(l))?;
     let interface_a = l.interface_a.clone();
     let interface_b = l.interface_b.clone();
+    // `compile` also refuses this (`TenantAbsent`); the config duplicates the check
+    // deliberately — a dedup would silently break raw-conformance.
     for end in [&interface_a, &interface_b] {
         if !resolves(end, tenants) {
             return Err(cfg(format!(
@@ -493,6 +501,8 @@ fn convert_fabric(
     let name = name.clone();
     reject_counts(&format!("fabric `{name}`"), counts_of!(f))?;
     let forwarded_by = f.forwarded_by.clone();
+    // `compile` also refuses this (`TenantAbsent`); the config duplicates the check
+    // deliberately — a dedup would silently break raw-conformance.
     if !resolves(&forwarded_by, tenants) {
         return Err(cfg(format!(
             "fabric `{name}` is forwarded by tenant `{forwarded_by}`, which is not declared"
@@ -518,7 +528,9 @@ fn convert_fabric(
 
 /// Resolves a fabric member name to a declared port, tenant, or fabric (design D1;
 /// the [`Member`] enum). A name matching none is refused. Ports are checked first, so
-/// a member is a port where one exists.
+/// a member is a port where one exists. `compile` also refuses an unresolved member
+/// (`MemberUnresolved`); this config check duplicates it deliberately — a dedup would
+/// silently break raw-conformance.
 fn classify_member(
     fabric: &ConstructName,
     raw_member: &ConstructName,
@@ -542,12 +554,20 @@ fn classify_member(
     }
 }
 
-fn convert_crypto(k: &RawCrypto, tenants: &HashSet<TenantName>) -> Result<Crypto, Error> {
+/// Converts one `[[crypto]]` block into a neutral [`Crypto`]. A crypto block has no
+/// name, so `index` — its 1-based declaration position, which is the dpseci ordinal it
+/// mints (intent-layer design d4, task 2.6e) — names the offending block in an error
+/// the array cannot otherwise point at.
+fn convert_crypto(
+    index: usize,
+    k: &RawCrypto,
+    tenants: &HashSet<TenantName>,
+) -> Result<Crypto, Error> {
     let tenant = k.tenant.clone();
-    reject_counts("`[[crypto]]`", counts_of!(k))?;
+    reject_counts(&format!("`[[crypto]]` #{index}"), counts_of!(k))?;
     if !resolves(&tenant, tenants) {
         return Err(cfg(format!(
-            "`[[crypto]]` names tenant `{tenant}`, which is not declared"
+            "`[[crypto]]` #{index} names tenant `{tenant}`, which is not declared"
         )));
     }
     Ok(Crypto {

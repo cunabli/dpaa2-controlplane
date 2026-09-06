@@ -1176,7 +1176,7 @@ fn r11_refusals(
 
 /// R12: the plan invariants agree across `invariants.qnt` (truth) and its two
 /// copies — ADR-0013 §6 and `COVERAGE.md`'s intent-invariants section — by id
-/// and name, each checked both ways. Since task 5.1 the ledger carries one row
+/// and name, each checked both ways. Since intent-layer task 5.1 the ledger carries one row
 /// per invariant tying it to its baseline anchors (`invariants.qnt`
 /// header); this leg keeps that copy from drifting from the model the same way
 /// the ADR §6 leg does.
@@ -1400,7 +1400,7 @@ fn parse_coverage_laws(section: &str) -> Vec<String> {
 /// its COVERAGE copy — the "Identity-across-time laws" table — by name, checked
 /// both ways. A law the model names and the table forgets, or a table name the
 /// model does not name, fails here; the same design-D9 mechanism R12 applies to
-/// the plan invariants (task 6.4).
+/// the plan invariants (intent-layer task 6.4).
 fn r15_identity_laws(match_qnt: &str, coverage_md: &str, out: &mut Vec<String>) {
     let model = parse_match_laws(match_qnt);
     let table = parse_coverage_laws(&md_section(coverage_md, "## Identity-across-time laws"));

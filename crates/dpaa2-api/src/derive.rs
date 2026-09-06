@@ -482,7 +482,6 @@ struct Sizing {
     effective_dpmcp: EffectiveDemand,
     effective_dpcon: EffectiveDemand,
     num_dpseci: i64,
-    num_dpsw: i64,
 }
 
 /// Companion draws by reference to ADR-0012 (`companions.qnt`). Poll-mode: dpio 2·T,
@@ -543,7 +542,6 @@ fn size_tenant(intent: &Intent, inv: &Inventory, c: &Tenant) -> Sizing {
         effective_dpmcp: effective(intent, &nm, Family::Dpmcp, req_dpmcp),
         effective_dpcon: effective(intent, &nm, Family::Dpcon, req_dpcon),
         num_dpseci,
-        num_dpsw,
     }
 }
 
@@ -579,49 +577,69 @@ fn tenant_by_name<'a>(tenants: &'a [Tenant], name: &TenantName) -> Option<&'a Te
     tenants.iter().find(|t| &t.name == name)
 }
 
-// ---- objects (through the witness constructors) ----
+// ---- objects and emission order (through the witness constructors;
+//      object-model.md §5 step 1) ----
+//
+// One walk builds both facets: it inserts each `PlannedObject` and, in the same
+// step, appends its `ObjectKey` to `order`. Keeping them in a single pass is what
+// keeps the emission order in lockstep with the objects it orders — the two can no
+// longer be edited out of sync.
 
-fn emit_companions(t: &Tenant, fam: Family, value: i64, objects: &mut BTreeSet<PlannedObject>) {
+fn emit_companions(
+    t: &Tenant,
+    fam: Family,
+    value: i64,
+    objects: &mut BTreeSet<PlannedObject>,
+    order: &mut Vec<ObjectKey>,
+) {
     if value >= 1 {
         for ord in 1..=value {
             objects.insert(t.companion(fam, u(ord)));
+            order.push(ObjectKey::new(t.name.clone(), fam, u(ord)));
         }
     }
 }
 
-fn build_tenant_objects(
+fn build_tenant(
     t: &Tenant,
     s: &Sizing,
     intent: &Intent,
     objects: &mut BTreeSet<PlannedObject>,
+    order: &mut Vec<ObjectKey>,
 ) {
     // A child DPRC for every tenant that owns one (design D6): an isolated tenant or
     // a public holder; the reserved kernel and a restricted drawer own none.
     if !(s.is_root_kernel || s.is_restricted) {
         objects.insert(t.child_dprc());
+        order.push(ObjectKey::new(t.name.clone(), Family::Dprc, 1));
     }
     // Emission-order families: dpio before dpmcp (ADR-0012), then dpbp, dpcon.
-    emit_companions(t, Family::Dpio, s.effective_dpio.value, objects);
-    emit_companions(t, Family::Dpmcp, s.effective_dpmcp.value, objects);
-    emit_companions(t, Family::Dpbp, s.effective_dpbp.value, objects);
-    emit_companions(t, Family::Dpcon, s.effective_dpcon.value, objects);
+    emit_companions(t, Family::Dpio, s.effective_dpio.value, objects, order);
+    emit_companions(t, Family::Dpmcp, s.effective_dpmcp.value, objects, order);
+    emit_companions(t, Family::Dpbp, s.effective_dpbp.value, objects, order);
+    emit_companions(t, Family::Dpcon, s.effective_dpcon.value, objects, order);
     // one dpni per origin, all sharing the tenant's queue count; the origin's
     // construct is the dpni's MC label (ADR-0015 decisions 9+13). Position + 1 is the
-    // ordinal (`s.dpnis == origin_list(...).len()` by construction), so emission order
-    // is unchanged.
+    // ordinal (`s.dpnis == origin_list(...).len()` by construction), so the order keys
+    // run 1..=s.dpnis exactly as before.
     for (pos, o) in origin_list(intent, &t.name).iter().enumerate() {
         let ord = u32::try_from(pos + 1).unwrap_or(0);
         let (obj, _iface) = t.dpni(ord, u(s.num_queues), origin_construct(o));
         objects.insert(obj);
+        order.push(ObjectKey::new(t.name.clone(), Family::Dpni, ord));
     }
     // one dpseci per crypto block, sized by that block's own flows
     for (i, k) in crypto_blocks_of(intent, &t.name).iter().enumerate() {
-        objects.insert(t.dpseci(u(i64::try_from(i + 1).unwrap_or(0)), u(k.flows)));
+        let ord = u(i64::try_from(i + 1).unwrap_or(0));
+        objects.insert(t.dpseci(ord, u(k.flows)));
+        order.push(ObjectKey::new(t.name.clone(), Family::Dpseci, ord));
     }
     // one dpsw per owned hardware fabric, sized by its interface count
     for (i, f) in hw_owned_fabrics(intent, &t.name).iter().enumerate() {
+        let ord = u(i64::try_from(i + 1).unwrap_or(0));
         let num_ifs = i64::try_from(hw_fabric_attach_points(intent, f).len()).unwrap_or(0);
-        objects.insert(f.dpsw(u(i64::try_from(i + 1).unwrap_or(0)), u(num_ifs)));
+        objects.insert(f.dpsw(ord, u(num_ifs)));
+        order.push(ObjectKey::new(t.name.clone(), Family::Dpsw, ord));
     }
 }
 
@@ -629,29 +647,6 @@ fn build_tenant_objects(
 /// Built through the kernel's companion witness so it, too, is not a bare literal.
 fn dprtc_obj() -> PlannedObject {
     kernel_tenant(0).companion(Family::Dprtc, 1)
-}
-
-// ---- emission order (object-model.md §5 step 1) ----
-
-fn push_keys(t: &Tenant, fam: Family, n: i64, order: &mut Vec<ObjectKey>) {
-    if n >= 1 {
-        for i in 1..=n {
-            order.push(ObjectKey::new(t.name.clone(), fam, u(i)));
-        }
-    }
-}
-
-fn tenant_order(t: &Tenant, s: &Sizing, order: &mut Vec<ObjectKey>) {
-    if !(s.is_root_kernel || s.is_restricted) {
-        order.push(ObjectKey::new(t.name.clone(), Family::Dprc, 1));
-    }
-    push_keys(t, Family::Dpio, s.effective_dpio.value, order);
-    push_keys(t, Family::Dpmcp, s.effective_dpmcp.value, order);
-    push_keys(t, Family::Dpbp, s.effective_dpbp.value, order);
-    push_keys(t, Family::Dpcon, s.effective_dpcon.value, order);
-    push_keys(t, Family::Dpni, s.dpnis, order);
-    push_keys(t, Family::Dpseci, s.num_dpseci, order);
-    push_keys(t, Family::Dpsw, s.num_dpsw, order);
 }
 
 // ---- provenance nodes (design D6: value points at what it consumed) ----
@@ -1035,7 +1030,7 @@ fn build_edges(
         let ord_right = ordinal_where(&origin_list(intent, &l.interface_b), |o| {
             is_link_side(o, &l.name, 1)
         });
-        // Only the interfaces are kept (the objects are emitted by `build_tenant_objects`),
+        // Only the interfaces are kept (the objects are emitted by `build_tenant`),
         // so the label rides along inertly; it is the link the dpnis serve.
         let (_a, ia) = ta.dpni(ord_left, u(sa.num_queues), l.name.clone());
         let (_b, ib) = tb.dpni(ord_right, u(sb.num_queues), l.name.clone());
@@ -1105,17 +1100,11 @@ pub(crate) fn derive(intent: &Intent, inv: &Inventory) -> CompiledPlan {
         .collect();
 
     let mut objects = BTreeSet::new();
+    let mut order = vec![ObjectKey::new(KERNEL, Family::Dprtc, 1)];
     objects.insert(dprtc_obj());
     for t in &priced {
         if let Some(s) = sizing.get(&t.name) {
-            build_tenant_objects(t, s, intent, &mut objects);
-        }
-    }
-
-    let mut order = vec![ObjectKey::new(KERNEL, Family::Dprtc, 1)];
-    for t in &priced {
-        if let Some(s) = sizing.get(&t.name) {
-            tenant_order(t, s, &mut order);
+            build_tenant(t, s, intent, &mut objects, &mut order);
         }
     }
 

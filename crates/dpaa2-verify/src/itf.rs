@@ -13,6 +13,8 @@ use std::collections::BTreeMap;
 
 use serde_json::Value;
 
+use dpaa2_api::{ALL_FAMILIES, Family};
+
 /// What the model exposes of one DPNI to an observer.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct DpniView {
@@ -86,6 +88,13 @@ pub(crate) fn tag(v: &Value) -> Result<&str, String> {
     v["tag"]
         .as_str()
         .ok_or_else(|| format!("not a variant: {v}"))
+}
+
+/// The [`Family`] whose `variant_name` is `tag` — the ITF constructor tag (`"Dpni"`,
+/// `"Dprc"`, …). The single family-by-tag scan the intent, edits, and MBT-adapter
+/// readers share.
+pub(crate) fn family_of_tag(tag: &str) -> Option<Family> {
+    ALL_FAMILIES.into_iter().find(|f| f.variant_name() == tag)
 }
 
 /// Family tag and object number of an ITF-encoded `ObjId`.

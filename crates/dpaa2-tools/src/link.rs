@@ -5,7 +5,7 @@
 //! boot) so they cannot drift from `topology.toml`. Each file matches a port's known
 //! MAC and sets its stable name; it sorts before the stock `99-default.link` and,
 //! from `/run`, outranks `/usr/lib`. This is presentation only — never a
-//! reconciliation trigger. Fixed-link ports (no netdev) get no file (task 6.4).
+//! reconciliation trigger. Fixed-link ports (no netdev) get no file (add-dpaa2-provisioning task 6.4).
 
 use std::path::{Path, PathBuf};
 use std::process::Command;

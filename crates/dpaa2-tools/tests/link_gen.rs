@@ -1,4 +1,4 @@
-//! Tests for `systemd.link` generation (design D3/D4, tasks 6.3/6.4). Files are
+//! Tests for `systemd.link` generation (design D3/D4, add-dpaa2-provisioning tasks 6.3/6.4). Files are
 //! written into a scratch dir, not `/run`, so no privileges are needed.
 
 use dpaa2_api::{

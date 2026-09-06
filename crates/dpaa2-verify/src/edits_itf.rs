@@ -30,17 +30,12 @@ use std::collections::BTreeSet;
 use serde_json::Value;
 
 use dpaa2_api::{
-    ALL_FAMILIES, BoardObject, ConfigFacet, ConstructName, DpmacId, Family, Handle, MatchObject,
+    BoardObject, ConfigFacet, ConstructName, DpmacId, Family, Handle, KERNEL, MatchObject,
     TenantName,
 };
 
-use crate::intent_itf::{cname, field, set_items, text};
-use crate::itf::{int64, num, tag};
-
-/// The kernel end every unanchored edit link carries (`edits.qnt`: the alphabet's
-/// unanchored constructs are kernel↔cfgN links), the fixed near end of the [`ConfigFacet::Link`]
-/// projection.
-const KERNEL: &str = "kernel";
+use crate::intent_itf::{cname, field, opt_name, set_items, text};
+use crate::itf::{family_of_tag, int64, num, tag};
 
 /// Which phase a frozen state sits in (`edits.qnt` `phase`): a synced `Perturb` state
 /// (the four laws hold) or a `Converge` state (whose transition to the next `Perturb`
@@ -69,13 +64,11 @@ pub struct EditState {
 }
 
 /// The [`Family`] whose ITF constructor tag this is (`edits.qnt` is Dpni-only, but the
-/// decode stays family-general like `intent_itf.rs`).
+/// decode stays family-general like `intent_itf.rs`; the shared
+/// [`crate::itf::family_of_tag`] scan).
 fn family(v: &Value) -> Result<Family, String> {
     let t = tag(v)?;
-    ALL_FAMILIES
-        .into_iter()
-        .find(|f| f.variant_name() == t)
-        .ok_or_else(|| format!("unknown family tag `{t}`"))
+    family_of_tag(t).ok_or_else(|| format!("unknown family tag `{t}`"))
 }
 
 /// A model `Set[int]` anchor as the matcher's [`DpmacId`] set (`observed.qnt` `anchor`).
@@ -104,13 +97,6 @@ fn facet(anchor: &BTreeSet<DpmacId>, config: &Value) -> Result<ConfigFacet, Stri
     }
 }
 
-/// The model's `str` name slot as the neutral optional: `""` ⇒ `None` (`intent_itf.rs`
-/// `opt_name`), for `from` and `label`.
-fn opt_cname(v: &Value) -> Result<Option<ConstructName>, String> {
-    let s = text(v)?;
-    Ok((!s.is_empty()).then(|| ConstructName::from(s)))
-}
-
 /// One `intent` element (`edits.qnt` `CompiledObject`) as a [`MatchObject`].
 fn intent_obj(v: &Value) -> Result<MatchObject, String> {
     let anchor = anchor(field(v, "anchor")?)?;
@@ -120,7 +106,7 @@ fn intent_obj(v: &Value) -> Result<MatchObject, String> {
         name: cname(field(v, "name")?)?,
         anchor,
         config,
-        from: opt_cname(field(v, "from")?)?,
+        from: opt_name(field(v, "from")?)?,
     })
 }
 
@@ -131,7 +117,7 @@ fn board_obj(v: &Value) -> Result<BoardObject, String> {
     Ok(BoardObject {
         family: family(field(v, "family")?)?,
         handle: Handle::new(num(field(v, "id")?)?),
-        label: opt_cname(field(v, "label")?)?,
+        label: opt_name(field(v, "label")?)?,
         anchor,
         config,
     })

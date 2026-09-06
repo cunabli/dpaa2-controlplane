@@ -137,21 +137,32 @@ impl Inventory {
             let Some(offer) = self.dpmacs.get(&DpmacId::new(num)) else {
                 return Availability::Free;
             };
-            if let Availability::Foreign(owner) = &offer.avail
-                && declared.contains(&ConstructName::from(owner.as_str()))
-            {
-                return Availability::Free;
-            }
-            return offer.avail.clone();
+            // The backend reports a dpmac's anchoring-dpni owner label verbatim
+            // (dpaa2-mc; PASS5-F1: adapters report, never judge); the one judgment of
+            // that label lives in `judge_label`.
+            return match &offer.avail {
+                Availability::Foreign(owner) => judge_label(owner, declared),
+                other => other.clone(),
+            };
         }
         match self.labels.get(&(family, num)) {
             None => Availability::Free,
-            Some(label) if label.is_empty() => Availability::Foreign("dpl".to_owned()),
-            Some(label) if declared.contains(&ConstructName::from(label.as_str())) => {
-                Availability::Free
-            }
-            Some(label) => Availability::Foreign(label.clone()),
+            Some(label) => judge_label(label, declared),
         }
+    }
+}
+
+/// Judges one raw owner label against the declared-name set — the single home of the
+/// `"dpl"` sentinel (ADR-0010 §4 refined by ADR-0015): an empty label is the DPL
+/// resident `"dpl"`; a declared label is ours ([`Availability::Free`]); any other label
+/// is [`Availability::Foreign`] wearing that owner.
+fn judge_label(label: &str, declared: &BTreeSet<ConstructName>) -> Availability {
+    if label.is_empty() {
+        Availability::Foreign("dpl".to_owned())
+    } else if declared.contains(&ConstructName::from(label)) {
+        Availability::Free
+    } else {
+        Availability::Foreign(label.to_owned())
     }
 }
 

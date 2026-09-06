@@ -1,4 +1,4 @@
-//! The fsl-mc ioctl command-id policy as code (openspec task 6.5).
+//! The fsl-mc ioctl command-id policy as code (verify-foundation task 6.5).
 //!
 //! The kernel's `fsl-mc-uapi` driver refuses any MC command not on a
 //! fixed whitelist with `-EACCES`, regardless of privilege; some accepted

@@ -403,8 +403,8 @@ impl<R: Runner> McControl for RestoolMc<R> {
             // Availability precedence: (1) the ADR-0003 §3 safety matrix is strongest
             // — a reserved dpmac is Reserved even when it anchors a labelled dpni;
             // (2) else if it anchors a dpni, it reports that dpni's raw label as the
-            // owner (empty ⇒ the DPL resident "dpl"); the api side demotes this to Free
-            // when the owner is a declared name (ADR-0010 §4 refined by ADR-0015 —
+            // owner verbatim (empty included); the api side judges it — empty ⇒ the DPL
+            // resident "dpl", a declared name ⇒ Free (ADR-0010 §4 refined by ADR-0015,
             // Inventory::availability_of); (3) else Free.
             let avail = if let Some(why) = reserved_reason(id) {
                 Availability::Reserved(why.to_owned())
@@ -412,12 +412,7 @@ impl<R: Runner> McControl for RestoolMc<R> {
                 .endpoint
                 .and_then(|ep| labels.get(&(Family::Dpni, ep.into_inner())))
             {
-                let owner = if label.is_empty() {
-                    "dpl".to_owned()
-                } else {
-                    label.clone()
-                };
-                Availability::Foreign(owner)
+                Availability::Foreign(label.clone())
             } else {
                 Availability::Free
             };
@@ -664,7 +659,9 @@ mod tests {
     #[test]
     fn foreign_dpni_makes_the_dpmac_it_anchors_foreign() {
         // The withheld assertion (gqf.41): an unlabelled dpni.0 anchored by a
-        // non-reserved dpmac.7 makes that port Foreign("dpl").
+        // non-reserved dpmac.7 makes that port Foreign — the backend reports the raw
+        // empty owner verbatim, and the api side (availability_of) judges empty ⇒ the
+        // DPL resident "dpl".
         let show = dprc_show(&[
             "dpni.0                          plugged",
             "dpmac.7                         plugged",
@@ -682,7 +679,7 @@ mod tests {
         assert_eq!(inv.labels.get(&(Family::Dpni, 0)), Some(&String::new()));
         assert_eq!(
             inv.dpmacs[&DpmacId::new(7)].avail,
-            Availability::Foreign("dpl".to_owned())
+            Availability::Foreign(String::new())
         );
     }
 

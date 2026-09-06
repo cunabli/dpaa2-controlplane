@@ -130,7 +130,7 @@ pub use matcher::{
 };
 pub use model::{
     DesiredPort, DesiredTopology, DpmacId, DpniId, FacetMismatch, Lifecycle, LinkType, MacAddr,
-    MacMode, MacParseError, ObjectKind, ObservedDpmac, ObservedDpni, ObservedTopology, Presence,
+    MacMode, MacParseError, ObservedDpmac, ObservedDpni, ObservedTopology, Presence,
 };
 pub use plan::{AssertMismatch, Class, DriftReport, Plan, Transition};
 pub use port::{ConfigSource, KernelControl, McControl};

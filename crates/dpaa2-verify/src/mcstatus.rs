@@ -1,4 +1,4 @@
-//! The Management-Complex command status table as code (openspec task 6.4).
+//! The Management-Complex command status table as code (verify-foundation task 6.4).
 //!
 //! Every MC command header carries a STATUS byte the firmware sets and
 //! restool prints; a refusal is only pinned once its exact status name is

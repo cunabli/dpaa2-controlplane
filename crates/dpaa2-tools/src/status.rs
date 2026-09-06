@@ -6,15 +6,18 @@
 
 use core::fmt;
 
-use dpaa2_api::{DesiredTopology, DpmacId, Lifecycle, ObservedTopology, Plan, reconcile};
+use dpaa2_api::{
+    ConstructName, DesiredTopology, DpmacId, Lifecycle, ObservedTopology, Plan, reconcile,
+};
 
 /// The status of one managed port.
 #[derive(Clone, Debug)]
 pub struct PortStatus {
     /// The port's stable DPMAC anchor.
     pub dpmac: DpmacId,
-    /// The configured stable name.
-    pub name: String,
+    /// The configured stable name (the dpaa2-api newtype; rendered to a string only at
+    /// the print site).
+    pub name: ConstructName,
     /// The lifecycle of the matched DPNI, or `Absent` if none is connected.
     pub lifecycle: Lifecycle,
     /// The current (pre-rename) netdev, if any.
@@ -41,7 +44,7 @@ impl StatusReport {
                 let matched = observed.dpni_connected_to(p.dpmac);
                 PortStatus {
                     dpmac: p.dpmac,
-                    name: p.name.to_string(),
+                    name: p.name.clone(),
                     lifecycle: matched
                         .map_or(Lifecycle::Absent, dpaa2_api::ObservedDpni::lifecycle),
                     netdev: matched.and_then(|d| d.netdev.clone()),
@@ -68,7 +71,7 @@ impl fmt::Display for StatusReport {
                 f,
                 "{dpmac:>10}  {name:<12}  {lifecycle:<10}  netdev={netdev}",
                 dpmac = p.dpmac.to_string(),
-                name = p.name,
+                name = p.name.as_str(),
                 lifecycle = format!("{:?}", p.lifecycle),
             )?;
         }

@@ -189,20 +189,6 @@ impl fmt::Debug for DpniId {
     }
 }
 
-/// Kinds of MC object the model can carry.
-///
-/// The set is deliberately open to extension (e.g. `Dpsw`) so that switch
-/// topologies can be added later without redefining the model (spec: "general
-/// enough to admit additional object kinds").
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
-#[non_exhaustive]
-pub enum ObjectKind {
-    /// A network interface object (`dpni.N`).
-    Dpni,
-    /// A MAC / `SerDes` lane object (`dpmac.N`).
-    Dpmac,
-}
-
 /// Provisioning lifecycle of a managed object.
 ///
 /// States are ordered by progress; `reconcile` drives an object from left to right.
@@ -242,9 +228,10 @@ pub enum MacMode {
 
 /// Whether the operator wants this port present or torn down (design D7).
 ///
-/// Config produces [`Presence::Present`] in phase 1. [`Presence::Absent`] combined
-/// with `--prune` opts a port into teardown; without prune, a removed port is left
-/// in place.
+/// A [`DesiredPort`] the compile path builds (design D10:
+/// `topology.toml → Intent → compile → DesiredTopology → reconcile`) is
+/// [`Presence::Present`]. [`Presence::Absent`] combined with `--prune` opts a port
+/// into teardown; without prune, a removed port is left in place.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum Presence {
     /// The port should exist and be connected.
@@ -275,8 +262,9 @@ pub struct DesiredPort {
     /// Required create-time-only attributes, keyed by attribute name.
     ///
     /// A mismatch against the live object is reported as drift and refused rather
-    /// than repaired by destroy-and-recreate (design D8). Phase-1 TOML leaves this
-    /// empty; the machinery is exercised directly against the neutral model.
+    /// than repaired by destroy-and-recreate (design D8). The compile path (design
+    /// D10) leaves this empty today; the machinery is exercised directly against the
+    /// neutral model.
     pub immutable: BTreeMap<String, String>,
 }
 

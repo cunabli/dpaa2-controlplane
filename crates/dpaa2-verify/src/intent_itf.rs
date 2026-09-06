@@ -41,14 +41,13 @@ use std::collections::{BTreeMap, BTreeSet};
 use serde_json::Value;
 
 use dpaa2_api::{
-    ALL_FAMILIES, AttachPoint, Attributes, Availability, Ceiling, Compiled, ConstructName,
-    Container, Crypto, Dataplane, DpmacId, DpmacLinkType, DpmacOffer, EthInterface, Extra, Fabric,
-    Family, Intent, Inventory, Isolation, Link, MacMode, Measurement, Member, ObjectKey,
-    Permission, Port, ProvenanceKey, ProvenanceNode, Refusal, Switching, Tenant, TenantName,
-    Warning, compile,
+    AttachPoint, Attributes, Availability, Ceiling, Compiled, ConstructName, Container, Crypto,
+    Dataplane, DpmacId, DpmacLinkType, DpmacOffer, EthInterface, Extra, Fabric, Family, Intent,
+    Inventory, Isolation, Link, MacMode, Measurement, Member, ObjectKey, Permission, Port,
+    ProvenanceKey, ProvenanceNode, Refusal, Switching, Tenant, TenantName, Warning, compile,
 };
 
-use crate::itf::{int64, num, tag};
+use crate::itf::{family_of_tag, int64, num, tag};
 
 // ---- the comparable projection ----
 
@@ -167,7 +166,7 @@ fn flag(v: &Value) -> Result<bool, String> {
 /// `Some(name)` — the accepted rename clause the matcher consumes (ADR-0015 decision
 /// 10 / task 6.5). Generic over the name newtype (a tenant reads `Option<TenantName>`,
 /// a construct `Option<ConstructName>`), the field type driving the inference.
-fn opt_name<T: From<String>>(v: &Value) -> Result<Option<T>, String> {
+pub(crate) fn opt_name<T: From<String>>(v: &Value) -> Result<Option<T>, String> {
     let s = text(v)?;
     Ok(if s.is_empty() { None } else { Some(s.into()) })
 }
@@ -190,14 +189,11 @@ pub(crate) fn list_items(v: &Value) -> Result<&Vec<Value>, String> {
     v.as_array().ok_or_else(|| format!("not a list: {v}"))
 }
 
-/// The [`Family`] whose ITF constructor tag this is (the intent side of the
-/// `family_from_variant` idiom the retro adapter uses).
+/// The [`Family`] whose ITF constructor tag this is (the shared
+/// [`crate::itf::family_of_tag`] scan).
 fn family(v: &Value) -> Result<Family, String> {
     let t = tag(v)?;
-    ALL_FAMILIES
-        .into_iter()
-        .find(|f| f.variant_name() == t)
-        .ok_or_else(|| format!("unknown family tag `{t}`"))
+    family_of_tag(t).ok_or_else(|| format!("unknown family tag `{t}`"))
 }
 
 // ---- intent ----
