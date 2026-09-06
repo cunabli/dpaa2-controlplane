@@ -294,7 +294,7 @@ the change's only other operator sync point (design D12).
       rejected array+trait alternative on record (bead gqf.47)
 - [x] 5.2 Docs: ROADMAP row 3 delivered; ADR-0005 amendment sealed;
       CHANGELOG flows from commits; spec deltas ready to promote
-- [ ] 5.3 Quality floor: `cargo build | fmt | clippy | clippy --tests |
+- [x] 5.3 Quality floor: `cargo build | fmt | clippy | clippy --tests |
       doc | test` and the model ladder green; epic closed with every
       child bead through acceptance
 - [x] 5.4 Disposition of the accepted Apalache gap on `compileLaws`
