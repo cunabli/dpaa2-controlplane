@@ -340,5 +340,5 @@ the change's only other operator sync point (design D12).
       four proptest laws over generated names, `editsSweep{1,2,3}` frozen
       via `model:freeze-edits` and replayed through the `dpaa2-config`
       parser (a dropped edit clause fails the round-trip equality)
-- [ ] 6.8 phase close: COVERAGE rows, ROADMAP touch, ledger lint
+- [x] 6.8 phase close: COVERAGE rows, ROADMAP touch, ledger lint
       (bead gqf.56)

@@ -831,11 +831,13 @@ fn r10_register(input: &LintInput<'_>, out: &mut Vec<String>) {
 // section — is a linted copy, never a sibling (ADR-0014). ADR-0013 is the
 // accepted-vocabulary record whose §5 (refusals), §6 (invariants) and §7
 // (scenarios) are exactly such copies, and its own Consequences note says
-// they "drift ... exactly this way" and belong under this lint. R11–R14
+// they "drift ... exactly this way" and belong under this lint. R11–R15
 // cross-check those copies against the model so a drift fails in CI, the same
 // design-D9 mechanism R1–R10 apply to the board ledgers. R14 extends the reach
 // to the Rust domain enums (`dpaa2_api::Refusal`, `dpaa2_api::Family`), which
-// restate `refuse.qnt`/`types.qnt` and so are linted copies too (ADR-0014).
+// restate `refuse.qnt`/`types.qnt` and so are linted copies too (ADR-0014). R15
+// ties `match.qnt`'s four identity-across-time laws to the COVERAGE identity-laws
+// table (task 6.4), so a renamed or dropped law fails in CI, not review.
 // Parsing is pure over `&str`; the scenario file set arrives as two stem lists
 // and the Rust variant sets as two name lists the harness reads.
 
@@ -1238,7 +1240,73 @@ fn r14_rust_copies(
     }
 }
 
-/// Runs the intent-layer cross-checks (R11–R14) over the `models/intent/` and
+/// The four identity-across-time law names from `match.qnt`'s "Named invariants"
+/// header block: each `//   <name> (decision …)` line between the `Named invariants`
+/// marker and the `Apalache-marked` footer. Parsing the header block, not the `pure
+/// def … : bool` shape, is deliberate: that shape catches the `isPaired` and
+/// `ambiguousFamily` helper predicates too, and — more to the point — `swapCorrect`
+/// is not a `pure def` at all but a directed `run` (`swapCorrectTest`), since the
+/// swap counterexample rides the sweep as the swap action's reachable shape
+/// (`edits.qnt` header). The header block is the one place all four are named as
+/// identifiers, the same comment-header source of truth [`parse_intent_invariants`]
+/// reads for the plan invariants.
+fn parse_match_laws(match_qnt: &str) -> Vec<String> {
+    match_qnt
+        .lines()
+        .skip_while(|l| !l.trim_start().starts_with("// Named invariants"))
+        .skip(1)
+        .take_while(|l| !l.trim_start().starts_with("// Apalache-marked"))
+        .filter_map(|l| {
+            let rest = l.trim_start().strip_prefix("//")?.trim_start();
+            let (name, tail) = rest.split_once(' ')?;
+            let named = tail.trim_start().starts_with("(decision")
+                && name.chars().next().is_some_and(|c| c.is_ascii_lowercase())
+                && name.chars().all(|c| c.is_ascii_alphanumeric());
+            named.then(|| name.to_owned())
+        })
+        .collect()
+}
+
+/// The second cell (the `match.qnt` def name) of each data row of the COVERAGE
+/// identity-laws table: a lowercase-led ascii-alphanumeric identifier, so the
+/// header row (`Name`) and the separator (`------`) drop out.
+fn parse_coverage_laws(section: &str) -> Vec<String> {
+    section
+        .lines()
+        .filter_map(|l| {
+            let name = split_row(l).into_iter().nth(1)?;
+            let ok = name.chars().next().is_some_and(|c| c.is_ascii_lowercase())
+                && name.chars().all(|c| c.is_ascii_alphanumeric());
+            ok.then_some(name)
+        })
+        .collect()
+}
+
+/// R15: the four identity-across-time laws agree across `match.qnt` (truth) and
+/// its COVERAGE copy — the "Identity-across-time laws" table — by name, checked
+/// both ways. A law the model names and the table forgets, or a table name the
+/// model does not name, fails here; the same design-D9 mechanism R12 applies to
+/// the plan invariants (task 6.4).
+fn r15_identity_laws(match_qnt: &str, coverage_md: &str, out: &mut Vec<String>) {
+    let model = parse_match_laws(match_qnt);
+    let table = parse_coverage_laws(&md_section(coverage_md, "## Identity-across-time laws"));
+    for name in &model {
+        if !table.iter().any(|t| t == name) {
+            out.push(format!(
+                "R15 identity laws: match.qnt law `{name}` has no row in COVERAGE.md's identity-laws table"
+            ));
+        }
+    }
+    for name in &table {
+        if !model.iter().any(|m| m == name) {
+            out.push(format!(
+                "R15 identity laws: COVERAGE.md's identity-laws table lists `{name}`, absent from match.qnt's named laws"
+            ));
+        }
+    }
+}
+
+/// Runs the intent-layer cross-checks (R11–R15) over the `models/intent/` and
 /// `models/core/` copies and returns one finding per drift; an empty vector is
 /// the green verdict. Distinct from [`lint`] because it reads a different
 /// document set (the model files, ADR-0013, and the `dpaa2_api` domain enums,
@@ -1250,6 +1318,7 @@ pub fn intent_lint(
     types_qnt: &str,
     alphabet_qnt: &str,
     invariants_qnt: &str,
+    match_qnt: &str,
     coverage_md: &str,
     adr_md: &str,
     scenario_qnt_stems: &[String],
@@ -1268,6 +1337,7 @@ pub fn intent_lint(
         rust_families,
         &mut out,
     );
+    r15_identity_laws(match_qnt, coverage_md, &mut out);
     out
 }
 
@@ -2197,5 +2267,90 @@ module core_types {
             &mut out,
         );
         assert!(out.is_empty(), "{out:?}");
+    }
+
+    // --- intent-layer identity laws (R15) ---
+
+    /// A `match.qnt` slice: the "Named invariants" header block (the four laws,
+    /// three as `pure def … : bool`, swapCorrect as a `run`), plus helper bool
+    /// defs and prose `(decision N)` mentions the parser must not fold in.
+    const MATCH: &str = "\
+module intent_match {
+  // flaw (decision 10) was found by hand — prose, not a law.
+  //
+  // Named invariants (the four families, each citing its decision):
+  //   frameLaw (decision 12) — an edit perturbs no object outside the cone.
+  //     cone, ordinal renumbering notwithstanding (decision 8).
+  //   renameSelfNeutralizes (decision 10) — the `from` clause is inert.
+  //   convergeIdempotent (decisions 9-11) — the board is a fixpoint.
+  //   swapCorrect (decision 10) — the wan0<->e0 swap cross-binds.
+  // Apalache-marked subset: none.
+  pure def isPaired(pairs: Set[MatchPair], c: CompiledObject): bool = false
+  pure def frameLaw(pre: Board, post: Board, touched: Set[str]): bool = true
+  run swapCorrectTest = all { true }
+}";
+
+    #[test]
+    fn parse_match_laws_reads_the_four_named_laws() {
+        assert_eq!(
+            parse_match_laws(MATCH),
+            vec![
+                "frameLaw",
+                "renameSelfNeutralizes",
+                "convergeIdempotent",
+                "swapCorrect",
+            ]
+        );
+    }
+
+    /// The COVERAGE.md identity-laws section (task 6.4): a preamble line the
+    /// parser skips, then one row per law matching `MATCH`'s named set.
+    const COV_LAWS: &str = "\
+## Identity-across-time laws (task 6.4)
+
+Identity laws of `match.qnt`, linted by R15.
+
+| Law | Name | CI rung | Anchors / ties |
+|-----|------|---------|----------------|
+| Frame | frameLaw | simulate + property | ADR-0015 decision 12 |
+| Rename-inert | renameSelfNeutralizes | simulate + property | ADR-0015 decision 10 |
+| Fixpoint | convergeIdempotent | simulate + property | ADR-0015 decisions 9-11 |
+| Swap | swapCorrect | simulate + property | ADR-0015 decision 10 |
+";
+
+    #[test]
+    fn r15_passes_when_the_table_matches_the_model() {
+        let mut ok = Vec::new();
+        r15_identity_laws(MATCH, COV_LAWS, &mut ok);
+        assert!(ok.is_empty(), "{ok:?}");
+    }
+
+    #[test]
+    fn r15_flags_a_dropped_law_and_a_renamed_table_name() {
+        // COVERAGE drops the frameLaw row and renames swapCorrect → the
+        // missing-law finding plus the phantom-table-name finding.
+        let cov_bad = COV_LAWS
+            .replace(
+                "| Frame | frameLaw | simulate + property | ADR-0015 decision 12 |\n",
+                "",
+            )
+            .replace("swapCorrect", "swapWrong");
+        let mut out = Vec::new();
+        r15_identity_laws(MATCH, &cov_bad, &mut out);
+        assert!(
+            out.iter()
+                .any(|m| m.contains("match.qnt law `frameLaw` has no row")),
+            "{out:?}"
+        );
+        assert!(
+            out.iter()
+                .any(|m| m.contains("identity-laws table lists `swapWrong`")),
+            "{out:?}"
+        );
+        assert!(
+            out.iter()
+                .any(|m| m.contains("match.qnt law `swapCorrect` has no row")),
+            "{out:?}"
+        );
     }
 }

@@ -86,9 +86,10 @@ fn the_four_ledgers_agree() {
 }
 
 /// The intent-layer copies (design-D9 for `models/intent/`): the `refuse.qnt`
-/// refusal vocabulary, the `invariants.qnt` plan invariants, and the scenario
-/// file set are the truth; `alphabet.qnt`'s witnesses, `COVERAGE.md`'s intent
-/// section, ADR-0013 §5/§6/§7, and the `.qnt`/`.toml` pairing are copies that
+/// refusal vocabulary, the `invariants.qnt` plan invariants, the `match.qnt`
+/// identity-across-time laws, and the scenario file set are the truth;
+/// `alphabet.qnt`'s witnesses, `COVERAGE.md`'s intent and identity-laws
+/// sections, ADR-0013 §5/§6/§7, and the `.qnt`/`.toml` pairing are copies that
 /// drift, so a disagreement fails here (ADR-0014, ADR-0002 §2).
 #[test]
 fn the_intent_copies_agree() {
@@ -98,6 +99,7 @@ fn the_intent_copies_agree() {
     let types = read(&root, "models/core/types.qnt");
     let alphabet = read(&root, "models/intent/alphabet.qnt");
     let invariants = read(&root, "models/intent/invariants.qnt");
+    let match_qnt = read(&root, "models/intent/match.qnt");
     let coverage = read(&root, "models/COVERAGE.md");
     let adr = read(&root, "docs/adr/0013-accepted-intent-vocabulary.md");
 
@@ -130,6 +132,7 @@ fn the_intent_copies_agree() {
         &types,
         &alphabet,
         &invariants,
+        &match_qnt,
         &coverage,
         &adr,
         &qnt_stems,

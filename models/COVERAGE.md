@@ -284,3 +284,43 @@ both 2000. No law was violated.
   `rawDuplicateNameTest` (a port and a fabric of one name, `intent_raw.qnt`) and
   its frozen `rawDuplicateNameTrace` — never a silent gap, the same honesty
   mechanism `wForeignAnchor` uses on the intent side.
+
+## Identity-across-time laws (task 6.4)
+
+The `intent-layer` change's identity-across-time laws (`models/intent/match.qnt`'s
+two-pass, anchor-first/label-second matcher, ADR-0015 decisions 8-12). They pin
+what the ladder owes as an operator edits a live intent: a rename relabels rather
+than destroys, a rewire is never mistaken for a rename, the board is a fixpoint,
+and no object outside an edit's cone is disturbed above hitless. Each law is
+checked three ways: the directed tests in `match.qnt`, the random edit-alphabet
+sweep (`models/intent/edits.qnt`, invariant `identityLaws`), and the Rust twins —
+the matcher's directed law twins (`crates/dpaa2-api/src/matcher.rs`), the property
+tests over generated real construct names
+(`crates/dpaa2-verify/tests/intent_identity_props.rs`), and the frozen-trace MBT
+replay (`crates/dpaa2-verify/tests/intent_edit_replay.rs`, replaying the three
+committed `editsSweep` traces frozen by `pnpm model:freeze-edits`). The table is
+linted by R15 against `match.qnt`'s named law defs both ways — a law the model
+names and the table forgets, or a table name the model does not name, fails in CI
+— the same mechanism R12 applies to the plan invariants.
+
+| Law | Name | CI rung | Anchors / ties |
+|-----|------|---------|----------------|
+| Frame | frameLaw | simulate + property + itf-replay | ADR-0015 decision 12 (disruption class); decision 8 (ordinal-free frame) |
+| Rename-inert | renameSelfNeutralizes | simulate + property + itf-replay | ADR-0015 decision 10 (rename is told, a single commit) |
+| Fixpoint | convergeIdempotent | simulate + property + itf-replay | ADR-0015 decisions 9-11 (the ladder's fixpoint) |
+| Swap | swapCorrect | simulate (swap action's reachable shape + directed `swapCorrectTest`) + property + itf-replay | ADR-0015 decision 10 (the rename-swap counterexample) |
+
+Counted sweep (`pnpm model:coverage` third leg: `models/intent/edits.qnt`, seed
+20260905, 16 steps, 2000 samples; run 2026-09-06). No law was violated. Every
+interesting shape is reached (traces of 2000): `wSynced` 2000, `wIntentTwo` 1426,
+`wIntentThree` 513, `wBoardTwo` 1426, `wAnchoredPresent` 1856, `wUnanchoredPresent`
+1538, `wRenamePresent` 1641, `wSwapPresent` 549, `wDriftPresent` 1433,
+`wPendingCreate` 1856, `wPendingRemove` 1934.
+
+- **Ambiguity refusal directed-only (decision 11, a recorded unknown)**: the
+  ambiguity refusal needs two unanchored same-family objects drifted with differing
+  configs before one converge, but strict perturb/converge alternation drifts at
+  most one object per converge (a lone drift is always a single candidate, repaired
+  hitless), so it is unreachable in the sweep and is covered by `ambiguityRefusesTest`
+  (`match.qnt`) — a recorded unknown, the same honesty mechanism `wForeignAnchor`
+  uses on the intent side.
