@@ -211,8 +211,11 @@ board: a variant the alphabet cannot reach is a decision on record here, not
 an omission. `pnpm model:coverage` runs `models/intent/alphabet.qnt` under
 every invariant with one witness per outcome and structure dimension; the
 counted run is seed 20260831, 12 steps, 3000 samples, dated 2026-09-01,
-deterministic and reproducible. No invariant violated (the deep hunt found no
-counterexample). Three widenings this counting drove are stated in the model:
+deterministic and reproducible. This section is the single authoritative copy
+of the counts — `models/intent/alphabet.qnt` carries a pointer here, not a
+second copy (ADR-0014, single-sourced by bead dpaa2-controlplane-9yy.11); the
+check is re-running the seeded command. No invariant violated (the deep hunt
+found no counterexample). Three widenings this counting drove are stated in the model:
 `DPMACS` gained id 99 (absent from the inventory) so an Unanchored port is
 drawable, `RATES` gained 40000 (no worker row) so UnknownRateClass fires, and
 `FLOWS` gained 17 (past one dpseci's 16-queue-pair ceiling) so
@@ -231,6 +234,10 @@ CryptoFlowsOverDevice fires (task 2.6e).
   pool holder never declared — construct "pool", reachable through
   `addTenant`), and the UnknownCeiling warning 3000; Accepted 3000, Refused
   3000.
+- **Structure dimensions reached** (traces of 3000): `wPublicTenant` 3000,
+  `wCryptoPresent` 2867, `wExtraPresent` 2845, `wFabricPresent` 2791,
+  `wThreeTenants` 2354, `wLinkPresent` 2342, `wEventDrawn` 2075,
+  `wRestrictedTenant` 1492, `wMixedRates` 444.
 - **Alphabet-unreachable, covered elsewhere** (0 traces): `ForeignAnchor` —
   the inventory marks no dpmac Foreign, covered by `unanchoredForeignTest`
   (`intent/main.qnt`, `invWithForeignDpmac7`); `Infeasible` — intents this

@@ -48,19 +48,10 @@
 // four flows draws, not one of three) and CryptoFlowsOverDevice takes its
 // first values from the new 17 draw.
 //
-// Witness counts (traces of 3000 in which the witness held):
-//   wAccepted 3000, wRefused 3000, wUnknownCeiling 3000, wPublicTenant 3000,
-//   wCryptoPresent 2867, wExtraPresent 2845, wFabricPresent 2791,
-//   wThreeTenants 2354, wLinkPresent 2342, wPoolWithoutRestricted 2087,
-//   wUnpricedDataplane 2075, wEventDrawn 2075, wOverRate 1722,
-//   wMemberUnresolved 1629, wRestrictedTenant 1492, wReservedAnchor 1488,
-//   wCryptoFlowsOverDevice 1199, wCryptoFlowsNotPositive 1172,
-//   wExtraNotPositive 1129, wExtraNotCompanion 979,
-//   wUnanchored 824, wDoubleClaimed 706, wSelfMember 689, wPoolDataplaneMismatch 654,
-//   wPoolChain 647, wPortTenantMismatch 625, wHolderNotPublic 590,
-//   wMixedRates 444, wRestrictedWithoutPool 400, wFabricNotKernelForwarded 375,
-//   wUnknownRateClass 339, wCoreBudgetExceeded 256, wTenantAbsent 235,
-//   wUnsupportedEdge 177.
+// Witness counts (traces of 3000 in which each witness held) are recorded
+// once, in models/COVERAGE.md ("Intent alphabet coverage") — the single
+// authoritative copy of this run's snapshot, single-sourced by bead
+// dpaa2-controlplane-9yy.11 (ADR-0014).
 //
 // Recorded unknowns / alphabet-unreachable (0 traces — where each is covered):
 //   wForeignAnchor — unreachable: REF_INVENTORY marks only dpni.0 Foreign, no
@@ -75,7 +66,7 @@
 //   wUnmeasuredCombination — reachable but not hit in 3000 samples: the
 //     warning needs an *accepted* poll tenant terminating both seeded classes,
 //     and the sole Free 25G dpmac in the alphabet is 4, so a clean cross-class
-//     mix is a narrow draw. The shape precursor wMixedRates is counted (444);
+//     mix is a narrow draw. The shape precursor wMixedRates is counted;
 //     the warning itself is covered by the directed mixedRateClassWarnsTest
 //     (intent/main.qnt).
 module intent_alphabet {
