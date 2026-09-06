@@ -37,7 +37,8 @@ use proptest::prelude::*;
 use dpaa2_api::compiled::{
     AttachPoint, Attributes, CompiledPlan, Container, Edge, Measurement, ObjectKey, ProvenanceKey,
 };
-use dpaa2_api::inventory::{Availability, Ceiling, DpmacLinkType, DpmacOffer, EthInterface};
+use dpaa2_api::inventory::Ceiling;
+use dpaa2_api::testkit::ref_inventory;
 use dpaa2_api::{
     Compiled, Crypto, Dataplane, DpmacId, Extra, Fabric, Family, Intent, Inventory, Isolation,
     KERNEL, Link, MacMode, Member, Port, Switching, Tenant, TenantName, compile, kernel_tenant,
@@ -441,73 +442,13 @@ fn all_plan_invariants(p: &CompiledPlan) -> bool {
 }
 
 // ===========================================================================
-// the reference inventory (invariants.qnt REF_INVENTORY / refuse.rs ref_inv)
+// the reference inventory (invariants.qnt REF_INVENTORY)
 // ===========================================================================
-
-const RESERVED_3: &str = "ADR-0003 §3: wired to a peer that must never see traffic (total-deny)";
-
-fn offer(id: u32, rate: i64, avail: Availability) -> (DpmacId, DpmacOffer) {
-    let d = DpmacId::new(id);
-    (
-        d,
-        DpmacOffer {
-            id: d,
-            max_rate: rate,
-            eth_if: EthInterface::Xfi,
-            link_type: DpmacLinkType::Phy,
-            avail,
-        },
-    )
-}
-
-/// The reference board inventory with a variable online-CPU count (the one axis the
-/// alphabet's `REF_INVENTORY` fixes; varied here within the alphabet's `CORES`
-/// bounds to exercise the kernel per-CPU draw).
-fn ref_inventory(cpus: u32) -> Inventory {
-    let dpmacs = BTreeMap::from([
-        offer(3, 25_000, Availability::Reserved(RESERVED_3.to_owned())),
-        offer(4, 25_000, Availability::Free),
-        offer(5, 25_000, Availability::Free),
-        offer(6, 25_000, Availability::Free),
-        offer(7, 10_000, Availability::Free),
-        offer(8, 10_000, Availability::Free),
-        offer(9, 10_000, Availability::Free),
-        offer(10, 10_000, Availability::Free),
-        offer(
-            17,
-            1_000,
-            Availability::Reserved("ADR-0003 §3: management plane (dpni.0)".to_owned()),
-        ),
-    ]);
-    let ceilings = BTreeMap::from([
-        (Family::Dprc, Ceiling::Unknown),
-        (
-            Family::Dpni,
-            Ceiling::Observed {
-                n: 18,
-                provenance: "ADR-0011 decision 2".to_owned(),
-            },
-        ),
-        (Family::Dpbp, Ceiling::Counted(63)),
-        (Family::Dpio, Ceiling::Unknown),
-        (Family::Dpcon, Ceiling::Unknown),
-        (
-            Family::Dpmcp,
-            Ceiling::Observed {
-                n: 203,
-                provenance: "ADR-0011 decision 3".to_owned(),
-            },
-        ),
-        (Family::Dpseci, Ceiling::Unknown),
-        (Family::Dpsw, Ceiling::Unknown),
-    ]);
-    Inventory {
-        cpus,
-        dpmacs,
-        labels: BTreeMap::from([((Family::Dpni, 0), String::new())]),
-        ceilings,
-    }
-}
+//
+// `ref_inventory(cpus)` is single-sourced in `dpaa2_api::testkit` (imported
+// above) so this integration suite and the crate's own unit tests share one
+// copy (ADR-0013 §7); the `cpus` axis is varied within the alphabet's `CORES`
+// bounds to exercise the kernel per-CPU draw.
 
 // ===========================================================================
 // strategies over the finite intent alphabet (models/intent/alphabet.qnt)

@@ -80,9 +80,12 @@ module intent_refuse {
 
   // ---- rule 1: a construct names an undeclared tenant (design D5) ----
   // Generalises DPDCEI-I1's tenant-absence rule to every construct that
-  // names a tenant: port owner, link ends, fabric owner, crypto owner, extra
-  // tenant. crypto and extra carry no name, so the construct field reads the
-  // literal "crypto" / "extra".
+  // names a tenant: port tenant (`p.tenant`), link ends, fabric forwarder
+  // (`f.forwardedBy`), crypto tenant, extra tenant. crypto and extra carry no
+  // name, so the construct field reads the literal "crypto" / "extra".
+  // DEVIATION (UX): an ownerless port takes the reserved `kernel` as its tenant
+  // (parse.rs effTenant), so an undeclared kernel makes that port refuse
+  // TenantAbsent naming `kernel` — a name the operator never wrote.
   pure def tenantAbsentRefusals(intent: Intent, inv: Inventory): Set[Refusal] =
     val names = tenantNames(intent)
     val fromPorts = intent.ports.foldl(Set(), (acc, p) =>
@@ -251,7 +254,7 @@ module intent_refuse {
                         else Set()
       acc.union(notCompanion).union(notPositive))
 
-  // ---- rule 11: a crypto block's flows out of the one-device range (design D1; dpseci.md) ----
+  // ---- rule 9: a crypto block's flows out of the one-device range (design D1; dpseci.md) ----
   // A [[crypto]] block sizes ONE dpseci to its flows, so its flows must land in
   // the device's realizable range 1..DPSECI_MAX_QUEUE_NUM: flows < 1 would size
   // a zero-queue accelerator (CryptoFlowsNotPositive); flows above the ceiling
@@ -273,7 +276,7 @@ module intent_refuse {
                acc.set.union(Set(CryptoFlowsOverDevice({ tenant: k.tenant, ordinal: acc.i + 1, flows: k.flows, maxFlows: DPSECI_MAX_QUEUE_NUM })))
              else acc.set }).set
 
-  // ---- rule 9: cross-plan feasibility against the ceilings (ADR-0011; design D2) ----
+  // ---- rule 10: cross-plan feasibility against the ceilings (ADR-0011; design D2) ----
   // available = the ceiling's n; whether foreign/DPL objects already on the
   // board should be subtracted is the fit check's question (task 2.5). Unknown
   // ceilings produce a warning (below), never a refusal.
@@ -287,7 +290,7 @@ module intent_refuse {
         | Unknown => acc
       })
 
-  // ---- rule 10: a tenant whose dataplane has no companion pricing (design D3; ADR-0012) ----
+  // ---- rule 11: a tenant whose dataplane has no companion pricing (design D3; ADR-0012) ----
   // UserspaceEvent has no ADR-0012 draw, so the derivation cannot size it
   // (intent/derive.qnt hasPricing skips it); the refusal is the answer.
   pure def unpricedDataplaneRefusals(intent: Intent, inv: Inventory): Set[Refusal] =
@@ -303,7 +306,7 @@ module intent_refuse {
   // must not itself have a pool (no chains); and the drawer's dataplane must
   // equal the holder's — the reserved kernel counting as kernel-netlink, so a
   // kernel-netlink drawer must pool the kernel and a userspace-poll drawer
-  // pooling the kernel is a mismatch. UnpricedDataplane (rule 10) is untouched.
+  // pooling the kernel is a mismatch. UnpricedDataplane (rule 11) is untouched.
   pure def poolRefusals(intent: Intent, inv: Inventory): Set[Refusal] =
     intent.tenants.foldl(Set(), (acc, c) =>
       if (c.isolation != Restricted)

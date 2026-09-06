@@ -52,11 +52,6 @@ module intent_derive {
   // projection of it (ADR-0010 §4). Ordinals are 1-based positions.
   type ObjectKey = { tenant: str, family: Family, ordinal: int }
 
-  // The label is a projection of the key; the Rust frontend renders
-  // `<tenant>/<family>/<ordinal>` (task 3.1). Quint has no string ops,
-  // so the projection is the identity.
-  pure def labelOf(k: ObjectKey): ObjectKey = k
-
   // Where an object lives: Root is dprc.1 (the kernel's own container,
   // never a tenant); Child(tenant) is that tenant's child DPRC,
   // itself the key (tenant, Dprc, 1).

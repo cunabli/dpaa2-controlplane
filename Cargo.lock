@@ -155,6 +155,7 @@ dependencies = [
 name = "dpaa2-api"
 version = "0.1.0"
 dependencies = [
+ "dpaa2-api",
  "proptest",
  "thiserror",
 ]

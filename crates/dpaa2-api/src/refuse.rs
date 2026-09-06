@@ -13,7 +13,7 @@
 //! them under the accepted ADR-0013 §5 spelling [`Refusal::Reserved`] /
 //! [`Refusal::Foreign`].
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::compiled::CompiledPlan;
 use crate::derive::{
@@ -710,7 +710,7 @@ fn extra_refusals(intent: &Intent, out: &mut BTreeSet<Refusal>) {
     }
 }
 
-// ---- rule 11: a crypto block's flows out of the one-device range (design D1) ----
+// ---- rule 9: a crypto block's flows out of the one-device range (design D1) ----
 
 fn crypto_refusals(intent: &Intent, out: &mut BTreeSet<Refusal>) {
     for (i, k) in intent.crypto.iter().enumerate() {
@@ -732,18 +732,15 @@ fn crypto_refusals(intent: &Intent, out: &mut BTreeSet<Refusal>) {
     }
 }
 
-// ---- rule 9: cross-plan feasibility against the ceilings (ADR-0011; design D2) ----
+// ---- rule 10: cross-plan feasibility against the ceilings (ADR-0011; design D2) ----
 
-fn feasibility_refusals(intent: &Intent, inv: &Inventory, out: &mut BTreeSet<Refusal>) {
-    let plan = derive(intent, inv);
+fn feasibility_refusals(
+    inv: &Inventory,
+    counts: &BTreeMap<Family, i64>,
+    out: &mut BTreeSet<Refusal>,
+) {
     for fam in DERIVED_FAMILIES {
-        let needed = i64::try_from(
-            plan.objects
-                .iter()
-                .filter(|o| o.key().family == fam)
-                .count(),
-        )
-        .unwrap_or(i64::MAX);
+        let needed = counts[&fam];
         let available = match inv.ceilings.get(&fam) {
             Some(Ceiling::Counted(n) | Ceiling::Observed { n, .. }) => Some(*n),
             _ => None,
@@ -760,7 +757,7 @@ fn feasibility_refusals(intent: &Intent, inv: &Inventory, out: &mut BTreeSet<Ref
     }
 }
 
-// ---- rule 10: a tenant whose dataplane has no companion pricing (design D3) ----
+// ---- rule 11: a tenant whose dataplane has no companion pricing (design D3) ----
 
 fn unpriced_dataplane_refusals(intent: &Intent, out: &mut BTreeSet<Refusal>) {
     for c in &intent.tenants {
@@ -830,10 +827,31 @@ fn pool_refusals(intent: &Intent, out: &mut BTreeSet<Refusal>) {
     }
 }
 
+/// The per-derived-family object count of a plan, saturating at [`i64::MAX`]
+/// (`refuse.qnt` `feasibilityRefusals`/`warnings`; ADR-0011). Single-sources the
+/// per-family tally the feasibility rule and the ceiling warnings both fold, so a
+/// single [`derive`] feeds every family-count consumer.
+fn family_counts(plan: &CompiledPlan) -> BTreeMap<Family, i64> {
+    DERIVED_FAMILIES
+        .into_iter()
+        .map(|fam| {
+            let n = i64::try_from(
+                plan.objects
+                    .iter()
+                    .filter(|o| o.key().family == fam)
+                    .count(),
+            )
+            .unwrap_or(i64::MAX);
+            (fam, n)
+        })
+        .collect()
+}
+
 /// Every rule runs unconditionally; the refusal set is their union — the compiler
-/// idiom, never first-failure-only (design D5; `refuse.qnt` `refusals`).
+/// idiom, never first-failure-only (design D5; `refuse.qnt` `refusals`). `counts`
+/// is the family tally of the shared, once-derived plan.
 #[must_use]
-pub(crate) fn refusals(intent: &Intent, inv: &Inventory) -> BTreeSet<Refusal> {
+fn refusals(intent: &Intent, inv: &Inventory, counts: &BTreeMap<Family, i64>) -> BTreeSet<Refusal> {
     let mut out = BTreeSet::new();
     tenant_absent_refusals(intent, &mut out);
     member_unresolved_refusals(intent, &mut out);
@@ -844,7 +862,7 @@ pub(crate) fn refusals(intent: &Intent, inv: &Inventory) -> BTreeSet<Refusal> {
     sizing_refusals(intent, &mut out);
     extra_refusals(intent, &mut out);
     crypto_refusals(intent, &mut out);
-    feasibility_refusals(intent, inv, &mut out);
+    feasibility_refusals(inv, counts, &mut out);
     unpriced_dataplane_refusals(intent, &mut out);
     pool_refusals(intent, &mut out);
     out
@@ -854,17 +872,10 @@ pub(crate) fn refusals(intent: &Intent, inv: &Inventory) -> BTreeSet<Refusal> {
 /// (ADR-0011), plus one per userspace-poll tenant mixing seeded rate classes (design
 /// D3; `refuse.qnt` `warnings`).
 #[must_use]
-pub(crate) fn warnings(intent: &Intent, inv: &Inventory) -> BTreeSet<Warning> {
-    let plan = derive(intent, inv);
+fn warnings(intent: &Intent, inv: &Inventory, counts: &BTreeMap<Family, i64>) -> BTreeSet<Warning> {
     let mut out = BTreeSet::new();
     for fam in DERIVED_FAMILIES {
-        let needed = i64::try_from(
-            plan.objects
-                .iter()
-                .filter(|o| o.key().family == fam)
-                .count(),
-        )
-        .unwrap_or(i64::MAX);
+        let needed = counts[&fam];
         if matches!(inv.ceilings.get(&fam), Some(Ceiling::Unknown)) && needed > 0 {
             out.insert(Warning::UnknownCeiling {
                 family: fam,
@@ -895,12 +906,15 @@ pub(crate) fn warnings(intent: &Intent, inv: &Inventory) -> BTreeSet<Warning> {
 /// Returns the non-empty [`BTreeSet`] of every [`Refusal`] the intent broke — never
 /// the first violation, so the operator fixes a file in one pass.
 pub fn compile(intent: &Intent, inv: &Inventory) -> Result<Compiled, BTreeSet<Refusal>> {
-    let rs = refusals(intent, inv);
+    // Derive once: both the feasibility rule and the ceiling warnings read the
+    // plan only through its per-family tally, so a single plan feeds all three
+    // consumers (the refusals, the warnings, and the accepted plan itself).
+    let plan = derive(intent, inv);
+    let counts = family_counts(&plan);
+    let rs = refusals(intent, inv, &counts);
     if rs.is_empty() {
-        Ok(Compiled {
-            plan: derive(intent, inv),
-            warnings: warnings(intent, inv),
-        })
+        let warnings = warnings(intent, inv, &counts);
+        Ok(Compiled { plan, warnings })
     } else {
         Err(rs)
     }
@@ -962,7 +976,7 @@ mod compile_tests {
     //! reference-board intent is the oracle for the poll-mode draws (ADR-0013 §7,
     //! `models/intent/scenarios/reference.qnt`).
 
-    use std::collections::{BTreeMap, BTreeSet};
+    use std::collections::BTreeSet;
 
     use super::{Compiled, Refusal, Warning, compile};
     use crate::compiled::{Attributes, Container, ProvenanceNode};
@@ -971,75 +985,18 @@ mod compile_tests {
         Crypto, Dataplane, Extra, Fabric, Intent, Isolation, Link, Member, Port, Switching, Tenant,
         kernel_tenant,
     };
-    use crate::inventory::{
-        Availability, Ceiling, DpmacLinkType, DpmacOffer, EthInterface, Inventory,
-    };
+    use crate::inventory::{Availability, Ceiling, Inventory};
     use crate::model::DpmacId;
-
-    const RESERVED_3: &str =
-        "ADR-0003 §3: wired to a peer that must never see traffic (total-deny)";
+    // The reference-board inventory is single-sourced in the testkit seam
+    // (`crate::testkit`); both this unit-test suite and the `compile_props`
+    // integration suite build it from there (ADR-0013 §7).
+    use crate::testkit::{RESERVED_3, offer, ref_inventory};
 
     // ---- builders ----
 
-    fn offer(id: u32, rate: i64, avail: Availability) -> (DpmacId, DpmacOffer) {
-        let d = DpmacId::new(id);
-        (
-            d,
-            DpmacOffer {
-                id: d,
-                max_rate: rate,
-                eth_if: EthInterface::Xfi,
-                link_type: DpmacLinkType::Phy,
-                avail,
-            },
-        )
-    }
-
-    /// The reference board inventory (`models/intent/inventory.qnt` `REF_INVENTORY`).
+    /// The reference board inventory at the reference online-CPU count (16).
     fn ref_inv() -> Inventory {
-        let dpmacs = BTreeMap::from([
-            offer(3, 25_000, Availability::Reserved(RESERVED_3.to_owned())),
-            offer(4, 25_000, Availability::Free),
-            offer(5, 25_000, Availability::Free),
-            offer(6, 25_000, Availability::Free),
-            offer(7, 10_000, Availability::Free),
-            offer(8, 10_000, Availability::Free),
-            offer(9, 10_000, Availability::Free),
-            offer(10, 10_000, Availability::Free),
-            offer(
-                17,
-                1_000,
-                Availability::Reserved("ADR-0003 §3: management plane (dpni.0)".to_owned()),
-            ),
-        ]);
-        let ceilings = BTreeMap::from([
-            (Family::Dprc, Ceiling::Unknown),
-            (
-                Family::Dpni,
-                Ceiling::Observed {
-                    n: 18,
-                    provenance: "ADR-0011 decision 2".to_owned(),
-                },
-            ),
-            (Family::Dpbp, Ceiling::Counted(63)),
-            (Family::Dpio, Ceiling::Unknown),
-            (Family::Dpcon, Ceiling::Unknown),
-            (
-                Family::Dpmcp,
-                Ceiling::Observed {
-                    n: 203,
-                    provenance: "ADR-0011 decision 3".to_owned(),
-                },
-            ),
-            (Family::Dpseci, Ceiling::Unknown),
-            (Family::Dpsw, Ceiling::Unknown),
-        ]);
-        Inventory {
-            cpus: 16,
-            dpmacs,
-            labels: BTreeMap::from([((Family::Dpni, 0), String::new())]),
-            ceilings,
-        }
+        ref_inventory(16)
     }
 
     fn tenant(name: &str, dp: Dataplane, cores: i64, iso: Isolation, pool: &str) -> Tenant {
