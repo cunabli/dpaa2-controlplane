@@ -614,9 +614,15 @@ module intent_derive {
       .concat(companionKeys(s.name, Dpseci, s.numDpseci))
       .concat(companionKeys(s.name, Dpsw, s.numDpsw))
 
+  // Tenants emit in tenant-NAME order (ADR-0015 decision 5, task 3.3d): the
+  // effective-tenant list is sorted by name before the fold, so the emission
+  // order — like every dpni ordinal — is a function of names, never of the
+  // `[tenant.<name>]` document position. objs/provenance are order-free (a Set /
+  // a Map), so this is the one seam a tenant reorder could have leaked through.
   pure def fullOrder(intent: Intent, inv: Inventory): List[ObjectKey] =
-    [dprtcKey].concat(effectiveTenants(intent, inv).foldl([], (acc, c) =>
-      if (hasPricing(c)) acc.concat(tenantOrder(intent, sizeTenant(intent, inv, c))) else acc))
+    [dprtcKey].concat(
+      sortByRank(effectiveTenants(intent, inv), c => nameRank(c.name)).foldl([], (acc, c) =>
+        if (hasPricing(c)) acc.concat(tenantOrder(intent, sizeTenant(intent, inv, c))) else acc))
 
   // ---- provenance nodes ----
 

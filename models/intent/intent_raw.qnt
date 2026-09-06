@@ -312,9 +312,14 @@ module intent_raw {
   // of being dropped ("" = absent, the `pool` convention). compile still ignores
   // `from` (intent/derive.qnt) — the clause is the matcher's, not the compiler's.
   pure def toIntent(raw: RawIntent): Intent =
-    { tenants: raw.tenants.keys().fold([], (acc, n) =>
-        val t = raw.tenants.get(n)
-        acc.append({ name: n, dataplane: t.dataplane, maxCores: t.maxCores, isolation: t.isolation, pool: t.pool, from: t.from })),
+    { // Tenants emit in canonical NAME order (task 3.3d), matching the Rust parser's
+      // BTreeMap-sorted emission: the neutral Intent keeps a List, but the order carries
+      // no identity — the derivation sorts by name (intent/derive.qnt fullOrder) — so
+      // emitting name-sorted keeps the conversion deterministic and position-independent.
+      tenants: sortByRank(raw.tenants.keys().fold([], (acc, n) => acc.append(n)), n => nameRank(n))
+        .foldl([], (acc, n) =>
+          val t = raw.tenants.get(n)
+          acc.append({ name: n, dataplane: t.dataplane, maxCores: t.maxCores, isolation: t.isolation, pool: t.pool, from: t.from })),
       // Ports and links emit in canonical NAME order (task 3.3d): the neutral
       // Intent keeps a List, but the order carries no identity — the derivation
       // sorts by name (intent/derive.qnt) — so emitting name-sorted keeps the

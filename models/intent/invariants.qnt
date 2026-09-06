@@ -285,20 +285,24 @@ module intent_invariants {
 
   // ---- positionIndependence (INTENT_I10): names, not positions, are identity ----
   // ADR-0015 decision 5 (task 3.3d, bead gqf.46): the enforceable guarantee is
-  // not that the MC handle N is stable but that no plan key is ever derived from
-  // a construct's position in the document — reordering cosmetic `[[port]]` /
-  // `[[link]]` blocks never rewires hardware or renumbers a dpni. Reversal is
-  // the witness permutation: for a list of >=2 any position-derived key moves
-  // under it, so compiling the reversed intent must yield the IDENTICAL Compiled
-  // — the same plan (keys, wiring, emission order, provenance) on the accepted
-  // arm, the same refusal set on the refused arm. crypto is exempt (ADR-0015
-  // decision 4 / task 2.6e: declaration order IS the dpseci ordinal), so it is
-  // not permuted. The Rust pairing/conformance test (task 3.4) is the
-  // conformance twin; here it is a checkable law over every alphabet intent.
+  // not that the MC handle N is stable but that no plan key or emission ordinal is
+  // ever derived from a construct's position in the document — reordering cosmetic
+  // `[tenant]` / `[[port]]` / `[[link]]` / `[fabric]` blocks never rewires hardware,
+  // renumbers a dpni, or reorders emission. Reversal is the witness permutation: for
+  // a list of >=2 any position-derived key moves under it, so compiling the reversed
+  // intent must yield the IDENTICAL Compiled — the same plan (keys, wiring, emission
+  // order, provenance) on the accepted arm, the same refusal set on the refused arm.
+  // All four document-ordered lists are permuted (tenants and fabrics too, so a
+  // tenant reorder cannot leak through the emission order); crypto is exempt (ADR-0015
+  // decision 4 / task 2.6e: declaration order IS the dpseci ordinal), so it is not
+  // permuted. The Rust pairing/conformance test (task 3.4) is the conformance twin;
+  // here it is a checkable law over every alphabet intent.
   pure def positionIndependence(intent: Intent, inv: Inventory): bool =
     val reversed = intent
+      .with("tenants", intent.tenants.foldl([], (acc, t) => [t].concat(acc)))
       .with("ports", intent.ports.foldl([], (acc, p) => [p].concat(acc)))
       .with("links", intent.links.foldl([], (acc, l) => [l].concat(acc)))
+      .with("fabrics", intent.fabrics.foldl([], (acc, f) => [f].concat(acc)))
     compile(intent, inv) == compile(reversed, inv)
 
   // ---- the two rungs ----

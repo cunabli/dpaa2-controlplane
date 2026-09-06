@@ -939,19 +939,22 @@ proptest! {
     }
 
     // INTENT_I10 positionIndependence — names, not positions, are identity (ADR-0015
-    // decision 5, task 3.3d; `invariants.qnt` `positionIndependence`): no plan key is
-    // ever derived from a construct's position in the document, so reversing the
-    // `ports` and `links` lists (the witness permutation — for any list of >=2, a
-    // position-derived key would move) compiles to the IDENTICAL `Compiled`: same plan
-    // keys, wiring, emission order and provenance on the accepted arm, the same refusal
-    // set on the refused arm. crypto is exempt (declaration order IS the dpseci
-    // ordinal, ADR-0015 decision 4); fabrics/tenants are name-keyed tables the parser
-    // canonicalises, so they carry no document-position axis to permute.
+    // decision 5, task 3.3d; `invariants.qnt` `positionIndependence`): no plan key or
+    // emission ordinal is ever derived from a construct's position in the document, so
+    // reversing all four document-ordered lists (`tenants`, `ports`, `links`, `fabrics`
+    // — the witness permutation, for any list of >=2 a position-derived key would move)
+    // compiles to the IDENTICAL `Compiled`: same plan keys, wiring, emission order and
+    // provenance on the accepted arm, the same refusal set on the refused arm. Tenants
+    // and fabrics are permuted too, so a tenant reorder cannot leak through the emission
+    // order; crypto is exempt (declaration order IS the dpseci ordinal, ADR-0015
+    // decision 4).
     #[test]
     fn compile_is_position_independent((intent, inv) in intent_and_inventory()) {
         let mut reversed = intent.clone();
+        reversed.tenants.reverse();
         reversed.ports.reverse();
         reversed.links.reverse();
+        reversed.fabrics.reverse();
         prop_assert_eq!(compile(&intent, &inv), compile(&reversed, &inv));
     }
 

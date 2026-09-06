@@ -560,14 +560,18 @@ fn link_names_kernel(intent: &Intent) -> bool {
         .any(|l| l.interface_a.is_kernel() || l.interface_b.is_kernel())
 }
 
-/// The tenants the derivation sizes: the declared ones, plus the reserved kernel
-/// materialised when a link names it but the intent never declared it (design D6a;
-/// `derive.qnt` `effectiveTenants`).
+/// The tenants the derivation sizes, in tenant-NAME order (ADR-0015 decision 5, task
+/// 3.3d; `derive.qnt` `effectiveTenants` + `fullOrder`): the declared ones, plus the
+/// reserved kernel materialised when a link names it but the intent never declared it
+/// (design D6a). Sorting by `TenantName`'s byte-wise `Ord` == sorting by name, so the
+/// emission order — objects and provenance being order-free — follows names, never the
+/// declared `Vec` position (see [`terminated_ports`] for the rank-list lint).
 fn effective_tenants(intent: &Intent, inv: &Inventory) -> Vec<Tenant> {
     let mut v = intent.tenants.clone();
     if link_names_kernel(intent) && !kernel_declared(intent) {
         v.push(kernel_tenant(i64::from(inv.cpus)));
     }
+    v.sort_by(|a, b| a.name.cmp(&b.name));
     v
 }
 

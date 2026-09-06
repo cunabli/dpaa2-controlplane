@@ -244,8 +244,8 @@ pub struct Extra {
 /// order, never by a construct's position in the document (ADR-0015 decision 5, the
 /// position-independence law — reordering cosmetic blocks never rewires hardware).
 /// tenants/ports/links/fabrics stay `Vec`s for a minimal shape, but the derivation
-/// sorts them by name (the `derive` module; `derive.qnt`) and no longer consumes their
-/// order. `crypto`
+/// sorts them by name (the `derive` module; `derive.qnt`) for ordinal minting and
+/// emission order alike, and no longer consumes their document position. `crypto`
 /// is the sole exception (ADR-0015 decision 4 / task 2.6e): a `[[crypto]]` block is
 /// genuinely anonymous, so declaration order IS the dpseci ordinal and crypto is never
 /// sorted. Only `extras` is a set — unordered, matched by `(tenant, family)`,
