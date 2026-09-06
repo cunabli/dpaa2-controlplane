@@ -88,15 +88,15 @@ soundly and a rename self-neutralizes after one converge.
   `e0` and the edited intent swaps their names, each config travelling
   with its object
 - **THEN** the config-gated pass defers both contested sources, the
-  rename pass cross-binds them, the plan holds exactly two renames with
-  nothing created or removed, and a second match of the same intent
-  consumes no rename
+  rename pass cross-binds them, the match plan holds exactly two
+  renames with nothing created or removed, and a second match run once
+  those relabels are carried consumes no rename
 
 #### Scenario: Indistinguishable leftovers refuse by name
 - **WHEN** two unanchored board objects of one family have drifted labels
   and different configs and the intent still names two constructs
-- **THEN** the relation refuses `Ambiguous` for that family and the
-  converge changes nothing
+- **THEN** the relation refuses `Ambiguous` for that family and binds
+  nothing — no guess reaches a match plan
 
 ### Requirement: Every plan transition and match plan carries a disruption class
 The `dpaa2-api` crate SHALL class every plan transition into one of three

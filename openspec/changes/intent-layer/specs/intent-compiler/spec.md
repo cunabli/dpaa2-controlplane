@@ -44,7 +44,7 @@ reserved for the root-container `kernel-netlink` dataplane, is implicitly
 - **WHEN** an intent declares a `restricted` tenant whose `pool` names a
   `public` holder of the same dataplane
 - **THEN** the tenant's objects are created in the holder's child DPRC,
-  the tenant derives no DPRC of its own, and it keeps its own regime
+  the tenant derives no DPRC of its own, and it keeps its own dataplane
   companion draw
 
 #### Scenario: A pool is refused when its shape is illegal
@@ -90,8 +90,10 @@ reference snapshot; it SHALL NOT be operator-written.
 
 ### Requirement: Compilation is pure, total, and deterministic
 `compile(intent, inventory)` SHALL be a pure function returning
-`Result<Plan, Refusal>`: same inputs, same output; no I/O; every intent
-either compiles to a complete plan or is refused with a named rule.
+`Result<Compiled, BTreeSet<Refusal>>` — the compiled plan and its
+warnings, or the complete refusal set: same inputs, same output; no
+I/O; every intent either compiles to a complete plan or is refused
+with a named rule.
 (ADR-0005 §2)
 
 #### Scenario: Same intent, same plan
@@ -125,9 +127,9 @@ num_ifs`, PER_FDB flooding and broadcast, control interface enabled.
   gives T = 5
 - **THEN** the plan holds one child DPRC, two dpnis with at least 5
   transmit queues, 10 dpios, 2 dpbps, 1 dpmcp, and one dpcon per polled
-  queue, each keyed (tenant, family, ordinal) with its label rendered
-  from the key, and each with a provenance tree naming the rule and the
-  tenant
+  queue, each keyed (tenant, family, ordinal) with its label carrying
+  the owning construct's name, and each with a provenance tree naming
+  the rule and the tenant
 
 #### Scenario: Thread count is marked unmeasured
 - **WHEN** provenance for a derived T is printed
@@ -135,8 +137,8 @@ num_ifs`, PER_FDB flooding and broadcast, control interface enabled.
 
 ### Requirement: The compiler refuses by name
 The compiler SHALL refuse, with a variant naming the rule and the
-offending construct, on: tenant absence (a dpci or dpdcei intent with
-no userspace tenant named, DPDCEI-I1); an unanchored dpmac (not in
+offending construct, on: a construct naming an undeclared tenant
+(`TenantAbsent`, DPDCEI-I1 generalised); an unanchored dpmac (not in
 the inventory); a reserved or foreign dpmac; a dpmac claimed by two
 constructs; a port rate above its dpmac's `max_rate`; a hardware fabric
 forwarded by a tenant other than the kernel; a member port whose tenant
@@ -152,8 +154,8 @@ seeded worker row; a tenant whose dataplane has no companion pricing
 restricted tenant naming no pool, a pool holder that is absent, not
 `public`, or itself pooled (no chains), or a drawer whose dataplane
 differs from its holder's (the reserved kernel counting as
-kernel-netlink); a construct naming an undeclared tenant,
-port or fabric; and cross-tenant infeasibility, where the
+kernel-netlink); a member naming an undeclared port or fabric, or a
+fabric listing itself as a member; and cross-tenant infeasibility, where the
 sum of derived draws exceeds a `Counted` or `Observed` ceiling — naming
 the family, the amount needed, and the amount available. An `Unknown`
 ceiling SHALL produce a warning in provenance, never a refusal. The
@@ -260,17 +262,18 @@ evidence anchor (baseline section or ADR) the rule cites.
   workers-table(10G ⇒ 2, unmeasured) ← port wan0 rate = 10G, port wan1
   rate = 10G`, and each node names its anchor
 
-### Requirement: Derived objects are keyed, labels are rendered
+### Requirement: Derived objects are keyed, labels carry the construct name
 Each derived object SHALL be identified by the key (tenant, family,
-ordinal); its DPRC label SHALL be rendered from that key; and
-desired↔observed matching SHALL be by key, never by object name
+ordinal); its DPRC label SHALL carry the owning construct's bare name
+(ADR-0015 decisions 9 and 13 — never an ordinal-bearing rendering);
+and desired↔observed matching SHALL be by key, never by object name
 (ADR-0010).
 
-#### Scenario: Labels are a projection of the key
+#### Scenario: The label is the owning construct's name
 - **WHEN** the plan is emitted for a tenant named `router`
 - **THEN** its third dpio carries key (`router`, dpio, 3) and label
-  `router/dpio/3`, and the same intent compiled again yields the same
-  key and label
+  `router`, and the same intent compiled again yields the same key
+  and label
 
 ### Requirement: Plan relationships are unrepresentable if wrong
 The plan type SHALL admit edges, container memberships, and companions

@@ -42,8 +42,9 @@ every later change (#4 onward) executes a plan this compiler emits.
   ADR-0011's own distinction) — read from the board in `ensure` and from
   change #2's reference snapshot in tests, never hand-written. The
   compiler emits the complete object set, each derived object keyed by
-  (tenant, family, ordinal) with its label rendered from the key
-  (ADR-0010: names are not identities), and each derived value carrying
+  (tenant, family, ordinal) with its label carrying the owning
+  construct's name (ADR-0015; ADR-0010: names are not identities), and
+  each derived value carrying
   a provenance *tree* — rule, inputs, and their provenance down to the
   declared construct and the evidence anchor. It refuses with the
   complete list of violations, not the first — tenant absence
@@ -67,7 +68,7 @@ every later change (#4 onward) executes a plan this compiler emits.
   sort applied afterwards. Per-object lifecycle typestates stay with
   changes #4–#8.
 - **Derived counts are requests; extras add on top** — every derived
-  count is a request; a per-(tenant, family) `[[extra]]` adds its `count`,
+  count is a request; a per-(tenant, family) `[extra.<tenant>]` entry adds its `count`,
   so the effective count is request + count, raise-only by construction.
   Only the four companion families dpio/dpbp/dpmcp/dpcon accept an extra;
   any other family, or a count below 1, refuses; provenance prints both

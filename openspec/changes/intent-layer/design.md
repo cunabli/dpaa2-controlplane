@@ -73,8 +73,9 @@ object count; `rate` is what the port must deliver. A tenant may declare
 several crypto blocks, each sizing its own dpseci by its own `flows`
 (no ceiling folds them together); the blocks are ordered — a `[[crypto]]`
 array-of-tables is — so a tenant's Nth block numbers its Nth dpseci
-(ordinal N), the same positional convention the ports, links, and fabric
-members already carry (task 2.6e). The file opens with an `[intent]` table — where
+(ordinal N). Crypto is the one construct whose declaration position is
+semantic: ports, links, and fabric members are name-keyed and
+position-independent (INTENT_I10, task 3.3d). The file opens with an `[intent]` table — where
 document-level properties anchor together — carrying a mandatory
 `schema` key, the `apiVersion` idiom, so the next breaking change has a
 hook this one did not. The nouns are the 2026-08-31 taxonomy review's: *tenant* is RFC
@@ -164,7 +165,7 @@ from; the numbers live in the ADRs and the model, never twice.
 
 ### D5. The compiler is total and refuses by name
 
-`compile` returns `Result<Plan, Refusal>`; `Refusal` is an enum whose
+`compile` returns `Result<Compiled, BTreeSet<Refusal>>`; `Refusal` is an enum whose
 variants are the rules: `TenantAbsent` (DPDCEI-I1 generalised; a
 construct names an undeclared tenant), `Unanchored` and
 `DoubleClaimed` (dpmac not in the inventory / claimed by two constructs),
@@ -180,11 +181,14 @@ unseeded classes; a new row enters through a scenario that needs it),
 is not one of the four companions — never silently ignored, D5),
 `ExtraNotPositive` (an extra whose count is below 1),
 `CryptoFlowsNotPositive` (a crypto block whose flows are below 1),
-`MemberUnresolved`, `SelfMember`, and `Reserved`,
-`Foreign`, and `Infeasible { family, needed, available }`.
+`CryptoFlowsOverDevice` (a block's flows above one dpseci's 16 queue
+pairs), the pool-shape rules `PoolWithoutRestricted`,
+`RestrictedWithoutPool`, `HolderNotPublic`, `PoolChain`, and
+`PoolDataplaneMismatch`, plus `MemberUnresolved`, `SelfMember`,
+`Reserved`, `Foreign`, and `Infeasible { family, needed, available }`.
 `compile` returns *every* violation, not the first — the compiler idiom:
-the operator fixes a file in one pass — so the error side is a non-empty
-`Refusals` list. `Refusal` and `Dataplane` are `#[non_exhaustive]`: a
+the operator fixes a file in one pass — so the error side is the
+non-empty `BTreeSet<Refusal>`. `Refusal` and `Dataplane` are `#[non_exhaustive]`: a
 `PoolShortfall` variant is reserved for `reconcile` (#6), and a
 passthrough value (a VFIO child whose guest dataplane the host cannot
 see) is #4's. Extras follow an additive idiom: every derived count is a
@@ -209,7 +213,8 @@ not a value the plan type admits. Emission order is a property of the
 constructors (`object-model.md` §5: pool companions before consumer
 objects, dpio before its dpmcp in the kernel regime), not a sort. Each
 derived object is keyed by `(tenant, family, ordinal)` and its label
-is rendered from the key — ADR-0010: names are not identities — so
+carries the owning construct's name (ADR-0015 decisions 9 and 13;
+ADR-0010: names are not identities) — so
 desired↔observed matching is by key and the label namespace is a
 projection. Provenance is a tree, not a triple: every derived value
 points at its rule and at the values it consumed, recursively, down to
@@ -264,7 +269,7 @@ and `pool` — that map onto it:
   full per-CPU dpio draw.
 - **restricted** — community co-residency: the tenant's objects are
   created in the `pool` holder's dprc and it derives no dprc of its own,
-  though it keeps its own object keys and its own regime draw (a DPDK
+  though it keeps its own object keys and its own dataplane draw (a DPDK
   secondary process still draws its own dpmcp). Reserved for consumers
   needing shared mappings; the concrete case is a DPDK secondary pooling
   a userspace-poll primary. This makes the reference board's third child

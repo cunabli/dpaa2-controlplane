@@ -38,7 +38,7 @@ the change's only other operator sync point (design D12).
       reference to `companions.qnt`, dpcon per polled queue, dpseci and
       dpsw predicates, one child DPRC per non-kernel tenant, dprtc.0
       pinned; derived objects keyed (tenant, family, ordinal) with
-      labels rendered from the key; provenance as a tree from each
+      labels later re-cut by 6.6 to carry the construct name; provenance as a tree from each
       derived value to its rule, its inputs, the construct and the
       anchor (design D3, D4, D6)
 - [x] 1.3 Refusals as the total function's other half, returned as the
@@ -257,7 +257,7 @@ the change's only other operator sync point (design D12).
 - [x] 3.5b `dpaa2-mc`: DPL ownership observed via the ADR-0010 §4 label
       convention — `dprc show`'s label column read, every created object
       labelled `dpaa2ctl`, a dpmac anchoring an unlabelled dpni reads
-      Foreign and refuses ForeignAnchor (bead gqf.41, discovered by 3.5
+      Foreign and refuses `Foreign` (bead gqf.41, discovered by 3.5
       parcel A)
 - [x] 3.6 `dpaa2-api` reconciler: plan-only objects reported by family
       and count, never as drift; `is_converged` ignores them; retro
