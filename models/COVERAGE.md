@@ -221,41 +221,39 @@ drawable, `RATES` gained 40000 (no worker row) so UnknownRateClass fires, and
 `FLOWS` gained 17 (past one dpseci's 16-queue-pair ceiling) so
 CryptoFlowsOverDevice fires (task 2.6e).
 
-- **Reached by the random alphabet** (traces of 3000): every anchor refusal
-  (Unanchored 824, ReservedAnchor 1488, OverRate 1722), every fabric refusal
-  (MemberUnresolved 1629, SelfMember 689, FabricNotKernelForwarded 375,
-  PortTenantMismatch 625, UnsupportedEdge 177), DoubleClaimed 706, the sizing
-  refusals (UnknownRateClass 339, CoreBudgetExceeded 256), the extra refusals
-  (ExtraNotCompanion 979, ExtraNotPositive 1129), both crypto-flows refusals
-  (CryptoFlowsOverDevice 1199, CryptoFlowsNotPositive 1172), UnpricedDataplane
-  2075, every pool/isolation refusal (PoolWithoutRestricted 2087,
-  PoolDataplaneMismatch 654, PoolChain 647, HolderNotPublic 590,
-  RestrictedWithoutPool 400), TenantAbsent 235 (a Restricted tenant may name a
-  pool holder never declared — construct "pool", reachable through
-  `addTenant`), and the UnknownCeiling warning 3000; Accepted 3000, Refused
-  3000.
+- **Reached by the random alphabet** (traces of 3000, seed 20260831, re-run
+  for the vocabulary-v2 25-variant refusal set — task 5.1): every anchor
+  refusal (Unanchored 857, ReservedAnchor 1569, OverRate 1688), every fabric
+  refusal (MemberUnresolved 1619, SelfMember 683, FabricNotKernelForwarded 368,
+  PortTenantMismatch 688, UnsupportedEdge 182), DoubleClaimed 707, the sizing
+  refusals (UnknownRateClass 346, CoreBudgetExceeded 269), the extra refusals
+  (ExtraNotCompanion 921, ExtraNotPositive 1135), both crypto-flows refusals
+  (CryptoFlowsOverDevice 1250, CryptoFlowsNotPositive 1213), UnpricedDataplane
+  2076, the three remaining pool/isolation refusals (PoolDataplaneMismatch 1299,
+  PoolChain 1277, HolderNotPublic 1457 — the two illegal pool shapes
+  `PoolWithoutRestricted`/`RestrictedWithoutPool` left the compile vocabulary in
+  D1, unrepresentable in `Isolation::Restricted { pool }`), TenantAbsent 593 (a
+  Restricted tenant may name a pool holder never declared — referrer
+  `Pool(drawer)`, D3, reachable through `addTenant`), the parity refusal
+  LinkSelfLoop 979 (equal `addLink` ends, D4), and the UnknownCeiling warning
+  3000; Accepted 3000, Refused 2999.
 - **Structure dimensions reached** (traces of 3000): `wPublicTenant` 3000,
-  `wCryptoPresent` 2867, `wExtraPresent` 2845, `wFabricPresent` 2791,
-  `wThreeTenants` 2354, `wLinkPresent` 2342, `wEventDrawn` 2075,
-  `wRestrictedTenant` 1492, `wMixedRates` 444.
+  `wCryptoPresent` 2869, `wExtraPresent` 2848, `wFabricPresent` 2803,
+  `wThreeTenants` 2372, `wRestrictedTenant` 2315, `wLinkPresent` 2314,
+  `wEventDrawn` 2076, `wMixedRates` 457.
 - **Alphabet-unreachable, covered elsewhere** (0 traces): `ForeignAnchor` —
   the inventory marks no dpmac Foreign, covered by `unanchoredForeignTest`
   (`intent/main.qnt`, `invWithForeignDpmac7`); `Infeasible` — intents this
   small never sum past a REF_INVENTORY ceiling, covered by the vfabric
   overdrawn-pool twin (`scenarios/vfabric.qnt` `twinInfeasibleTest`,
-  `Counted(5)`) and `infeasibleTest`. The `UnmeasuredCombination` warning is
-  reachable but unhit in 3000 samples (a clean accepted cross-class mix is a
+  `Counted(5)`) and `infeasibleTest`; the two D4 parity twins `RenameDoubleClaim`
+  and `KernelDeclared` — the alphabet draws no `renamed = { from }` clause and
+  seeds only the reserved kernel (whose exact value is exempt), so neither
+  fires here; covered by the directed `renameDoubleClaimTest` and
+  `kernelDeclaredTest` (`intent/main.qnt`). The `UnmeasuredCombination` warning
+  is reachable but unhit in 3000 samples (a clean accepted cross-class mix is a
   narrow draw — the sole Free 25G dpmac is 4); its shape precursor is counted
-  (`wMixedRates` 444) and the warning is covered by `mixedRateClassWarnsTest`.
-- **Parity refusals (vocabulary-v2 D4), sweep counts pending task 5.1**: the
-  three compile-side twins `LinkSelfLoop`, `RenameDoubleClaim` and
-  `KernelDeclared` are pinned by the directed `linkSelfLoopTest`,
-  `renameDoubleClaimTest` and `kernelDeclaredTest` (`intent/main.qnt`).
-  `LinkSelfLoop` is reachable in the random sweep (equal `addLink` ends);
-  `RenameDoubleClaim` and `KernelDeclared` are alphabet-unreachable here (no
-  `from` clause is drawn and only the reserved kernel is seeded). Task 5.1 owns
-  the regenerated sweep counts and the witness-list wiring; this line is a
-  lint-satisfying stub (task 4.1).
+  (`wMixedRates` 457) and the warning is covered by `mixedRateClassWarnsTest`.
 
 ## Raw surface laws (task 3.3e)
 
@@ -289,11 +287,13 @@ reverse, fails the harness (`models/intent/raw_replay.qnt` freezes the corpus,
 | MBT-conformance | raw_conformance | itf-replay | ADR-0013 §2/§5; parse.rs (verdict + accepted-`Intent` agreement, per-variant error matcher; the DEVIATION reconciled by any-match over the model set) |
 
 Every near-miss the dirty alphabet reaches (seed 20260905, 10 steps, 2000
-samples, re-run for task 3.3d's keyed ports/links): `wReservedKernel` 1633,
-`wLinkSelfLoop` 500, `wRawMemberUnresolved` 1188, `wUnknownExtraFamily` 849,
-`wTenantAbsent` 1982, `wPoolWithoutRestricted` 813, `wRestrictedWithoutPool` 454,
-`wNonPositiveExtra` 1181, `wNonPositiveRate` 1358; `wRawAccepted`/`wRawRefused`
-both 2000. No law was violated.
+samples, re-run for the vocabulary-v2 raw-layer changes — task 5.1):
+`wReservedKernel` 1583, `wLinkSelfLoop` 492 (the raw `RawLinkSelfLoop`,
+Raw-prefixed since compile now owns a `LinkSelfLoop`, D4), `wRawMemberUnresolved`
+1170, `wUnknownExtraFamily` 840, `wTenantAbsent` 1984, `wPoolWithoutRestricted`
+812, `wRestrictedWithoutPool` 424, `wNonPositiveExtra` 1189, `wNonPositiveRate`
+1384, `wRenamedFromDeclared` 97; `wRawAccepted`/`wRawRefused` both 2000. No law
+was violated.
 
 - **`wDuplicateName` 0 (recorded unknown, covered elsewhere)**: once ports and
   links are keyed (task 3.3d), an intra-family duplicate is unrepresentable, and

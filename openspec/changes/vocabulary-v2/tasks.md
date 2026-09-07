@@ -62,7 +62,7 @@ each checkbox names its bead.
 
 ## 5. Alphabet, witnesses, and docs (designs D5, D6)
 
-- [ ] 5.1 (bead dpaa2-controlplane-093.5) Regenerate `alphabet.qnt` and the R11 witness corpus for the
+- [x] 5.1 (bead dpaa2-controlplane-093.5) Regenerate `alphabet.qnt` and the R11 witness corpus for the
   revised refusal set; update the witness counts in COVERAGE.md (single
   authoritative source). Verify: R11 and R14 ledger lints green; full model
   ladder green.
