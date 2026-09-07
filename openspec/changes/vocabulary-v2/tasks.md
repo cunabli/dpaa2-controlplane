@@ -52,7 +52,7 @@ each checkbox names its bead.
 
 ## 4. Parity refusals close D11 (design D4)
 
-- [ ] 4.1 (bead dpaa2-controlplane-093.4) Add `KernelDeclared`, `LinkSelfLoop`, and `RenameDoubleClaim` to
+- [x] 4.1 (bead dpaa2-controlplane-093.4) Add `KernelDeclared`, `LinkSelfLoop`, and `RenameDoubleClaim` to
   `refuse.rs` and `refuse.qnt` as verbatim twins of `parse.rs:172-179`,
   `parse.rs:472-476`, and `check_renames`; each site carries the F3-form
   doc note naming its twin; unit tests build the three programmatic Intents

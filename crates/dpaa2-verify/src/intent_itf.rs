@@ -745,6 +745,15 @@ fn refusal(v: &Value) -> Result<Refusal, String> {
             drawer: dataplane(field(p, "drawer")?)?,
             holder: dataplane(field(p, "holder")?)?,
         },
+        // The three parity twins (vocabulary-v2 D4). `KernelDeclared` is nullary.
+        "LinkSelfLoop" => Refusal::LinkSelfLoop {
+            link: cname(field(p, "link")?)?,
+        },
+        "RenameDoubleClaim" => Refusal::RenameDoubleClaim {
+            construct: cname(field(p, "construct")?)?,
+            from: cname(field(p, "from")?)?,
+        },
+        "KernelDeclared" => Refusal::KernelDeclared,
         t => return Err(format!("unknown refusal `{t}`")),
     })
 }

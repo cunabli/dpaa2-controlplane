@@ -79,6 +79,9 @@ module intent_refuse {
     | HolderNotPublic({ tenant: str, holder: str })           // a Restricted tenant's pool holder is not Public (task 2.6c)
     | PoolChain({ tenant: str, holder: str })                 // a Restricted tenant's pool holder itself has a pool — no chains (task 2.6c)
     | PoolDataplaneMismatch({ tenant: str, drawer: Dataplane, holder: Dataplane }) // a Restricted tenant's dataplane differs from its holder's (task 2.6c; reserved kernel counts as kernel-netlink)
+    | LinkSelfLoop({ link: str })                             // vocabulary-v2 D4: a link whose two ends resolve to the same tenant (parse.rs convert_link twin; the raw layer's own self-loop refusal is RawLinkSelfLoop). Design D11 config→api parity
+    | RenameDoubleClaim({ construct: str, from: str })        // vocabulary-v2 D4: a rename `from` naming a construct currently declared and not itself renamed (parse.rs check_renames twin). Design D11 config→api parity
+    | KernelDeclared                                          // vocabulary-v2 D4: the intent declares a tenant named `kernel` that is not the reserved kernel (parse.rs convert twin); nullary — the name is the fact
 
   // A non-fatal note attached to an accepted compile (the review's
   // escape-hatch-warns rule). UnknownCeiling: the ceiling is Unknown, so
@@ -368,6 +371,51 @@ module intent_refuse {
         | _ => acc
       })
 
+  // ---- rules 13-15: the three parity refusals (vocabulary-v2 D4) ----
+  // Each mirrors a parse-side check verbatim (same predicate, refusal instead of
+  // Err), closing the design-D11 one-sided rows for a programmatic Intent.
+
+  // parse.rs convert_link twin: a link whose two ends resolve to the same tenant
+  // (with TenantRef, two Kernel ends are the same tenant too — `==` on the sum).
+  pure def linkSelfLoopRefusals(intent: Intent, inv: Inventory): Set[Refusal] =
+    intent.links.foldl(Set(), (acc, l) =>
+      if (l.interfaceA == l.interfaceB) acc.union(Set(LinkSelfLoop({ link: l.name }))) else acc)
+
+  // parse.rs convert twin: the intent declares a tenant named `kernel` that is NOT
+  // the reserved kernel. The reserved kernel (`kernelTenant(cpus)`, KernelNetlink +
+  // Public) is legitimately materialised into the tenant list by the frontend and
+  // derive (intent/derive.qnt effectiveTenants) and must compile, so only a
+  // kernel-named tenant of a NON-reserved shape is the programmatic declaration the
+  // parse boundary refuses at the TOML surface.
+  pure def kernelDeclaredRefusals(intent: Intent, inv: Inventory): Set[Refusal] =
+    if (intent.tenants.foldl(false, (a, c) => a or (c.name == KERNEL and c != kernelTenant(c.maxCores))))
+      Set(KernelDeclared) else Set()
+
+  // parse.rs check_renames twin: a rename `from` naming a construct currently
+  // declared and not itself renamed away claims it twice. Tenants resolve against
+  // declared tenants; ports/links/fabrics against their shared namespace (the same
+  // two-namespace split parse.rs makes).
+  pure def tenantDeclaredUnrenamed(intent: Intent, n: str): bool =
+    intent.tenants.foldl(false, (a, t) => a or (t.name == n and t.from == ""))
+  pure def constructDeclaredUnrenamed(intent: Intent, n: str): bool = or {
+    intent.ports.foldl(false, (a, p) => a or (p.name == n and p.from == "")),
+    intent.links.foldl(false, (a, l) => a or (l.name == n and l.from == "")),
+    intent.fabrics.foldl(false, (a, f) => a or (f.name == n and f.from == "")),
+  }
+  pure def renameDoubleClaimRefusals(intent: Intent, inv: Inventory): Set[Refusal] =
+    val fromTenants = intent.tenants.foldl(Set(), (acc, t) =>
+      if (t.from != "" and tenantDeclaredUnrenamed(intent, t.from))
+        acc.union(Set(RenameDoubleClaim({ construct: t.name, from: t.from }))) else acc)
+    val fromPorts = intent.ports.foldl(fromTenants, (acc, p) =>
+      if (p.from != "" and constructDeclaredUnrenamed(intent, p.from))
+        acc.union(Set(RenameDoubleClaim({ construct: p.name, from: p.from }))) else acc)
+    val fromLinks = intent.links.foldl(fromPorts, (acc, l) =>
+      if (l.from != "" and constructDeclaredUnrenamed(intent, l.from))
+        acc.union(Set(RenameDoubleClaim({ construct: l.name, from: l.from }))) else acc)
+    intent.fabrics.foldl(fromLinks, (acc, f) =>
+      if (f.from != "" and constructDeclaredUnrenamed(intent, f.from))
+        acc.union(Set(RenameDoubleClaim({ construct: f.name, from: f.from }))) else acc)
+
   // Every rule runs unconditionally; the refusal set is their union.
   pure def refusals(intent: Intent, inv: Inventory): Set[Refusal] =
     tenantAbsentRefusals(intent, inv)
@@ -382,6 +430,9 @@ module intent_refuse {
       .union(feasibilityRefusals(intent, inv))
       .union(unpricedDataplaneRefusals(intent, inv))
       .union(poolRefusals(intent, inv))
+      .union(linkSelfLoopRefusals(intent, inv))
+      .union(kernelDeclaredRefusals(intent, inv))
+      .union(renameDoubleClaimRefusals(intent, inv))
 
   // A warning per derived family whose ceiling is Unknown and whose count is
   // non-zero (ADR-0011: the cap ended, or the family was never measured).
@@ -438,7 +489,10 @@ module intent_refuse {
     UnpricedDataplane({ tenant: "c", dataplane: UserspaceEvent }),
     HolderNotPublic({ tenant: "c", holder: "h" }),
     PoolChain({ tenant: "c", holder: "h" }),
-    PoolDataplaneMismatch({ tenant: "c", drawer: UserspacePoll, holder: KernelNetlink }))
+    PoolDataplaneMismatch({ tenant: "c", drawer: UserspacePoll, holder: KernelNetlink }),
+    LinkSelfLoop({ link: "l" }),
+    RenameDoubleClaim({ construct: "c", from: "old" }),
+    KernelDeclared)
   pure val WARNINGS_USE: Set[Warning] = Set(
     UnknownCeiling({ family: Dpio, needed: 0 }),
     UnmeasuredCombination({ tenant: "c", rates: Set() }))

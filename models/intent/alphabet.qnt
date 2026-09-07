@@ -311,6 +311,14 @@ module intent_alphabet {
   val wHolderNotPublic = hasRefusal(r => match r { | HolderNotPublic(_) => true | _ => false })
   val wPoolChain = hasRefusal(r => match r { | PoolChain(_) => true | _ => false })
   val wPoolDataplaneMismatch = hasRefusal(r => match r { | PoolDataplaneMismatch(_) => true | _ => false })
+  // The three vocabulary-v2 D4 parity refusals. LinkSelfLoop is reachable in this
+  // sweep (addLink may draw equal ends); KernelDeclared and RenameDoubleClaim are
+  // recorded-unknowns here — the alphabet seeds only the reserved kernel and sets no
+  // `from` clause — pinned by the directed tests in intent/main.qnt. Task 5.1 owns
+  // the sweep counts and the witness-list wiring.
+  val wLinkSelfLoop = hasRefusal(r => match r { | LinkSelfLoop(_) => true | _ => false })
+  val wRenameDoubleClaim = hasRefusal(r => match r { | RenameDoubleClaim(_) => true | _ => false })
+  val wKernelDeclared = hasRefusal(r => match r { | KernelDeclared => true | _ => false })
 
   // Warnings (design D2 ceilings; design D3 cross-class mix).
   val wUnknownCeiling = hasWarning(w => match w { | UnknownCeiling(_) => true | _ => false })

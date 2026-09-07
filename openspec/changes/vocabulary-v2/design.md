@@ -170,7 +170,13 @@ New compile-side variants, each mirroring an existing parse check verbatim
   (`check_renames` twin, both tenant and port/link/fabric namespaces).
 - `KernelDeclared` — the intent declares a tenant named `kernel`
   (`parse.rs:172-179` twin); the payload carries nothing because the name is
-  the fact.
+  the fact. The exact reserved value — `kernel_tenant(max_cores)` — is
+  exempt: the shell's `complete_kernel` and the dry-run reference path
+  legitimately inject it into `intent.tenants` before compile (the 4b.2
+  shell-ownership decision), so compile cannot distinguish that injection
+  from a declaration; the rule therefore fires only on a kernel-named
+  tenant of a non-reserved shape, which is the D11 hole — a wrong kernel
+  reaching derive — that this twin exists to close (decided 2026-09-07).
 
 Each site gains the same deliberate-duplication doc note the existing twins
 carry (F3 exemplar form: name the twin file:line and the raw_itf pin).

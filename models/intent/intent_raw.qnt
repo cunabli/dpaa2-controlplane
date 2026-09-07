@@ -149,7 +149,7 @@ module intent_raw {
     | RestrictedWithoutPool({ tenant: str })              // a `restricted` tenant with no `pool` key (parse.rs convert_tenant)
     | ReservedKernel({ name: str })                       // [tenant.kernel] declares the reserved name (parse.rs convert)
     | DuplicateName({ name: str })                        // a port/link/fabric name TOML keys cannot dedupe (parse.rs convert)
-    | LinkSelfLoop({ link: str, tenant: str })            // a link naming one tenant at both ends (parse.rs convert_link)
+    | RawLinkSelfLoop({ link: str, tenant: str })         // a link naming one tenant at both ends (parse.rs convert_link); Raw-prefixed since compile now owns a LinkSelfLoop refusal (vocabulary-v2 D4), like RawMemberUnresolved beside MemberUnresolved
     | RawMemberUnresolved({ fabric: str, member: str })   // a fabric member string resolving to no port/tenant/fabric (parse.rs classify_member)
     | UnknownExtraFamily({ tenant: str, family: str })    // an [extra.<tenant>] family not one of the 16 (parse.rs parse_family)
     // A `renamed = { from }` whose target is currently declared and NOT itself
@@ -262,7 +262,7 @@ module intent_raw {
                else acc.union(Set(FromCompile(TenantAbsent({ referrer: RefLinkEnd(n), tenant: l.interfaceA }))))
       val a2 = if (rawResolves(raw, l.interfaceB)) a1
                else a1.union(Set(FromCompile(TenantAbsent({ referrer: RefLinkEnd(n), tenant: l.interfaceB }))))
-      if (l.interfaceA == l.interfaceB) a2.union(Set(LinkSelfLoop({ link: n, tenant: l.interfaceA }))) else a2)
+      if (l.interfaceA == l.interfaceB) a2.union(Set(RawLinkSelfLoop({ link: n, tenant: l.interfaceA }))) else a2)
     val fromFabrics = raw.fabrics.keys().fold(fromLinks, (acc, n) =>
       if (rawResolves(raw, raw.fabrics.get(n).forwardedBy)) acc
       else acc.union(Set(FromCompile(TenantAbsent({ referrer: RefFabric(n), tenant: raw.fabrics.get(n).forwardedBy })))))
@@ -388,7 +388,7 @@ module intent_raw {
 
   pure def isReservedKernel(r: RawRefusal): bool = match r { | ReservedKernel(_) => true | _ => false }
   pure def isDuplicateName(r: RawRefusal): bool = match r { | DuplicateName(_) => true | _ => false }
-  pure def isLinkSelfLoop(r: RawRefusal): bool = match r { | LinkSelfLoop(_) => true | _ => false }
+  pure def isLinkSelfLoop(r: RawRefusal): bool = match r { | RawLinkSelfLoop(_) => true | _ => false }
   pure def isRawMemberUnresolved(r: RawRefusal): bool = match r { | RawMemberUnresolved(_) => true | _ => false }
   pure def isUnknownExtraFamily(r: RawRefusal): bool = match r { | UnknownExtraFamily(_) => true | _ => false }
   pure def isRenamedFromDeclared(r: RawRefusal): bool = match r { | RenamedFromDeclared(_) => true | _ => false }
@@ -653,7 +653,7 @@ module intent_raw {
     RestrictedWithoutPool({ tenant: "c" }),
     ReservedKernel({ name: KERNEL }),
     DuplicateName({ name: "n" }),
-    LinkSelfLoop({ link: "l", tenant: "t" }),
+    RawLinkSelfLoop({ link: "l", tenant: "t" }),
     RawMemberUnresolved({ fabric: "f", member: "m" }),
     UnknownExtraFamily({ tenant: "t", family: "x" }),
     RenamedFromDeclared({ construct: "c", from: "old" }))

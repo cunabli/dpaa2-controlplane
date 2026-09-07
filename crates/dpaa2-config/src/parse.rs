@@ -170,6 +170,10 @@ fn convert(raw: &RawIntent) -> Result<Intent, Error> {
     // parse error), so only the reserved `kernel` refusal remains.
     let mut tenant_names: HashSet<TenantName> = HashSet::new();
     for name in raw.tenant.keys() {
+        // `compile` also refuses this (`Refusal::KernelDeclared`, `dpaa2-api`
+        // `refuse.rs` `kernel_declared_refusals`); the config duplicates the check
+        // deliberately across the config→api seam (design D11) — a dedup would leave a
+        // programmatic Intent unguarded and break raw-conformance.
         if name.is_kernel() {
             return Err(cfg(format!(
                 "`[tenant.kernel]` declares the reserved tenant name `{KERNEL}`, which is \
@@ -310,6 +314,11 @@ fn construct_is_declared_unrenamed(raw: &RawIntent, target: &ConstructName) -> b
 /// (ADR-0015 decision 10). An anchored port's rename is realized live by the
 /// reconciler's anchor-matched `SetLabel` repair; the matcher's rename widening for
 /// unanchored constructs engages when an unanchored-family executor lands (bead gqf.57).
+///
+/// `compile` also refuses this (`Refusal::RenameDoubleClaim`, `dpaa2-api` `refuse.rs`
+/// `rename_double_claim_refusals`, both namespaces); the config duplicates the check
+/// deliberately across the config→api seam (design D11) — a dedup would leave a
+/// programmatic Intent unguarded and break raw-conformance.
 fn check_renames(raw: &RawIntent) -> Result<(), Error> {
     for (name, t) in &raw.tenant {
         let Some(r) = &t.renamed else { continue };
@@ -488,6 +497,10 @@ fn convert_link(
             )));
         }
     }
+    // `compile` also refuses this (`Refusal::LinkSelfLoop`, `dpaa2-api` `refuse.rs`
+    // `link_self_loop_refusals`); the config duplicates the check deliberately across
+    // the config→api seam (design D11) — a dedup would leave a programmatic Intent
+    // unguarded and break raw-conformance.
     if interface_a == interface_b {
         return Err(cfg(format!(
             "link `{name}` names the same tenant `{interface_a}` at both ends; a link joins two \

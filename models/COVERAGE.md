@@ -247,6 +247,15 @@ CryptoFlowsOverDevice fires (task 2.6e).
   reachable but unhit in 3000 samples (a clean accepted cross-class mix is a
   narrow draw — the sole Free 25G dpmac is 4); its shape precursor is counted
   (`wMixedRates` 444) and the warning is covered by `mixedRateClassWarnsTest`.
+- **Parity refusals (vocabulary-v2 D4), sweep counts pending task 5.1**: the
+  three compile-side twins `LinkSelfLoop`, `RenameDoubleClaim` and
+  `KernelDeclared` are pinned by the directed `linkSelfLoopTest`,
+  `renameDoubleClaimTest` and `kernelDeclaredTest` (`intent/main.qnt`).
+  `LinkSelfLoop` is reachable in the random sweep (equal `addLink` ends);
+  `RenameDoubleClaim` and `KernelDeclared` are alphabet-unreachable here (no
+  `from` clause is drawn and only the reserved kernel is seeded). Task 5.1 owns
+  the regenerated sweep counts and the witness-list wiring; this line is a
+  lint-satisfying stub (task 4.1).
 
 ## Raw surface laws (task 3.3e)
 

@@ -600,6 +600,34 @@ module intent_main {
     refusedWith(compile(intent, REF_INVENTORY),
       r => r == TenantAbsent({ referrer: RefPort("wan0"), tenant: "ghost" }))
 
+  // ---- vocabulary-v2 D4: the three compile-side parity refusals ----
+
+  // A link whose two ends resolve to the same tenant is refused LinkSelfLoop —
+  // the compile twin of parse.rs convert_link (task 4.1).
+  run linkSelfLoopTest =
+    val intent = { tenants: [router],
+      ports: [], links: [{ name: "wire", interfaceA: Named("router"), interfaceB: Named("router"), from: "" }],
+      fabrics: [], crypto: [], extras: Set() }
+    refusedWith(compile(intent, REF_INVENTORY), r => r == LinkSelfLoop({ link: "wire" }))
+
+  // An intent declaring a tenant named `kernel` of a NON-reserved shape is refused
+  // KernelDeclared — the compile twin of parse.rs convert (task 4.1). The reserved
+  // kernelTenant is exempt (it is materialised, not declared).
+  run kernelDeclaredTest =
+    val intent = { tenants: [{ name: "kernel", dataplane: UserspacePoll, maxCores: 8, isolation: Isolated, from: "" }],
+      ports: [], links: [], fabrics: [], crypto: [], extras: Set() }
+    refusedWith(compile(intent, REF_INVENTORY), r => r == KernelDeclared)
+
+  // A rename `from` naming a currently-declared, not-itself-renamed construct is
+  // refused RenameDoubleClaim — the compile twin of parse.rs check_renames (task 4.1).
+  run renameDoubleClaimTest =
+    val intent = { tenants: [router],
+      ports: [{ name: "e0", dpmac: 7, rate: 10000, tenant: Named("router"), from: "wan0" },
+              { name: "wan0", dpmac: 8, rate: 10000, tenant: Named("router"), from: "" }],
+      links: [], fabrics: [], crypto: [], extras: Set() }
+    refusedWith(compile(intent, REF_INVENTORY),
+      r => r == RenameDoubleClaim({ construct: "e0", from: "wan0" }))
+
   // ---- task 2.6c: isolation, pooling, the kernel link end ----
 
   // A declared kernel-netlink namespace derives a child dprc and the child-

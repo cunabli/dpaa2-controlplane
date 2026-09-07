@@ -370,6 +370,15 @@ Rust enum spells the anchor pair `Reserved`/`Foreign` (see §11).
 - `PoolDataplaneMismatch` — a restricted drawer's dataplane differs from its
   holder's (the reserved kernel counts as kernel-netlink).
 
+*Programmatic parity (vocabulary-v2 D4) — compile-side twins of parse-side
+checks, closing the design-D11 one-sided rows (task 4.1; full prose amendment
+is task 5.2)*
+- `LinkSelfLoop` — a link whose two ends resolve to the same tenant.
+- `RenameDoubleClaim` — a rename `from` naming a construct currently declared
+  and not itself renamed → the target would be claimed twice.
+- `KernelDeclared` — the intent declares a tenant named `kernel` that is not the
+  reserved kernel.
+
 Two warnings attach to an accepted compile: `UnknownCeiling` (a derived
 family's ceiling is Unknown, so feasibility could not check it — accepted, not
 refused) and `UnmeasuredCombination` (a userspace-poll tenant mixes more than

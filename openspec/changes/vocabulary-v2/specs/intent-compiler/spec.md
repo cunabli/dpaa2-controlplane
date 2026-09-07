@@ -88,7 +88,9 @@ offending construct, on: a construct naming an undeclared tenant
 referencing site as a typed enum (port, link end, fabric forwarder,
 crypto, extra, pool drawer) rather than a construct-name string, so no
 reserved token can collide with a declared construct name; a tenant
-declared under the reserved name `kernel` (`KernelDeclared`); a link
+declared under the reserved name `kernel` in any shape other than the
+exact reserved kernel value, which the shell legitimately injects
+(`KernelDeclared`); a link
 whose two ends resolve to the same tenant (`LinkSelfLoop`); a rename
 `from` claiming a construct that is currently declared and not itself
 renamed (`RenameDoubleClaim`); an unanchored dpmac (not in
@@ -166,7 +168,11 @@ live-census refusal.
 
 #### Scenario: A programmatic kernel declaration is refused
 - **WHEN** an `Intent` built in Rust declares a tenant named `kernel`
-- **THEN** compilation is refused with `KernelDeclared`
+  whose shape differs from the exact reserved kernel value
+- **THEN** compilation is refused with `KernelDeclared`; an intent
+  carrying the exact reserved value is accepted, because the shell
+  injects that value when completing the kernel and compile cannot
+  distinguish the injection from a declaration
 
 #### Scenario: A programmatic rename double-claim is refused
 - **WHEN** an `Intent` built in Rust carries a construct whose rename

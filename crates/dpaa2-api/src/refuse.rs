@@ -21,7 +21,9 @@ use crate::derive::{
     terminated_ports, thread_count,
 };
 use crate::family::{DERIVED_FAMILIES, Family};
-use crate::intent::{Dataplane, Fabric, Intent, Member, Switching, Tenant, TenantRef};
+use crate::intent::{
+    Dataplane, Fabric, Intent, Member, Switching, Tenant, TenantRef, kernel_tenant,
+};
 use crate::inventory::{Availability, Ceiling, Inventory};
 use crate::model::{DesiredPort, DesiredTopology, DpmacId};
 use crate::types::{ConstructName, TenantName};
@@ -62,8 +64,10 @@ pub enum Referrer {
 }
 
 /// The rule an intent broke, naming the offending construct (design D5; ADR-0013
-/// §5). All 22 variants of `refuse.qnt` (vocabulary-v2 D1 deleted the two pool-shape
-/// contradictions, now unrepresentable in [`crate::intent::Isolation`]).
+/// §5). The `refuse.qnt` refusal vocabulary (vocabulary-v2 D1 deleted the two
+/// pool-shape contradictions, now unrepresentable in [`crate::intent::Isolation`];
+/// D4 added the three parity twins [`Refusal::LinkSelfLoop`],
+/// [`Refusal::RenameDoubleClaim`], [`Refusal::KernelDeclared`]).
 ///
 /// `#[non_exhaustive]`: a `PoolShortfall` variant is reserved for `reconcile`
 /// (change #6, drift against a live census) and a passthrough value is change #4's,
@@ -265,16 +269,44 @@ pub enum Refusal {
         /// The holder's dataplane.
         holder: Dataplane,
     },
+    /// A link whose two ends resolve to the same tenant (vocabulary-v2 D4). The
+    /// compile-side twin of the parse self-loop check
+    /// (`crates/dpaa2-config/src/parse.rs` `convert_link`); with [`TenantRef`], two
+    /// [`TenantRef::Kernel`] ends are the same tenant too. Deliberate duplication
+    /// across the config→api seam (design D11): the raw model twin is
+    /// `intent_raw.qnt` `RawLinkSelfLoop` (`crates/dpaa2-verify/src/raw_itf.rs`).
+    LinkSelfLoop {
+        /// The link naming one tenant at both ends.
+        link: ConstructName,
+    },
+    /// A rename `from` naming a construct currently declared and not itself renamed
+    /// away (vocabulary-v2 D4): the target would be claimed twice. The compile-side
+    /// twin of the parse check (`crates/dpaa2-config/src/parse.rs` `check_renames`),
+    /// covering both the tenant and the port/link/fabric namespaces. Deliberate
+    /// duplication across the config→api seam (design D11).
+    RenameDoubleClaim {
+        /// The construct declaring the rename.
+        construct: ConstructName,
+        /// The contested name it claims.
+        from: ConstructName,
+    },
+    /// The intent declares a tenant named `kernel` that is not the reserved kernel
+    /// (vocabulary-v2 D4). The compile-side twin of the parse reserved-name check
+    /// (`crates/dpaa2-config/src/parse.rs` `convert`); nullary because the name is
+    /// the fact. The reserved [`kernel_tenant`] is materialised into the tenant list
+    /// by the frontend and derive, so it is exempt — only a kernel-named tenant of a
+    /// non-reserved shape is the programmatic declaration the TOML boundary refuses.
+    KernelDeclared,
 }
 
-/// The 22 `Refusal` variant names, in declaration order — the Rust copy of the
+/// The `Refusal` variant names, in declaration order — the Rust copy of the
 /// `refuse.qnt` refusal vocabulary as a `&str` list the model lint can read
 /// (ADR-0014: an enumeration that restates the model is a linted copy, tied back
 /// to it by `intent_lint` R14; `Reserved`/`Foreign` carry the accepted ADR-0013
 /// §5 spelling, aliased to the model's anchor names in the lint). `Refusal` is
 /// payload-carrying, so it cannot be iterated like [`crate::ALL_FAMILIES`]; this
 /// list stands in, kept honest by the exhaustive `match` in [`Refusal::name`].
-pub const REFUSAL_VARIANTS: [&str; 22] = [
+pub const REFUSAL_VARIANTS: [&str; 25] = [
     "TenantAbsent",
     "MemberUnresolved",
     "SelfMember",
@@ -297,6 +329,9 @@ pub const REFUSAL_VARIANTS: [&str; 22] = [
     "HolderNotPublic",
     "PoolChain",
     "PoolDataplaneMismatch",
+    "LinkSelfLoop",
+    "RenameDoubleClaim",
+    "KernelDeclared",
 ];
 
 impl Refusal {
@@ -330,6 +365,9 @@ impl Refusal {
             Self::HolderNotPublic { .. } => "HolderNotPublic",
             Self::PoolChain { .. } => "PoolChain",
             Self::PoolDataplaneMismatch { .. } => "PoolDataplaneMismatch",
+            Self::LinkSelfLoop { .. } => "LinkSelfLoop",
+            Self::RenameDoubleClaim { .. } => "RenameDoubleClaim",
+            Self::KernelDeclared => "KernelDeclared",
         }
     }
 }
@@ -866,6 +904,96 @@ fn family_counts(plan: &CompiledPlan) -> BTreeMap<Family, i64> {
         .collect()
 }
 
+// ---- rules 13-15: the three parity refusals (vocabulary-v2 D4) ----
+
+/// A link whose two ends resolve to the same tenant (`refuse.qnt`
+/// `linkSelfLoopRefusals`). The compile-side twin of the parse self-loop check
+/// (`crates/dpaa2-config/src/parse.rs` `convert_link`, "a link joins two distinct
+/// tenants"); with [`TenantRef`] two [`TenantRef::Kernel`] ends compare equal too.
+/// A refused link never reaches derivation — `compile` returns the refusal set and
+/// never hands its plan out. Deliberate config→api duplication (design D11).
+fn link_self_loop_refusals(intent: &Intent, out: &mut BTreeSet<Refusal>) {
+    for l in &intent.links {
+        if l.interface_a == l.interface_b {
+            out.insert(Refusal::LinkSelfLoop {
+                link: l.name.clone(),
+            });
+        }
+    }
+}
+
+/// The intent declares a tenant named `kernel` that is not the reserved kernel
+/// (`refuse.qnt` `kernelDeclaredRefusals`). The compile-side twin of the parse
+/// reserved-name check (`crates/dpaa2-config/src/parse.rs` `convert`). The reserved
+/// [`kernel_tenant`] is materialised into the tenant list by the frontend and derive
+/// and must compile, so only a kernel-named tenant of a non-reserved shape is the
+/// programmatic declaration the TOML boundary refuses. Deliberate config→api
+/// duplication (design D11).
+fn kernel_declared_refusals(intent: &Intent, out: &mut BTreeSet<Refusal>) {
+    if intent
+        .tenants
+        .iter()
+        .any(|t| t.name.is_kernel() && *t != kernel_tenant(t.max_cores))
+    {
+        out.insert(Refusal::KernelDeclared);
+    }
+}
+
+/// A rename `from` naming a construct currently declared and not itself renamed away
+/// (`refuse.qnt` `renameDoubleClaimRefusals`): the target would be claimed twice. The
+/// compile-side twin of the parse check (`crates/dpaa2-config/src/parse.rs`
+/// `check_renames`), over the tenant namespace and the shared port/link/fabric
+/// namespace, matching the two-namespace split parse makes. Deliberate config→api
+/// duplication (design D11).
+fn rename_double_claim_refusals(intent: &Intent, out: &mut BTreeSet<Refusal>) {
+    let tenant_declared_unrenamed = |n: &TenantName| {
+        intent
+            .tenants
+            .iter()
+            .any(|t| &t.name == n && t.renamed.is_none())
+    };
+    for t in &intent.tenants {
+        if let Some(from) = &t.renamed
+            && tenant_declared_unrenamed(from)
+        {
+            out.insert(Refusal::RenameDoubleClaim {
+                construct: ConstructName::from(&t.name),
+                from: ConstructName::from(from),
+            });
+        }
+    }
+    let construct_declared_unrenamed = |n: &ConstructName| {
+        intent
+            .ports
+            .iter()
+            .any(|p| &p.name == n && p.renamed.is_none())
+            || intent
+                .links
+                .iter()
+                .any(|l| &l.name == n && l.renamed.is_none())
+            || intent
+                .fabrics
+                .iter()
+                .any(|f| &f.name == n && f.renamed.is_none())
+    };
+    let constructs = intent
+        .ports
+        .iter()
+        .map(|p| (&p.name, &p.renamed))
+        .chain(intent.links.iter().map(|l| (&l.name, &l.renamed)))
+        .chain(intent.fabrics.iter().map(|f| (&f.name, &f.renamed)));
+    for (name, renamed) in constructs {
+        if let Some(from) = renamed
+            && construct_declared_unrenamed(from)
+        {
+            out.insert(Refusal::RenameDoubleClaim {
+                construct: name.clone(),
+                from: from.clone(),
+            });
+        }
+    }
+}
+
 /// Every rule runs unconditionally; the refusal set is their union — the compiler
 /// idiom, never first-failure-only (design D5; `refuse.qnt` `refusals`). `counts`
 /// is the family tally of the shared, once-derived plan.
@@ -884,6 +1012,9 @@ fn refusals(intent: &Intent, inv: &Inventory, counts: &BTreeMap<Family, i64>) ->
     feasibility_refusals(inv, counts, &mut out);
     unpriced_dataplane_refusals(intent, &mut out);
     pool_refusals(intent, &mut out);
+    link_self_loop_refusals(intent, &mut out);
+    kernel_declared_refusals(intent, &mut out);
+    rename_double_claim_refusals(intent, &mut out);
     out
 }
 
@@ -1587,6 +1718,70 @@ mod compile_tests {
                 referrer: Referrer::Pool("t".into()),
                 tenant: "ghost".into(),
             }])
+        );
+    }
+
+    // ---- vocabulary-v2 D4: the three programmatic-parity refusals ----
+
+    /// Spec scenario "A programmatic self-loop link is refused" (vocabulary-v2 D4): an
+    /// `Intent` built in Rust (never parsed) with a link whose two ends name the same
+    /// tenant is refused `LinkSelfLoop`, and the refused compile hands out no plan.
+    #[test]
+    fn programmatic_self_loop_link_is_refused() {
+        let intent = Intent {
+            tenants: vec![kernel_tenant(16)],
+            links: vec![link("wire", "kernel", "kernel")],
+            ..Intent::default()
+        };
+        // `compile` returns the refusal set (Err), so derivation's plan is never
+        // handed out; the self-loop is named.
+        assert!(err(&intent, &ref_inv()).contains(&Refusal::LinkSelfLoop {
+            link: "wire".into()
+        }));
+    }
+
+    /// Spec scenario "A programmatic kernel declaration is refused" (vocabulary-v2 D4):
+    /// an `Intent` built in Rust declaring a tenant named `kernel` of a NON-reserved
+    /// shape is refused `KernelDeclared`. The reserved `kernel_tenant` is exempt — it
+    /// is materialised, not declared — so the many intents carrying it still compile.
+    #[test]
+    fn programmatic_kernel_declaration_is_refused() {
+        let intent = Intent {
+            tenants: vec![tenant(
+                "kernel",
+                Dataplane::UserspacePoll,
+                8,
+                Isolation::Isolated,
+            )],
+            ..Intent::default()
+        };
+        assert!(err(&intent, &ref_inv()).contains(&Refusal::KernelDeclared));
+    }
+
+    /// Spec scenario "A programmatic rename double-claim is refused" (vocabulary-v2 D4):
+    /// an `Intent` built in Rust whose port `e0` renames from a currently-declared,
+    /// not-itself-renamed port `wan0` is refused `RenameDoubleClaim` naming both.
+    #[test]
+    fn programmatic_rename_double_claim_is_refused() {
+        let mk = |name: &str, dpmac: u32, from: Option<&str>| Port {
+            name: name.into(),
+            dpmac: DpmacId::new(dpmac),
+            rate: 10_000,
+            tenant: TenantRef::from_name("router".into()),
+            mac: None,
+            mac_mode: crate::model::MacMode::Assert,
+            renamed: from.map(Into::into),
+        };
+        let intent = Intent {
+            tenants: vec![poll("router")],
+            ports: vec![mk("e0", 7, Some("wan0")), mk("wan0", 8, None)],
+            ..Intent::default()
+        };
+        assert!(
+            err(&intent, &ref_inv()).contains(&Refusal::RenameDoubleClaim {
+                construct: "e0".into(),
+                from: "wan0".into(),
+            })
         );
     }
 

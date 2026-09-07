@@ -168,8 +168,9 @@ pub enum RawRefusal {
         /// The duplicated name.
         name: ConstructName,
     },
-    /// A link naming one tenant at both ends.
-    LinkSelfLoop {
+    /// A link naming one tenant at both ends (`intent_raw.qnt` `RawLinkSelfLoop`;
+    /// Raw-prefixed since compile now owns a `LinkSelfLoop` refusal, vocabulary-v2 D4).
+    RawLinkSelfLoop {
         /// The link.
         link: ConstructName,
         /// The doubly-named tenant.
@@ -235,7 +236,7 @@ impl RawRefusal {
             RawRefusal::RestrictedWithoutPool { .. } => Kind::RestrictedWithoutPool,
             RawRefusal::ReservedKernel { .. } => Kind::ReservedKernel,
             RawRefusal::DuplicateName { .. } => Kind::DuplicateName,
-            RawRefusal::LinkSelfLoop { .. } => Kind::LinkSelfLoop,
+            RawRefusal::RawLinkSelfLoop { .. } => Kind::LinkSelfLoop,
             RawRefusal::RawMemberUnresolved { .. } => Kind::RawMemberUnresolved,
             RawRefusal::UnknownExtraFamily { .. } => Kind::UnknownExtraFamily,
             RawRefusal::RenamedFromDeclared { .. } => Kind::RenamedFromDeclared,
@@ -259,7 +260,7 @@ impl RawRefusal {
                 e.contains("duplicate") && e.contains(name.as_str())
             }
             // convert_link: "... names the same tenant `<t>` at both ends ...".
-            RawRefusal::LinkSelfLoop { .. } => e.contains("both ends"),
+            RawRefusal::RawLinkSelfLoop { .. } => e.contains("both ends"),
             // classify_member: "... names member `<m>`, which is not a declared port, tenant, or fabric".
             RawRefusal::RawMemberUnresolved { member, .. } => {
                 e.contains("not a declared") && e.contains(member.as_str())
@@ -541,7 +542,7 @@ fn raw_refusal(v: &Value) -> Result<RawRefusal, String> {
         "DuplicateName" => RawRefusal::DuplicateName {
             name: cname(field(payload, "name")?)?,
         },
-        "LinkSelfLoop" => RawRefusal::LinkSelfLoop {
+        "RawLinkSelfLoop" => RawRefusal::RawLinkSelfLoop {
             link: cname(field(payload, "link")?)?,
             tenant: tname(field(payload, "tenant")?)?,
         },
@@ -700,7 +701,7 @@ mod tests {
                 true,
             ),
             (
-                RawRefusal::LinkSelfLoop {
+                RawRefusal::RawLinkSelfLoop {
                     link: "l1".into(),
                     tenant: "c1".into(),
                 },
