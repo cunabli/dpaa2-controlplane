@@ -54,19 +54,30 @@
 module intent_raw {
   import types.* from "../core/types"            // Family, Option, and the 16 family constructors
   import intent_types.* from "./types"           // Intent, Tenant, Port, Link, Fabric, Crypto, Extra, Member, Dataplane, Isolation, Switching, KERNEL
-  import intent_refuse.* from "./refuse"         // Refusal (TenantAbsent, PoolWithoutRestricted, RestrictedWithoutPool reused verbatim)
+  import intent_refuse.* from "./refuse"         // Refusal (TenantAbsent reused verbatim for a dangling tenant reference)
 
   // ---- the raw TOML surface (ADR-0013 §2) ----
 
-  // A `[tenant.<name>]` value (the name lives in the map key). `dataplane` and
-  // `isolation` reuse the neutral enums: a bad enum value is a format error, not
-  // a surface pathology, so the surface cannot express one (like a duplicate
-  // key). `pool` is a raw `str` — "" means absent; a dangling holder is
-  // representable and left to compile (parse.rs does not resolve the pool).
+  // DEVIATION (vocabulary-v2 D1): the raw surface keeps `isolation` and `pool` as
+  // TWO independent fields, so the TOML contradictions (a `restricted` isolation
+  // with no `pool` key, or a `pool` key on a non-`restricted` tenant) stay
+  // representable and parse still names them. The neutral `Isolation` now folds the
+  // pool into its `Restricted` payload, so the raw surface can no longer reuse it;
+  // it carries its own payload-free `RawIsolation` tri-state instead — the exact
+  // shape `crates/dpaa2-config/src/schema.rs` `RawIsolation` + optional `pool`
+  // already has (Rust led here). A bad enum value is still a format error, not a
+  // surface pathology (like a duplicate key). `toIntent` folds the two raw fields
+  // back into the neutral `Restricted(pool)` payload once parse has accepted them.
+  type RawIsolation = RPublic | RRestricted | RIsolated
+
+  // A `[tenant.<name>]` value (the name lives in the map key). `dataplane` reuses
+  // the neutral enum; `isolation` is the payload-free `RawIsolation`. `pool` is a
+  // raw `str` — "" means absent; a dangling holder is representable and left to
+  // compile (parse.rs does not resolve the pool).
   // `from` (TOML key `renamed.from`, ADR-0015 decision 10 / task 6.3) declares the
-  // tenant's prior name; "" means absent (the `pool` convention). Refined rule (i)
-  // refuses it only when the target is a declared tenant not itself renamed away.
-  type RawTenant = { dataplane: Dataplane, maxCores: int, isolation: Isolation, pool: str, from: str }
+  // tenant's prior name; "" means absent. Refined rule (i) refuses it only when the
+  // target is a declared tenant not itself renamed away.
+  type RawTenant = { dataplane: Dataplane, maxCores: int, isolation: RawIsolation, pool: str, from: str }
 
   // A `[port.<name>]` value (the name lives in the map key, task 3.3d / ADR-0015
   // decision 1). An intra-family duplicate is a TOML key redefinition,
@@ -122,16 +133,20 @@ module intent_raw {
 
   // A parse refusal. `FromCompile` reuses refuse.qnt's `Refusal` verbatim where
   // parse.rs refuses something the compile-stage vocabulary already names
-  // (TenantAbsent for a dangling tenant reference, PoolWithoutRestricted /
-  // RestrictedWithoutPool for the isolation/pool contradictions). The remaining
-  // variants are raw-surface refusals parse.rs makes that the compile vocabulary
-  // lacks: the reserved kernel declared, a duplicate construct name TOML keys
-  // cannot dedupe, a self-loop link, a fabric member string that classifies to
-  // nothing (compile's MemberUnresolved carries an already-classified `Member`,
-  // so it cannot name an unclassifiable string), and an unknown extra family.
+  // (TenantAbsent for a dangling tenant reference). The remaining variants are
+  // raw-surface refusals parse.rs makes that the compile vocabulary lacks: the
+  // reserved kernel declared, a duplicate construct name TOML keys cannot dedupe,
+  // a self-loop link, a fabric member string that classifies to nothing (compile's
+  // MemberUnresolved carries an already-classified `Member`, so it cannot name an
+  // unclassifiable string), an unknown extra family, and — since vocabulary-v2 D1
+  // made both illegal shapes unrepresentable in the neutral `Isolation` — the two
+  // isolation/pool contradictions, now raw-native rather than `FromCompile` of a
+  // compile variant (parse still names them; compile no longer has the variant).
   // The vocabulary graduates to ADR-0013 §5 + R14 when dpaa2-config exposes a typed parse-error enum.
   type RawRefusal =
-    | FromCompile(Refusal)                                // TenantAbsent / PoolWithoutRestricted / RestrictedWithoutPool
+    | FromCompile(Refusal)                                // TenantAbsent (a dangling tenant reference)
+    | PoolWithoutRestricted({ tenant: str, pool: str })   // a `pool` key on a non-`restricted` tenant (parse.rs convert_tenant)
+    | RestrictedWithoutPool({ tenant: str })              // a `restricted` tenant with no `pool` key (parse.rs convert_tenant)
     | ReservedKernel({ name: str })                       // [tenant.kernel] declares the reserved name (parse.rs convert)
     | DuplicateName({ name: str })                        // a port/link/fabric name TOML keys cannot dedupe (parse.rs convert)
     | LinkSelfLoop({ link: str, tenant: str })            // a link naming one tenant at both ends (parse.rs convert_link)
@@ -227,10 +242,10 @@ module intent_raw {
   pure def poolContradictionRefusals(raw: RawIntent): Set[RawRefusal] =
     raw.tenants.keys().fold(Set(), (acc, n) =>
       val t = raw.tenants.get(n)
-      if (t.isolation == Restricted and t.pool == "")
-        acc.union(Set(FromCompile(RestrictedWithoutPool({ tenant: n }))))
-      else if (t.isolation != Restricted and t.pool != "")
-        acc.union(Set(FromCompile(PoolWithoutRestricted({ tenant: n, pool: t.pool }))))
+      if (t.isolation == RRestricted and t.pool == "")
+        acc.union(Set(RestrictedWithoutPool({ tenant: n })))
+      else if (t.isolation != RRestricted and t.pool != "")
+        acc.union(Set(PoolWithoutRestricted({ tenant: n, pool: t.pool })))
       else acc)
 
   // parse.rs convert_port/convert_link/convert_fabric/convert_crypto/convert_extra:
@@ -312,6 +327,18 @@ module intent_raw {
   // and the accepted clause now feeds the rename matcher's acceptance set instead
   // of being dropped ("" = absent, the `pool` convention). compile still ignores
   // `from` (intent/derive.qnt) — the clause is the matcher's, not the compiler's.
+  // Fold the raw surface's two isolation fields into the neutral `Isolation`
+  // payload (vocabulary-v2 D1): a `restricted` raw isolation carries its `pool`
+  // key into `Restricted(pool)`. Called only on an accepted raw, where parse has
+  // already refused a `restricted` with no pool and a pool on a non-`restricted`
+  // tenant, so the pool value is exactly the accepted holder name.
+  pure def rawIsolationToIsolation(iso: RawIsolation, pool: str): Isolation =
+    match iso {
+      | RPublic => Public
+      | RRestricted => Restricted(pool)
+      | RIsolated => Isolated
+    }
+
   pure def toIntent(raw: RawIntent): Intent =
     { // Tenants emit in canonical NAME order (task 3.3d), matching the Rust parser's
       // BTreeMap-sorted emission: the neutral Intent keeps a List, but the order carries
@@ -320,7 +347,8 @@ module intent_raw {
       tenants: sortByRank(raw.tenants.keys().fold([], (acc, n) => acc.append(n)), n => nameRank(n))
         .foldl([], (acc, n) =>
           val t = raw.tenants.get(n)
-          acc.append({ name: n, dataplane: t.dataplane, maxCores: t.maxCores, isolation: t.isolation, pool: t.pool, from: t.from })),
+          acc.append({ name: n, dataplane: t.dataplane, maxCores: t.maxCores,
+            isolation: rawIsolationToIsolation(t.isolation, t.pool), from: t.from })),
       // Ports and links emit in canonical NAME order (task 3.3d): the neutral
       // Intent keeps a List, but the order carries no identity — the derivation
       // sorts by name (intent/derive.qnt) — so emitting name-sorted keeps the
@@ -362,9 +390,9 @@ module intent_raw {
   pure def isTenantAbsent(r: RawRefusal): bool =
     match r { | FromCompile(x) => match x { | TenantAbsent(_) => true | _ => false } | _ => false }
   pure def isPoolWithoutRestricted(r: RawRefusal): bool =
-    match r { | FromCompile(x) => match x { | PoolWithoutRestricted(_) => true | _ => false } | _ => false }
+    match r { | PoolWithoutRestricted(_) => true | _ => false }
   pure def isRestrictedWithoutPool(r: RawRefusal): bool =
-    match r { | FromCompile(x) => match x { | RestrictedWithoutPool(_) => true | _ => false } | _ => false }
+    match r { | RestrictedWithoutPool(_) => true | _ => false }
 
   // ---- shape predicates (the near-miss is present in the raw surface) ----
   // Each is derived from parse's resolution independently of parseRefusals, so
@@ -438,7 +466,10 @@ module intent_raw {
       i.fabrics.foldl(true, (a, f) => a and refResolves(i, f.forwardedBy) and f.members.foldl(true, (b, m) => b and memberResolvesI(i, m))),
       i.crypto.foldl(true, (a, k) => a and refResolves(i, k.tenant)),
       i.extras.forall(e => refResolves(i, e.tenant)),
-      i.tenants.foldl(true, (a, t) => a and ((t.isolation == Restricted) iff (t.pool != ""))),
+      // The isolation/pool contradiction is unrepresentable in the neutral
+      // `Isolation` (vocabulary-v2 D1): a Restricted tenant carries its pool in the
+      // payload and a non-Restricted one carries none, so there is no clause to
+      // check here — parse's raw-native refusals guard the raw surface instead.
     }
 
   // Surface-refusal law: everything the surface can express that `Intent` cannot
@@ -496,11 +527,11 @@ module intent_raw {
 
   // ---- directed runs (pnpm model:test) ----
 
-  pure val rtPoll: RawTenant = { dataplane: UserspacePoll, maxCores: 8, isolation: Isolated, pool: "", from: "" }
+  pure val rtPoll: RawTenant = { dataplane: UserspacePoll, maxCores: 8, isolation: RIsolated, pool: "", from: "" }
 
   // The reserved kernel declared as a tenant is refused by name (parse.rs convert).
   run rawReservedKernelTest =
-    val raw = emptyRaw.with("tenants", Map(KERNEL -> { dataplane: KernelNetlink, maxCores: 16, isolation: Isolated, pool: "", from: "" }))
+    val raw = emptyRaw.with("tenants", Map(KERNEL -> { dataplane: KernelNetlink, maxCores: 16, isolation: RIsolated, pool: "", from: "" }))
     refusesWith(raw, isReservedKernel)
 
   // A construct name shared across families (a port and a fabric both "p1") —
@@ -535,7 +566,7 @@ module intent_raw {
 
   // The two isolation/pool contradictions (parse.rs convert_tenant).
   run rawPoolContradictionTest =
-    val restrNoPool = emptyRaw.with("tenants", Map("c1" -> rtPoll.with("isolation", Restricted)))
+    val restrNoPool = emptyRaw.with("tenants", Map("c1" -> rtPoll.with("isolation", RRestricted)))
     val poolNonRestr = emptyRaw.with("tenants", Map("c1" -> rtPoll.with("pool", "c2")))
     all { refusesWith(restrNoPool, isRestrictedWithoutPool), refusesWith(poolNonRestr, isPoolWithoutRestricted) }
 
@@ -580,7 +611,7 @@ module intent_raw {
   // carries no clause — refused RenamedFromDeclared (same rule, its own namespace).
   run rawRenamedTenantFromDeclaredTest =
     val raw = emptyRaw.with("tenants", Map(
-      "edge" -> { dataplane: UserspacePoll, maxCores: 8, isolation: Isolated, pool: "", from: "c1" },
+      "edge" -> { dataplane: UserspacePoll, maxCores: 8, isolation: RIsolated, pool: "", from: "c1" },
       "c1" -> rtPoll))
     refusesWith(raw, isRenamedFromDeclared)
 
@@ -601,8 +632,14 @@ module intent_raw {
 
   // A value use for every sum-type constructor in the module (QNT404; see
   // intent/types.qnt ETH_IFS block and intent/refuse.qnt REFUSALS_USE).
+  // A value use for every RawIsolation constructor (QNT404; the raw_alphabet
+  // draw set and the flattener both need each constructor used in this module).
+  pure val RAW_ISOLATIONS: Set[RawIsolation] = Set(RPublic, RRestricted, RIsolated)
+
   pure val RAW_REFUSALS_USE: Set[RawRefusal] = Set(
     FromCompile(TenantAbsent({ construct: "c", tenant: "t" })),
+    PoolWithoutRestricted({ tenant: "c", pool: "h" }),
+    RestrictedWithoutPool({ tenant: "c" }),
     ReservedKernel({ name: KERNEL }),
     DuplicateName({ name: "n" }),
     LinkSelfLoop({ link: "l", tenant: "t" }),

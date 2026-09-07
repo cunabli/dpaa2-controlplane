@@ -468,9 +468,19 @@ fn name() -> impl Strategy<Value = TenantName> {
     prop::sample::select(vec![KERNEL, "c1", "c2"]).prop_map(TenantName::from)
 }
 
-/// The pool a tenant may name (`alphabet.qnt` `POOL_NAMES`).
-fn pool_name() -> impl Strategy<Value = TenantName> {
-    prop::sample::select(vec!["", KERNEL, "c1", "c2"]).prop_map(TenantName::from)
+/// The isolation a tenant may take (`alphabet.qnt` `ISOLATION_DRAWS`): Public,
+/// Isolated, or Restricted over each `POOL_NAMES` holder — the pool rides in the
+/// `Restricted` payload (vocabulary-v2 D1), no separate pool field.
+fn isolation_draw() -> impl Strategy<Value = Isolation> {
+    prop::sample::select(vec![
+        Isolation::Public,
+        Isolation::Isolated,
+        Isolation::Restricted {
+            pool: KERNEL.into(),
+        },
+        Isolation::Restricted { pool: "c1".into() },
+        Isolation::Restricted { pool: "c2".into() },
+    ])
 }
 
 /// The finite member lists (`alphabet.qnt` `MEMBER_LISTS`).
@@ -489,21 +499,16 @@ fn member_list() -> impl Strategy<Value = Vec<Member>> {
 }
 
 /// A userspace tenant (`alphabet.qnt` `addTenant`): dataplane from
-/// `USERSPACE_DATAPLANES`, isolation from `ISOLATIONS`, pool from `POOL_NAMES`,
-/// `max_cores` from `CORES`. Named `c1`/`c2` by position at assembly. Never
-/// `KernelNetlink`, like the alphabet's tenants — which keeps the
-/// kernel-pooled-Restricted I1 hole (`intent_i1_containment_by_tenant`'s
-/// ponytail note) out of rung (a).
-fn userspace_tenant() -> impl Strategy<Value = (Dataplane, Isolation, i64, TenantName)> {
+/// `USERSPACE_DATAPLANES`, isolation from `ISOLATION_DRAWS` (the pool folded into
+/// the `Restricted` payload), `max_cores` from `CORES`. Named `c1`/`c2` by
+/// position at assembly. Never `KernelNetlink`, like the alphabet's tenants —
+/// which keeps the kernel-pooled-Restricted I1 hole
+/// (`intent_i1_containment_by_tenant`'s ponytail note) out of rung (a).
+fn userspace_tenant() -> impl Strategy<Value = (Dataplane, Isolation, i64)> {
     (
         prop::sample::select(vec![Dataplane::UserspacePoll, Dataplane::UserspaceEvent]),
-        prop::sample::select(vec![
-            Isolation::Public,
-            Isolation::Restricted,
-            Isolation::Isolated,
-        ]),
+        isolation_draw(),
         prop::sample::select(vec![1i64, 4, 5, 8, 16]),
-        pool_name(),
     )
 }
 
@@ -552,13 +557,12 @@ fn intent_and_inventory() -> impl Strategy<Value = (Intent, Inventory)> {
         |(tenants, ports, links, fabrics, crypto, extras, cpus)| {
             let names = ["c1", "c2"];
             let mut ts = vec![kernel_tenant(16)];
-            for (i, (dataplane, isolation, max_cores, pool)) in tenants.into_iter().enumerate() {
+            for (i, (dataplane, isolation, max_cores)) in tenants.into_iter().enumerate() {
                 ts.push(Tenant {
                     name: names[i].into(),
                     dataplane,
                     max_cores,
                     isolation,
-                    pool,
                     renamed: None,
                 });
             }
@@ -676,7 +680,6 @@ fn build_witness_plan(
             } else {
                 Isolation::Isolated
             },
-            pool: "".into(),
             renamed: None,
         });
         specs.push(c);

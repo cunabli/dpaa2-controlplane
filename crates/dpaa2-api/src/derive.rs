@@ -496,7 +496,7 @@ fn size_tenant(intent: &Intent, inv: &Inventory, c: &Tenant) -> Sizing {
     let nm = c.name.clone();
     let is_kernel = c.dataplane == Dataplane::KernelNetlink;
     let is_root_kernel = c.name.is_kernel();
-    let is_restricted = !c.pool.is_empty();
+    let is_restricted = matches!(c.isolation, crate::intent::Isolation::Restricted { .. });
     let dpnis = i64::try_from(origin_list(intent, &nm).len()).unwrap_or(0);
     let t = thread_count(&terminated_ports(intent, &nm)).unwrap_or(0);
     let cpus = kernel_cores(inv, c);

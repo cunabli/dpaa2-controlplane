@@ -142,14 +142,16 @@ pub enum RawRefusal {
         /// The absent tenant.
         tenant: TenantName,
     },
-    /// A pool on a non-restricted tenant (`FromCompile(PoolWithoutRestricted)`).
+    /// A pool on a non-restricted tenant (raw-native `PoolWithoutRestricted`;
+    /// vocabulary-v2 D1 removed the compile twin).
     PoolWithoutRestricted {
         /// The offending tenant.
         tenant: TenantName,
         /// The named pool.
         pool: TenantName,
     },
-    /// A restricted tenant naming no pool (`FromCompile(RestrictedWithoutPool)`).
+    /// A restricted tenant naming no pool (raw-native `RestrictedWithoutPool`;
+    /// vocabulary-v2 D1 removed the compile twin).
     RestrictedWithoutPool {
         /// The offending tenant.
         tenant: TenantName,
@@ -399,12 +401,15 @@ fn dataplane_token(v: &Value) -> Result<String, String> {
     .to_owned())
 }
 
-/// The TOML token for an `Isolation` ITF tag (matches schema.rs `RawIsolation`).
+/// The TOML token for a `RawIsolation` ITF tag (matches schema.rs `RawIsolation`).
+/// The model's raw surface carries a payload-free `RawIsolation` (`RPublic` /
+/// `RRestricted` / `RIsolated`) distinct from the neutral `Isolation`, so its pool
+/// key stays a separate field the contradictions can disagree with (vocabulary-v2 D1).
 fn isolation_token(v: &Value) -> Result<String, String> {
     Ok(match tag(v)? {
-        "Public" => "public",
-        "Restricted" => "restricted",
-        "Isolated" => "isolated",
+        "RPublic" => "public",
+        "RRestricted" => "restricted",
+        "RIsolated" => "isolated",
         t => return Err(format!("unknown isolation `{t}`")),
     }
     .to_owned())
@@ -505,8 +510,10 @@ fn raw_intent(v: &Value) -> Result<RawIntent, String> {
 }
 
 fn raw_refusal(v: &Value) -> Result<RawRefusal, String> {
-    // The three reused compile refusals arrive wrapped in `FromCompile`; unwrap one
-    // level, then read the same variant tags the compile vocabulary uses.
+    // `TenantAbsent` arrives wrapped in `FromCompile` (the one compile refusal the
+    // raw surface still reuses); the two pool contradictions are raw-native tags
+    // now (vocabulary-v2 D1). Unwrap one level for `FromCompile`, then read the tag;
+    // a top-level pool refusal reads its own tag directly.
     let (outer, payload) = match tag(v)? {
         "FromCompile" => {
             let inner = &v["value"];

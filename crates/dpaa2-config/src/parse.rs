@@ -361,26 +361,34 @@ fn convert_tenant(name: &TenantName, t: &RawTenant) -> Result<Tenant, Error> {
     let name = name.clone();
     reject_counts(&format!("tenant `{name}`"), counts_of!(t))?;
 
-    let isolation = match t.isolation {
-        RawIsolation::Public => Isolation::Public,
-        RawIsolation::Restricted => Isolation::Restricted,
-        RawIsolation::Isolated => Isolation::Isolated,
-    };
+    // The TOML surface keeps `isolation` and `pool` as two independent keys, so
+    // the contradictions are checkable here; the neutral `Isolation` folds the
+    // pool into its `Restricted` payload (vocabulary-v2 D1). These two named errors
+    // are the deliberate config→api-seam twins of the model's raw-native
+    // `RestrictedWithoutPool` / `PoolWithoutRestricted` refusals
+    // (`intent_raw.qnt`); their text is pinned by review and `raw_conformance`, so
+    // a dedup would silently break the conformance suite.
+    let restricted = matches!(t.isolation, RawIsolation::Restricted);
     let pool = t.pool.clone().unwrap_or_else(|| "".into());
-    // `compile` also refuses these (`RestrictedWithoutPool`, `PoolWithoutRestricted`);
-    // the config duplicates the pool/restricted checks deliberately — a dedup would
-    // silently break raw-conformance.
-    if isolation == Isolation::Restricted && pool.is_empty() {
+    let has_pool = !pool.as_str().is_empty();
+    if restricted && !has_pool {
         return Err(cfg(format!(
             "tenant `{name}` is `restricted` but names no `pool` holder"
         )));
     }
-    if isolation != Isolation::Restricted && !pool.is_empty() {
+    if !restricted && has_pool {
         return Err(cfg(format!(
             "tenant `{name}` names a `pool` (`{pool}`) but is not `restricted`; a pool is legal \
              only on a restricted tenant"
         )));
     }
+    let isolation = match t.isolation {
+        RawIsolation::Public => Isolation::Public,
+        // `restricted && has_pool` holds here by the check above, so the payload
+        // carries the accepted holder name.
+        RawIsolation::Restricted => Isolation::Restricted { pool },
+        RawIsolation::Isolated => Isolation::Isolated,
+    };
     let dataplane = match t.dataplane {
         RawDataplane::KernelNetlink => Dataplane::KernelNetlink,
         RawDataplane::UserspacePoll => Dataplane::UserspacePoll,
@@ -391,7 +399,6 @@ fn convert_tenant(name: &TenantName, t: &RawTenant) -> Result<Tenant, Error> {
         dataplane,
         max_cores: t.max_cores,
         isolation,
-        pool,
         renamed: t.renamed.as_ref().map(|r| r.from.clone()),
     })
 }
@@ -976,8 +983,12 @@ mod tests {
             pool = "prim"
             "#,
         );
-        assert_eq!(intent.tenants[1].isolation, Isolation::Restricted);
-        assert_eq!(intent.tenants[1].pool.as_str(), "prim");
+        assert_eq!(
+            intent.tenants[1].isolation,
+            Isolation::Restricted {
+                pool: "prim".into()
+            }
+        );
     }
 
     // ---- Requirement: validated before use ----

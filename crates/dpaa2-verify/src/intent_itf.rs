@@ -210,7 +210,10 @@ fn dataplane(v: &Value) -> Result<Dataplane, String> {
 fn isolation(v: &Value) -> Result<Isolation, String> {
     match tag(v)? {
         "Public" => Ok(Isolation::Public),
-        "Restricted" => Ok(Isolation::Restricted),
+        // The `Restricted` payload is the pool holder name (vocabulary-v2 D1).
+        "Restricted" => Ok(Isolation::Restricted {
+            pool: tname(&v["value"])?,
+        }),
         "Isolated" => Ok(Isolation::Isolated),
         t => Err(format!("unknown isolation `{t}`")),
     }
@@ -240,7 +243,6 @@ fn tenant(v: &Value) -> Result<Tenant, String> {
         dataplane: dataplane(field(v, "dataplane")?)?,
         max_cores: int64(field(v, "maxCores")?)?,
         isolation: isolation(field(v, "isolation")?)?,
-        pool: tname(field(v, "pool")?)?,
         renamed: opt_name(field(v, "from")?)?,
     })
 }
@@ -699,13 +701,8 @@ fn refusal(v: &Value) -> Result<Refusal, String> {
             tenant: tname(field(p, "tenant")?)?,
             dataplane: dataplane(field(p, "dataplane")?)?,
         },
-        "PoolWithoutRestricted" => Refusal::PoolWithoutRestricted {
-            tenant: tname(field(p, "tenant")?)?,
-            pool: tname(field(p, "pool")?)?,
-        },
-        "RestrictedWithoutPool" => Refusal::RestrictedWithoutPool {
-            tenant: tname(field(p, "tenant")?)?,
-        },
+        // `PoolWithoutRestricted` / `RestrictedWithoutPool` are gone from the
+        // compile vocabulary (vocabulary-v2 D1) — no intent trace carries them.
         "HolderNotPublic" => Refusal::HolderNotPublic {
             tenant: tname(field(p, "tenant")?)?,
             holder: tname(field(p, "holder")?)?,

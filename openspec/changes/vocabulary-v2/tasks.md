@@ -10,7 +10,7 @@ each checkbox names its bead.
 
 ## 1. Restricted pool typestate (design D1)
 
-- [ ] 1.1 (bead dpaa2-controlplane-093.1) Move `pool` into `Isolation::Restricted { pool: TenantName }` in
+- [x] 1.1 (bead dpaa2-controlplane-093.1) Move `pool` into `Isolation::Restricted { pool: TenantName }` in
   `intent.rs` and `types.qnt` lockstep; delete the `Tenant.pool` field, the
   `""` sentinel, and the kernel pseudo-tenant's empty pool; `derive.rs`
   reads restrictedness from the variant (kills `derive.rs:500`'s
@@ -59,6 +59,15 @@ each checkbox names its bead.
   and assert the refusals (spec scenarios). Verify: parse-side behavior
   unchanged; `REFUSAL_VARIANTS` count 25 and the variant-name uniqueness
   test green.
+
+## 4b. Discovered follow-ups
+
+- [ ] 4b.1 (bead dpaa2-controlplane-093.7) Decide and land the matcher facet's
+  pool encoding: `ConfigFacet::Tenant.pool` (matcher.rs, model twin
+  `match.qnt`, decision 11) becomes a second encoding of the pool
+  relationship once `Isolation` carries the payload — key it off the
+  `Restricted` payload in lockstep or keep it with a doc note (discovered
+  by the 1.1 parcel; out of D1 scope).
 
 ## 5. Alphabet, witnesses, and docs (designs D5, D6)
 

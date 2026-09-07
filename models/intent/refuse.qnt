@@ -29,7 +29,12 @@ module intent_refuse {
   import dpseci.* from "../families/dpseci"      // DPSECI_MAX_QUEUE_NUM (the one-device queue-pair ceiling)
 
   // The rule an intent broke, naming the offending construct. One variant per
-  // rule (design D5, spec.md "The compiler refuses by name").
+  // rule (design D5, spec.md "The compiler refuses by name"). The
+  // `PoolWithoutRestricted` / `RestrictedWithoutPool` shapes are now
+  // unrepresentable (vocabulary-v2 D1, PASS5-F4): `Isolation` carries the pool in
+  // its Restricted payload, so a pool on a non-Restricted tenant and a Restricted
+  // tenant without a pool have no constructor here. The TOML surface still names
+  // both as parse errors (intent_raw.qnt raw-native refusals); compile does not.
   type Refusal =
     | TenantAbsent({ construct: str, tenant: str })         // a construct names a tenant not declared (DPDCEI-I1 generalised)
     | MemberUnresolved({ fabric: str, member: Member })         // a fabric member names a port/tenant/fabric not declared
@@ -50,8 +55,6 @@ module intent_refuse {
     | CryptoFlowsOverDevice({ tenant: str, ordinal: int, flows: int, maxFlows: int }) // a crypto block whose flows exceed one dpseci's DPSECI_MAX_QUEUE_NUM queue pairs — one block is one device, so this cannot be realized; split into blocks (task 2.6e; dpseci.h)
     | Infeasible({ family: Family, needed: int, available: int }) // sum of derived objs of a family > a Counted/Observed ceiling (ADR-0011; design D2)
     | UnpricedDataplane({ tenant: str, dataplane: Dataplane }) // a tenant whose dataplane ADR-0012 does not price (today UserspaceEvent; design D3)
-    | PoolWithoutRestricted({ tenant: str, pool: str })       // a pool named on a tenant that is not Restricted — a contradiction (task 2.6c)
-    | RestrictedWithoutPool({ tenant: str })                  // a Restricted tenant that names no pool holder (task 2.6c)
     | HolderNotPublic({ tenant: str, holder: str })           // a Restricted tenant's pool holder is not Public (task 2.6c)
     | PoolChain({ tenant: str, holder: str })                 // a Restricted tenant's pool holder itself has a pool — no chains (task 2.6c)
     | PoolDataplaneMismatch({ tenant: str, drawer: Dataplane, holder: Dataplane }) // a Restricted tenant's dataplane differs from its holder's (task 2.6c; reserved kernel counts as kernel-netlink)
@@ -298,32 +301,38 @@ module intent_refuse {
       if (hasPricing(c)) acc
       else acc.union(Set(UnpricedDataplane({ tenant: c.name, dataplane: c.dataplane }))))
 
-  // ---- rule 12: tenant isolation and pooling (task 2.6c) ----
-  // The private-VLAN shape the MC container tree enforces, stated as a
-  // complete list of contradictions. A `pool` on a non-Restricted tenant is a
-  // contradiction; a Restricted tenant with no pool names no holder; a named
-  // holder must exist (TenantAbsent, construct "pool"), must be Public, and
-  // must not itself have a pool (no chains); and the drawer's dataplane must
-  // equal the holder's — the reserved kernel counting as kernel-netlink, so a
-  // kernel-netlink drawer must pool the kernel and a userspace-poll drawer
-  // pooling the kernel is a mismatch. UnpricedDataplane (rule 11) is untouched.
+  // ---- rule 12: tenant isolation and pooling (task 2.6c; vocabulary-v2 D1) ----
+  // The private-VLAN shape the MC container tree enforces, stated as the
+  // pool-holder contradictions a type cannot carry — they need cross-tenant
+  // lookups. Restrictedness is read off the `Restricted(pool)` payload, not a
+  // sentinel: the two contradiction shapes (a pool on a non-Restricted tenant, a
+  // Restricted tenant with no pool) are now unrepresentable, so only the
+  // holder-relationship refusals remain. A named holder must exist (TenantAbsent,
+  // construct "pool"), must be Public, and must not itself carry a pool (no
+  // chains); and the drawer's dataplane must equal the holder's — the reserved
+  // kernel counting as kernel-netlink, so a kernel-netlink drawer must pool the
+  // kernel and a userspace-poll drawer pooling the kernel is a mismatch.
+  // UnpricedDataplane (rule 11) is untouched.
+  pure def holderPool(h: Tenant): str =
+    match h.isolation { | Restricted(p) => p | _ => "" }
+
   pure def poolRefusals(intent: Intent, inv: Inventory): Set[Refusal] =
     intent.tenants.foldl(Set(), (acc, c) =>
-      if (c.isolation != Restricted)
-        if (c.pool != "") acc.union(Set(PoolWithoutRestricted({ tenant: c.name, pool: c.pool }))) else acc
-      else if (c.pool == "")
-        acc.union(Set(RestrictedWithoutPool({ tenant: c.name })))
-      else if (c.pool == KERNEL)
-        if (c.dataplane != KernelNetlink)
-          acc.union(Set(PoolDataplaneMismatch({ tenant: c.name, drawer: c.dataplane, holder: KernelNetlink })))
-        else acc
-      else match tenantByName(intent, c.pool) {
-        | None => acc.union(Set(TenantAbsent({ construct: "pool", tenant: c.pool })))
-        | Some(h) =>
-            (if (h.isolation != Public) Set(HolderNotPublic({ tenant: c.name, holder: c.pool })) else Set())
-              .union(if (h.pool != "") Set(PoolChain({ tenant: c.name, holder: c.pool })) else Set())
-              .union(if (c.dataplane != h.dataplane) Set(PoolDataplaneMismatch({ tenant: c.name, drawer: c.dataplane, holder: h.dataplane })) else Set())
-              .union(acc)
+      match c.isolation {
+        | Restricted(pool) =>
+            if (pool == KERNEL)
+              if (c.dataplane != KernelNetlink)
+                acc.union(Set(PoolDataplaneMismatch({ tenant: c.name, drawer: c.dataplane, holder: KernelNetlink })))
+              else acc
+            else match tenantByName(intent, pool) {
+              | None => acc.union(Set(TenantAbsent({ construct: "pool", tenant: pool })))
+              | Some(h) =>
+                  (if (h.isolation != Public) Set(HolderNotPublic({ tenant: c.name, holder: pool })) else Set())
+                    .union(if (holderPool(h) != "") Set(PoolChain({ tenant: c.name, holder: pool })) else Set())
+                    .union(if (c.dataplane != h.dataplane) Set(PoolDataplaneMismatch({ tenant: c.name, drawer: c.dataplane, holder: h.dataplane })) else Set())
+                    .union(acc)
+            }
+        | _ => acc
       })
 
   // Every rule runs unconditionally; the refusal set is their union.
@@ -390,8 +399,6 @@ module intent_refuse {
     CryptoFlowsOverDevice({ tenant: "c", ordinal: 0, flows: 0, maxFlows: 0 }),
     Infeasible({ family: Dpbp, needed: 0, available: 0 }),
     UnpricedDataplane({ tenant: "c", dataplane: UserspaceEvent }),
-    PoolWithoutRestricted({ tenant: "c", pool: "h" }),
-    RestrictedWithoutPool({ tenant: "c" }),
     HolderNotPublic({ tenant: "c", holder: "h" }),
     PoolChain({ tenant: "c", holder: "h" }),
     PoolDataplaneMismatch({ tenant: "c", drawer: UserspacePoll, holder: KernelNetlink }))

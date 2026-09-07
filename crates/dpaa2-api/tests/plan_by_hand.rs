@@ -38,7 +38,6 @@ fn hand_built_plan_reconciles_and_locks_relationships() {
         dataplane: Dataplane::UserspacePoll,
         max_cores: 8,
         isolation: Isolation::Isolated,
-        pool: "".into(),
         renamed: None,
     };
     assert_eq!(

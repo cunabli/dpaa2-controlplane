@@ -34,7 +34,8 @@ use crate::types::{ConstructName, TenantName};
 const DPSECI_MAX_QUEUE_NUM: i64 = 16;
 
 /// The rule an intent broke, naming the offending construct (design D5; ADR-0013
-/// §5). All 24 variants of `refuse.qnt`.
+/// §5). All 22 variants of `refuse.qnt` (vocabulary-v2 D1 deleted the two pool-shape
+/// contradictions, now unrepresentable in [`crate::intent::Isolation`]).
 ///
 /// `#[non_exhaustive]`: a `PoolShortfall` variant is reserved for `reconcile`
 /// (change #6, drift against a live census) and a passthrough value is change #4's,
@@ -211,18 +212,6 @@ pub enum Refusal {
         /// The unpriced dataplane.
         dataplane: Dataplane,
     },
-    /// A `pool` named on a non-restricted tenant — a contradiction (design D6a).
-    PoolWithoutRestricted {
-        /// The tenant.
-        tenant: TenantName,
-        /// The pool it named.
-        pool: TenantName,
-    },
-    /// A restricted tenant that names no pool holder (design D6a).
-    RestrictedWithoutPool {
-        /// The tenant.
-        tenant: TenantName,
-    },
     /// A restricted tenant's pool holder is not public (design D6a).
     HolderNotPublic {
         /// The tenant.
@@ -249,14 +238,14 @@ pub enum Refusal {
     },
 }
 
-/// The 24 `Refusal` variant names, in declaration order — the Rust copy of the
+/// The 22 `Refusal` variant names, in declaration order — the Rust copy of the
 /// `refuse.qnt` refusal vocabulary as a `&str` list the model lint can read
 /// (ADR-0014: an enumeration that restates the model is a linted copy, tied back
 /// to it by `intent_lint` R14; `Reserved`/`Foreign` carry the accepted ADR-0013
 /// §5 spelling, aliased to the model's anchor names in the lint). `Refusal` is
 /// payload-carrying, so it cannot be iterated like [`crate::ALL_FAMILIES`]; this
 /// list stands in, kept honest by the exhaustive `match` in [`Refusal::name`].
-pub const REFUSAL_VARIANTS: [&str; 24] = [
+pub const REFUSAL_VARIANTS: [&str; 22] = [
     "TenantAbsent",
     "MemberUnresolved",
     "SelfMember",
@@ -276,8 +265,6 @@ pub const REFUSAL_VARIANTS: [&str; 24] = [
     "CryptoFlowsOverDevice",
     "Infeasible",
     "UnpricedDataplane",
-    "PoolWithoutRestricted",
-    "RestrictedWithoutPool",
     "HolderNotPublic",
     "PoolChain",
     "PoolDataplaneMismatch",
@@ -311,8 +298,6 @@ impl Refusal {
             Self::CryptoFlowsOverDevice { .. } => "CryptoFlowsOverDevice",
             Self::Infeasible { .. } => "Infeasible",
             Self::UnpricedDataplane { .. } => "UnpricedDataplane",
-            Self::PoolWithoutRestricted { .. } => "PoolWithoutRestricted",
-            Self::RestrictedWithoutPool { .. } => "RestrictedWithoutPool",
             Self::HolderNotPublic { .. } => "HolderNotPublic",
             Self::PoolChain { .. } => "PoolChain",
             Self::PoolDataplaneMismatch { .. } => "PoolDataplaneMismatch",
@@ -770,22 +755,22 @@ fn unpriced_dataplane_refusals(intent: &Intent, out: &mut BTreeSet<Refusal>) {
     }
 }
 
-// ---- rule 12: tenant isolation and pooling (design D6a) ----
+// ---- rule 12: tenant isolation and pooling (design D6a; vocabulary-v2 D1) ----
+//
+// Restrictedness is read off the `Restricted { pool }` payload, not a `""`
+// sentinel: the two contradiction shapes (a pool on a non-restricted tenant, a
+// restricted tenant with no pool) are unrepresentable in [`Isolation`], so only
+// the holder-relationship refusals — which need cross-tenant lookups a type
+// cannot carry — remain here. The TOML surface still names both contradictions
+// (`crates/dpaa2-config/src/parse.rs` `convert_tenant`).
 
 fn pool_refusals(intent: &Intent, out: &mut BTreeSet<Refusal>) {
+    use crate::intent::Isolation;
     for c in &intent.tenants {
-        if c.isolation != crate::intent::Isolation::Restricted {
-            if !c.pool.is_empty() {
-                out.insert(Refusal::PoolWithoutRestricted {
-                    tenant: c.name.clone(),
-                    pool: c.pool.clone(),
-                });
-            }
-        } else if c.pool.is_empty() {
-            out.insert(Refusal::RestrictedWithoutPool {
-                tenant: c.name.clone(),
-            });
-        } else if c.pool.is_kernel() {
+        let Isolation::Restricted { pool } = &c.isolation else {
+            continue;
+        };
+        if pool.is_kernel() {
             if c.dataplane != Dataplane::KernelNetlink {
                 out.insert(Refusal::PoolDataplaneMismatch {
                     tenant: c.name.clone(),
@@ -793,34 +778,34 @@ fn pool_refusals(intent: &Intent, out: &mut BTreeSet<Refusal>) {
                     holder: Dataplane::KernelNetlink,
                 });
             }
-        } else {
-            match tenant_by_name(intent, &c.pool) {
-                None => {
-                    out.insert(Refusal::TenantAbsent {
-                        construct: "pool".into(),
-                        tenant: c.pool.clone(),
+            continue;
+        }
+        match tenant_by_name(intent, pool) {
+            None => {
+                out.insert(Refusal::TenantAbsent {
+                    construct: "pool".into(),
+                    tenant: pool.clone(),
+                });
+            }
+            Some(h) => {
+                if h.isolation != Isolation::Public {
+                    out.insert(Refusal::HolderNotPublic {
+                        tenant: c.name.clone(),
+                        holder: pool.clone(),
                     });
                 }
-                Some(h) => {
-                    if h.isolation != crate::intent::Isolation::Public {
-                        out.insert(Refusal::HolderNotPublic {
-                            tenant: c.name.clone(),
-                            holder: c.pool.clone(),
-                        });
-                    }
-                    if !h.pool.is_empty() {
-                        out.insert(Refusal::PoolChain {
-                            tenant: c.name.clone(),
-                            holder: c.pool.clone(),
-                        });
-                    }
-                    if c.dataplane != h.dataplane {
-                        out.insert(Refusal::PoolDataplaneMismatch {
-                            tenant: c.name.clone(),
-                            drawer: c.dataplane,
-                            holder: h.dataplane,
-                        });
-                    }
+                if matches!(h.isolation, Isolation::Restricted { .. }) {
+                    out.insert(Refusal::PoolChain {
+                        tenant: c.name.clone(),
+                        holder: pool.clone(),
+                    });
+                }
+                if c.dataplane != h.dataplane {
+                    out.insert(Refusal::PoolDataplaneMismatch {
+                        tenant: c.name.clone(),
+                        drawer: c.dataplane,
+                        holder: h.dataplane,
+                    });
                 }
             }
         }
@@ -925,7 +910,7 @@ mod tests {
     use super::*;
 
     /// The list and the enum name a variant the same way, and the list is a
-    /// duplicate-free 24 — the runtime half of the tie the exhaustive
+    /// duplicate-free 22 — the runtime half of the tie the exhaustive
     /// [`Refusal::name`] match makes at compile time (ADR-0014).
     #[test]
     fn refusal_variants_match_the_enum() {
@@ -999,22 +984,27 @@ mod compile_tests {
         ref_inventory(16)
     }
 
-    fn tenant(name: &str, dp: Dataplane, cores: i64, iso: Isolation, pool: &str) -> Tenant {
+    fn tenant(name: &str, dp: Dataplane, cores: i64, iso: Isolation) -> Tenant {
         Tenant {
             name: name.into(),
             dataplane: dp,
             max_cores: cores,
             isolation: iso,
-            pool: pool.into(),
             renamed: None,
         }
     }
 
+    /// A restricted tenant pooling `pool` — the `Isolation::Restricted` payload
+    /// carries the holder name (vocabulary-v2 D1).
+    fn restricted(pool: &str) -> Isolation {
+        Isolation::Restricted { pool: pool.into() }
+    }
+
     fn poll(name: &str) -> Tenant {
-        tenant(name, Dataplane::UserspacePoll, 16, Isolation::Isolated, "")
+        tenant(name, Dataplane::UserspacePoll, 16, Isolation::Isolated)
     }
     fn knl(name: &str) -> Tenant {
-        tenant(name, Dataplane::KernelNetlink, 16, Isolation::Isolated, "")
+        tenant(name, Dataplane::KernelNetlink, 16, Isolation::Isolated)
     }
     fn port(name: &str, dpmac: u32, rate: i64, tenant: &str) -> Port {
         Port {
@@ -1095,7 +1085,7 @@ mod compile_tests {
     }
 
     // ======================================================================
-    // one test per Refusal variant (24) — the smallest triggering intent
+    // one test per Refusal variant (22) — the smallest triggering intent
     // ======================================================================
 
     #[test]
@@ -1346,7 +1336,6 @@ mod compile_tests {
                 Dataplane::UserspacePoll,
                 1,
                 Isolation::Isolated,
-                "",
             )],
             ports: vec![port("wan0", 7, 10_000, "t")],
             ..Intent::default()
@@ -1474,7 +1463,6 @@ mod compile_tests {
                 Dataplane::UserspaceEvent,
                 16,
                 Isolation::Isolated,
-                "",
             )],
             ..Intent::default()
         };
@@ -1487,56 +1475,17 @@ mod compile_tests {
         );
     }
 
-    #[test]
-    fn refuse_pool_without_restricted() {
-        let intent = Intent {
-            tenants: vec![tenant(
-                "t",
-                Dataplane::KernelNetlink,
-                16,
-                Isolation::Isolated,
-                "holder",
-            )],
-            ..Intent::default()
-        };
-        assert_eq!(
-            err(&intent, &ref_inv()),
-            BTreeSet::from([Refusal::PoolWithoutRestricted {
-                tenant: "t".into(),
-                pool: "holder".into(),
-            }])
-        );
-    }
-
-    #[test]
-    fn refuse_restricted_without_pool() {
-        let intent = Intent {
-            tenants: vec![tenant(
-                "t",
-                Dataplane::KernelNetlink,
-                16,
-                Isolation::Restricted,
-                "",
-            )],
-            ..Intent::default()
-        };
-        assert_eq!(
-            err(&intent, &ref_inv()),
-            BTreeSet::from([Refusal::RestrictedWithoutPool { tenant: "t".into() }])
-        );
-    }
+    // The `PoolWithoutRestricted` / `RestrictedWithoutPool` shapes are now
+    // unrepresentable (vocabulary-v2 D1): `Isolation::Restricted` carries the pool
+    // in its payload, so a pool on a non-restricted tenant and a restricted tenant
+    // with no pool have no constructor. There is nothing to refuse and no test to
+    // write — the parse surface still names both (`raw_conformance`).
 
     #[test]
     fn refuse_holder_not_public() {
         let intent = Intent {
             tenants: vec![
-                tenant(
-                    "t",
-                    Dataplane::KernelNetlink,
-                    16,
-                    Isolation::Restricted,
-                    "h",
-                ),
+                tenant("t", Dataplane::KernelNetlink, 16, restricted("h")),
                 knl("h"), // Isolated, not Public
             ],
             ..Intent::default()
@@ -1552,31 +1501,27 @@ mod compile_tests {
 
     #[test]
     fn refuse_pool_chain() {
-        // t -> h (Public), and h itself names a pool (a chain): the chain refuses t,
-        // and h's own pool-on-a-public-holder refuses h — the complete set.
+        // t -> h, and h itself pools g (h is Restricted): h is not Public, so t's
+        // holder is both not-public and pooled — HolderNotPublic and PoolChain
+        // co-fire. h itself pools the Public g cleanly, so h is not refused.
         let intent = Intent {
             tenants: vec![
-                tenant(
-                    "t",
-                    Dataplane::KernelNetlink,
-                    16,
-                    Isolation::Restricted,
-                    "h",
-                ),
-                tenant("h", Dataplane::KernelNetlink, 16, Isolation::Public, "g"),
+                tenant("g", Dataplane::KernelNetlink, 16, Isolation::Public),
+                tenant("h", Dataplane::KernelNetlink, 16, restricted("g")),
+                tenant("t", Dataplane::KernelNetlink, 16, restricted("h")),
             ],
             ..Intent::default()
         };
         assert_eq!(
             err(&intent, &ref_inv()),
             BTreeSet::from([
-                Refusal::PoolChain {
+                Refusal::HolderNotPublic {
                     tenant: "t".into(),
                     holder: "h".into(),
                 },
-                Refusal::PoolWithoutRestricted {
-                    tenant: "h".into(),
-                    pool: "g".into(),
+                Refusal::PoolChain {
+                    tenant: "t".into(),
+                    holder: "h".into(),
                 },
             ])
         );
@@ -1589,8 +1534,7 @@ mod compile_tests {
                 "t",
                 Dataplane::UserspacePoll,
                 16,
-                Isolation::Restricted,
-                "kernel",
+                restricted("kernel"),
             )],
             ..Intent::default()
         };
@@ -1782,14 +1726,8 @@ mod compile_tests {
         // but it keeps its own dpmcp draw (design D6a; the reference 3-vs-1 dpmcp).
         let intent = Intent {
             tenants: vec![
-                tenant("prim", Dataplane::UserspacePoll, 16, Isolation::Public, ""),
-                tenant(
-                    "sec",
-                    Dataplane::UserspacePoll,
-                    16,
-                    Isolation::Restricted,
-                    "prim",
-                ),
+                tenant("prim", Dataplane::UserspacePoll, 16, Isolation::Public),
+                tenant("sec", Dataplane::UserspacePoll, 16, restricted("prim")),
             ],
             ..Intent::default()
         };

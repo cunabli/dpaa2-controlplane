@@ -87,11 +87,18 @@ module intent_alphabet {
   pure val PORT_NAMES: List[str] = ["p1", "p2", "p3"]
   pure val LINK_NAMES: List[str] = ["l1"]
   pure val FABRIC_NAMES: List[str] = ["f1"]
-  // The pool a Restricted tenant may name (task 2.6c): "" (none — a
-  // RestrictedWithoutPool witness), the reserved kernel (a PoolDataplaneMismatch
-  // for a userspace-poll drawer), and the two declared tenant names (a Public
-  // holder is the accepted co-residency; an Isolated one a HolderNotPublic).
-  pure val POOL_NAMES: Set[str] = Set("", "kernel", "c1", "c2")
+  // The pool a Restricted tenant may name as its payload (task 2.6c;
+  // vocabulary-v2 D1): the reserved kernel (a PoolDataplaneMismatch for a
+  // userspace-poll drawer), and the two declared tenant names (a Public holder is
+  // the accepted co-residency; an Isolated one a HolderNotPublic; a Restricted one
+  // a PoolChain). The old "" draw is gone — a Restricted tenant now carries a pool
+  // by construction, so RestrictedWithoutPool is unrepresentable, not witnessed.
+  pure val POOL_NAMES: Set[str] = Set("kernel", "c1", "c2")
+
+  // The isolation a tenant may take: Public, Isolated, or Restricted(pool) over
+  // every POOL_NAMES holder — the private-VLAN shape draws (vocabulary-v2 D1).
+  pure val ISOLATION_DRAWS: Set[Isolation] =
+    POOL_NAMES.map(p => Restricted(p)).union(Set(Public, Isolated))
 
   // A slice of REF_INVENTORY's dpmacs: one reserved 25G (3), one free 25G
   // (4), three free 10G (7, 8, 9), the reserved 1G management nic (17) — so
@@ -147,19 +154,19 @@ module intent_alphabet {
   // ---- one construct per step (never a powerset draw) ----
 
   // A userspace tenant named by position among the non-kernel names, its
-  // dataplane, isolation and pool drawn from the alphabet — so the private-VLAN
-  // shape (Public holder / Restricted drawer / Isolated default) and every pool
-  // refusal have a witness (task 2.6c).
+  // dataplane and isolation drawn from the alphabet — so the private-VLAN shape
+  // (Public holder / Restricted drawer / Isolated default) and every pool refusal
+  // that survives vocabulary-v2 D1 have a witness (task 2.6c). The pool holder
+  // rides in the Restricted payload; there is no separate pool field.
   action addTenant = {
     nondet maxCores = CORES.oneOf()
     nondet dataplane = USERSPACE_DATAPLANES.oneOf()
-    nondet isolation = ISOLATIONS.oneOf()
-    nondet pool = POOL_NAMES.oneOf()
+    nondet isolation = ISOLATION_DRAWS.oneOf()
     all {
       intent.tenants.length() < 3,
       intent' = intent.with("tenants", intent.tenants.append({
         name: TENANT_NAMES.nth(intent.tenants.length() - 1),
-        dataplane: dataplane, maxCores: maxCores, isolation: isolation, pool: pool, from: "" })),
+        dataplane: dataplane, maxCores: maxCores, isolation: isolation, from: "" })),
     }
   }
 
@@ -297,8 +304,6 @@ module intent_alphabet {
   val wCryptoFlowsOverDevice = hasRefusal(r => match r { | CryptoFlowsOverDevice(_) => true | _ => false })
   val wInfeasible = hasRefusal(r => match r { | Infeasible(_) => true | _ => false })
   val wUnpricedDataplane = hasRefusal(r => match r { | UnpricedDataplane(_) => true | _ => false })
-  val wPoolWithoutRestricted = hasRefusal(r => match r { | PoolWithoutRestricted(_) => true | _ => false })
-  val wRestrictedWithoutPool = hasRefusal(r => match r { | RestrictedWithoutPool(_) => true | _ => false })
   val wHolderNotPublic = hasRefusal(r => match r { | HolderNotPublic(_) => true | _ => false })
   val wPoolChain = hasRefusal(r => match r { | PoolChain(_) => true | _ => false })
   val wPoolDataplaneMismatch = hasRefusal(r => match r { | PoolDataplaneMismatch(_) => true | _ => false })
@@ -314,7 +319,7 @@ module intent_alphabet {
   val wCryptoPresent = intent.crypto.length() > 0
   val wExtraPresent = intent.extras.size() > 0
   val wEventDrawn = intent.tenants.select(c => c.dataplane == UserspaceEvent).length() > 0
-  val wRestrictedTenant = intent.tenants.select(c => c.isolation == Restricted).length() > 0
+  val wRestrictedTenant = intent.tenants.select(c => match c.isolation { | Restricted(_) => true | _ => false }).length() > 0
   val wPublicTenant = intent.tenants.select(c => c.isolation == Public).length() > 0
   // A tenant terminating both seeded rate classes (10G and 25G): the
   // cross-class mix the worker table prices but flags unmeasured (design D3).

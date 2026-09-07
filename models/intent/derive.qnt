@@ -412,8 +412,10 @@ module intent_derive {
   // tenant (Isolated or a Public holder) keeps its own child dprc.
   pure def containerOf(c: Tenant): Container =
     if (c.name == KERNEL) Root
-    else if (c.pool != "") (if (c.pool == KERNEL) Root else Child(c.pool))
-    else Child(c.name)
+    else match c.isolation {
+      | Restricted(pool) => if (pool == KERNEL) Root else Child(pool)
+      | _ => Child(c.name)
+    }
 
   // ADR-0012 prices only the KernelNetlink and UserspacePoll dataplanes; a
   // UserspaceEvent tenant has no companion draw, so the derivation never
@@ -456,7 +458,7 @@ module intent_derive {
     val nm = c.name
     val isK = c.dataplane == KernelNetlink
     val isRoot = c.name == KERNEL
-    val isRestr = c.pool != ""
+    val isRestr = match c.isolation { | Restricted(_) => true | _ => false }
     val dpnis = originList(intent, nm).length()
     val t = tOf(intent, c)
     val cpus = kernelCores(inv, c)

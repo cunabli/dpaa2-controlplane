@@ -39,15 +39,15 @@ module vfabric {
   // The intent vfabric.toml states: two poll-mode tenants wired together,
   // no ports, no fabrics — mirrors linkIntent in intent/main.qnt.
   pure val accepted: Intent =
-    { tenants: [{ name: "routerA", dataplane: UserspacePoll, maxCores: 8, isolation: Isolated, pool: "", from: "" },
-                  { name: "routerB", dataplane: UserspacePoll, maxCores: 8, isolation: Isolated, pool: "", from: "" }],
+    { tenants: [{ name: "routerA", dataplane: UserspacePoll, maxCores: 8, isolation: Isolated, from: "" },
+                  { name: "routerB", dataplane: UserspacePoll, maxCores: 8, isolation: Isolated, from: "" }],
       ports: [], links: [{ name: "wire", interfaceA: "routerA", interfaceB: "routerB", from: "" }],
       fabrics: [], crypto: [], extras: Set() }
 
   // The twin: the same plus a third portless tenant routerC (model-only).
   pure val twin: Intent =
     accepted.with("tenants", accepted.tenants.append(
-      { name: "routerC", dataplane: UserspacePoll, maxCores: 8, isolation: Isolated, pool: "", from: "" }))
+      { name: "routerC", dataplane: UserspacePoll, maxCores: 8, isolation: Isolated, from: "" }))
 
   // The twin's inventory lowers the dpbp ceiling below the cross-plan draw:
   // three portless poll-mode children need 6 dpbps against a listed pool of 5.

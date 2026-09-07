@@ -55,15 +55,24 @@ pub enum Dataplane {
 /// `Isolation`): the private-VLAN shape the tree already enforces.
 ///
 /// [`Isolation::Isolated`] is the default the TOML applies when the field is
-/// absent, so every prior intent keeps its shape.
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Default)]
+/// absent, so every prior intent keeps its shape. The pool holder a
+/// [`Isolation::Restricted`] tenant draws inside rides in the variant payload
+/// (vocabulary-v2 D1, PASS5-F4): a pool on a non-restricted tenant, and a
+/// restricted tenant with no pool, have no constructor — they are unrepresentable
+/// rather than refused, and restrictedness is read off the variant, never a `""`
+/// sentinel. Not `Copy`: the [`TenantName`] payload owns a heap string.
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Default)]
 pub enum Isolation {
     /// A holder that accepts legal drawers into its own dprc; the reserved kernel
     /// is implicitly public.
     Public,
     /// Community co-residency: the tenant's objects are created in its `pool`
-    /// holder's dprc (a DPDK secondary pooling a userspace-poll primary).
-    Restricted,
+    /// holder's dprc (a DPDK secondary pooling a userspace-poll primary). The
+    /// `pool` names that public holder.
+    Restricted {
+        /// The public holder this restricted tenant draws inside.
+        pool: TenantName,
+    },
     /// Its own child dprc, MC-isolated from siblings — the default.
     #[default]
     Isolated,
@@ -74,8 +83,9 @@ pub enum Isolation {
 /// `max_cores` is the budget the derived thread count must fit under (design D3).
 /// Crypto demand is not a tenant field — each [`Crypto`] block carries its own
 /// flows. `isolation` places the tenant in the container tree (default
-/// [`Isolation::Isolated`]); `pool` names the public holder a restricted tenant
-/// draws inside (`""` when absent).
+/// [`Isolation::Isolated`]) and, for a restricted tenant, names the public holder
+/// it draws inside as the [`Isolation::Restricted`] payload — there is no separate
+/// `pool` field (vocabulary-v2 D1).
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub struct Tenant {
     /// The tenant's name; the key namespace of every object it draws.
@@ -84,10 +94,10 @@ pub struct Tenant {
     pub dataplane: Dataplane,
     /// The core budget the derived thread count must fit under (design D3).
     pub max_cores: i64,
-    /// Its place in the container tree (default [`Isolation::Isolated`]).
+    /// Its place in the container tree (default [`Isolation::Isolated`]); a
+    /// restricted tenant carries its pool holder in the [`Isolation::Restricted`]
+    /// payload.
     pub isolation: Isolation,
-    /// The public holder a restricted tenant draws inside (empty when absent).
-    pub pool: TenantName,
     /// An accepted `renamed = { from }` clause — the tenant's prior name, or `None`
     /// when absent (ADR-0015 decision 10 / task 6.5). It widens the rename matcher's
     /// acceptance set, is inert after one converge, and [`compile`](crate::compile)
@@ -105,7 +115,6 @@ pub fn kernel_tenant(max_cores: i64) -> Tenant {
         dataplane: Dataplane::KernelNetlink,
         max_cores,
         isolation: Isolation::Public,
-        pool: TenantName::from(""),
         renamed: None,
     }
 }

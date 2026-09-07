@@ -61,9 +61,9 @@ module vwire {
   // app wire (ns2↔vpp). No dpio, dpbp, dpcon, dpmcp, queue or worker count
   // appears — every object and count is derived (ADR-0005).
   pure val accepted: Intent =
-    { tenants: [{ name: "ns1", dataplane: KernelNetlink, maxCores: 2, isolation: Isolated, pool: "", from: "" },
-                { name: "ns2", dataplane: KernelNetlink, maxCores: 2, isolation: Isolated, pool: "", from: "" },
-                { name: "vpp", dataplane: UserspacePoll, maxCores: 8, isolation: Isolated, pool: "", from: "" }],
+    { tenants: [{ name: "ns1", dataplane: KernelNetlink, maxCores: 2, isolation: Isolated, from: "" },
+                { name: "ns2", dataplane: KernelNetlink, maxCores: 2, isolation: Isolated, from: "" },
+                { name: "vpp", dataplane: UserspacePoll, maxCores: 8, isolation: Isolated, from: "" }],
       ports: [],
       links: [{ name: "veth", interfaceA: "ns1", interfaceB: "ns2", from: "" },
               { name: "uplink", interfaceA: "ns1", interfaceB: KERNEL, from: "" },
@@ -76,9 +76,9 @@ module vwire {
   // pooling the reserved kernel — a dataplane mismatch, the file's one error.
   pure val twin: Intent =
     accepted.with("tenants", [
-      { name: "ns1", dataplane: KernelNetlink, maxCores: 2, isolation: Isolated, pool: "", from: "" },
-      { name: "ns2", dataplane: KernelNetlink, maxCores: 2, isolation: Isolated, pool: "", from: "" },
-      { name: "vpp", dataplane: UserspacePoll, maxCores: 8, isolation: Restricted, pool: KERNEL, from: "" }])
+      { name: "ns1", dataplane: KernelNetlink, maxCores: 2, isolation: Isolated, from: "" },
+      { name: "ns2", dataplane: KernelNetlink, maxCores: 2, isolation: Isolated, from: "" },
+      { name: "vpp", dataplane: UserspacePoll, maxCores: 8, isolation: Restricted(KERNEL), from: "" }])
 
   // The expected plan shape (design D6a): each isolated namespace sole-tenant
   // in its own child dprc with the child-resident kernel draw (dpio 0, dpbp and

@@ -50,7 +50,7 @@ module intent_main {
 
   // ---- shared intent fragments ----
 
-  pure val router: Tenant = { name: "router", dataplane: UserspacePoll, maxCores: 8, isolation: Isolated, pool: "", from: "" }
+  pure val router: Tenant = { name: "router", dataplane: UserspacePoll, maxCores: 8, isolation: Isolated, from: "" }
   pure val kernel16: Tenant = kernelTenant(16)
   pure val wan0: Port = { name: "wan0", dpmac: 7, rate: 10000, tenant: "router", from: "" }
   pure val wan1: Port = { name: "wan1", dpmac: 8, rate: 10000, tenant: "router", from: "" }
@@ -86,7 +86,7 @@ module intent_main {
       crypto: [{ tenant: "router", flows: 4 }],
       extras: Set() }
   pure val softwareFabricIntent: Intent =
-    { tenants: [kernel16, { name: "vpp", dataplane: UserspacePoll, maxCores: 8, isolation: Isolated, pool: "", from: "" }],
+    { tenants: [kernel16, { name: "vpp", dataplane: UserspacePoll, maxCores: 8, isolation: Isolated, from: "" }],
       ports: [{ name: "p7", dpmac: 7, rate: 10000, tenant: "vpp", from: "" },
               { name: "p8", dpmac: 8, rate: 10000, tenant: "vpp", from: "" }],
       links: [],
@@ -95,7 +95,7 @@ module intent_main {
       crypto: [],
       extras: Set() }
   pure val chainIntent: Intent =
-    { tenants: [kernel16, { name: "vpp", dataplane: UserspacePoll, maxCores: 8, isolation: Isolated, pool: "", from: "" }],
+    { tenants: [kernel16, { name: "vpp", dataplane: UserspacePoll, maxCores: 8, isolation: Isolated, from: "" }],
       ports: [{ name: "p7", dpmac: 7, rate: 10000, tenant: "vpp", from: "" },
               { name: "p8", dpmac: 8, rate: 10000, tenant: "kernel", from: "" },
               { name: "p9", dpmac: 9, rate: 10000, tenant: "kernel", from: "" },
@@ -116,16 +116,16 @@ module intent_main {
                 { name: "hw2", switching: Hardware, forwardedBy: "kernel", members: [MFabric("hw1"), MPort("p9")], from: "" }],
       crypto: [], extras: Set() }
   pure val linkIntent: Intent =
-    { tenants: [{ name: "routerA", dataplane: UserspacePoll, maxCores: 8, isolation: Isolated, pool: "", from: "" },
-                  { name: "routerB", dataplane: UserspacePoll, maxCores: 8, isolation: Isolated, pool: "", from: "" }],
+    { tenants: [{ name: "routerA", dataplane: UserspacePoll, maxCores: 8, isolation: Isolated, from: "" },
+                  { name: "routerB", dataplane: UserspacePoll, maxCores: 8, isolation: Isolated, from: "" }],
       ports: [], links: [{ name: "wire", interfaceA: "routerA", interfaceB: "routerB", from: "" }],
       fabrics: [], crypto: [], extras: Set() }
   // The refused intents the compile-side runs exercise.
   pure val coreBudgetIntent: Intent = routerIntent.with("tenants", [router.with("maxCores", 4)])
   pure val infeasibleIntent: Intent =
-    { tenants: [{ name: "a", dataplane: UserspacePoll, maxCores: 2, isolation: Isolated, pool: "", from: "" },
-                  { name: "b", dataplane: UserspacePoll, maxCores: 2, isolation: Isolated, pool: "", from: "" },
-                  { name: "d", dataplane: UserspacePoll, maxCores: 2, isolation: Isolated, pool: "", from: "" }],
+    { tenants: [{ name: "a", dataplane: UserspacePoll, maxCores: 2, isolation: Isolated, from: "" },
+                  { name: "b", dataplane: UserspacePoll, maxCores: 2, isolation: Isolated, from: "" },
+                  { name: "d", dataplane: UserspacePoll, maxCores: 2, isolation: Isolated, from: "" }],
       ports: [], links: [], fabrics: [], crypto: [], extras: Set() }
   pure val allViolationsIntent: Intent =
     { tenants: [router.with("maxCores", 4), kernel16],
@@ -138,21 +138,21 @@ module intent_main {
   // child dprc, a cpus-queue dpni, and the child-resident kernel draw — dpio 0
   // (the per-CPU dpio service is kernel-global), dpbp/dpmcp one per dpni, dpcon
   // one per online CPU per dpni.
-  pure val ns1: Tenant = { name: "ns1", dataplane: KernelNetlink, maxCores: 8, isolation: Isolated, pool: "", from: "" }
+  pure val ns1: Tenant = { name: "ns1", dataplane: KernelNetlink, maxCores: 8, isolation: Isolated, from: "" }
   pure val nsIntent: Intent =
     { tenants: [ns1], ports: [{ name: "e0", dpmac: 9, rate: 10000, tenant: "ns1", from: "" }],
       links: [], fabrics: [], crypto: [], extras: Set() }
   // A DPDK secondary process (Restricted) pooling a public poll-mode primary:
   // the secondary's objects land in the primary's dprc and it derives no dprc
   // of its own.
-  pure val primary: Tenant = { name: "primary", dataplane: UserspacePoll, maxCores: 8, isolation: Public, pool: "", from: "" }
-  pure val secondary: Tenant = { name: "secondary", dataplane: UserspacePoll, maxCores: 8, isolation: Restricted, pool: "primary", from: "" }
+  pure val primary: Tenant = { name: "primary", dataplane: UserspacePoll, maxCores: 8, isolation: Public, from: "" }
+  pure val secondary: Tenant = { name: "secondary", dataplane: UserspacePoll, maxCores: 8, isolation: Restricted("primary"), from: "" }
   pure val pooledIntent: Intent =
     { tenants: [primary, secondary], ports: [], links: [], fabrics: [], crypto: [], extras: Set() }
   // A pseudo-wire whose far end is the reserved kernel, never declared: the
   // kernel's link-end dpni is materialised in Root under the kernel draw rules.
   pure val kernelLinkIntent: Intent =
-    { tenants: [{ name: "routerX", dataplane: UserspacePoll, maxCores: 8, isolation: Isolated, pool: "", from: "" }],
+    { tenants: [{ name: "routerX", dataplane: UserspacePoll, maxCores: 8, isolation: Isolated, from: "" }],
       ports: [], links: [{ name: "wire", interfaceA: "routerX", interfaceB: "kernel", from: "" }],
       fabrics: [], crypto: [], extras: Set() }
 
@@ -636,30 +636,28 @@ module intent_main {
       countFam(p, "secondary", Dpbp) == 2,
     }
 
-  // Each pool-legality refusal fires on its triggering intent (design 2.6c).
-  // PoolChain cannot fire alone: a Public holder carrying a pool is itself a
-  // PoolWithoutRestricted contradiction, so the two are asserted together.
+  // Each surviving pool-legality refusal fires on its triggering intent (design
+  // 2.6c; vocabulary-v2 D1). The two contradiction shapes (a pool on a
+  // non-Restricted tenant, a Restricted tenant with no pool) are now
+  // unrepresentable, so they are gone from this test — the parse surface still
+  // names them (intent_raw.qnt). PoolChain never fires alone: a holder carrying a
+  // pool is itself Restricted, hence not Public, so HolderNotPublic co-fires.
   run poolRefusalsFireTest =
-    val poolOnIso = { tenants: [{ name: "x", dataplane: UserspacePoll, maxCores: 8, isolation: Isolated, pool: "ghost", from: "" }],
+    val holderIso = { tenants: [{ name: "h", dataplane: UserspacePoll, maxCores: 8, isolation: Isolated, from: "" },
+                                { name: "x", dataplane: UserspacePoll, maxCores: 8, isolation: Restricted("h"), from: "" }],
       ports: [], links: [], fabrics: [], crypto: [], extras: Set() }
-    val restrNoPool = { tenants: [{ name: "x", dataplane: UserspacePoll, maxCores: 8, isolation: Restricted, pool: "", from: "" }],
+    val poolKernelMismatch = { tenants: [{ name: "x", dataplane: UserspacePoll, maxCores: 8, isolation: Restricted("kernel"), from: "" }],
       ports: [], links: [], fabrics: [], crypto: [], extras: Set() }
-    val holderIso = { tenants: [{ name: "h", dataplane: UserspacePoll, maxCores: 8, isolation: Isolated, pool: "", from: "" },
-                                { name: "x", dataplane: UserspacePoll, maxCores: 8, isolation: Restricted, pool: "h", from: "" }],
-      ports: [], links: [], fabrics: [], crypto: [], extras: Set() }
-    val poolKernelMismatch = { tenants: [{ name: "x", dataplane: UserspacePoll, maxCores: 8, isolation: Restricted, pool: "kernel", from: "" }],
-      ports: [], links: [], fabrics: [], crypto: [], extras: Set() }
-    val chain = { tenants: [{ name: "h", dataplane: UserspacePoll, maxCores: 8, isolation: Public, pool: "g", from: "" },
-                            { name: "x", dataplane: UserspacePoll, maxCores: 8, isolation: Restricted, pool: "h", from: "" }],
+    val chain = { tenants: [{ name: "g", dataplane: UserspacePoll, maxCores: 8, isolation: Public, from: "" },
+                            { name: "h", dataplane: UserspacePoll, maxCores: 8, isolation: Restricted("g"), from: "" },
+                            { name: "x", dataplane: UserspacePoll, maxCores: 8, isolation: Restricted("h"), from: "" }],
       ports: [], links: [], fabrics: [], crypto: [], extras: Set() }
     all {
-      refusalSet(compile(poolOnIso, REF_INVENTORY)) == Set(PoolWithoutRestricted({ tenant: "x", pool: "ghost" })),
-      refusalSet(compile(restrNoPool, REF_INVENTORY)) == Set(RestrictedWithoutPool({ tenant: "x" })),
       refusalSet(compile(holderIso, REF_INVENTORY)) == Set(HolderNotPublic({ tenant: "x", holder: "h" })),
       refusalSet(compile(poolKernelMismatch, REF_INVENTORY)) ==
         Set(PoolDataplaneMismatch({ tenant: "x", drawer: UserspacePoll, holder: KernelNetlink })),
       refusalSet(compile(chain, REF_INVENTORY)) ==
-        Set(PoolWithoutRestricted({ tenant: "h", pool: "g" }), PoolChain({ tenant: "x", holder: "h" })),
+        Set(HolderNotPublic({ tenant: "x", holder: "h" }), PoolChain({ tenant: "x", holder: "h" })),
     }
 
   // A link end naming the reserved kernel, never declared: the kernel's dpni is

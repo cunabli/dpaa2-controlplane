@@ -77,7 +77,7 @@ module intent_raw_alphabet {
   // contradictions reachable). put overwrites, so tenants stay <= 2 non-kernel.
   action addTenant = {
     nondet name = R_TENANTS.oneOf()
-    nondet iso = ISOLATIONS.oneOf()
+    nondet iso = RAW_ISOLATIONS.oneOf()
     nondet pool = R_POOLS.oneOf()
     all {
       raw.tenants.keys().size() < 3,
@@ -90,7 +90,7 @@ module intent_raw_alphabet {
   action addKernelTenant = all {
     not(raw.tenants.keys().contains(KERNEL)),
     raw' = raw.with("tenants",
-      raw.tenants.put(KERNEL, { dataplane: KernelNetlink, maxCores: 16, isolation: Isolated, pool: "", from: "" })),
+      raw.tenants.put(KERNEL, { dataplane: KernelNetlink, maxCores: 16, isolation: RIsolated, pool: "", from: "" })),
   }
 
   // A port put under its name key (task 3.3d): a "ghost"/"" tenant is the

@@ -36,7 +36,7 @@ module fabric {
   // the accepted scenario and its twin differ in `max_cores` alone.
   pure def fabricIntent(m: int): Intent = {
     tenants: [kernelTenant(16),
-                { name: "router", dataplane: UserspacePoll, maxCores: m, isolation: Isolated, pool: "", from: "" }],
+                { name: "router", dataplane: UserspacePoll, maxCores: m, isolation: Isolated, from: "" }],
     ports: [{ name: "lan0", dpmac: 7, rate: 10000, tenant: KERNEL, from: "" },
             { name: "lan1", dpmac: 8, rate: 10000, tenant: KERNEL, from: "" },
             { name: "wan0", dpmac: 9, rate: 10000, tenant: "router", from: "" },
@@ -122,7 +122,7 @@ module fabric {
   run kernelBudgetNeverBindsTest =
     val lowKernel = accepted.with("tenants",
       [kernelTenant(1),
-       { name: "router", dataplane: UserspacePoll, maxCores: 8, isolation: Isolated, pool: "", from: "" }])
+       { name: "router", dataplane: UserspacePoll, maxCores: 8, isolation: Isolated, from: "" }])
     match compile(lowKernel, REF_INVENTORY) {
       | Ok(_) => true
       | Refused(_) => false

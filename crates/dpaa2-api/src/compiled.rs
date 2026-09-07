@@ -504,11 +504,11 @@ impl Tenant {
     pub fn container(&self) -> Container {
         if self.name.is_kernel() {
             Container::Root
-        } else if !self.pool.is_empty() {
-            if self.pool.is_kernel() {
+        } else if let crate::intent::Isolation::Restricted { pool } = &self.isolation {
+            if pool.is_kernel() {
                 Container::Root
             } else {
-                Container::Child(self.pool.clone())
+                Container::Child(pool.clone())
             }
         } else {
             Container::Child(self.name.clone())

@@ -45,24 +45,28 @@ module intent_types {
   // latter with a kernel-bound child dprc (drivers/bus/fsl-mc/dprc-driver.c
   // match_id_table binds any obj_type "dprc" l.882-885, dprc_scan_container
   // rescans l.746, dprc_add_new_devices adds discovered child dprcs as bus
-  // devices l.202-224). Restricted — community co-residency: the tenant's
+  // devices l.202-224). Restricted(pool) — community co-residency: the tenant's
   // objects are created in its `pool` holder's dprc, the concrete case a DPDK
-  // secondary process pooling a userspace-poll primary. Public — a holder that
-  // accepts legal drawers into its own dprc; the reserved kernel is implicitly
-  // public, and a userspace-poll primary may declare it.
-  type Isolation = Public | Restricted | Isolated
+  // secondary process pooling a userspace-poll primary; the holder name rides in
+  // the variant's payload, so a Restricted tenant carries its pool and a
+  // non-Restricted one cannot (vocabulary-v2 D1, PASS5-F4: the illegal shapes are
+  // unrepresentable, not refused). Public — a holder that accepts legal drawers
+  // into its own dprc; the reserved kernel is implicitly public, and a
+  // userspace-poll primary may declare it.
+  type Isolation = Public | Restricted(str) | Isolated
 
   // A tenant of hardware capacity. `maxCores` is the budget the derived
   // thread count must fit under (design D3). Crypto demand is not a tenant
   // field: each `Crypto` construct carries its own `flows` (design D1).
-  // `isolation` places the tenant in the container tree (default Isolated);
-  // `pool` names the public holder a Restricted tenant draws inside ("" when
-  // absent). The pool legality rules are intent/refuse.qnt (task 2.6c).
-  // `from` carries an accepted `renamed = { from }` clause ("" = absent, the
-  // `pool` convention) into the neutral model for the rename matcher (ADR-0015
-  // decision 10 / task 6.5): it widens the matcher's acceptance set, is inert
-  // after one converge, and compile ignores it (intent/derive.qnt).
-  type Tenant = { name: str, dataplane: Dataplane, maxCores: int, isolation: Isolation, pool: str, from: str }
+  // `isolation` places the tenant in the container tree (default Isolated) and,
+  // for a Restricted tenant, names the public holder it draws inside as the
+  // variant payload — there is no separate `pool` field and no "" sentinel
+  // (vocabulary-v2 D1). The pool legality rules are intent/refuse.qnt (task 2.6c).
+  // `from` carries an accepted `renamed = { from }` clause ("" = absent) into the
+  // neutral model for the rename matcher (ADR-0015 decision 10 / task 6.5): it
+  // widens the matcher's acceptance set, is inert after one converge, and compile
+  // ignores it (intent/derive.qnt).
+  type Tenant = { name: str, dataplane: Dataplane, maxCores: int, isolation: Isolation, from: str }
 
   // A port: the dpmac anchor, the rate the port must deliver in Mbps (the
   // unit `dpmac info` reports its maximum in), and the tenant that
@@ -139,7 +143,7 @@ module intent_types {
   // The reserved kernel is implicitly public (task 2.6c): a Restricted tenant
   // may pool it, and it never itself draws inside another holder.
   pure def kernelTenant(maxCores: int): Tenant =
-    { name: KERNEL, dataplane: KernelNetlink, maxCores: maxCores, isolation: Public, pool: "", from: "" }
+    { name: KERNEL, dataplane: KernelNetlink, maxCores: maxCores, isolation: Public, from: "" }
 
   // ---- canonical name order (ADR-0015 decision 5; task 3.3d) ----
 
@@ -251,7 +255,7 @@ module intent_types {
   // another module (QNT404; see families/params.qnt, core/companions.qnt).
   pure val ETH_IFS: Set[EthInterface] = Set(XFI, CAUI, RGMII)
   pure val DATAPLANES: Set[Dataplane] = Set(KernelNetlink, UserspacePoll, UserspaceEvent)
-  pure val ISOLATIONS: Set[Isolation] = Set(Public, Restricted, Isolated)
+  pure val ISOLATIONS: Set[Isolation] = Set(Public, Restricted("h"), Isolated)
   pure val SWITCHINGS: Set[Switching] = Set(Hardware, Software)
   pure val MEMBERS: Set[Member] = Set(MPort("p"), MTenant("c"), MFabric("f"))
   pure val LINK_TYPES: Set[LinkType] = Set(LinkNone, LinkFixed, LinkPhy, LinkBackplane)

@@ -853,11 +853,18 @@ mod tests {
 
     /// A restricted-tenant config facet; `pool` is the public holder it draws inside,
     /// the empty [`TenantName`] standing for "no pool" (an unrestricted tenant).
+    ///
+    /// The matcher facet (decision 11; `match.qnt`) keeps its own `pool` field; it
+    /// predates vocabulary-v2 and is not re-shaped here (that is match.qnt
+    /// territory, a follow-up bead). The `Isolation::Restricted` payload is set to
+    /// the same holder for consistency.
     fn tenant_config(max_cores: i64, pool: &str) -> ConfigFacet {
         ConfigFacet::Tenant {
             dataplane: Dataplane::UserspacePoll,
             max_cores,
-            isolation: Isolation::Restricted,
+            isolation: Isolation::Restricted {
+                pool: TenantName::from(pool),
+            },
             pool: TenantName::from(pool),
         }
     }

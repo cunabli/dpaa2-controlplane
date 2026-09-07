@@ -42,7 +42,7 @@ module intent_raw_replay {
     verdict' = parse(r),
   }
 
-  pure val rtBase: RawTenant = { dataplane: UserspacePoll, maxCores: 16, isolation: Isolated, pool: "", from: "" }
+  pure val rtBase: RawTenant = { dataplane: UserspacePoll, maxCores: 16, isolation: RIsolated, pool: "", from: "" }
 
   // A clean document exercising every construct, so the accepted-arm Intent
   // comparison covers tenants, ports, links, fabrics, crypto, and extras at once.
@@ -57,7 +57,7 @@ module intent_raw_replay {
 
   // The reserved kernel declared as a tenant — ReservedKernel (parse.rs convert).
   run rawReservedKernelTrace = feed(
-    emptyRaw.with("tenants", Map(KERNEL -> { dataplane: KernelNetlink, maxCores: 16, isolation: Isolated, pool: "", from: "" })))
+    emptyRaw.with("tenants", Map(KERNEL -> { dataplane: KernelNetlink, maxCores: 16, isolation: RIsolated, pool: "", from: "" })))
 
   // A construct name shared across families (a port and a fabric both "p1") —
   // DuplicateName (parse.rs convert; task 3.3d keyed each family, so intra-family
@@ -89,7 +89,7 @@ module intent_raw_replay {
   // tenant), both reused from the compile vocabulary (parse.rs convert_tenant).
   run rawPoolContradictionTrace = feed(
     emptyRaw.with("tenants", Map(
-      "restr" -> rtBase.with("isolation", Restricted),
+      "restr" -> rtBase.with("isolation", RRestricted),
       "stray" -> rtBase.with("pool", "restr"))))
 
   // Several near-misses at once: a port and a link of one name (a cross-family

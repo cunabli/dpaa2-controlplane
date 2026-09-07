@@ -70,7 +70,6 @@ fn poll(name: &str) -> Tenant {
         dataplane: Dataplane::UserspacePoll,
         max_cores: 16,
         isolation: Isolation::Isolated,
-        pool: "".into(),
         renamed: None,
     }
 }

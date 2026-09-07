@@ -364,10 +364,7 @@ Rust enum spells the anchor pair `Reserved`/`Foreign` (see §11).
 - `UnpricedDataplane` — a tenant whose dataplane ADR-0012 does not price
   (today `userspace-event`) → use a priced dataplane.
 
-*Isolation and pooling (task 2.6c)*
-- `PoolWithoutRestricted` — a `pool` on a non-restricted tenant is a
-  contradiction.
-- `RestrictedWithoutPool` — a restricted tenant that names no pool holder.
+*Isolation and pooling (task 2.6c; vocabulary-v2 D1)*
 - `HolderNotPublic` — a restricted tenant's pool holder is not public.
 - `PoolChain` — a restricted tenant's holder itself has a pool → no chains.
 - `PoolDataplaneMismatch` — a restricted drawer's dataplane differs from its
