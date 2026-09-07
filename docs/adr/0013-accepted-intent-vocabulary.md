@@ -68,6 +68,12 @@ isolation = "isolated"          # public | restricted | isolated (default isolat
 pool = ""                       # a restricted tenant's public holder; "" otherwise
 ```
 
+At the TOML surface `isolation` and `pool` stay two keys (a `restricted`
+tenant names its `pool` holder); the neutral model folds them into one variant,
+`Isolation::Restricted { pool }` (vocabulary-v2 D1), so a pool on a
+non-restricted tenant and a restricted tenant with no pool are unrepresentable
+rather than validated — the parser still names both contradictions.
+
 `dataplane` selects the sizing regime and names the ownership mechanism, not
 just kernel-vs-userspace: `kernel-netlink` (the kernel's own driver over
 netlink, priced by ADR-0012's kernel draws — leaving room for a future
@@ -305,13 +311,33 @@ available)`, and a non-zero `Unknown` family warns `UnknownCeiling`.
 `compile` runs every rule unconditionally and returns their union — the
 *complete* refusal set, never the first violation, so the operator fixes a
 file in one pass. An empty set yields the plan and its warnings; a non-empty
-set is the whole answer. All 24 variants of `refuse.qnt`, grouped by rule; the
-Rust enum spells the anchor pair `Reserved`/`Foreign` (see §11).
+set is the whole answer. The refusal variants of `refuse.qnt`, grouped by rule;
+the Rust enum spells the anchor pair `Reserved`/`Foreign` (see §11).
+
+*vocabulary-v2 revision.* Two illegal pool shapes left this vocabulary:
+`PoolWithoutRestricted` and `RestrictedWithoutPool` are gone because
+`Isolation::Restricted { pool }` (D1) makes a pool on a non-restricted tenant,
+and a restricted tenant with no pool, *unrepresentable* — a typestate the type
+enforces, not a refusal the compiler raises (the TOML boundary still names both
+as parse errors, since the raw surface keeps the two keys). Three compile-side
+twins entered to close the D11 defense-in-depth rows a programmatic `Intent`
+used to slip through — `LinkSelfLoop`, `RenameDoubleClaim`, `KernelDeclared`
+(*Programmatic parity*, below). `TenantAbsent` now carries a typed `Referrer`
+(D3) instead of a construct-name string, and every tenant reference — a port
+owner and each link end — is the shared `TenantRef` sum (D2); both are detailed
+at the `TenantAbsent` bullet.
 
 *Undeclared references*
-- `TenantAbsent` — a construct (port, link end, fabric owner, crypto, extra, a
-  restricted tenant's `pool`) names a tenant not declared → declare it or fix
-  the name.
+- `TenantAbsent` — a construct names a tenant not declared → declare it or fix
+  the name. Its payload is a typed `Referrer` (D3), never a construct-name
+  string: a port, link end, or fabric by its own name; crypto, extra, and the
+  restricted `pool` drawer — which carry no name of their own — by the
+  referencing tenant. So no reserved token (`"crypto"`/`"extra"`/`"pool"`) can
+  collide with a construct an operator legally named. A port owner and each link
+  end is the shared `TenantRef` sum — the reserved kernel or a declared tenant
+  (D2) — carrying no `""` sentinel and no default: "an omitted port tenant means
+  the kernel" is a rule the parser applies at the TOML boundary, so the kernel
+  case never renders a `kernel` name the operator never typed.
 - `MemberUnresolved` — a fabric member names a port/tenant/fabric not declared
   → declare it or fix the member list.
 - `SelfMember` — a fabric member resolves to the fabric's own owner → remove
@@ -371,13 +397,24 @@ Rust enum spells the anchor pair `Reserved`/`Foreign` (see §11).
   holder's (the reserved kernel counts as kernel-netlink).
 
 *Programmatic parity (vocabulary-v2 D4) — compile-side twins of parse-side
-checks, closing the design-D11 one-sided rows (task 4.1; full prose amendment
-is task 5.2)*
-- `LinkSelfLoop` — a link whose two ends resolve to the same tenant.
+checks, closing the design-D11 one-sided rows so a programmatic `Intent` (built
+in Rust, never parsed) cannot slip a shape the TOML boundary already refuses.
+Each site carries the deliberate-duplication doc note naming its parse twin.*
+- `LinkSelfLoop` — a link whose two ends resolve to the same tenant → a link
+  joins two distinct tenants (with `TenantRef`, two kernel ends are the same
+  tenant too). Twin of `parse.rs` `convert_link`.
 - `RenameDoubleClaim` — a rename `from` naming a construct currently declared
-  and not itself renamed → the target would be claimed twice.
-- `KernelDeclared` — the intent declares a tenant named `kernel` that is not the
-  reserved kernel.
+  and not itself renamed away → the target would be claimed twice, checked in
+  both the tenant and the shared port/link/fabric namespace. Twin of `parse.rs`
+  `check_renames`.
+- `KernelDeclared` — the intent declares a tenant named `kernel` whose shape
+  differs from the reserved kernel value. The exact reserved
+  `kernel_tenant(max_cores)` is **exempt**: the frontend shell (`complete_kernel`)
+  and the dry-run reference path inject that value into `intent.tenants` before
+  compile, and compile cannot distinguish that injection from a declaration — so
+  the rule fires only on a *non-reserved* kernel-named tenant, the
+  wrong-kernel-reaching-derive hole this twin closes. Twin of `parse.rs`
+  `convert`.
 
 Two warnings attach to an accepted compile: `UnknownCeiling` (a derived
 family's ceiling is Unknown, so feasibility could not check it — accepted, not
@@ -514,7 +551,7 @@ asserting the derived plan (design D8); numbers are the model's.
   kernel-source anchors, and the ledger keeps DPSW-I1/I2 board-pending.
 - ADR-0005 §§1–5 are elaborated here in place (see §11); its numbered section
   references resolve through this record.
-- This record's enumerations — the 24 refusal variants (§5), INTENT_I1–I10
+- This record's enumerations — the refusal variants (§5), INTENT_I1–I10
   (§6), and the five scenarios (§7) — are hand-maintained copies of what
   `models/intent/*.qnt` states, and copies drift (the `COVERAGE.md` narrative
   drifted exactly this way across tasks 2.6b/2.6c until 2.6d caught it). The

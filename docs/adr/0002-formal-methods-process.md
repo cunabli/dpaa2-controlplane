@@ -73,6 +73,24 @@ A change's Quint model lands green (typecheck, simulate, marked invariants
 Apalache-checked) *before* its Rust lands. The model is the design artifact;
 the typestate encoding follows it.
 
+*Structural isomorphism (amended 2026-09-07, vocabulary-v2 D6).* The Rust
+surface is not merely trace-equivalent to the model — it is *structurally
+isomorphic* to the model's types: sum-for-sum, payload-for-payload, typestates
+included. The conformance proofs (the frozen-trace replays, the ledger lints
+R11/R14) quantify over that shared shape, so an encoding that reproduces every
+trace but changes the shape — an `Option` for a two-case sum, a sentinel string
+for a case, a flattened field for a variant payload — violates the spec even
+when no trace ever distinguishes them: the proof is a proof *of the shape*. The
+law binds structure and relationship semantics, not spelling: names converge on
+the most readable English on both sides, and a lazy incumbent model spelling is
+renamed in the same lockstep rather than transliterated into Rust. Where the
+two languages' own namespaces force a divergence — Quint's flat sum
+constructors share the value namespace with type names, so the model prefixes
+`Member`'s constructors `M…` (`MPort` ⇒ `Member::Port`) and `Referrer`'s `Ref…`
+(`RefPort` ⇒ `Referrer::Port`) while Rust namespaces them under the enum — the
+ITF decoder maps the tags one-to-one and the isomorphism holds on structure, the
+prefix being a spelling artifact the law explicitly permits.
+
 What a typestate can prove (amended 2026-08-23): the encoding captures the
 transition *sequences* the code itself enforces, making undesired
 hardware/kernel/userspace configuration states unrepresentable. A transition

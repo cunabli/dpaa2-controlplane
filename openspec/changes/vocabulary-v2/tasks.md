@@ -66,7 +66,7 @@ each checkbox names its bead.
   revised refusal set; update the witness counts in COVERAGE.md (single
   authoritative source). Verify: R11 and R14 ledger lints green; full model
   ladder green.
-- [ ] 5.2 (bead dpaa2-controlplane-093.6) Amend ADR-0013 §5 once for the whole revision (deleted pair,
+- [x] 5.2 (bead dpaa2-controlplane-093.6) Amend ADR-0013 §5 once for the whole revision (deleted pair,
   parity trio, `Referrer` payload, port-tenant sum) and touch §2
   spellings only where pool already appears; amend ADR-0002 with the
   structural-isomorphism law (design D6: Rust is the model's isomorphic

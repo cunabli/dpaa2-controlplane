@@ -580,8 +580,16 @@ module intent_derive {
   // end, and its link-end dpni lands in Root under the kernel draw rules. When
   // a link names the kernel but the intent never declared it, the derivation
   // materialises the reserved kernel so its dpni exists; a declared kernel is
-  // left untouched. Ports naming the kernel are refused as before (only link
-  // ends gain this).
+  // left untouched.
+  //
+  // Bead 093.8 (vocabulary-v2 4b.2): the pure core materialises the kernel on the
+  // LINK trigger only. A port-only kernel reference (a Kernel-case port with no
+  // kernel link and no declared kernel) is now accepted, not refused (D2 killed the
+  // TenantAbsent{"kernel"} wrinkle), but its kernel is materialised by the tools
+  // shell's `complete_kernel` (crates/dpaa2-tools/src/main.rs), NOT here — the shell
+  // owns the port-only completion so the pure derivation stays link-triggered and
+  // input-faithful. The Rust twin `effective_tenants` (crates/dpaa2-api/src/derive.rs)
+  // carries the same split.
   pure def kernelDeclared(intent: Intent): bool =
     intent.tenants.select(c => c.name == KERNEL).length() > 0
   pure def linkNamesKernel(intent: Intent): bool =

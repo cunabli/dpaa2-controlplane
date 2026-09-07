@@ -112,6 +112,14 @@ pub enum ConfigFacet {
         /// The tenant's place in the container tree.
         isolation: Isolation,
         /// The public holder a restricted tenant draws inside (empty when absent).
+        ///
+        /// Bead 093.7 (vocabulary-v2 4b.1): once [`Isolation::Restricted`] carries
+        /// its pool payload (D1), this flat `pool` is a *deliberate* second reading
+        /// of that payload — the matcher compares two same-owner tenants
+        /// attribute-by-attribute, so it flattens the holder name into its own facet
+        /// field rather than re-deriving it from the `isolation` variant. Kept, not
+        /// re-keyed; the model twin is `match.qnt`'s `ConfigFacet` `Tenant.pool`
+        /// (decision 11).
         pool: TenantName,
     },
 }

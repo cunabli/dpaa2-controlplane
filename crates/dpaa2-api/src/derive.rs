@@ -564,6 +564,13 @@ fn link_names_kernel(intent: &Intent) -> bool {
 /// (design D6a). Sorting by `TenantName`'s byte-wise `Ord` == sorting by name, so the
 /// emission order — objects and provenance being order-free — follows names, never the
 /// declared `Vec` position (see [`terminated_ports`] for the rank-list lint).
+///
+/// Bead 093.8 (vocabulary-v2 4b.2): the pure core materialises the kernel on the LINK
+/// trigger only. A port-only kernel reference — a [`TenantRef::Kernel`] port with no
+/// kernel link and no declared kernel — is accepted (D2 killed the `TenantAbsent`
+/// `"kernel"` wrinkle) but its kernel is materialised by the tools shell's
+/// `complete_kernel`, NOT here, so this pure derivation stays link-triggered and
+/// input-faithful. The model twin `derive.qnt` `effectiveTenants` carries the same split.
 fn effective_tenants(intent: &Intent, inv: &Inventory) -> Vec<Tenant> {
     let mut v = intent.tenants.clone();
     if link_names_kernel(intent) && !kernel_declared(intent) {
