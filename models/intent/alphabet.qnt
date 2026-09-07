@@ -178,20 +178,24 @@ module intent_alphabet {
     nondet tenant = tenantNames(intent).oneOf()
     all {
       intent.ports.length() < 3,
+      // The drawn name lowers into the `TenantRef` sum (vocabulary-v2 D2): the
+      // kernel name reaches the Kernel case, any declared name the Named case —
+      // the same normalisation the parser applies.
       intent' = intent.with("ports", intent.ports.append({
         name: PORT_NAMES.nth(intent.ports.length()),
-        dpmac: dpmac, rate: rate, tenant: tenant, from: "" })),
+        dpmac: dpmac, rate: rate, tenant: tenantRefOf(tenant), from: "" })),
     }
   }
 
-  // The single link, between two tenant names (may be equal — a self-link).
+  // The single link, between two tenant names (may be equal — a self-link); each
+  // end lowers into the `TenantRef` sum (vocabulary-v2 D2).
   action addLink = {
     nondet a = tenantNames(intent).oneOf()
     nondet b = tenantNames(intent).oneOf()
     all {
       intent.links.length() == 0,
       intent.tenants.length() >= 2,
-      intent' = intent.with("links", intent.links.append({ name: "l1", interfaceA: a, interfaceB: b, from: "" })),
+      intent' = intent.with("links", intent.links.append({ name: "l1", interfaceA: tenantRefOf(a), interfaceB: tenantRefOf(b), from: "" })),
     }
   }
 

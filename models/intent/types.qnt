@@ -25,6 +25,31 @@ module intent_types {
   // in dprc.1. A port that names no tenant is the kernel's port.
   pure val KERNEL: str = "kernel"
 
+  // A tenant reference: the reserved kernel, or a declared tenant by name
+  // (vocabulary-v2 D2). Every place the vocabulary refers to a tenant that may
+  // be the reserved kernel — a port's owning tenant and each link end — carries
+  // this one shared sum instead of a raw name with a `""`/`"kernel"` sentinel.
+  // There is no "absent" case: a reference is never optional, and "an omitted
+  // port tenant means the kernel" is a rule of the TOML boundary the parser
+  // applies (intent/intent_raw.qnt `tenantRefOf`), never a default of the type.
+  // The Rust image is `dpaa2-api` `TenantRef` (Kernel | Named), authored here first.
+  type TenantRef = Kernel | Named(str)
+
+  // Classify a resolved tenant name into the reference sum: the reserved kernel
+  // (also the "" the omitted port tenant lowers to) yields Kernel, any other
+  // name Named. The single normalisation the raw→neutral lowering applies at the
+  // TOML boundary (vocabulary-v2 D2); the KERNEL sentinel classification lives
+  // here, once.
+  pure def tenantRefOf(n: str): TenantRef =
+    if (n == "" or n == KERNEL) Kernel else Named(n)
+
+  // The tenant name a reference resolves to: the reserved KERNEL for the kernel
+  // case, the declared name otherwise. Derive keys and compares objects by it,
+  // and a refusal that must name the referenced tenant reads it (the Kernel case
+  // never reaches a TenantAbsent — it carries no absent name; intent/refuse.qnt).
+  pure def tenantRefName(r: TenantRef): str =
+    match r { | Kernel => KERNEL | Named(n) => n }
+
   // The dataplane a tenant runs (design D1; ADR-0012 pricing): KernelNetlink
   // — the kernel's own driver, configured over netlink; UserspacePoll — a
   // userspace poll-mode process (VPP, DPDK); UserspaceEvent — a userspace
@@ -69,19 +94,21 @@ module intent_types {
   type Tenant = { name: str, dataplane: Dataplane, maxCores: int, isolation: Isolation, from: str }
 
   // A port: the dpmac anchor, the rate the port must deliver in Mbps (the
-  // unit `dpmac info` reports its maximum in), and the tenant that
-  // terminates it. A port named by a fabric is terminated by the fabric's
-  // forwarding tenant — a port tenant that differs is a refusal (task 1.3).
-  // `from` carries an accepted rename clause ("" = absent) for the matcher
-  // (ADR-0015 decision 10 / task 6.5); compile ignores it.
-  type Port = { name: str, dpmac: int, rate: int, tenant: str, from: str }
+  // unit `dpmac info` reports its maximum in), and the tenant reference that
+  // terminates it (`TenantRef`, vocabulary-v2 D2 — the reserved kernel or a
+  // declared tenant, never a `""` sentinel). A port named by a fabric is
+  // terminated by the fabric's forwarding tenant — a port tenant that differs is
+  // a refusal (task 1.3). `from` carries an accepted rename clause ("" = absent)
+  // for the matcher (ADR-0015 decision 10 / task 6.5); compile ignores it.
+  type Port = { name: str, dpmac: int, rate: int, tenant: TenantRef, from: str }
 
   // A link: point-to-point dpni↔dpni pseudo-wire between two tenants
-  // (object-model.md §2, DPNI-I9); each end names the tenant whose interface
-  // terminates the wire (interfaces, not ports — leaves room for tunnels).
-  // `from` carries an accepted rename clause ("" = absent) for the matcher
-  // (ADR-0015 decision 10 / task 6.5); compile ignores it.
-  type Link = { name: str, interfaceA: str, interfaceB: str, from: str }
+  // (object-model.md §2, DPNI-I9); each end is a `TenantRef` naming the tenant
+  // whose interface terminates the wire — interfaces, not ports (leaves room for
+  // tunnels), and the reserved kernel is nameable at an end as the Kernel case
+  // (vocabulary-v2 D2). `from` carries an accepted rename clause ("" = absent)
+  // for the matcher (ADR-0015 decision 10 / task 6.5); compile ignores it.
+  type Link = { name: str, interfaceA: TenantRef, interfaceB: TenantRef, from: str }
 
   // Who forwards between the members: Hardware — a DPSW (figure 6c), which
   // only the kernel can drive (dpsw.md: DPDK has no claim path); Software —
@@ -255,6 +282,7 @@ module intent_types {
   // another module (QNT404; see families/params.qnt, core/companions.qnt).
   pure val ETH_IFS: Set[EthInterface] = Set(XFI, CAUI, RGMII)
   pure val DATAPLANES: Set[Dataplane] = Set(KernelNetlink, UserspacePoll, UserspaceEvent)
+  pure val TENANT_REFS: Set[TenantRef] = Set(Kernel, Named("t"))
   pure val ISOLATIONS: Set[Isolation] = Set(Public, Restricted("h"), Isolated)
   pure val SWITCHINGS: Set[Switching] = Set(Hardware, Software)
   pure val MEMBERS: Set[Member] = Set(MPort("p"), MTenant("c"), MFabric("f"))

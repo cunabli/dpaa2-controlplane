@@ -86,20 +86,28 @@ module intent_refuse {
   // names a tenant: port tenant (`p.tenant`), link ends, fabric forwarder
   // (`f.forwardedBy`), crypto tenant, extra tenant. crypto and extra carry no
   // name, so the construct field reads the literal "crypto" / "extra".
-  // DEVIATION (UX): an ownerless port takes the reserved `kernel` as its tenant
-  // (parse.rs effTenant), so an undeclared kernel makes that port refuse
-  // TenantAbsent naming `kernel` — a name the operator never wrote.
+  // A port's tenant and each link end is a `TenantRef` (vocabulary-v2 D2): the
+  // Kernel case is the reserved tenant, always available (a port belongs to it,
+  // a link end names it as a pseudo-wire end — the derivation materialises its
+  // dpni, derive.qnt), so TenantAbsent fires only on the Named case with an
+  // undeclared name. The `tenant:"kernel"` wrinkle is structurally gone: the
+  // Kernel case carries no name to refuse.
   pure def tenantAbsentRefusals(intent: Intent, inv: Inventory): Set[Refusal] =
     val names = tenantNames(intent)
     val fromPorts = intent.ports.foldl(Set(), (acc, p) =>
-      if (names.contains(p.tenant)) acc
-      else acc.union(Set(TenantAbsent({ construct: p.name, tenant: p.tenant }))))
-    // A link end may name the reserved kernel without declaring it (task 2.6c):
-    // the reserved tenant is always available as a pseudo-wire end, so KERNEL is
-    // never absent here (the derivation materialises its dpni, derive.qnt).
+      match p.tenant {
+        | Kernel => acc
+        | Named(n) => if (names.contains(n)) acc else acc.union(Set(TenantAbsent({ construct: p.name, tenant: n })))
+      })
     val fromLinks = intent.links.foldl(fromPorts, (acc, l) =>
-      val a1 = if (names.contains(l.interfaceA) or l.interfaceA == KERNEL) acc else acc.union(Set(TenantAbsent({ construct: l.name, tenant: l.interfaceA })))
-      if (names.contains(l.interfaceB) or l.interfaceB == KERNEL) a1 else a1.union(Set(TenantAbsent({ construct: l.name, tenant: l.interfaceB }))))
+      val a1 = match l.interfaceA {
+        | Kernel => acc
+        | Named(n) => if (names.contains(n)) acc else acc.union(Set(TenantAbsent({ construct: l.name, tenant: n })))
+      }
+      match l.interfaceB {
+        | Kernel => a1
+        | Named(n) => if (names.contains(n)) a1 else a1.union(Set(TenantAbsent({ construct: l.name, tenant: n })))
+      })
     val fromFabrics = intent.fabrics.foldl(fromLinks, (acc, f) =>
       if (names.contains(f.forwardedBy)) acc
       else acc.union(Set(TenantAbsent({ construct: f.name, tenant: f.forwardedBy }))))
@@ -194,8 +202,10 @@ module intent_refuse {
   // translator limit as selfViaChain above).
   pure def portOwnerMismatchOf(intent: Intent, f: Fabric, pn: str): Set[Refusal] =
     match portByName(intent, pn) {
-      | Some(port) => if (port.tenant != f.forwardedBy)
-                        Set(PortTenantMismatch({ fabric: f.name, port: pn, tenant: port.tenant }))
+      // The port's owner is a `TenantRef` (vocabulary-v2 D2); resolve it to the
+      // name the fabric forwarder is spelled as before comparing.
+      | Some(port) => if (tenantRefName(port.tenant) != f.forwardedBy)
+                        Set(PortTenantMismatch({ fabric: f.name, port: pn, tenant: tenantRefName(port.tenant) }))
                       else Set()
       | None => Set()
     }

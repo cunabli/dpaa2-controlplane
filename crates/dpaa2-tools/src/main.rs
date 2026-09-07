@@ -285,7 +285,7 @@ fn init_logging() {
 
 #[cfg(test)]
 mod tests {
-    use dpaa2_api::{DpmacId, Intent, MacMode, Port, kernel_tenant};
+    use dpaa2_api::{DpmacId, Intent, MacMode, Port, TenantRef, kernel_tenant};
 
     use super::complete_kernel;
 
@@ -294,7 +294,7 @@ mod tests {
             name: "wan0".into(),
             dpmac: DpmacId::new(7),
             rate: 10_000,
-            tenant: tenant.into(),
+            tenant: TenantRef::from_name(tenant.into()),
             mac: None,
             mac_mode: MacMode::Assert,
             renamed: None,

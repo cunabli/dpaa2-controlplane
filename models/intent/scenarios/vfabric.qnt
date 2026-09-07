@@ -41,7 +41,7 @@ module vfabric {
   pure val accepted: Intent =
     { tenants: [{ name: "routerA", dataplane: UserspacePoll, maxCores: 8, isolation: Isolated, from: "" },
                   { name: "routerB", dataplane: UserspacePoll, maxCores: 8, isolation: Isolated, from: "" }],
-      ports: [], links: [{ name: "wire", interfaceA: "routerA", interfaceB: "routerB", from: "" }],
+      ports: [], links: [{ name: "wire", interfaceA: Named("routerA"), interfaceB: Named("routerB"), from: "" }],
       fabrics: [], crypto: [], extras: Set() }
 
   // The twin: the same plus a third portless tenant routerC (model-only).

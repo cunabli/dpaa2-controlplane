@@ -129,7 +129,9 @@ fn project(intent: &Intent) -> BTreeSet<MatchObject> {
         name: l.name.clone(),
         anchor: BTreeSet::new(),
         config: ConfigFacet::Link {
-            ends: (l.interface_a.clone(), l.interface_b.clone()),
+            // The matcher facet keys ends by tenant NAME (task 4b.1, unchanged);
+            // resolve each `TenantRef` end to the name it stands for.
+            ends: (l.interface_a.resolved(), l.interface_b.resolved()),
         },
         from: l.renamed.clone(),
     });

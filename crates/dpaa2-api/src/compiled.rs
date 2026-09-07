@@ -316,9 +316,9 @@ impl AttachPoint {
 /// interface cannot be connected twice:
 ///
 /// ```compile_fail
-/// use dpaa2_api::{kernel_tenant, Link};
+/// use dpaa2_api::{kernel_tenant, Link, TenantRef};
 /// let k = kernel_tenant(1);
-/// let l = Link { name: "w".into(), interface_a: "kernel".into(), interface_b: "kernel".into(), renamed: None };
+/// let l = Link { name: "w".into(), interface_a: TenantRef::Kernel, interface_b: TenantRef::Kernel, renamed: None };
 /// let (_o1, ia) = k.dpni(1, 0, "w".into());
 /// let (_o2, ib) = k.dpni(2, 0, "w".into());
 /// let (_o3, ic) = k.dpni(3, 0, "w".into());
@@ -628,10 +628,10 @@ impl Link {
     /// [`Interface`]s, so a dpmac end is not a link end:
     ///
     /// ```compile_fail
-    /// use dpaa2_api::{kernel_tenant, DpmacId, Link};
+    /// use dpaa2_api::{kernel_tenant, DpmacId, Link, TenantRef};
     /// use dpaa2_api::compiled::AttachPoint;
     /// let k = kernel_tenant(1);
-    /// let l = Link { name: "w".into(), interface_a: "kernel".into(), interface_b: "kernel".into(), renamed: None };
+    /// let l = Link { name: "w".into(), interface_a: TenantRef::Kernel, interface_b: TenantRef::Kernel, renamed: None };
     /// let (_o, ia) = k.dpni(1, 0, "w".into());
     /// // `wire` takes `Interface`, so a bare dpmac end is a type error:
     /// let _e = l.wire(AttachPoint::mac(DpmacId::new(7)), ia);

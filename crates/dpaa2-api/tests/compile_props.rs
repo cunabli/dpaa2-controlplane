@@ -41,7 +41,8 @@ use dpaa2_api::inventory::Ceiling;
 use dpaa2_api::testkit::ref_inventory;
 use dpaa2_api::{
     Compiled, Crypto, Dataplane, DpmacId, Extra, Fabric, Family, Intent, Inventory, Isolation,
-    KERNEL, Link, MacMode, Member, Port, Switching, Tenant, TenantName, compile, kernel_tenant,
+    KERNEL, Link, MacMode, Member, Port, Switching, Tenant, TenantName, TenantRef, compile,
+    kernel_tenant,
 };
 
 // ===========================================================================
@@ -573,7 +574,9 @@ fn intent_and_inventory() -> impl Strategy<Value = (Intent, Inventory)> {
                     name: format!("p{}", i + 1).into(),
                     dpmac,
                     rate,
-                    tenant,
+                    // The drawn name lowers into the `TenantRef` sum (vocabulary-v2 D2),
+                    // as the alphabet's `tenantRefOf` and the parser both do.
+                    tenant: TenantRef::from_name(tenant),
                     mac: None,
                     mac_mode: MacMode::default(),
                     renamed: None,
@@ -583,8 +586,8 @@ fn intent_and_inventory() -> impl Strategy<Value = (Intent, Inventory)> {
                 .into_iter()
                 .map(|(a, b)| Link {
                     name: "l1".into(),
-                    interface_a: a,
-                    interface_b: b,
+                    interface_a: TenantRef::from_name(a),
+                    interface_b: TenantRef::from_name(b),
                     renamed: None,
                 })
                 .collect();
@@ -721,7 +724,7 @@ fn build_witness_plan(
                 name: format!("{}-p{ord}", t.name).into(),
                 dpmac: DpmacId::new(next_dpmac),
                 rate: 10_000,
-                tenant: t.name.clone(),
+                tenant: TenantRef::from_name(t.name.clone()),
                 mac: None,
                 mac_mode: MacMode::default(),
                 renamed: None,
@@ -759,8 +762,8 @@ fn build_witness_plan(
         push(&mut plan, ob);
         let link = Link {
             name: "w".into(),
-            interface_a: ta.name.clone(),
-            interface_b: tb.name.clone(),
+            interface_a: TenantRef::from_name(ta.name.clone()),
+            interface_b: TenantRef::from_name(tb.name.clone()),
             renamed: None,
         };
         plan.edges.insert(link.wire(iface_a, iface_b));

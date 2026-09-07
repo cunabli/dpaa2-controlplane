@@ -52,14 +52,14 @@ module intent_main {
 
   pure val router: Tenant = { name: "router", dataplane: UserspacePoll, maxCores: 8, isolation: Isolated, from: "" }
   pure val kernel16: Tenant = kernelTenant(16)
-  pure val wan0: Port = { name: "wan0", dpmac: 7, rate: 10000, tenant: "router", from: "" }
-  pure val wan1: Port = { name: "wan1", dpmac: 8, rate: 10000, tenant: "router", from: "" }
+  pure val wan0: Port = { name: "wan0", dpmac: 7, rate: 10000, tenant: Named("router"), from: "" }
+  pure val wan1: Port = { name: "wan1", dpmac: 8, rate: 10000, tenant: Named("router"), from: "" }
   pure val routerIntent: Intent =
     { tenants: [router], ports: [wan0, wan1], links: [], fabrics: [], crypto: [], extras: Set() }
   // A poll-mode router terminating two 10G ports and one 25G: T = 1 + 2 + 2 +
   // 5 = 10, a cross-class mix the worker formula prices but flags unmeasured
   // (design D3). max_cores raised to 16 so T = 10 fits under the budget.
-  pure val wan2: Port = { name: "wan2", dpmac: 4, rate: 25000, tenant: "router", from: "" }
+  pure val wan2: Port = { name: "wan2", dpmac: 4, rate: 25000, tenant: Named("router"), from: "" }
   pure val mixedClassIntent: Intent =
     { tenants: [router.with("maxCores", 16)], ports: [wan0, wan1, wan2],
       links: [], fabrics: [], crypto: [], extras: Set() }
@@ -74,12 +74,12 @@ module intent_main {
       extras: Set({ tenant: "router", family: Dpio, count: 4 }) }
   pure val kernelIntent: Intent =
     { tenants: [kernel16],
-      ports: [{ name: "lan0", dpmac: 9, rate: 10000, tenant: "kernel", from: "" }],
+      ports: [{ name: "lan0", dpmac: 9, rate: 10000, tenant: Kernel, from: "" }],
       links: [], fabrics: [], crypto: [], extras: Set() }
   pure val fabricCryptoIntent: Intent =
     { tenants: [kernel16, router],
-      ports: [{ name: "p7", dpmac: 7, rate: 10000, tenant: "kernel", from: "" },
-              { name: "p8", dpmac: 8, rate: 10000, tenant: "kernel", from: "" }],
+      ports: [{ name: "p7", dpmac: 7, rate: 10000, tenant: Kernel, from: "" },
+              { name: "p8", dpmac: 8, rate: 10000, tenant: Kernel, from: "" }],
       links: [],
       fabrics: [{ name: "lan", switching: Hardware, forwardedBy: "kernel",
                   members: [MPort("p7"), MPort("p8"), MTenant("router")], from: "" }],
@@ -87,8 +87,8 @@ module intent_main {
       extras: Set() }
   pure val softwareFabricIntent: Intent =
     { tenants: [kernel16, { name: "vpp", dataplane: UserspacePoll, maxCores: 8, isolation: Isolated, from: "" }],
-      ports: [{ name: "p7", dpmac: 7, rate: 10000, tenant: "vpp", from: "" },
-              { name: "p8", dpmac: 8, rate: 10000, tenant: "vpp", from: "" }],
+      ports: [{ name: "p7", dpmac: 7, rate: 10000, tenant: Named("vpp"), from: "" },
+              { name: "p8", dpmac: 8, rate: 10000, tenant: Named("vpp"), from: "" }],
       links: [],
       fabrics: [{ name: "br", switching: Software, forwardedBy: "vpp",
                   members: [MPort("p7"), MPort("p8"), MTenant("kernel")], from: "" }],
@@ -96,10 +96,10 @@ module intent_main {
       extras: Set() }
   pure val chainIntent: Intent =
     { tenants: [kernel16, { name: "vpp", dataplane: UserspacePoll, maxCores: 8, isolation: Isolated, from: "" }],
-      ports: [{ name: "p7", dpmac: 7, rate: 10000, tenant: "vpp", from: "" },
-              { name: "p8", dpmac: 8, rate: 10000, tenant: "kernel", from: "" },
-              { name: "p9", dpmac: 9, rate: 10000, tenant: "kernel", from: "" },
-              { name: "p10", dpmac: 10, rate: 10000, tenant: "vpp", from: "" }],
+      ports: [{ name: "p7", dpmac: 7, rate: 10000, tenant: Named("vpp"), from: "" },
+              { name: "p8", dpmac: 8, rate: 10000, tenant: Kernel, from: "" },
+              { name: "p9", dpmac: 9, rate: 10000, tenant: Kernel, from: "" },
+              { name: "p10", dpmac: 10, rate: 10000, tenant: Named("vpp"), from: "" }],
       links: [],
       fabrics: [{ name: "hw", switching: Hardware, forwardedBy: "kernel",
                   members: [MPort("p8"), MPort("p9")], from: "" },
@@ -109,8 +109,8 @@ module intent_main {
       extras: Set() }
   pure val hwInHwIntent: Intent =
     { tenants: [kernel16],
-      ports: [{ name: "p8", dpmac: 8, rate: 10000, tenant: "kernel", from: "" },
-              { name: "p9", dpmac: 9, rate: 10000, tenant: "kernel", from: "" }],
+      ports: [{ name: "p8", dpmac: 8, rate: 10000, tenant: Kernel, from: "" },
+              { name: "p9", dpmac: 9, rate: 10000, tenant: Kernel, from: "" }],
       links: [],
       fabrics: [{ name: "hw1", switching: Hardware, forwardedBy: "kernel", members: [MPort("p8")], from: "" },
                 { name: "hw2", switching: Hardware, forwardedBy: "kernel", members: [MFabric("hw1"), MPort("p9")], from: "" }],
@@ -118,7 +118,7 @@ module intent_main {
   pure val linkIntent: Intent =
     { tenants: [{ name: "routerA", dataplane: UserspacePoll, maxCores: 8, isolation: Isolated, from: "" },
                   { name: "routerB", dataplane: UserspacePoll, maxCores: 8, isolation: Isolated, from: "" }],
-      ports: [], links: [{ name: "wire", interfaceA: "routerA", interfaceB: "routerB", from: "" }],
+      ports: [], links: [{ name: "wire", interfaceA: Named("routerA"), interfaceB: Named("routerB"), from: "" }],
       fabrics: [], crypto: [], extras: Set() }
   // The refused intents the compile-side runs exercise.
   pure val coreBudgetIntent: Intent = routerIntent.with("tenants", [router.with("maxCores", 4)])
@@ -129,7 +129,7 @@ module intent_main {
       ports: [], links: [], fabrics: [], crypto: [], extras: Set() }
   pure val allViolationsIntent: Intent =
     { tenants: [router.with("maxCores", 4), kernel16],
-      ports: [wan0, wan1, { name: "mgmt", dpmac: 17, rate: 1000, tenant: "kernel", from: "" }],
+      ports: [wan0, wan1, { name: "mgmt", dpmac: 17, rate: 1000, tenant: Kernel, from: "" }],
       links: [], fabrics: [], crypto: [], extras: Set() }
 
   // ---- task 2.6c fixtures: isolation, pooling, the kernel link end ----
@@ -140,7 +140,7 @@ module intent_main {
   // one per online CPU per dpni.
   pure val ns1: Tenant = { name: "ns1", dataplane: KernelNetlink, maxCores: 8, isolation: Isolated, from: "" }
   pure val nsIntent: Intent =
-    { tenants: [ns1], ports: [{ name: "e0", dpmac: 9, rate: 10000, tenant: "ns1", from: "" }],
+    { tenants: [ns1], ports: [{ name: "e0", dpmac: 9, rate: 10000, tenant: Named("ns1"), from: "" }],
       links: [], fabrics: [], crypto: [], extras: Set() }
   // A DPDK secondary process (Restricted) pooling a public poll-mode primary:
   // the secondary's objects land in the primary's dprc and it derives no dprc
@@ -153,7 +153,7 @@ module intent_main {
   // kernel's link-end dpni is materialised in Root under the kernel draw rules.
   pure val kernelLinkIntent: Intent =
     { tenants: [{ name: "routerX", dataplane: UserspacePoll, maxCores: 8, isolation: Isolated, from: "" }],
-      ports: [], links: [{ name: "wire", interfaceA: "routerX", interfaceB: "kernel", from: "" }],
+      ports: [], links: [{ name: "wire", interfaceA: Named("routerX"), interfaceB: Kernel, from: "" }],
       fabrics: [], crypto: [], extras: Set() }
 
   // The reference inventory reads as the spec's "Reserved and foreign
@@ -377,8 +377,8 @@ module intent_main {
   // an unseeded one with None, and gives a portless tenant the main-only
   // thread count.
   run unknownRateClassTest = all {
-    threadCount([{ name: "x", dpmac: 99, rate: 40000, tenant: "c", from: "" }]) == None,
-    threadCount([{ name: "y", dpmac: 4, rate: 25000, tenant: "c", from: "" }]) == Some(6),
+    threadCount([{ name: "x", dpmac: 99, rate: 40000, tenant: Named("c"), from: "" }]) == None,
+    threadCount([{ name: "y", dpmac: 4, rate: 25000, tenant: Named("c"), from: "" }]) == Some(6),
     threadCount([]) == Some(1),
   }
 
@@ -429,10 +429,10 @@ module intent_main {
   // A dpmac claimed by two ports, and a port switched into two fabrics.
   run doubleClaimedTest =
     val twoPorts = { tenants: [router],
-      ports: [wan0, { name: "wan1", dpmac: 7, rate: 10000, tenant: "router", from: "" }],
+      ports: [wan0, { name: "wan1", dpmac: 7, rate: 10000, tenant: Named("router"), from: "" }],
       links: [], fabrics: [], crypto: [], extras: Set() }
     val twoFabrics = { tenants: [kernel16],
-      ports: [{ name: "p8", dpmac: 8, rate: 10000, tenant: "kernel", from: "" }],
+      ports: [{ name: "p8", dpmac: 8, rate: 10000, tenant: Kernel, from: "" }],
       links: [],
       fabrics: [{ name: "f1", switching: Hardware, forwardedBy: "kernel", members: [MPort("p8")], from: "" },
                 { name: "f2", switching: Hardware, forwardedBy: "kernel", members: [MPort("p8")], from: "" }],
@@ -453,7 +453,7 @@ module intent_main {
       fabrics: [{ name: "rsw", switching: Hardware, forwardedBy: "router", members: [MPort("wan0")], from: "" }],
       crypto: [], extras: Set() }
     val mismatch = { tenants: [kernel16, router],
-      ports: [{ name: "px", dpmac: 8, rate: 10000, tenant: "router", from: "" }],
+      ports: [{ name: "px", dpmac: 8, rate: 10000, tenant: Named("router"), from: "" }],
       links: [],
       fabrics: [{ name: "ksw", switching: Hardware, forwardedBy: "kernel", members: [MPort("px")], from: "" }],
       crypto: [], extras: Set() }
@@ -529,7 +529,7 @@ module intent_main {
   // one refusal.
   run unknownRateClassRefusedTest =
     val intent = { tenants: [router],
-      ports: [{ name: "w", dpmac: 4, rate: 40000, tenant: "router", from: "" }],
+      ports: [{ name: "w", dpmac: 4, rate: 40000, tenant: Named("router"), from: "" }],
       links: [], fabrics: [], crypto: [], extras: Set() }
     refusalSet(compile(intent, invWith40GMac)) ==
       Set(UnknownRateClass({ tenant: "router", rates: [40000] }))
@@ -565,10 +565,10 @@ module intent_main {
   // rejected port may also perturb sizing.
   run unanchoredForeignTest =
     val unanchored = { tenants: [router],
-      ports: [{ name: "w", dpmac: 99, rate: 10000, tenant: "router", from: "" }],
+      ports: [{ name: "w", dpmac: 99, rate: 10000, tenant: Named("router"), from: "" }],
       links: [], fabrics: [], crypto: [], extras: Set() }
     val overRate = { tenants: [router],
-      ports: [{ name: "wan0", dpmac: 7, rate: 25000, tenant: "router", from: "" }],
+      ports: [{ name: "wan0", dpmac: 7, rate: 25000, tenant: Named("router"), from: "" }],
       links: [], fabrics: [], crypto: [], extras: Set() }
     all {
       refusedWith(compile(unanchored, REF_INVENTORY),
@@ -583,8 +583,8 @@ module intent_main {
   // derive.qnt open item (d)): the same intent hwInHwDerivesNothingTest derives.
   run unsupportedEdgeTest =
     val intent = { tenants: [kernel16],
-      ports: [{ name: "p8", dpmac: 8, rate: 10000, tenant: "kernel", from: "" },
-              { name: "p9", dpmac: 9, rate: 10000, tenant: "kernel", from: "" }],
+      ports: [{ name: "p8", dpmac: 8, rate: 10000, tenant: Kernel, from: "" },
+              { name: "p9", dpmac: 9, rate: 10000, tenant: Kernel, from: "" }],
       links: [],
       fabrics: [{ name: "hw1", switching: Hardware, forwardedBy: "kernel", members: [MPort("p8")], from: "" },
                 { name: "hw2", switching: Hardware, forwardedBy: "kernel", members: [MFabric("hw1"), MPort("p9")], from: "" }],
@@ -595,7 +595,7 @@ module intent_main {
   // A construct naming a tenant that was never declared (design D5).
   run tenantAbsentTest =
     val intent = { tenants: [router],
-      ports: [{ name: "wan0", dpmac: 7, rate: 10000, tenant: "ghost", from: "" }],
+      ports: [{ name: "wan0", dpmac: 7, rate: 10000, tenant: Named("ghost"), from: "" }],
       links: [], fabrics: [], crypto: [], extras: Set() }
     refusedWith(compile(intent, REF_INVENTORY),
       r => r == TenantAbsent({ construct: "wan0", tenant: "ghost" }))

@@ -10,8 +10,8 @@
 use dpaa2_api::compiled::{AttachPoint, Container};
 use dpaa2_api::{
     CompiledPlan, Dataplane, DesiredPort, DesiredTopology, DpmacId, Family, Isolation, Link,
-    LinkType, MacAddr, ObservedDpmac, ObservedTopology, Tenant, Transition, kernel_tenant,
-    reconcile,
+    LinkType, MacAddr, ObservedDpmac, ObservedTopology, Tenant, TenantRef, Transition,
+    kernel_tenant, reconcile,
 };
 
 const MAC_7: MacAddr = MacAddr::new([0x02, 0, 0, 0, 0, 0x07]);
@@ -50,8 +50,8 @@ fn hand_built_plan_reconciles_and_locks_relationships() {
     let (_kb, kb_if) = kernel.dpni(2, 4, "wire".into());
     let link = Link {
         name: "wire".into(),
-        interface_a: "vpp".into(),
-        interface_b: "kernel".into(),
+        interface_a: TenantRef::Named("vpp".into()),
+        interface_b: TenantRef::Kernel,
         renamed: None,
     };
     let wire = link.wire(va_if, kb_if);

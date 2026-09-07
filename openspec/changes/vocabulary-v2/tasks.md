@@ -22,7 +22,7 @@ each checkbox names its bead.
 
 ## 2. Shared tenant-reference sum (design D2)
 
-- [ ] 2.1 (bead dpaa2-controlplane-093.2) `Port.tenant` and both link ends
+- [x] 2.1 (bead dpaa2-controlplane-093.2) `Port.tenant` and both link ends
   become the shared `TenantRef` sum (`Kernel | Named(TenantName)`, no
   `Default` impl), authored in `types.qnt` first, `intent.rs` as its image;
   delete `effTenant` from `intent_raw.qnt` and the parse eff-mapping —
@@ -68,6 +68,14 @@ each checkbox names its bead.
   relationship once `Isolation` carries the payload — key it off the
   `Restricted` payload in lockstep or keep it with a doc note (discovered
   by the 1.1 parcel; out of D1 scope).
+- [ ] 4b.2 (bead dpaa2-controlplane-093.8) Decide the port-only kernel
+  materialisation: the pure core's `effective_tenants` (and
+  `derive.qnt:583`) materialises the reserved kernel on a *link* trigger
+  only, while a port-only kernel reference — now accepted rather than
+  refused, the intended F13 fix — is materialised by the tools shell's
+  `complete_kernel`; extend derive's trigger to ports in lockstep or doc-note
+  the shell ownership at both twins (discovered by the 2.1 parcel; out of
+  D2 scope).
 
 ## 5. Alphabet, witnesses, and docs (designs D5, D6)
 

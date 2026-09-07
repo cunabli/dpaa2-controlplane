@@ -6,8 +6,8 @@ use std::collections::BTreeMap;
 
 use dpaa2_api::{
     Availability, Ceiling, Crypto, Dataplane, DpmacId, DpmacLinkType, DpmacOffer, EthInterface,
-    Extra, Family, Intent, Inventory, Isolation, MacMode, Port, ReconcileOptions, Tenant, compile,
-    kernel_tenant, reconcile_with,
+    Extra, Family, Intent, Inventory, Isolation, MacMode, Port, ReconcileOptions, Tenant,
+    TenantRef, compile, kernel_tenant, reconcile_with,
 };
 use dpaa2_tools::render::{render_dry_run, render_refusals};
 
@@ -79,7 +79,7 @@ fn port(name: &str, dpmac: u32, rate: i64, tenant: &str) -> Port {
         name: name.into(),
         dpmac: DpmacId::new(dpmac),
         rate,
-        tenant: tenant.into(),
+        tenant: TenantRef::from_name(tenant.into()),
         mac: None,
         mac_mode: MacMode::Assert,
         renamed: None,

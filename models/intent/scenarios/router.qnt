@@ -43,9 +43,9 @@ module router {
   // appears — every object and count is derived (ADR-0005).
   pure val accepted: Intent =
     { tenants: [{ name: "router", dataplane: UserspacePoll, maxCores: 16, isolation: Isolated, from: "" }],
-      ports: [{ name: "wan0", dpmac: 9, rate: 10000, tenant: "router", from: "" },
-              { name: "wan1", dpmac: 10, rate: 10000, tenant: "router", from: "" },
-              { name: "up0", dpmac: 4, rate: 25000, tenant: "router", from: "" }],
+      ports: [{ name: "wan0", dpmac: 9, rate: 10000, tenant: Named("router"), from: "" },
+              { name: "wan1", dpmac: 10, rate: 10000, tenant: Named("router"), from: "" },
+              { name: "up0", dpmac: 4, rate: 25000, tenant: Named("router"), from: "" }],
       links: [],
       fabrics: [],
       crypto: [{ tenant: "router", flows: 2 }],
@@ -60,7 +60,7 @@ module router {
       .with("tenants", accepted.tenants.append(
         { name: "router2", dataplane: UserspacePoll, maxCores: 16, isolation: Isolated, from: "" }))
       .with("ports", accepted.ports.append(
-        { name: "clash0", dpmac: 9, rate: 10000, tenant: "router2", from: "" }))
+        { name: "clash0", dpmac: 9, rate: 10000, tenant: Named("router2"), from: "" }))
 
   // The expected plan shape (design D3/D4/D6): three dpnis (one per port) at
   // T = 10 transmit queues with the ADR-0012 poll-mode draws — dpio = 2·T =

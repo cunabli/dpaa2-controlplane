@@ -190,7 +190,7 @@ module intent_derive {
   // provenance keyed by port name) is order-free, so the one visible effect is
   // that portOrigins — and thus the dpni ordinal — follows the name order.
   pure def terminatedPorts(intent: Intent, name: str): List[Port] =
-    sortByRank(intent.ports.select(p => p.tenant == name and not(isHwSwitchedPort(intent, p.name))),
+    sortByRank(intent.ports.select(p => tenantRefName(p.tenant) == name and not(isHwSwitchedPort(intent, p.name))),
                p => nameRank(p.name))
 
   // The distinct seeded rate classes a tenant's terminated ports span. A set
@@ -256,8 +256,8 @@ module intent_derive {
   // keeps side 0 before side 1 (structural, per link).
   pure def linkOrigins(intent: Intent, name: str): List[Origin] =
     sortByRank(intent.links, l => nameRank(l.name)).foldl([], (acc, l) =>
-      val a1 = if (l.interfaceA == name) acc.append(OLink({ link: l, side: 0 })) else acc
-      if (l.interfaceB == name) a1.append(OLink({ link: l, side: 1 })) else a1)
+      val a1 = if (tenantRefName(l.interfaceA) == name) acc.append(OLink({ link: l, side: 0 })) else acc
+      if (tenantRefName(l.interfaceB) == name) a1.append(OLink({ link: l, side: 1 })) else a1)
 
   // One OAttach per Hardware fabric the tenant attaches to, once per
   // (X, f) however many ways the attachment is implied — in fabric-NAME order
@@ -585,7 +585,7 @@ module intent_derive {
   pure def kernelDeclared(intent: Intent): bool =
     intent.tenants.select(c => c.name == KERNEL).length() > 0
   pure def linkNamesKernel(intent: Intent): bool =
-    intent.links.select(l => l.interfaceA == KERNEL or l.interfaceB == KERNEL).length() > 0
+    intent.links.select(l => l.interfaceA == Kernel or l.interfaceB == Kernel).length() > 0
   pure def effectiveTenants(intent: Intent, inv: Inventory): List[Tenant] =
     if (linkNamesKernel(intent) and not(kernelDeclared(intent)))
       intent.tenants.append(kernelTenant(inv.cpus))
@@ -669,7 +669,7 @@ module intent_derive {
   pure def linkEdgeNode(l: Link): ProvenanceNode =
     { rule: "link-edge", anchor: "object-model.md §2, DPNI-I9 pseudo-wire", mark: Measured,
       request: 0, extra: None, value: 0,
-      inputs: Set({ tenant: l.interfaceA, rule: "dpnis", construct: "" }, { tenant: l.interfaceB, rule: "dpnis", construct: "" }),
+      inputs: Set({ tenant: tenantRefName(l.interfaceA), rule: "dpnis", construct: "" }, { tenant: tenantRefName(l.interfaceB), rule: "dpnis", construct: "" }),
       constructs: Set(l.name) }
 
   pure def fabricEdgeNode(f: Fabric): ProvenanceNode =
@@ -746,7 +746,7 @@ module intent_derive {
   pure def fullProv(intent: Intent, inv: Inventory): ProvenanceKey -> ProvenanceNode =
     val base = Map({ tenant: KERNEL, rule: "dprtc", construct: "" } -> dprtcNode)
     val withC = effectiveTenants(intent, inv).foldl(base, (m, c) => if (hasPricing(c)) addTenantProv(intent, inv, m, c) else m)
-    val withL = intent.links.foldl(withC, (m, l) => m.put({ tenant: l.interfaceA, rule: "link-edge", construct: l.name }, linkEdgeNode(l)))
+    val withL = intent.links.foldl(withC, (m, l) => m.put({ tenant: tenantRefName(l.interfaceA), rule: "link-edge", construct: l.name }, linkEdgeNode(l)))
     intent.fabrics.foldl(withL, (m, f) =>
       if (f.switching == Hardware)
         m.put({ tenant: f.forwardedBy, rule: "fabric-edge", construct: f.name }, fabricEdgeNode(f))
@@ -769,11 +769,11 @@ module intent_derive {
   pure def linkEdges(intent: Intent): Set[Edge] =
     intent.links.foldl(Set(), (acc, l) =>
       acc.union(Set({
-        a: ObjectAttach({ key: { tenant: l.interfaceA, family: Dpni,
-                           ordinal: ordinalWhere(originList(intent, l.interfaceA), o => isLinkSide(o, l.name, 0)) }, port: 0 }),
-        b: ObjectAttach({ key: { tenant: l.interfaceB, family: Dpni,
-                           ordinal: ordinalWhere(originList(intent, l.interfaceB), o => isLinkSide(o, l.name, 1)) }, port: 0 }),
-        provenance: { tenant: l.interfaceA, rule: "link-edge", construct: l.name } })))
+        a: ObjectAttach({ key: { tenant: tenantRefName(l.interfaceA), family: Dpni,
+                           ordinal: ordinalWhere(originList(intent, tenantRefName(l.interfaceA)), o => isLinkSide(o, l.name, 0)) }, port: 0 }),
+        b: ObjectAttach({ key: { tenant: tenantRefName(l.interfaceB), family: Dpni,
+                           ordinal: ordinalWhere(originList(intent, tenantRefName(l.interfaceB)), o => isLinkSide(o, l.name, 1)) }, port: 0 }),
+        provenance: { tenant: tenantRefName(l.interfaceA), rule: "link-edge", construct: l.name } })))
 
   pure def dpswOrdinalOf(intent: Intent, f: Fabric): int =
     hwOwnedFabrics(intent, f.forwardedBy).foldl({ i: 0, found: -1 }, (acc, g) =>
@@ -836,8 +836,8 @@ module intent_derive {
     DprcAttrs({ options: Set() }))
   pure val MARKS_USE: Set[Measurement] = Set(Measured, Unmeasured)
   pure val ORIGINS_USE: Set[Origin] = Set(
-    OPort({ name: "p", dpmac: 0, rate: 0, tenant: "c", from: "" }),
-    OLink({ link: { name: "l", interfaceA: "c", interfaceB: "d", from: "" }, side: 0 }),
+    OPort({ name: "p", dpmac: 0, rate: 0, tenant: Named("c"), from: "" }),
+    OLink({ link: { name: "l", interfaceA: Named("c"), interfaceB: Named("d"), from: "" }, side: 0 }),
     OAttach("f"),
     OWireOwner({ fabric: "f", peer: "c" }),
     OWireMember("f"))

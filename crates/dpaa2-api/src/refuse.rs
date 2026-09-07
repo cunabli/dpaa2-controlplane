@@ -21,7 +21,7 @@ use crate::derive::{
     terminated_ports, thread_count,
 };
 use crate::family::{DERIVED_FAMILIES, Family};
-use crate::intent::{Dataplane, Fabric, Intent, Member, Switching, Tenant};
+use crate::intent::{Dataplane, Fabric, Intent, Member, Switching, Tenant, TenantRef};
 use crate::inventory::{Availability, Ceiling, Inventory};
 use crate::model::{DesiredPort, DesiredTopology, DpmacId};
 use crate::types::{ConstructName, TenantName};
@@ -407,27 +407,30 @@ fn tenant_by_name<'a>(intent: &'a Intent, n: &TenantName) -> Option<&'a Tenant> 
 
 fn tenant_absent_refusals(intent: &Intent, out: &mut BTreeSet<Refusal>) {
     let names = tenant_names(intent);
+    // A port's tenant and each link end is a `TenantRef` (vocabulary-v2 D2): the
+    // `Kernel` case is the reserved tenant, always available (a port belongs to it,
+    // a link end names it as a pseudo-wire end), so `TenantAbsent` fires only on the
+    // `Named` case with an undeclared name — no site can ever name `kernel` as absent.
     for p in &intent.ports {
-        if !names.contains(&p.tenant) {
+        if let TenantRef::Named(n) = &p.tenant
+            && !names.contains(n)
+        {
             out.insert(Refusal::TenantAbsent {
                 construct: p.name.clone(),
-                tenant: p.tenant.clone(),
+                tenant: n.clone(),
             });
         }
     }
-    // A link end may name the reserved kernel without declaring it (design D6a).
     for l in &intent.links {
-        if !names.contains(&l.interface_a) && !l.interface_a.is_kernel() {
-            out.insert(Refusal::TenantAbsent {
-                construct: l.name.clone(),
-                tenant: l.interface_a.clone(),
-            });
-        }
-        if !names.contains(&l.interface_b) && !l.interface_b.is_kernel() {
-            out.insert(Refusal::TenantAbsent {
-                construct: l.name.clone(),
-                tenant: l.interface_b.clone(),
-            });
+        for end in [&l.interface_a, &l.interface_b] {
+            if let TenantRef::Named(n) = end
+                && !names.contains(n)
+            {
+                out.insert(Refusal::TenantAbsent {
+                    construct: l.name.clone(),
+                    tenant: n.clone(),
+                });
+            }
         }
     }
     for f in &intent.fabrics {
@@ -620,14 +623,16 @@ fn fabric_rules_refusals(intent: &Intent, out: &mut BTreeSet<Refusal>) {
             });
         }
         for m in &f.members {
+            // The port's owner is a `TenantRef` (vocabulary-v2 D2); resolve it to the
+            // name the fabric forwarder is spelled as before comparing.
             if let Member::Port(pn) = m
                 && let Some(port) = port_by_name(intent, pn)
-                && port.tenant != f.forwarded_by
+                && port.tenant.resolved() != f.forwarded_by
             {
                 out.insert(Refusal::PortTenantMismatch {
                     fabric: f.name.clone(),
                     port: pn.clone(),
-                    tenant: port.tenant.clone(),
+                    tenant: port.tenant.resolved(),
                 });
             }
         }
@@ -968,7 +973,7 @@ mod compile_tests {
     use crate::family::Family;
     use crate::intent::{
         Crypto, Dataplane, Extra, Fabric, Intent, Isolation, Link, Member, Port, Switching, Tenant,
-        kernel_tenant,
+        TenantRef, kernel_tenant,
     };
     use crate::inventory::{Availability, Ceiling, Inventory};
     use crate::model::DpmacId;
@@ -1011,7 +1016,7 @@ mod compile_tests {
             name: name.into(),
             dpmac: DpmacId::new(dpmac),
             rate,
-            tenant: tenant.into(),
+            tenant: TenantRef::from_name(tenant.into()),
             mac: None,
             mac_mode: crate::model::MacMode::Assert,
             renamed: None,
@@ -1020,8 +1025,8 @@ mod compile_tests {
     fn link(name: &str, a: &str, b: &str) -> Link {
         Link {
             name: name.into(),
-            interface_a: a.into(),
-            interface_b: b.into(),
+            interface_a: TenantRef::from_name(a.into()),
+            interface_b: TenantRef::from_name(b.into()),
             renamed: None,
         }
     }

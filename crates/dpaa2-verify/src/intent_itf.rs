@@ -44,7 +44,8 @@ use dpaa2_api::{
     AttachPoint, Attributes, Availability, Ceiling, Compiled, ConstructName, Container, Crypto,
     Dataplane, DpmacId, DpmacLinkType, DpmacOffer, EthInterface, Extra, Fabric, Family, Intent,
     Inventory, Isolation, Link, MacMode, Measurement, Member, ObjectKey, Permission, Port,
-    ProvenanceKey, ProvenanceNode, Refusal, Switching, Tenant, TenantName, Warning, compile,
+    ProvenanceKey, ProvenanceNode, Refusal, Switching, Tenant, TenantName, TenantRef, Warning,
+    compile,
 };
 
 use crate::itf::{family_of_tag, int64, num, tag};
@@ -227,6 +228,17 @@ fn switching(v: &Value) -> Result<Switching, String> {
     }
 }
 
+/// A `TenantRef` sum: `Kernel` (a nullary constructor, `value` is the empty tuple)
+/// or `Named(str)` (vocabulary-v2 D2). The reserved kernel and a declared tenant,
+/// one encoding — a port owner and each link end.
+fn tenant_ref(v: &Value) -> Result<TenantRef, String> {
+    match tag(v)? {
+        "Kernel" => Ok(TenantRef::Kernel),
+        "Named" => Ok(TenantRef::Named(tname(&v["value"])?)),
+        t => Err(format!("unknown tenant ref `{t}`")),
+    }
+}
+
 fn member(v: &Value) -> Result<Member, String> {
     let p = &v["value"];
     match tag(v)? {
@@ -252,7 +264,7 @@ fn port(v: &Value) -> Result<Port, String> {
         name: cname(field(v, "name")?)?,
         dpmac: DpmacId::new(num(field(v, "dpmac")?)?),
         rate: int64(field(v, "rate")?)?,
-        tenant: tname(field(v, "tenant")?)?,
+        tenant: tenant_ref(field(v, "tenant")?)?,
         // `mac`/`mac_mode` are actuation-only facts the derivation never reads; the
         // Quint model omits them, so the ITF trace carries none — default them.
         mac: None,
@@ -264,8 +276,8 @@ fn port(v: &Value) -> Result<Port, String> {
 fn link(v: &Value) -> Result<Link, String> {
     Ok(Link {
         name: cname(field(v, "name")?)?,
-        interface_a: tname(field(v, "interfaceA")?)?,
-        interface_b: tname(field(v, "interfaceB")?)?,
+        interface_a: tenant_ref(field(v, "interfaceA")?)?,
+        interface_b: tenant_ref(field(v, "interfaceB")?)?,
         renamed: opt_name(field(v, "from")?)?,
     })
 }

@@ -186,9 +186,6 @@ module intent_raw {
 
   pure def portNamesSet(raw: RawIntent): Set[str] = raw.ports.keys()
 
-  // A port's effective tenant: "" defaults to the reserved kernel (parse.rs).
-  pure def effTenant(t: str): str = if (t == "") KERNEL else t
-
   // The port/link/fabric name namespace parse.rs checks for collisions; tenant
   // names live in their own namespace and are not included (parse.rs convert).
   // Each family is now keyed, so a name appears at most once per family; a name
@@ -254,8 +251,11 @@ module intent_raw {
   pure def tenantRefRefusals(raw: RawIntent): Set[RawRefusal] =
     val fromPorts = raw.ports.keys().fold(Set(), (acc, n) =>
       val p = raw.ports.get(n)
-      if (rawResolves(raw, effTenant(p.tenant))) acc
-      else acc.union(Set(FromCompile(TenantAbsent({ construct: n, tenant: effTenant(p.tenant) })))))
+      // An omitted port tenant ("") is the reserved kernel, which always resolves
+      // (vocabulary-v2 D2 folds the retired ""→kernel port default); only a NAMED
+      // undeclared tenant is absent, and its raw string is the TenantAbsent payload.
+      if (p.tenant == "" or rawResolves(raw, p.tenant)) acc
+      else acc.union(Set(FromCompile(TenantAbsent({ construct: n, tenant: p.tenant })))))
     val fromLinks = raw.links.keys().fold(fromPorts, (acc, n) =>
       val l = raw.links.get(n)
       val a1 = if (rawResolves(raw, l.interfaceA)) acc
@@ -356,11 +356,16 @@ module intent_raw {
       ports: sortByRank(raw.ports.keys().fold([], (acc, n) => acc.append(n)), n => nameRank(n))
         .foldl([], (acc, n) =>
           val p = raw.ports.get(n)
-          acc.append({ name: n, dpmac: p.dpmac, rate: p.rate, tenant: effTenant(p.tenant), from: p.from })),
+          // Lower the raw tenant string into the neutral `TenantRef` sum: "" (the
+          // omitted-tenant default) and "kernel" both become Kernel, else Named
+          // (vocabulary-v2 D2, the parse-boundary normalisation `tenantRefOf`).
+          acc.append({ name: n, dpmac: p.dpmac, rate: p.rate, tenant: tenantRefOf(p.tenant), from: p.from })),
       links: sortByRank(raw.links.keys().fold([], (acc, n) => acc.append(n)), n => nameRank(n))
         .foldl([], (acc, n) =>
           val l = raw.links.get(n)
-          acc.append({ name: n, interfaceA: l.interfaceA, interfaceB: l.interfaceB, from: l.from })),
+          // Lower each raw link end into the neutral `TenantRef` sum: an explicit
+          // "kernel" end becomes Kernel, else Named (vocabulary-v2 D2).
+          acc.append({ name: n, interfaceA: tenantRefOf(l.interfaceA), interfaceB: tenantRefOf(l.interfaceB), from: l.from })),
       fabrics: raw.fabrics.keys().fold([], (acc, n) =>
         val f = raw.fabrics.get(n)
         acc.append({ name: n, switching: f.switching, forwardedBy: f.forwardedBy,
@@ -428,7 +433,11 @@ module intent_raw {
   }
 
   pure def hasDanglingTenantRef(raw: RawIntent): bool = or {
-    raw.ports.keys().exists(n => not(rawResolves(raw, effTenant(raw.ports.get(n).tenant)))),
+    // A port dangles only when it NAMES a tenant ("" is the always-resolving
+    // kernel default, vocabulary-v2 D2) that does not resolve.
+    raw.ports.keys().exists(n =>
+      val t = raw.ports.get(n).tenant
+      t != "" and not(rawResolves(raw, t))),
     raw.links.keys().exists(n => not(rawResolves(raw, raw.links.get(n).interfaceA)) or not(rawResolves(raw, raw.links.get(n).interfaceB))),
     raw.fabrics.keys().exists(n => not(rawResolves(raw, raw.fabrics.get(n).forwardedBy))),
     raw.crypto.foldl(false, (a, k) => a or not(rawResolves(raw, k.tenant))),
@@ -461,8 +470,10 @@ module intent_raw {
     and {
       not(intentTenantNames(i).contains(KERNEL)),
       cn.foldl(Set(), (a, x) => a.union(Set(x))).size() == cn.length(),
-      i.ports.foldl(true, (a, p) => a and refResolves(i, p.tenant)),
-      i.links.foldl(true, (a, l) => a and refResolves(i, l.interfaceA) and refResolves(i, l.interfaceB) and l.interfaceA != l.interfaceB),
+      // Port owner and link ends are `TenantRef` (vocabulary-v2 D2): resolve each
+      // to its name; the Kernel case always resolves (it is the reserved kernel).
+      i.ports.foldl(true, (a, p) => a and refResolves(i, tenantRefName(p.tenant))),
+      i.links.foldl(true, (a, l) => a and refResolves(i, tenantRefName(l.interfaceA)) and refResolves(i, tenantRefName(l.interfaceB)) and l.interfaceA != l.interfaceB),
       i.fabrics.foldl(true, (a, f) => a and refResolves(i, f.forwardedBy) and f.members.foldl(true, (b, m) => b and memberResolvesI(i, m))),
       i.crypto.foldl(true, (a, k) => a and refResolves(i, k.tenant)),
       i.extras.forall(e => refResolves(i, e.tenant)),

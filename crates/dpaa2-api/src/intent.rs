@@ -31,6 +31,65 @@ impl TenantName {
     }
 }
 
+/// A reference to the tenant that may be the reserved kernel — a port's owning
+/// tenant and each link end (vocabulary-v2 D2; `types.qnt` `TenantRef`).
+///
+/// One shared two-case sum replaces the `""`/`"kernel"` sentinel the port default
+/// and the link-end kernel exemption used to lean on: the vocabulary has exactly
+/// one encoding of "the kernel or a declared tenant". There is deliberately **no
+/// `Default` impl** — a reference is never optional in the API, a programmatic
+/// [`Intent`] states every reference explicitly, and "an omitted port tenant means
+/// the kernel" is a rule of the TOML boundary the parser applies (via
+/// [`TenantRef::from_name`]), never a default of the type (a zero-initialized link
+/// end silently becoming a kernel end must stay unrepresentable). Compile and
+/// derive match on the case, so [`Refusal::TenantAbsent`](crate::Refusal) can only
+/// ever fire on [`TenantRef::Named`] with an undeclared name — the `tenant:"kernel"`
+/// wrinkle is structurally gone. Not `Copy`: the [`TenantName`] payload owns a heap
+/// string.
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
+pub enum TenantRef {
+    /// The reserved root [`KERNEL`] tenant — a port owned by it lands in the root
+    /// container, a link end names it as a pseudo-wire end, and neither carries a
+    /// name a refusal can call absent.
+    Kernel,
+    /// A declared tenant, by name.
+    Named(TenantName),
+}
+
+impl TenantRef {
+    /// Classifies a resolved tenant name into the reference sum: the reserved
+    /// [`KERNEL`] name yields [`TenantRef::Kernel`], any other name
+    /// [`TenantRef::Named`]. This is the single normalisation the parser applies at
+    /// the TOML boundary (design D2) — the KERNEL sentinel classification lives here,
+    /// core-side, so an adapter reports a name and lets the vocabulary judge it.
+    #[must_use]
+    pub fn from_name(name: TenantName) -> Self {
+        if name.is_kernel() {
+            TenantRef::Kernel
+        } else {
+            TenantRef::Named(name)
+        }
+    }
+
+    /// The tenant name this reference resolves to: the reserved [`KERNEL`] for the
+    /// kernel case, the declared name otherwise. The derivation keys and compares
+    /// objects by it, and a refusal that must name the referenced tenant reads it.
+    #[must_use]
+    pub fn resolved(&self) -> TenantName {
+        match self {
+            TenantRef::Kernel => KERNEL.into(),
+            TenantRef::Named(n) => n.clone(),
+        }
+    }
+
+    /// Whether this reference is the reserved [`TenantRef::Kernel`] case — the
+    /// variant-arm replacement for the `== KERNEL` string test at link ends.
+    #[must_use]
+    pub fn is_kernel(&self) -> bool {
+        matches!(self, TenantRef::Kernel)
+    }
+}
+
 /// Where a tenant's dataplane runs and the delivery mechanism that drives its
 /// companion sizing (design D1; ADR-0012 pricing; `types.qnt` `Dataplane`).
 ///
@@ -131,8 +190,11 @@ pub struct Port {
     pub dpmac: DpmacId,
     /// The rate the port must deliver, in Mbps.
     pub rate: i64,
-    /// The tenant that terminates the port.
-    pub tenant: TenantName,
+    /// The tenant reference that terminates the port — the reserved kernel or a
+    /// declared tenant ([`TenantRef`], vocabulary-v2 D2). A port that named no
+    /// tenant in the TOML is the [`TenantRef::Kernel`] case (the parser's default);
+    /// there is no `""` sentinel.
+    pub tenant: TenantRef,
     /// The port's known/declared MAC, if any — an actuation-only fact the
     /// derivation never reads (design D9). It rides on the port so
     /// [`compile`](crate::compile)'s
@@ -159,10 +221,11 @@ pub struct Port {
 pub struct Link {
     /// The link's name (its construct identity).
     pub name: ConstructName,
-    /// The tenant whose interface terminates one end.
-    pub interface_a: TenantName,
-    /// The tenant whose interface terminates the other end.
-    pub interface_b: TenantName,
+    /// The tenant reference whose interface terminates one end ([`TenantRef`],
+    /// vocabulary-v2 D2); the reserved kernel is the [`TenantRef::Kernel`] case.
+    pub interface_a: TenantRef,
+    /// The tenant reference whose interface terminates the other end.
+    pub interface_b: TenantRef,
     /// An accepted `renamed = { from }` clause — the link's prior name, or `None`
     /// when absent (ADR-0015 decision 10 / task 6.5). For the rename matcher only;
     /// [`compile`](crate::compile) ignores it.
@@ -332,15 +395,15 @@ mod tests {
                 name: "wan1".into(),
                 dpmac: DpmacId::new(7),
                 rate: 10_000,
-                tenant: KERNEL.into(),
+                tenant: TenantRef::Kernel,
                 mac: None,
                 mac_mode: MacMode::default(),
                 renamed: Some("wan0".into()),
             }],
             links: vec![Link {
                 name: "l0".into(),
-                interface_a: KERNEL.into(),
-                interface_b: KERNEL.into(),
+                interface_a: TenantRef::Kernel,
+                interface_b: TenantRef::Kernel,
                 renamed: None,
             }],
             ..Intent::default()

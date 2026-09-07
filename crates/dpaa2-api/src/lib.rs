@@ -120,7 +120,7 @@ pub use error::Error;
 pub use family::{ALL_FAMILIES, DERIVED_FAMILIES, Family, Permission};
 pub use intent::{
     Crypto, Dataplane, Extra, Fabric, Intent, Isolation, KERNEL, Link, Member, Port, Switching,
-    Tenant, kernel_tenant,
+    Tenant, TenantRef, kernel_tenant,
 };
 pub use inventory::{Availability, Ceiling, DpmacLinkType, DpmacOffer, EthInterface, Inventory};
 pub use matcher::{

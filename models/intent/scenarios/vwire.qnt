@@ -65,9 +65,9 @@ module vwire {
                 { name: "ns2", dataplane: KernelNetlink, maxCores: 2, isolation: Isolated, from: "" },
                 { name: "vpp", dataplane: UserspacePoll, maxCores: 8, isolation: Isolated, from: "" }],
       ports: [],
-      links: [{ name: "veth", interfaceA: "ns1", interfaceB: "ns2", from: "" },
-              { name: "uplink", interfaceA: "ns1", interfaceB: KERNEL, from: "" },
-              { name: "app", interfaceA: "ns2", interfaceB: "vpp", from: "" }],
+      links: [{ name: "veth", interfaceA: Named("ns1"), interfaceB: Named("ns2"), from: "" },
+              { name: "uplink", interfaceA: Named("ns1"), interfaceB: Kernel, from: "" },
+              { name: "app", interfaceA: Named("ns2"), interfaceB: Named("vpp"), from: "" }],
       fabrics: [],
       crypto: [],
       extras: Set() }

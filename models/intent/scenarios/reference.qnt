@@ -83,8 +83,8 @@ module reference {
   pure val accepted: Intent =
     { tenants: [kernelTenant(16),
                 { name: "router", dataplane: UserspacePoll, maxCores: 16, isolation: Isolated, from: "" }],
-      ports: [{ name: "wan0", dpmac: 7, rate: 10000, tenant: "router", from: "" },
-              { name: "wan1", dpmac: 9, rate: 10000, tenant: "router", from: "" }],
+      ports: [{ name: "wan0", dpmac: 7, rate: 10000, tenant: Named("router"), from: "" },
+              { name: "wan1", dpmac: 9, rate: 10000, tenant: Named("router"), from: "" }],
       links: [],
       fabrics: [],
       crypto: [],

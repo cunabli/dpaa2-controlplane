@@ -18,7 +18,7 @@ use std::path::{Path, PathBuf};
 use dpaa2_api::{
     ALL_FAMILIES, ConfigSource, ConstructName, Crypto, Dataplane, DpmacId, Error, Extra, Fabric,
     Family, Intent, Isolation, KERNEL, Link, MacAddr, MacMode, Member, Port, Switching, Tenant,
-    TenantName,
+    TenantName, TenantRef,
 };
 
 use crate::schema::{
@@ -447,6 +447,10 @@ fn convert_port(
         RawMacMode::Actuate => MacMode::Actuate,
     };
     // A port with no tenant belongs to the reserved kernel (topology-config spec).
+    // The default and the explicit `kernel` both normalise to `TenantRef::Kernel`
+    // (vocabulary-v2 D2) — this is the one place "omitted means kernel" is applied,
+    // never a type default. The resolve check runs on the resolved name first so the
+    // named error stays byte-identical (raw-conformance pins it).
     let tenant = p.tenant.clone().unwrap_or_else(|| TenantName::from(KERNEL));
     // `compile` also refuses this (`TenantAbsent`); the config duplicates the check
     // deliberately — a dedup would silently break raw-conformance.
@@ -459,7 +463,7 @@ fn convert_port(
         name,
         dpmac,
         rate: p.rate,
-        tenant,
+        tenant: TenantRef::from_name(tenant),
         mac,
         mac_mode,
         renamed: p.renamed.as_ref().map(|r| r.from.clone()),
@@ -490,10 +494,13 @@ fn convert_link(
              distinct tenants"
         )));
     }
+    // Normalise each end into the `TenantRef` sum (vocabulary-v2 D2): an explicit
+    // `kernel` end becomes `TenantRef::Kernel`. The resolve and self-loop checks
+    // above run on the raw names so their errors stay byte-identical.
     Ok(Link {
         name,
-        interface_a,
-        interface_b,
+        interface_a: TenantRef::from_name(interface_a),
+        interface_b: TenantRef::from_name(interface_b),
         renamed: l.renamed.as_ref().map(|r| r.from.clone()),
     })
 }
@@ -673,7 +680,7 @@ mod tests {
         );
         assert_eq!(intent.ports.len(), 1);
         assert_eq!(intent.ports[0].dpmac, DpmacId::new(7));
-        assert_eq!(intent.ports[0].tenant.as_str(), "router");
+        assert_eq!(intent.ports[0].tenant.resolved().as_str(), "router");
     }
 
     #[test]
@@ -884,7 +891,7 @@ mod tests {
             interface_b = "kernel"
             "#,
         );
-        assert_eq!(intent.links[0].interface_a.as_str(), "ns1");
+        assert_eq!(intent.links[0].interface_a.resolved().as_str(), "ns1");
         assert!(intent.links[0].interface_b.is_kernel());
     }
 

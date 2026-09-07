@@ -144,7 +144,7 @@ pub(crate) fn terminated_ports<'a>(intent: &'a Intent, name: &TenantName) -> Vec
     let mut ports: Vec<&Port> = intent
         .ports
         .iter()
-        .filter(|p| &p.tenant == name && !is_hw_switched_port(intent, &p.name))
+        .filter(|p| &p.tenant.resolved() == name && !is_hw_switched_port(intent, &p.name))
         .collect();
     ports.sort_by(|a, b| a.name.cmp(&b.name));
     ports
@@ -257,13 +257,13 @@ fn origin_list(intent: &Intent, name: &TenantName) -> Vec<Origin> {
     let mut links: Vec<&Link> = intent.links.iter().collect();
     links.sort_by(|a, b| a.name.cmp(&b.name));
     for l in links {
-        if &l.interface_a == name {
+        if &l.interface_a.resolved() == name {
             out.push(Origin::Link {
                 link: l.clone(),
                 side: 0,
             });
         }
-        if &l.interface_b == name {
+        if &l.interface_b.resolved() == name {
             out.push(Origin::Link {
                 link: l.clone(),
                 side: 1,
@@ -780,6 +780,9 @@ fn dprtc_node() -> ProvenanceNode {
 }
 
 fn link_edge_node(l: &Link) -> ProvenanceNode {
+    // Each link end is a `TenantRef` (vocabulary-v2 D2); resolve it to the tenant
+    // name the dpni-count provenance is keyed by (the Kernel case reads `kernel`).
+    let (a, b) = (l.interface_a.resolved(), l.interface_b.resolved());
     ProvenanceNode {
         rule: "link-edge".into(),
         anchor: "object-model.md §2, DPNI-I9 pseudo-wire".to_owned(),
@@ -787,10 +790,7 @@ fn link_edge_node(l: &Link) -> ProvenanceNode {
         request: 0,
         extra: None,
         value: 0,
-        inputs: provkeys(&[
-            (l.interface_a.as_str(), "dpnis", ""),
-            (l.interface_b.as_str(), "dpnis", ""),
-        ]),
+        inputs: provkeys(&[(a.as_str(), "dpnis", ""), (b.as_str(), "dpnis", "")]),
         constructs: BTreeSet::from([l.name.clone()]),
     }
 }
@@ -971,7 +971,7 @@ fn full_prov(
     }
     for l in &intent.links {
         m.insert(
-            ProvenanceKey::new(l.interface_a.as_str(), "link-edge", &l.name),
+            ProvenanceKey::new(l.interface_a.resolved(), "link-edge", &l.name),
             link_edge_node(l),
         );
     }
@@ -1010,26 +1010,19 @@ fn build_edges(
             edges.insert(edge);
         }
     }
-    // Link (6b): the two link-end dpnis; interface_a is the `a` end.
+    // Link (6b): the two link-end dpnis; interface_a is the `a` end. Each end is a
+    // `TenantRef` (vocabulary-v2 D2); resolve it to the tenant name the sizing,
+    // effective-tenant lookup, and origin list are keyed by.
     for l in &intent.links {
-        let (Some(sa), Some(ta)) = (
-            sizing.get(&l.interface_a),
-            tenant_by_name(ets, &l.interface_a),
-        ) else {
+        let (a, b) = (l.interface_a.resolved(), l.interface_b.resolved());
+        let (Some(sa), Some(ta)) = (sizing.get(&a), tenant_by_name(ets, &a)) else {
             continue;
         };
-        let (Some(sb), Some(tb)) = (
-            sizing.get(&l.interface_b),
-            tenant_by_name(ets, &l.interface_b),
-        ) else {
+        let (Some(sb), Some(tb)) = (sizing.get(&b), tenant_by_name(ets, &b)) else {
             continue;
         };
-        let ord_left = ordinal_where(&origin_list(intent, &l.interface_a), |o| {
-            is_link_side(o, &l.name, 0)
-        });
-        let ord_right = ordinal_where(&origin_list(intent, &l.interface_b), |o| {
-            is_link_side(o, &l.name, 1)
-        });
+        let ord_left = ordinal_where(&origin_list(intent, &a), |o| is_link_side(o, &l.name, 0));
+        let ord_right = ordinal_where(&origin_list(intent, &b), |o| is_link_side(o, &l.name, 1));
         // Only the interfaces are kept (the objects are emitted by `build_tenant`),
         // so the label rides along inertly; it is the link the dpnis serve.
         let (_a, ia) = ta.dpni(ord_left, u(sa.num_queues), l.name.clone());
