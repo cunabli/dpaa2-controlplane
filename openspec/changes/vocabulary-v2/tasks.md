@@ -41,7 +41,7 @@ each checkbox names its bead.
 
 ## 3. TenantAbsent referrer enum (design D3)
 
-- [ ] 3.1 (bead dpaa2-controlplane-093.3) Replace `TenantAbsent.construct: ConstructName` with
+- [x] 3.1 (bead dpaa2-controlplane-093.3) Replace `TenantAbsent.construct: ConstructName` with
   `referrer: Referrer` (Port/LinkEnd/Fabric/Crypto/Extra/Pool) — the sum
   authored in `refuse.qnt` first, `refuse.rs` as its isomorphic image
   (ADR-0002: the model is the spec); rendering derives the
@@ -60,23 +60,6 @@ each checkbox names its bead.
   unchanged; `REFUSAL_VARIANTS` count 25 and the variant-name uniqueness
   test green.
 
-## 4b. Discovered follow-ups
-
-- [ ] 4b.1 (bead dpaa2-controlplane-093.7) Decide and land the matcher facet's
-  pool encoding: `ConfigFacet::Tenant.pool` (matcher.rs, model twin
-  `match.qnt`, decision 11) becomes a second encoding of the pool
-  relationship once `Isolation` carries the payload — key it off the
-  `Restricted` payload in lockstep or keep it with a doc note (discovered
-  by the 1.1 parcel; out of D1 scope).
-- [ ] 4b.2 (bead dpaa2-controlplane-093.8) Decide the port-only kernel
-  materialisation: the pure core's `effective_tenants` (and
-  `derive.qnt:583`) materialises the reserved kernel on a *link* trigger
-  only, while a port-only kernel reference — now accepted rather than
-  refused, the intended F13 fix — is materialised by the tools shell's
-  `complete_kernel`; extend derive's trigger to ports in lockstep or doc-note
-  the shell ownership at both twins (discovered by the 2.1 parcel; out of
-  D2 scope).
-
 ## 5. Alphabet, witnesses, and docs (designs D5, D6)
 
 - [ ] 5.1 (bead dpaa2-controlplane-093.5) Regenerate `alphabet.qnt` and the R11 witness corpus for the
@@ -88,5 +71,11 @@ each checkbox names its bead.
   spellings only where pool already appears; amend ADR-0002 with the
   structural-isomorphism law (design D6: Rust is the model's isomorphic
   image, sum-for-sum — trace equivalence alone violates the spec); update
-  ROADMAP.md. Verify: synthesis B1 acceptance greps all pass; one
-  amendment per ADR.
+  ROADMAP.md. Land the two discovered-decision doc notes (beads
+  dpaa2-controlplane-093.7 and .8, closed by this task): the matcher's
+  `ConfigFacet::Tenant.pool` stays a deliberate second reading of the
+  `Restricted` payload (noted at matcher.rs and `match.qnt`, decision 11),
+  and the tools shell's `complete_kernel` owns port-only kernel
+  materialisation while the pure core's `effective_tenants` owns the link
+  trigger (noted at both twins). Verify: synthesis B1 acceptance greps all
+  pass; one amendment per ADR.

@@ -44,8 +44,8 @@ use dpaa2_api::{
     AttachPoint, Attributes, Availability, Ceiling, Compiled, ConstructName, Container, Crypto,
     Dataplane, DpmacId, DpmacLinkType, DpmacOffer, EthInterface, Extra, Fabric, Family, Intent,
     Inventory, Isolation, Link, MacMode, Measurement, Member, ObjectKey, Permission, Port,
-    ProvenanceKey, ProvenanceNode, Refusal, Switching, Tenant, TenantName, TenantRef, Warning,
-    compile,
+    ProvenanceKey, ProvenanceNode, Referrer, Refusal, Switching, Tenant, TenantName, TenantRef,
+    Warning, compile,
 };
 
 use crate::itf::{family_of_tag, int64, num, tag};
@@ -236,6 +236,23 @@ fn tenant_ref(v: &Value) -> Result<TenantRef, String> {
         "Kernel" => Ok(TenantRef::Kernel),
         "Named" => Ok(TenantRef::Named(tname(&v["value"])?)),
         t => Err(format!("unknown tenant ref `{t}`")),
+    }
+}
+
+/// A `Referrer` sum (vocabulary-v2 D3): the model's `Ref`-prefixed constructors
+/// (`refuse.qnt`, prefixed to dodge Quint's type/constructor clash) map to the clean
+/// `Referrer::*` variants, exactly as `MPort` ⇒ `Member::Port` above. Port/link/fabric
+/// carry a construct name; crypto/extra/pool carry the referencing tenant name.
+pub(crate) fn referrer(v: &Value) -> Result<Referrer, String> {
+    let p = &v["value"];
+    match tag(v)? {
+        "RefPort" => Ok(Referrer::Port(cname(p)?)),
+        "RefLinkEnd" => Ok(Referrer::LinkEnd(cname(p)?)),
+        "RefFabric" => Ok(Referrer::Fabric(cname(p)?)),
+        "RefCrypto" => Ok(Referrer::Crypto(tname(p)?)),
+        "RefExtra" => Ok(Referrer::Extra(tname(p)?)),
+        "RefPool" => Ok(Referrer::Pool(tname(p)?)),
+        t => Err(format!("unknown referrer `{t}`")),
     }
 }
 
@@ -626,7 +643,7 @@ fn refusal(v: &Value) -> Result<Refusal, String> {
     let p = &v["value"];
     Ok(match tag(v)? {
         "TenantAbsent" => Refusal::TenantAbsent {
-            construct: cname(field(p, "construct")?)?,
+            referrer: referrer(field(p, "referrer")?)?,
             tenant: tname(field(p, "tenant")?)?,
         },
         "MemberUnresolved" => Refusal::MemberUnresolved {

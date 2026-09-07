@@ -598,7 +598,7 @@ module intent_main {
       ports: [{ name: "wan0", dpmac: 7, rate: 10000, tenant: Named("ghost"), from: "" }],
       links: [], fabrics: [], crypto: [], extras: Set() }
     refusedWith(compile(intent, REF_INVENTORY),
-      r => r == TenantAbsent({ construct: "wan0", tenant: "ghost" }))
+      r => r == TenantAbsent({ referrer: RefPort("wan0"), tenant: "ghost" }))
 
   // ---- task 2.6c: isolation, pooling, the kernel link end ----
 

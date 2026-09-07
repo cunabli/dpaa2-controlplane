@@ -33,6 +33,34 @@ use crate::types::{ConstructName, TenantName};
 /// realized by one device (`CryptoFlowsOverDevice`).
 const DPSECI_MAX_QUEUE_NUM: i64 = 16;
 
+/// The site a [`Refusal::TenantAbsent`] refers *from* (vocabulary-v2 D3, PASS3-F13;
+/// `refuse.qnt` `Referrer`, whose model constructors carry a `Ref` prefix to dodge
+/// Quint's type/constructor namespace clash — the ITF decoder maps `Ref*` ⇒ these).
+///
+/// This replaces the old `construct: ConstructName` that smuggled the literal tokens
+/// `"crypto"`/`"extra"`/`"pool"` through the construct-name space, where a port an
+/// operator legally named `pool` could collide in refusal rendering. As a typed sum
+/// the tokens leave that space entirely: a port, link end, or fabric is named by its
+/// own [`ConstructName`]; crypto and extra — which carry no name of their own — and
+/// the restricted drawer are identified by the referencing [`TenantName`]. Rendering
+/// derives the human string from the variant.
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
+pub enum Referrer {
+    /// A port whose owning tenant is absent (the port's name).
+    Port(ConstructName),
+    /// A link end naming an absent tenant (the link's name).
+    LinkEnd(ConstructName),
+    /// A fabric whose forwarder is absent (the fabric's name).
+    Fabric(ConstructName),
+    /// A crypto block whose tenant is absent (crypto carries no name of its own, so
+    /// the referencing tenant identifies it).
+    Crypto(TenantName),
+    /// An extra whose tenant is absent (likewise identified by the referencing tenant).
+    Extra(TenantName),
+    /// A restricted drawer whose `pool` holder is absent (the drawing tenant's name).
+    Pool(TenantName),
+}
+
 /// The rule an intent broke, naming the offending construct (design D5; ADR-0013
 /// §5). All 22 variants of `refuse.qnt` (vocabulary-v2 D1 deleted the two pool-shape
 /// contradictions, now unrepresentable in [`crate::intent::Isolation`]).
@@ -50,8 +78,9 @@ pub enum Refusal {
     /// A construct (port, link end, fabric owner, crypto, extra, a restricted
     /// tenant's `pool`) names a tenant not declared (DPDCEI-I1 generalised).
     TenantAbsent {
-        /// The construct that named the missing tenant.
-        construct: ConstructName,
+        /// The site that named the missing tenant (vocabulary-v2 D3): a typed
+        /// [`Referrer`], never a construct-name string carrying a reserved token.
+        referrer: Referrer,
         /// The undeclared tenant name.
         tenant: TenantName,
     },
@@ -416,7 +445,7 @@ fn tenant_absent_refusals(intent: &Intent, out: &mut BTreeSet<Refusal>) {
             && !names.contains(n)
         {
             out.insert(Refusal::TenantAbsent {
-                construct: p.name.clone(),
+                referrer: Referrer::Port(p.name.clone()),
                 tenant: n.clone(),
             });
         }
@@ -427,7 +456,7 @@ fn tenant_absent_refusals(intent: &Intent, out: &mut BTreeSet<Refusal>) {
                 && !names.contains(n)
             {
                 out.insert(Refusal::TenantAbsent {
-                    construct: l.name.clone(),
+                    referrer: Referrer::LinkEnd(l.name.clone()),
                     tenant: n.clone(),
                 });
             }
@@ -436,7 +465,7 @@ fn tenant_absent_refusals(intent: &Intent, out: &mut BTreeSet<Refusal>) {
     for f in &intent.fabrics {
         if !names.contains(&f.forwarded_by) {
             out.insert(Refusal::TenantAbsent {
-                construct: f.name.clone(),
+                referrer: Referrer::Fabric(f.name.clone()),
                 tenant: f.forwarded_by.clone(),
             });
         }
@@ -444,7 +473,7 @@ fn tenant_absent_refusals(intent: &Intent, out: &mut BTreeSet<Refusal>) {
     for k in &intent.crypto {
         if !names.contains(&k.tenant) {
             out.insert(Refusal::TenantAbsent {
-                construct: "crypto".into(),
+                referrer: Referrer::Crypto(k.tenant.clone()),
                 tenant: k.tenant.clone(),
             });
         }
@@ -452,7 +481,7 @@ fn tenant_absent_refusals(intent: &Intent, out: &mut BTreeSet<Refusal>) {
     for e in &intent.extras {
         if !names.contains(&e.tenant) {
             out.insert(Refusal::TenantAbsent {
-                construct: "extra".into(),
+                referrer: Referrer::Extra(e.tenant.clone()),
                 tenant: e.tenant.clone(),
             });
         }
@@ -788,7 +817,7 @@ fn pool_refusals(intent: &Intent, out: &mut BTreeSet<Refusal>) {
         match tenant_by_name(intent, pool) {
             None => {
                 out.insert(Refusal::TenantAbsent {
-                    construct: "pool".into(),
+                    referrer: Referrer::Pool(c.name.clone()),
                     tenant: pool.clone(),
                 });
             }
@@ -920,7 +949,7 @@ mod tests {
     #[test]
     fn refusal_variants_match_the_enum() {
         let sample = Refusal::TenantAbsent {
-            construct: "port `p`".into(),
+            referrer: Referrer::Port("p".into()),
             tenant: "t".into(),
         };
         assert!(REFUSAL_VARIANTS.contains(&sample.name()));
@@ -968,7 +997,7 @@ mod compile_tests {
 
     use std::collections::BTreeSet;
 
-    use super::{Compiled, Refusal, Warning, compile};
+    use super::{Compiled, Referrer, Refusal, Warning, compile};
     use crate::compiled::{Attributes, Container, ProvenanceNode};
     use crate::family::Family;
     use crate::intent::{
@@ -1102,7 +1131,7 @@ mod compile_tests {
         assert_eq!(
             err(&intent, &ref_inv()),
             BTreeSet::from([Refusal::TenantAbsent {
-                construct: "wan0".into(),
+                referrer: Referrer::Port("wan0".into()),
                 tenant: "ghost".into(),
             }])
         );
@@ -1529,6 +1558,35 @@ mod compile_tests {
                     holder: "h".into(),
                 },
             ])
+        );
+    }
+
+    /// Spec scenario "A port named `pool` cannot collide in refusal rendering"
+    /// (vocabulary-v2 D3, PASS3-F13): an operator legally declares a port named
+    /// `pool` and a restricted tenant whose holder is undeclared. The missing-holder
+    /// refusal identifies the drawing tenant through [`Referrer::Pool`] — a typed
+    /// site, not a `ConstructName` carrying the literal `"pool"` — so it is
+    /// distinguishable from anything referring to the port. Before D3 both rendered a
+    /// `construct: "pool"` and collided.
+    #[test]
+    fn port_named_pool_does_not_collide_with_pool_referrer() {
+        let intent = Intent {
+            tenants: vec![
+                kernel_tenant(16),
+                tenant("t", Dataplane::KernelNetlink, 16, restricted("ghost")),
+            ],
+            // A perfectly legal port an operator named `pool`, owned by the kernel.
+            ports: vec![port("pool", 7, 10_000, "kernel")],
+            ..Intent::default()
+        };
+        // The only refusal is the missing pool holder, keyed by the DRAWING tenant `t`
+        // via the typed referrer — never a construct string that a port could match.
+        assert_eq!(
+            err(&intent, &ref_inv()),
+            BTreeSet::from([Refusal::TenantAbsent {
+                referrer: Referrer::Pool("t".into()),
+                tenant: "ghost".into(),
+            }])
         );
     }
 

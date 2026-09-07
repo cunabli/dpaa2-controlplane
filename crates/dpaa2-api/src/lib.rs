@@ -135,5 +135,7 @@ pub use model::{
 pub use plan::{AssertMismatch, Class, DriftReport, Plan, Transition};
 pub use port::{ConfigSource, KernelControl, McControl};
 pub use reconcile::{ReconcileOptions, reconcile, reconcile_with};
-pub use refuse::{Compiled, REFUSAL_VARIANTS, Refusal, WARNING_VARIANTS, Warning, compile};
+pub use refuse::{
+    Compiled, REFUSAL_VARIANTS, Referrer, Refusal, WARNING_VARIANTS, Warning, compile,
+};
 pub use types::{ConstructName, RuleName, TenantName};

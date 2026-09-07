@@ -40,9 +40,11 @@ use std::fmt::Write as _;
 
 use serde_json::Value;
 
-use dpaa2_api::{ConstructName, Intent, TenantName};
+use dpaa2_api::{ConstructName, Intent, Referrer, TenantName};
 
-use crate::intent_itf::{cname, field, intent, list_items, map_items, set_items, text, tname};
+use crate::intent_itf::{
+    cname, field, intent, list_items, map_items, referrer, set_items, text, tname,
+};
 use crate::itf::{int64, tag};
 
 // ---- the raw surface mirror (schema.rs / intent_raw.qnt) ----
@@ -137,8 +139,8 @@ pub struct RawIntent {
 pub enum RawRefusal {
     /// A construct naming an undeclared tenant (`FromCompile(TenantAbsent)`).
     TenantAbsent {
-        /// The naming construct.
-        construct: ConstructName,
+        /// The referencing site (vocabulary-v2 D3; mirrors the compile `Referrer`).
+        referrer: Referrer,
         /// The absent tenant.
         tenant: TenantName,
     },
@@ -523,7 +525,7 @@ fn raw_refusal(v: &Value) -> Result<RawRefusal, String> {
     };
     Ok(match outer {
         "TenantAbsent" => RawRefusal::TenantAbsent {
-            construct: cname(field(payload, "construct")?)?,
+            referrer: referrer(field(payload, "referrer")?)?,
             tenant: tname(field(payload, "tenant")?)?,
         },
         "PoolWithoutRestricted" => RawRefusal::PoolWithoutRestricted {
@@ -723,7 +725,7 @@ mod tests {
             ),
             (
                 RawRefusal::TenantAbsent {
-                    construct: "p1".into(),
+                    referrer: Referrer::Port("p1".into()),
                     tenant: "ghost".into(),
                 },
                 "port `p1` names tenant `ghost`, which is not declared",
@@ -757,7 +759,7 @@ mod tests {
             // declared" is disjoint from "not declared").
             (
                 RawRefusal::TenantAbsent {
-                    construct: "f1".into(),
+                    referrer: Referrer::Fabric("f1".into()),
                     tenant: "ghost".into(),
                 },
                 "fabric `f1` names member `ghost`, which is not a declared port, tenant, or fabric",

@@ -255,23 +255,23 @@ module intent_raw {
       // (vocabulary-v2 D2 folds the retired ""→kernel port default); only a NAMED
       // undeclared tenant is absent, and its raw string is the TenantAbsent payload.
       if (p.tenant == "" or rawResolves(raw, p.tenant)) acc
-      else acc.union(Set(FromCompile(TenantAbsent({ construct: n, tenant: p.tenant })))))
+      else acc.union(Set(FromCompile(TenantAbsent({ referrer: RefPort(n), tenant: p.tenant })))))
     val fromLinks = raw.links.keys().fold(fromPorts, (acc, n) =>
       val l = raw.links.get(n)
       val a1 = if (rawResolves(raw, l.interfaceA)) acc
-               else acc.union(Set(FromCompile(TenantAbsent({ construct: n, tenant: l.interfaceA }))))
+               else acc.union(Set(FromCompile(TenantAbsent({ referrer: RefLinkEnd(n), tenant: l.interfaceA }))))
       val a2 = if (rawResolves(raw, l.interfaceB)) a1
-               else a1.union(Set(FromCompile(TenantAbsent({ construct: n, tenant: l.interfaceB }))))
+               else a1.union(Set(FromCompile(TenantAbsent({ referrer: RefLinkEnd(n), tenant: l.interfaceB }))))
       if (l.interfaceA == l.interfaceB) a2.union(Set(LinkSelfLoop({ link: n, tenant: l.interfaceA }))) else a2)
     val fromFabrics = raw.fabrics.keys().fold(fromLinks, (acc, n) =>
       if (rawResolves(raw, raw.fabrics.get(n).forwardedBy)) acc
-      else acc.union(Set(FromCompile(TenantAbsent({ construct: n, tenant: raw.fabrics.get(n).forwardedBy })))))
+      else acc.union(Set(FromCompile(TenantAbsent({ referrer: RefFabric(n), tenant: raw.fabrics.get(n).forwardedBy })))))
     val fromCrypto = raw.crypto.foldl(fromFabrics, (acc, k) =>
       if (rawResolves(raw, k.tenant)) acc
-      else acc.union(Set(FromCompile(TenantAbsent({ construct: "crypto", tenant: k.tenant })))))
+      else acc.union(Set(FromCompile(TenantAbsent({ referrer: RefCrypto(k.tenant), tenant: k.tenant })))))
     raw.extras.keys().fold(fromCrypto, (acc, t) =>
       if (rawResolves(raw, t)) acc
-      else acc.union(Set(FromCompile(TenantAbsent({ construct: "extra", tenant: t })))))
+      else acc.union(Set(FromCompile(TenantAbsent({ referrer: RefExtra(t), tenant: t })))))
 
   // parse.rs classify_member: a fabric member that classifies to nothing.
   pure def memberRefusals(raw: RawIntent): Set[RawRefusal] =
@@ -648,7 +648,7 @@ module intent_raw {
   pure val RAW_ISOLATIONS: Set[RawIsolation] = Set(RPublic, RRestricted, RIsolated)
 
   pure val RAW_REFUSALS_USE: Set[RawRefusal] = Set(
-    FromCompile(TenantAbsent({ construct: "c", tenant: "t" })),
+    FromCompile(TenantAbsent({ referrer: RefPort("c"), tenant: "t" })),
     PoolWithoutRestricted({ tenant: "c", pool: "h" }),
     RestrictedWithoutPool({ tenant: "c" }),
     ReservedKernel({ name: KERNEL }),

@@ -28,6 +28,27 @@ module intent_refuse {
   import intent_derive.* from "./derive"         // derive, sizeTenant, terminatedPorts, threadCount, hasPricing, …
   import dpseci.* from "../families/dpseci"      // DPSECI_MAX_QUEUE_NUM (the one-device queue-pair ceiling)
 
+  // The site a TenantAbsent refusal refers FROM (vocabulary-v2 D3, PASS3-F13): the
+  // referencing construct, identified by its own name where it has one, or by the
+  // referencing tenant where it does not. This replaces the old `construct: str`
+  // that smuggled the literal tokens "crypto"/"extra"/"pool" through the construct-
+  // name space — a port legally named `pool` could collide with the pool-drawer
+  // refusal. As a sum those tokens leave the name space entirely, and rendering
+  // derives the human string from the variant. The Rust image is `dpaa2-api`
+  // `Referrer` (variants Port/LinkEnd/Fabric/Crypto/Extra/Pool, namespaced under
+  // the enum); the model prefixes each constructor `Ref` because Quint's flat sum
+  // constructors share the value namespace and `Port`/`Fabric`/`Crypto`/`Extra`
+  // are already TYPE names here (the same collision the `Member` sum resolves with
+  // its `M` prefix, types.qnt). The ITF decoder maps `Ref*` ⇒ `Referrer::*`
+  // (intent_itf.rs), exactly as it maps `MPort` ⇒ `Member::Port`.
+  type Referrer =
+    | RefPort(str)      // a port's owning tenant is absent (payload: the port name)
+    | RefLinkEnd(str)   // a link end names an absent tenant (payload: the link name)
+    | RefFabric(str)    // a fabric's forwarder is absent (payload: the fabric name)
+    | RefCrypto(str)    // a crypto block's tenant is absent (payload: the tenant — crypto has no name)
+    | RefExtra(str)     // an extra's tenant is absent (payload: the tenant — extra has no name)
+    | RefPool(str)      // a Restricted drawer's pool holder is absent (payload: the drawing tenant)
+
   // The rule an intent broke, naming the offending construct. One variant per
   // rule (design D5, spec.md "The compiler refuses by name"). The
   // `PoolWithoutRestricted` / `RestrictedWithoutPool` shapes are now
@@ -36,7 +57,7 @@ module intent_refuse {
   // tenant without a pool have no constructor here. The TOML surface still names
   // both as parse errors (intent_raw.qnt raw-native refusals); compile does not.
   type Refusal =
-    | TenantAbsent({ construct: str, tenant: str })         // a construct names a tenant not declared (DPDCEI-I1 generalised)
+    | TenantAbsent({ referrer: Referrer, tenant: str })     // a construct names a tenant not declared (DPDCEI-I1 generalised); referrer = the referencing site (vocabulary-v2 D3)
     | MemberUnresolved({ fabric: str, member: Member })         // a fabric member names a port/tenant/fabric not declared
     | SelfMember({ fabric: str, member: Member })               // a fabric member resolves to the fabric's own forwarder
     | Unanchored({ port: str, dpmac: int })                     // dpmac not in the inventory
@@ -84,8 +105,10 @@ module intent_refuse {
   // ---- rule 1: a construct names an undeclared tenant (design D5) ----
   // Generalises DPDCEI-I1's tenant-absence rule to every construct that
   // names a tenant: port tenant (`p.tenant`), link ends, fabric forwarder
-  // (`f.forwardedBy`), crypto tenant, extra tenant. crypto and extra carry no
-  // name, so the construct field reads the literal "crypto" / "extra".
+  // (`f.forwardedBy`), crypto tenant, extra tenant. The `referrer` sum names the
+  // site (vocabulary-v2 D3): a port/link/fabric by its own name, and crypto/extra
+  // — which carry no name of their own — by the referencing tenant. No literal
+  // "crypto"/"extra" token rides the construct-name space any longer.
   // A port's tenant and each link end is a `TenantRef` (vocabulary-v2 D2): the
   // Kernel case is the reserved tenant, always available (a port belongs to it,
   // a link end names it as a pseudo-wire end — the derivation materialises its
@@ -97,26 +120,26 @@ module intent_refuse {
     val fromPorts = intent.ports.foldl(Set(), (acc, p) =>
       match p.tenant {
         | Kernel => acc
-        | Named(n) => if (names.contains(n)) acc else acc.union(Set(TenantAbsent({ construct: p.name, tenant: n })))
+        | Named(n) => if (names.contains(n)) acc else acc.union(Set(TenantAbsent({ referrer: RefPort(p.name), tenant: n })))
       })
     val fromLinks = intent.links.foldl(fromPorts, (acc, l) =>
       val a1 = match l.interfaceA {
         | Kernel => acc
-        | Named(n) => if (names.contains(n)) acc else acc.union(Set(TenantAbsent({ construct: l.name, tenant: n })))
+        | Named(n) => if (names.contains(n)) acc else acc.union(Set(TenantAbsent({ referrer: RefLinkEnd(l.name), tenant: n })))
       }
       match l.interfaceB {
         | Kernel => a1
-        | Named(n) => if (names.contains(n)) a1 else a1.union(Set(TenantAbsent({ construct: l.name, tenant: n })))
+        | Named(n) => if (names.contains(n)) a1 else a1.union(Set(TenantAbsent({ referrer: RefLinkEnd(l.name), tenant: n })))
       })
     val fromFabrics = intent.fabrics.foldl(fromLinks, (acc, f) =>
       if (names.contains(f.forwardedBy)) acc
-      else acc.union(Set(TenantAbsent({ construct: f.name, tenant: f.forwardedBy }))))
+      else acc.union(Set(TenantAbsent({ referrer: RefFabric(f.name), tenant: f.forwardedBy }))))
     val fromCrypto = intent.crypto.foldl(fromFabrics, (acc, k) =>
       if (names.contains(k.tenant)) acc
-      else acc.union(Set(TenantAbsent({ construct: "crypto", tenant: k.tenant }))))
+      else acc.union(Set(TenantAbsent({ referrer: RefCrypto(k.tenant), tenant: k.tenant }))))
     intent.extras.fold(fromCrypto, (acc, e) =>
       if (names.contains(e.tenant)) acc
-      else acc.union(Set(TenantAbsent({ construct: "extra", tenant: e.tenant }))))
+      else acc.union(Set(TenantAbsent({ referrer: RefExtra(e.tenant), tenant: e.tenant }))))
 
   // ---- rule 2: a fabric member names something not declared ----
   pure def memberUnresolvedRefusals(intent: Intent, inv: Inventory): Set[Refusal] =
@@ -318,7 +341,7 @@ module intent_refuse {
   // sentinel: the two contradiction shapes (a pool on a non-Restricted tenant, a
   // Restricted tenant with no pool) are now unrepresentable, so only the
   // holder-relationship refusals remain. A named holder must exist (TenantAbsent,
-  // construct "pool"), must be Public, and must not itself carry a pool (no
+  // referrer Pool(drawer)), must be Public, and must not itself carry a pool (no
   // chains); and the drawer's dataplane must equal the holder's — the reserved
   // kernel counting as kernel-netlink, so a kernel-netlink drawer must pool the
   // kernel and a userspace-poll drawer pooling the kernel is a mismatch.
@@ -335,7 +358,7 @@ module intent_refuse {
                 acc.union(Set(PoolDataplaneMismatch({ tenant: c.name, drawer: c.dataplane, holder: KernelNetlink })))
               else acc
             else match tenantByName(intent, pool) {
-              | None => acc.union(Set(TenantAbsent({ construct: "pool", tenant: pool })))
+              | None => acc.union(Set(TenantAbsent({ referrer: RefPool(c.name), tenant: pool })))
               | Some(h) =>
                   (if (h.isolation != Public) Set(HolderNotPublic({ tenant: c.name, holder: pool })) else Set())
                     .union(if (holderPool(h) != "") Set(PoolChain({ tenant: c.name, holder: pool })) else Set())
@@ -389,8 +412,12 @@ module intent_refuse {
   // A value use for every sum-type constructor inside the module: the
   // verify-path flattener drops a constructor whose only value use sits in
   // another module (QNT404; see intent/types.qnt ETH_IFS block).
+  // A value use for every Referrer constructor (QNT404; the flattener needs each
+  // constructor used in this module — the TenantAbsent below uses only one).
+  pure val REFERRERS_USE: Set[Referrer] =
+    Set(RefPort("p"), RefLinkEnd("l"), RefFabric("f"), RefCrypto("c"), RefExtra("e"), RefPool("d"))
   pure val REFUSALS_USE: Set[Refusal] = Set(
-    TenantAbsent({ construct: "c", tenant: "x" }),
+    TenantAbsent({ referrer: RefPort("c"), tenant: "x" }),
     MemberUnresolved({ fabric: "f", member: MPort("p") }),
     SelfMember({ fabric: "f", member: MTenant("c") }),
     Unanchored({ port: "p", dpmac: 0 }),
