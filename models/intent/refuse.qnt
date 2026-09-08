@@ -112,12 +112,14 @@ module intent_refuse {
   // site (vocabulary-v2 D3): a port/link/fabric by its own name, and crypto/extra
   // — which carry no name of their own — by the referencing tenant. No literal
   // "crypto"/"extra" token rides the construct-name space any longer.
-  // A port's tenant and each link end is a `TenantRef` (vocabulary-v2 D2): the
-  // Kernel case is the reserved tenant, always available (a port belongs to it,
-  // a link end names it as a pseudo-wire end — the derivation materialises its
-  // dpni, derive.qnt), so TenantAbsent fires only on the Named case with an
-  // undeclared name. The `tenant:"kernel"` wrinkle is structurally gone: the
-  // Kernel case carries no name to refuse.
+  // No site can ever name the reserved kernel as absent, by two mechanisms. A
+  // port's tenant and each link end is a `TenantRef` (vocabulary-v2 D2) whose
+  // Kernel case carries no name — so TenantAbsent fires there only on the Named
+  // case with an undeclared name. The fabric forwarder, crypto tenant, and extra
+  // tenant are names: the guard exempts KERNEL, which resolves without being
+  // declared, exactly as the parse boundary's resolution (rawResolves, intent_raw;
+  // design D1). Whether the kernel object then materialises for such a reference
+  // is the business of the derivation (derive.qnt), not of resolution.
   pure def tenantAbsentRefusals(intent: Intent, inv: Inventory): Set[Refusal] =
     val names = tenantNames(intent)
     val fromPorts = intent.ports.foldl(Set(), (acc, p) =>
@@ -135,13 +137,13 @@ module intent_refuse {
         | Named(n) => if (names.contains(n)) a1 else a1.union(Set(TenantAbsent({ referrer: RefLinkEnd(l.name), tenant: n })))
       })
     val fromFabrics = intent.fabrics.foldl(fromLinks, (acc, f) =>
-      if (names.contains(f.forwardedBy)) acc
+      if (f.forwardedBy == KERNEL or names.contains(f.forwardedBy)) acc
       else acc.union(Set(TenantAbsent({ referrer: RefFabric(f.name), tenant: f.forwardedBy }))))
     val fromCrypto = intent.crypto.foldl(fromFabrics, (acc, k) =>
-      if (names.contains(k.tenant)) acc
+      if (k.tenant == KERNEL or names.contains(k.tenant)) acc
       else acc.union(Set(TenantAbsent({ referrer: RefCrypto(k.tenant), tenant: k.tenant }))))
     intent.extras.fold(fromCrypto, (acc, e) =>
-      if (names.contains(e.tenant)) acc
+      if (e.tenant == KERNEL or names.contains(e.tenant)) acc
       else acc.union(Set(TenantAbsent({ referrer: RefExtra(e.tenant), tenant: e.tenant }))))
 
   // ---- rule 2: a fabric member names something not declared ----

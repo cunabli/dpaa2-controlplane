@@ -11,7 +11,7 @@ bead. Evidence for every item: the review ledger in
 
 ## 1. Kernel resolves at TenantName referents (design D1)
 
-- [ ] 1.1 (bead dpaa2-controlplane-27w) Compile rule 1 treats the reserved
+- [x] 1.1 (bead dpaa2-controlplane-27w) Compile rule 1 treats the reserved
   kernel as declared at `Fabric.forwarded_by`, `Crypto.tenant`, and
   `Extra.tenant`, mirroring parse's `resolves()`; `refuse.qnt` rule 1
   moves in the same lockstep; the `refuse.rs:480` claim is scoped

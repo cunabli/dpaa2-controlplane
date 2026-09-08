@@ -474,10 +474,15 @@ fn tenant_by_name<'a>(intent: &'a Intent, n: &TenantName) -> Option<&'a Tenant> 
 
 fn tenant_absent_refusals(intent: &Intent, out: &mut BTreeSet<Refusal>) {
     let names = tenant_names(intent);
-    // A port's tenant and each link end is a `TenantRef` (vocabulary-v2 D2): the
-    // `Kernel` case is the reserved tenant, always available (a port belongs to it,
-    // a link end names it as a pseudo-wire end), so `TenantAbsent` fires only on the
-    // `Named` case with an undeclared name — no site can ever name `kernel` as absent.
+    // No site can ever name the reserved `kernel` as absent, by two mechanisms. A
+    // port's tenant and each link end is a `TenantRef` (vocabulary-v2 D2) whose sole
+    // constructor [`TenantRef::from_name`] folds the reserved name to the `Kernel`
+    // case, which carries no name — so `TenantAbsent` fires there only on a `Named`
+    // with an undeclared name. The fabric forwarder, crypto tenant, and extra tenant
+    // are `TenantName`s: the guard exempts the reserved kernel, which resolves without
+    // being declared, exactly as parse's `resolves` (design D1; dpaa2-config). Whether
+    // the kernel object then materialises for such a reference is the business of the
+    // split materialisation, not of resolution.
     for p in &intent.ports {
         if let TenantRef::Named(n) = &p.tenant
             && !names.contains(n)
@@ -501,7 +506,7 @@ fn tenant_absent_refusals(intent: &Intent, out: &mut BTreeSet<Refusal>) {
         }
     }
     for f in &intent.fabrics {
-        if !names.contains(&f.forwarded_by) {
+        if !f.forwarded_by.is_kernel() && !names.contains(&f.forwarded_by) {
             out.insert(Refusal::TenantAbsent {
                 referrer: Referrer::Fabric(f.name.clone()),
                 tenant: f.forwarded_by.clone(),
@@ -509,7 +514,7 @@ fn tenant_absent_refusals(intent: &Intent, out: &mut BTreeSet<Refusal>) {
         }
     }
     for k in &intent.crypto {
-        if !names.contains(&k.tenant) {
+        if !k.tenant.is_kernel() && !names.contains(&k.tenant) {
             out.insert(Refusal::TenantAbsent {
                 referrer: Referrer::Crypto(k.tenant.clone()),
                 tenant: k.tenant.clone(),
@@ -517,7 +522,7 @@ fn tenant_absent_refusals(intent: &Intent, out: &mut BTreeSet<Refusal>) {
         }
     }
     for e in &intent.extras {
-        if !names.contains(&e.tenant) {
+        if !e.tenant.is_kernel() && !names.contains(&e.tenant) {
             out.insert(Refusal::TenantAbsent {
                 referrer: Referrer::Extra(e.tenant.clone()),
                 tenant: e.tenant.clone(),
@@ -1266,6 +1271,44 @@ mod compile_tests {
                 tenant: "ghost".into(),
             }])
         );
+    }
+
+    #[test]
+    fn kernel_forwarded_fabric_resolves_without_a_declared_kernel() {
+        // A hardware fabric forwarded by the reserved kernel, with tenant-only members
+        // and no kernel-owned port, resolves at compile: the forwarder names the
+        // kernel, a resolving referent that is never declared (design D1, mirroring
+        // parse's `resolves`). Materialisation is owned elsewhere, so the empty
+        // refusal set is the whole answer — in particular no `TenantAbsent` for the
+        // forwarder.
+        let intent = Intent {
+            tenants: vec![knl("a")],
+            fabrics: vec![Fabric {
+                name: "hw".into(),
+                switching: Switching::Hardware,
+                forwarded_by: "kernel".into(),
+                members: vec![Member::Tenant("a".into())],
+                renamed: None,
+            }],
+            ..Intent::default()
+        };
+        assert_eq!(compile(&intent, &ref_inv()).err(), None);
+    }
+
+    #[test]
+    fn kernel_crypto_allocation_resolves() {
+        // A crypto allocation whose tenant is the reserved kernel, with no kernel port,
+        // resolves at compile exactly as the fabric forwarder does (design D1): the
+        // reserved kernel is a resolving referent without being declared, so the
+        // complete refusal set is empty and carries no `TenantAbsent`.
+        let intent = Intent {
+            crypto: vec![Crypto {
+                tenant: "kernel".into(),
+                flows: 4,
+            }],
+            ..Intent::default()
+        };
+        assert_eq!(compile(&intent, &ref_inv()).err(), None);
     }
 
     #[test]

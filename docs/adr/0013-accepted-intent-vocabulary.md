@@ -327,6 +327,18 @@ used to slip through — `LinkSelfLoop`, `RenameDoubleClaim`, `KernelDeclared`
 owner and each link end — is the shared `TenantRef` sum (D2); both are detailed
 at the `TenantAbsent` bullet.
 
+*vocabulary-v2-followups revision.* `compile`'s tenant-absence rule now treats the
+reserved kernel as a resolving referent at the name-valued reference sites — a
+fabric's `forwarded_by`, a crypto allocation's tenant, and an extra allocation's
+tenant — exactly as the parse boundary's resolution (`resolves`) always has. The two
+boundaries now agree: no `TenantAbsent` refusal can carry the reserved kernel name,
+whether an intent arrives through parse or is built programmatically. At the
+`TenantRef` sites (a port owner, each link end) the same guarantee holds by
+construction — `TenantRef::from_name` folds the reserved name to a case that carries
+no name. This revision governs resolution only; whether the kernel object
+materialises for such a reference stays owned by the split materialisation triggers
+(the shell's port trigger and the core's link trigger), unaffected here.
+
 *Undeclared references*
 - `TenantAbsent` — a construct names a tenant not declared → declare it or fix
   the name. Its payload is a typed `Referrer` (D3), never a construct-name
