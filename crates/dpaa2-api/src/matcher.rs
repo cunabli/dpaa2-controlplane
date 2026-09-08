@@ -118,8 +118,8 @@ pub enum ConfigFacet {
         /// of that payload — the matcher compares two same-owner tenants
         /// attribute-by-attribute, so it flattens the holder name into its own facet
         /// field rather than re-deriving it from the `isolation` variant. Kept, not
-        /// re-keyed; the model twin is `match.qnt`'s `ConfigFacet` `Tenant.pool`
-        /// (decision 11).
+        /// re-keyed; the model twin is a Rust-only projection explained in the
+        /// 093.7 note on `observed.qnt`'s config facet (decision 11).
         pool: TenantName,
     },
 }

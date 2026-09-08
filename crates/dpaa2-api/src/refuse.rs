@@ -283,7 +283,8 @@ pub enum Refusal {
     /// away (vocabulary-v2 D4): the target would be claimed twice. The compile-side
     /// twin of the parse check (`crates/dpaa2-config/src/parse.rs` `check_renames`),
     /// covering both the tenant and the port/link/fabric namespaces. Deliberate
-    /// duplication across the config→api seam (design D11).
+    /// duplication across the config→api seam (design D11): the raw model twin is
+    /// `intent_raw.qnt` `RenamedFromDeclared` (`crates/dpaa2-verify/src/raw_itf.rs`).
     RenameDoubleClaim {
         /// The construct declaring the rename.
         construct: ConstructName,
@@ -296,6 +297,8 @@ pub enum Refusal {
     /// the fact. The reserved [`kernel_tenant`] is materialised into the tenant list
     /// by the frontend and derive, so it is exempt — only a kernel-named tenant of a
     /// non-reserved shape is the programmatic declaration the TOML boundary refuses.
+    /// Deliberate duplication across the config→api seam (design D11): the raw model
+    /// twin is `intent_raw.qnt` `ReservedKernel` (`crates/dpaa2-verify/src/raw_itf.rs`).
     KernelDeclared,
 }
 
@@ -1683,12 +1686,6 @@ mod compile_tests {
         );
     }
 
-    // The `PoolWithoutRestricted` / `RestrictedWithoutPool` shapes are now
-    // unrepresentable (vocabulary-v2 D1): `Isolation::Restricted` carries the pool
-    // in its payload, so a pool on a non-restricted tenant and a restricted tenant
-    // with no pool have no constructor. There is nothing to refuse and no test to
-    // write — the parse surface still names both (`raw_conformance`).
-
     #[test]
     fn refuse_holder_not_public() {
         let intent = Intent {
@@ -1778,9 +1775,12 @@ mod compile_tests {
         };
         // `compile` returns the refusal set (Err), so derivation's plan is never
         // handed out; the self-loop is named.
-        assert!(err(&intent, &ref_inv()).contains(&Refusal::LinkSelfLoop {
-            link: "wire".into()
-        }));
+        assert_eq!(
+            err(&intent, &ref_inv()),
+            BTreeSet::from([Refusal::LinkSelfLoop {
+                link: "wire".into()
+            }])
+        );
     }
 
     /// Spec scenario "A programmatic kernel declaration is refused" (vocabulary-v2 D4):
@@ -1798,7 +1798,10 @@ mod compile_tests {
             )],
             ..Intent::default()
         };
-        assert!(err(&intent, &ref_inv()).contains(&Refusal::KernelDeclared));
+        assert_eq!(
+            err(&intent, &ref_inv()),
+            BTreeSet::from([Refusal::KernelDeclared])
+        );
     }
 
     /// Spec scenario "A programmatic rename double-claim is refused" (vocabulary-v2 D4):
@@ -1820,11 +1823,12 @@ mod compile_tests {
             ports: vec![mk("e0", 7, Some("wan0")), mk("wan0", 8, None)],
             ..Intent::default()
         };
-        assert!(
-            err(&intent, &ref_inv()).contains(&Refusal::RenameDoubleClaim {
+        assert_eq!(
+            err(&intent, &ref_inv()),
+            BTreeSet::from([Refusal::RenameDoubleClaim {
                 construct: "e0".into(),
                 from: "wan0".into(),
-            })
+            }])
         );
     }
 

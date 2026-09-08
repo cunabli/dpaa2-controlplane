@@ -428,6 +428,13 @@ Each site carries the deliberate-duplication doc note naming its parse twin.*
   wrong-kernel-reaching-derive hole this twin closes. Twin of `parse.rs`
   `convert`.
 
+*vocabulary-v2-followups revision (duplicate names, vocabulary-v2 D11).* Compile
+deliberately carries no `DuplicateName` refusal — a name shared across families
+(port, link, fabric, extra sort to separate namespaces during synthesis, so
+cross-family collision is unrepresentable after identity reification) is checked
+only in the raw parse layer. The raw model's `intent_raw.qnt` `rawDuplicateNameTest`
+and its frozen trace cover this one-sided D11 row.
+
 Two warnings attach to an accepted compile: `UnknownCeiling` (a derived
 family's ceiling is Unknown, so feasibility could not check it — accepted, not
 refused) and `UnmeasuredCombination` (a userspace-poll tenant mixes more than
@@ -470,8 +477,8 @@ INTENT_I1–I10); the Rust type surface (task 3.1) transcribes what they prove.
   namespace, online CPUs for the root kernel), every dpni carries ≥ T
   (poll-mode) or exactly `cpus` (kernel) transmit queues, and every object of
   a tenant lives in that tenant's container. The id deliberately carries
-  ADR-0012's pricing term *regime* — the model records the bridge at
-  `types.qnt:35-37`.
+  ADR-0012's pricing term *regime* — the model records the bridge in the
+  `Dataplane` comment in `types.qnt`.
 - **INTENT_I9 `isolatedContainerPrivate`** — an isolated tenant's objects live
   only in its own child dprc, and no other tenant's objects appear there; a
   holder must be public, so an isolated container is never a pool target.

@@ -74,7 +74,7 @@ each checkbox names its bead.
   ROADMAP.md. Land the two discovered-decision doc notes (beads
   dpaa2-controlplane-093.7 and .8, closed by this task): the matcher's
   `ConfigFacet::Tenant.pool` stays a deliberate second reading of the
-  `Restricted` payload (noted at matcher.rs and `match.qnt`, decision 11),
+  `Restricted` payload (noted at matcher.rs and the 093.7 note in `observed.qnt`, decision 11),
   and the tools shell's `complete_kernel` owns port-only kernel
   materialisation while the pure core's `effective_tenants` owns the link
   trigger (noted at both twins). Verify: synthesis B1 acceptance greps all

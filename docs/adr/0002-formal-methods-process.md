@@ -89,7 +89,10 @@ constructors share the value namespace with type names, so the model prefixes
 `Member`'s constructors `M…` (`MPort` ⇒ `Member::Port`) and `Referrer`'s `Ref…`
 (`RefPort` ⇒ `Referrer::Port`) while Rust namespaces them under the enum — the
 ITF decoder maps the tags one-to-one and the isomorphism holds on structure, the
-prefix being a spelling artifact the law explicitly permits.
+prefix being a spelling artifact the law explicitly permits. Variant-payload
+projections (flattening into sibling fields when semantically equivalent) are
+permitted when documented in a model honesty block (e.g., the 093.7 note on
+`observed.qnt`'s config facet explaining the matcher's flat `pool`).
 
 What a typestate can prove (amended 2026-08-23): the encoding captures the
 transition *sequences* the code itself enforces, making undesired

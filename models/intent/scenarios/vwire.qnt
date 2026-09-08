@@ -29,8 +29,8 @@
 // reserved kernel is public and counts as kernel-netlink, so a userspace-poll
 // drawer pooling it is a dataplane mismatch — refused with EXACTLY
 // { PoolDataplaneMismatch } naming vpp, its drawer dataplane and the holder's,
-// and nothing else: pool set keeps RestrictedWithoutPool/PoolWithoutRestricted
-// quiet, and the kernel branch never reaches HolderNotPublic/PoolChain.
+// and nothing else: RestrictedWithoutPool/PoolWithoutRestricted unrepresentable
+// since D1, and the kernel branch never reaches HolderNotPublic/PoolChain.
 //
 // Anchors: drivers/bus/fsl-mc/dprc-driver.c the nested child-dprc drive;
 // drivers/bus/fsl-mc/fsl-mc-allocator.c companions drawn from the consumer's

@@ -43,7 +43,7 @@ bead. Evidence for every item: the review ledger in
 
 ## 4. Docs, pointers, and tests say what shipped (design D3)
 
-- [ ] 4.1 (bead dpaa2-controlplane-568) The ten amendments from synthesis
+- [x] 4.1 (bead dpaa2-controlplane-568) The ten amendments from synthesis
   §5 B4: matcher.rs 093.7 note repoints to `observed.qnt` and the
   archived tasks.md 5.2 is corrected; COVERAGE.md records all 18
   requested raw witnesses or states the omission; ADR-0002 names the

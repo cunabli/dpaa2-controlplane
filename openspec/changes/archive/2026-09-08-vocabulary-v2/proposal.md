@@ -87,7 +87,7 @@ None — this hardens existing vocabulary and refusal surfaces.
 - `crates/dpaa2-verify`: ledger R11/R14 legs re-checked against the new
   alphabet.
 - `models/intent/`: `types.qnt`, `refuse.qnt`, `intent_raw.qnt` (DEVIATION
-  note), `alphabet.qnt`, regenerated witnesses under `models/traces/`.
+  note), `alphabet.qnt`, regenerated witnesses under `models/intent/traces/`.
 - `docs/adr/0013-*`: §5 amended once.
 - Acceptance (synthesis B1 verbatim): `grep -rn 'pool.is_empty\|pool: "".into'
   crates/` returns nothing; parse-side named errors unchanged

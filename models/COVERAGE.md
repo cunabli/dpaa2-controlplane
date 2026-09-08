@@ -304,6 +304,11 @@ was violated.
   its frozen `rawDuplicateNameTrace` — never a silent gap, the same honesty
   mechanism `wForeignAnchor` uses on the intent side.
 
+- **`wKernelDeclared` 1583, `wRawPortPresent` 1671, `wRawLinkPresent` 1669,
+  `wRawFabricPresent` 1645, `wRawExtraPresent` 1679 (structure-dimension
+  witnesses)**: record whether structure facets are present in the sweep,
+  orthogonal to refusal coverage; counts from the pinned seed-20260905 run.
+
 ## Identity-across-time laws (task 6.4)
 
 The `intent-layer` change's identity-across-time laws (`models/intent/match.qnt`'s
