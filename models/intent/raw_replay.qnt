@@ -67,7 +67,7 @@ module intent_raw_replay {
       .with("ports", Map("p1" -> { dpmac: 7, rate: 10000, tenant: "", from: "" }))
       .with("fabrics", Map("p1" -> { switching: Hardware, forwardedBy: KERNEL, members: [], from: "" })))
 
-  // A link naming one tenant at both ends — LinkSelfLoop (parse.rs convert_link).
+  // A link naming one tenant at both ends — RawLinkSelfLoop (parse.rs convert_link).
   run rawSelfLoopTrace = feed(
     emptyRaw.with("tenants", Map("c1" -> rtBase))
       .with("links", Map("l1" -> { interfaceA: "c1", interfaceB: "c1", from: "" })))

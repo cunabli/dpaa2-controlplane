@@ -38,7 +38,7 @@ const TRACES: &[&str] = &[
 const REQUIRED_KINDS: &[Kind] = &[
     Kind::ReservedKernel,
     Kind::DuplicateName,
-    Kind::LinkSelfLoop,
+    Kind::RawLinkSelfLoop,
     Kind::RawMemberUnresolved,
     Kind::UnknownExtraFamily,
     Kind::TenantAbsent,

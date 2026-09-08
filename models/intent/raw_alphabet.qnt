@@ -108,7 +108,7 @@ module intent_raw_alphabet {
     }
   }
 
-  // A link put under its name key (task 3.3d): equal ends are the LinkSelfLoop
+  // A link put under its name key (task 3.3d): equal ends are the RawLinkSelfLoop
   // near-miss, a "ghost" end the dangling case.
   action addLink = {
     nondet nm = R_LINK_NAMES.oneOf()
@@ -170,7 +170,7 @@ module intent_raw_alphabet {
   val wRawRefused = parseRefusals(raw) != Set()
   val wReservedKernel = refusesWith(raw, isReservedKernel)
   val wDuplicateName = refusesWith(raw, isDuplicateName)
-  val wLinkSelfLoop = refusesWith(raw, isLinkSelfLoop)
+  val wRawLinkSelfLoop = refusesWith(raw, isRawLinkSelfLoop)
   val wRawMemberUnresolved = refusesWith(raw, isRawMemberUnresolved)
   val wUnknownExtraFamily = refusesWith(raw, isUnknownExtraFamily)
   val wRenamedFromDeclared = refusesWith(raw, isRenamedFromDeclared)

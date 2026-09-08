@@ -34,7 +34,7 @@ bead. Evidence for every item: the review ledger in
 
 ## 3. The raw self-loop rename finishes (design D3)
 
-- [ ] 3.1 (bead dpaa2-controlplane-xgu) `Kind::LinkSelfLoop`,
+- [x] 3.1 (bead dpaa2-controlplane-xgu) `Kind::LinkSelfLoop`,
   `isLinkSelfLoop`, `wLinkSelfLoop` take the `Raw*` spelling across
   `raw_itf.rs`, `raw_conformance.rs`, `raw_alphabet.qnt`,
   `intent_raw.qnt`, `package.json`, `COVERAGE.md`; raw witnesses

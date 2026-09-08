@@ -247,7 +247,7 @@ module intent_raw {
 
   // parse.rs convert_port/convert_link/convert_fabric/convert_crypto/convert_extra:
   // a construct naming an undeclared tenant refuses TenantAbsent (reused from
-  // compile); a link naming one tenant at both ends refuses LinkSelfLoop.
+  // compile); a link naming one tenant at both ends refuses RawLinkSelfLoop.
   pure def tenantRefRefusals(raw: RawIntent): Set[RawRefusal] =
     val fromPorts = raw.ports.keys().fold(Set(), (acc, n) =>
       val p = raw.ports.get(n)
@@ -388,7 +388,7 @@ module intent_raw {
 
   pure def isReservedKernel(r: RawRefusal): bool = match r { | ReservedKernel(_) => true | _ => false }
   pure def isDuplicateName(r: RawRefusal): bool = match r { | DuplicateName(_) => true | _ => false }
-  pure def isLinkSelfLoop(r: RawRefusal): bool = match r { | RawLinkSelfLoop(_) => true | _ => false }
+  pure def isRawLinkSelfLoop(r: RawRefusal): bool = match r { | RawLinkSelfLoop(_) => true | _ => false }
   pure def isRawMemberUnresolved(r: RawRefusal): bool = match r { | RawMemberUnresolved(_) => true | _ => false }
   pure def isUnknownExtraFamily(r: RawRefusal): bool = match r { | UnknownExtraFamily(_) => true | _ => false }
   pure def isRenamedFromDeclared(r: RawRefusal): bool = match r { | RenamedFromDeclared(_) => true | _ => false }
@@ -531,7 +531,7 @@ module intent_raw {
   pure def nearMissRefusedByName(raw: RawIntent): bool = and {
     hasReservedKernelDecl(raw) implies refusesWith(raw, isReservedKernel),
     hasDuplicateConstruct(raw) implies refusesWith(raw, isDuplicateName),
-    hasSelfLoop(raw) implies refusesWith(raw, isLinkSelfLoop),
+    hasSelfLoop(raw) implies refusesWith(raw, isRawLinkSelfLoop),
     hasUnresolvedMember(raw) implies refusesWith(raw, isRawMemberUnresolved),
     hasUnknownExtraFamily(raw) implies refusesWith(raw, isUnknownExtraFamily),
     hasDanglingTenantRef(raw) implies refusesWith(raw, isTenantAbsent),
@@ -565,7 +565,7 @@ module intent_raw {
   // does not: the alphabet accepts a self-link).
   run rawLinkSelfLoopTest =
     val raw = emptyRaw.with("tenants", Map("c1" -> rtPoll)).with("links", Map("l1" -> { interfaceA: "c1", interfaceB: "c1", from: "" }))
-    refusesWith(raw, isLinkSelfLoop)
+    refusesWith(raw, isRawLinkSelfLoop)
 
   // An [extra.<tenant>] naming a family not one of the 16 (parse.rs parse_family).
   run rawUnknownFamilyTest =

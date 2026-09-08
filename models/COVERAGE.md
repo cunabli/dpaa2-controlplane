@@ -288,7 +288,7 @@ reverse, fails the harness (`models/intent/raw_replay.qnt` freezes the corpus,
 
 Every near-miss the dirty alphabet reaches (seed 20260905, 10 steps, 2000
 samples, re-run for the vocabulary-v2 raw-layer changes — task 5.1):
-`wReservedKernel` 1583, `wLinkSelfLoop` 492 (the raw `RawLinkSelfLoop`,
+`wReservedKernel` 1583, `wRawLinkSelfLoop` 492 (the raw `RawLinkSelfLoop`,
 Raw-prefixed since compile now owns a `LinkSelfLoop`, D4), `wRawMemberUnresolved`
 1170, `wUnknownExtraFamily` 840, `wTenantAbsent` 1984, `wPoolWithoutRestricted`
 812, `wRestrictedWithoutPool` 424, `wNonPositiveExtra` 1189, `wNonPositiveRate`

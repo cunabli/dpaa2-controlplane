@@ -216,8 +216,8 @@ pub enum Kind {
     ReservedKernel,
     /// `DuplicateName` — a duplicate construct name.
     DuplicateName,
-    /// `LinkSelfLoop` — a self-loop link.
-    LinkSelfLoop,
+    /// `RawLinkSelfLoop` — a self-loop link.
+    RawLinkSelfLoop,
     /// `RawMemberUnresolved` — an unresolved fabric member.
     RawMemberUnresolved,
     /// `UnknownExtraFamily` — an unknown extra family.
@@ -236,7 +236,7 @@ impl RawRefusal {
             RawRefusal::RestrictedWithoutPool { .. } => Kind::RestrictedWithoutPool,
             RawRefusal::ReservedKernel { .. } => Kind::ReservedKernel,
             RawRefusal::DuplicateName { .. } => Kind::DuplicateName,
-            RawRefusal::RawLinkSelfLoop { .. } => Kind::LinkSelfLoop,
+            RawRefusal::RawLinkSelfLoop { .. } => Kind::RawLinkSelfLoop,
             RawRefusal::RawMemberUnresolved { .. } => Kind::RawMemberUnresolved,
             RawRefusal::UnknownExtraFamily { .. } => Kind::UnknownExtraFamily,
             RawRefusal::RenamedFromDeclared { .. } => Kind::RenamedFromDeclared,
