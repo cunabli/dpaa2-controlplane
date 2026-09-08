@@ -42,10 +42,10 @@ module router {
   // accelerator. No dpio, dpbp, dpcon, dpmcp, dpseci, queue or worker count
   // appears — every object and count is derived (ADR-0005).
   pure val accepted: Intent =
-    { tenants: [{ name: "router", dataplane: UserspacePoll, maxCores: 16, isolation: Isolated, from: "" }],
-      ports: [{ name: "wan0", dpmac: 9, rate: 10000, tenant: Named("router"), from: "" },
-              { name: "wan1", dpmac: 10, rate: 10000, tenant: Named("router"), from: "" },
-              { name: "up0", dpmac: 4, rate: 25000, tenant: Named("router"), from: "" }],
+    { tenants: [{ name: "router", dataplane: UserspacePoll, maxCores: 16, isolation: Isolated, from: NotRenamed }],
+      ports: [{ name: "wan0", dpmac: 9, rate: 10000, tenant: Named("router"), from: NotRenamed },
+              { name: "wan1", dpmac: 10, rate: 10000, tenant: Named("router"), from: NotRenamed },
+              { name: "up0", dpmac: 4, rate: 25000, tenant: Named("router"), from: NotRenamed }],
       links: [],
       fabrics: [],
       crypto: [{ tenant: "router", flows: 2 }],
@@ -58,9 +58,9 @@ module router {
   pure val twin: Intent =
     accepted
       .with("tenants", accepted.tenants.append(
-        { name: "router2", dataplane: UserspacePoll, maxCores: 16, isolation: Isolated, from: "" }))
+        { name: "router2", dataplane: UserspacePoll, maxCores: 16, isolation: Isolated, from: NotRenamed }))
       .with("ports", accepted.ports.append(
-        { name: "clash0", dpmac: 9, rate: 10000, tenant: Named("router2"), from: "" }))
+        { name: "clash0", dpmac: 9, rate: 10000, tenant: Named("router2"), from: NotRenamed }))
 
   // The expected plan shape (design D3/D4/D6): three dpnis (one per port) at
   // T = 10 transmit queues with the ADR-0012 poll-mode draws — dpio = 2·T =

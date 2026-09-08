@@ -62,6 +62,20 @@ impl TenantRef {
     /// [`TenantRef::Named`]. This is the single normalisation the parser applies at
     /// the TOML boundary (design D2) — the KERNEL sentinel classification lives here,
     /// core-side, so an adapter reports a name and lets the vocabulary judge it.
+    ///
+    /// Domain split from the model twin `tenantRefOf` (`types.qnt`): the model folds
+    /// `""` → [`TenantRef::Kernel`] because it lowers the *raw string domain*, where
+    /// `""` IS the omitted-tenant default. This Rust side does **not** fold `""` — the
+    /// raw side carries an `Option`, so `""` reaching `from_name` is a (bogus) *name*,
+    /// not an omission; folding it to [`TenantRef::Kernel`] would silently bless an
+    /// empty string the API should never see. An empty name stays [`TenantRef::Named`]:
+    ///
+    /// ```
+    /// use dpaa2_api::{TenantRef, TenantName, KERNEL};
+    /// // "" is a name here, never "the kernel": the raw Option already carried absence.
+    /// assert_eq!(TenantRef::from_name(TenantName::from("")), TenantRef::Named("".into()));
+    /// assert_eq!(TenantRef::from_name(TenantName::from(KERNEL)), TenantRef::Kernel);
+    /// ```
     #[must_use]
     pub fn from_name(name: TenantName) -> Self {
         if name.is_kernel() {
@@ -120,6 +134,15 @@ pub enum Dataplane {
 /// restricted tenant with no pool, have no constructor — they are unrepresentable
 /// rather than refused, and restrictedness is read off the variant, never a `""`
 /// sentinel. Not `Copy`: the [`TenantName`] payload owns a heap string.
+///
+/// TYPESTATE HAZARDS (deferred to the typestate roadmap change, not this one): two
+/// zero-value escape hatches survive the sum encoding and want a typestate to close.
+/// (a) [`Default`] on `Isolation` (and on [`Intent`]) admits a zero-value intent that
+/// never routes a tenant reference through [`TenantRef::from_name`], so its `""`→name
+/// discipline can be skipped by constructing the value directly. (b) An empty
+/// [`TenantName`] is constructible (`TenantName::from("")`), so an empty pool holder or
+/// tenant name is representable at the type level though no valid intent carries one.
+/// Both are recorded here for the future typestate change; no code change lands now.
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Default)]
 pub enum Isolation {
     /// A holder that accepts legal drawers into its own dprc; the reserved kernel

@@ -166,7 +166,7 @@ module intent_alphabet {
       intent.tenants.length() < 3,
       intent' = intent.with("tenants", intent.tenants.append({
         name: TENANT_NAMES.nth(intent.tenants.length() - 1),
-        dataplane: dataplane, maxCores: maxCores, isolation: isolation, from: "" })),
+        dataplane: dataplane, maxCores: maxCores, isolation: isolation, from: NotRenamed })),
     }
   }
 
@@ -183,7 +183,7 @@ module intent_alphabet {
       // the same normalisation the parser applies.
       intent' = intent.with("ports", intent.ports.append({
         name: PORT_NAMES.nth(intent.ports.length()),
-        dpmac: dpmac, rate: rate, tenant: tenantRefOf(tenant), from: "" })),
+        dpmac: dpmac, rate: rate, tenant: tenantRefOf(tenant), from: NotRenamed })),
     }
   }
 
@@ -195,7 +195,7 @@ module intent_alphabet {
     all {
       intent.links.length() == 0,
       intent.tenants.length() >= 2,
-      intent' = intent.with("links", intent.links.append({ name: "l1", interfaceA: tenantRefOf(a), interfaceB: tenantRefOf(b), from: "" })),
+      intent' = intent.with("links", intent.links.append({ name: "l1", interfaceA: tenantRefOf(a), interfaceB: tenantRefOf(b), from: NotRenamed })),
     }
   }
 
@@ -207,7 +207,7 @@ module intent_alphabet {
     all {
       intent.fabrics.length() == 0,
       intent' = intent.with("fabrics", intent.fabrics.append({
-        name: "f1", switching: switching, forwardedBy: forwardedBy, members: members, from: "" })),
+        name: "f1", switching: switching, forwardedBy: forwardedBy, members: members, from: NotRenamed })),
     }
   }
 

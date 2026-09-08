@@ -40,6 +40,13 @@ module intent_types {
   // name Named. The single normalisation the raw→neutral lowering applies at the
   // TOML boundary (vocabulary-v2 D2); the KERNEL sentinel classification lives
   // here, once.
+  //
+  // Domain split from the Rust twin `TenantRef::from_name` (dpaa2-api intent.rs):
+  // this `tenantRefOf` folds "" → Kernel because it lowers the RAW string domain,
+  // where "" IS the omitted-tenant default. Rust `from_name` does NOT fold "" — the
+  // Rust raw side carries `Option`, so an "" reaching `from_name` is a (bogus) name,
+  // not an omission, and folding it to Kernel would silently bless an empty string
+  // the API should never see. The "" here is a legitimate raw-domain fold.
   pure def tenantRefOf(n: str): TenantRef =
     if (n == "" or n == KERNEL) Kernel else Named(n)
 
@@ -49,6 +56,26 @@ module intent_types {
   // never reaches a TenantAbsent — it carries no absent name; intent/refuse.qnt).
   pure def tenantRefName(r: TenantRef): str =
     match r { | Kernel => KERNEL | Named(n) => n }
+
+  // An accepted `renamed = { from }` clause (ADR-0015 decision 10 / task 6.5):
+  // NotRenamed — no clause; RenamedFrom(name) — the construct's declared prior name.
+  // This is the two-case sum the Rust twin `renamed: Option<ConstructName>` already is
+  // (dpaa2-api intent.rs; design D2), replacing the retired `from: str` with `""` =
+  // absent. The clause widens the rename matcher's acceptance set, is inert after one
+  // converge, and compile ignores it (intent/derive.qnt). The raw TOML string lowers
+  // into this sum at the parse boundary via `renameOf`.
+  type Rename = NotRenamed | RenamedFrom(str)
+
+  // Lower a raw `renamed.from` string into the rename sum: "" (the absent clause — the
+  // omission convention of the raw TOML surface, intent/intent_raw.qnt) yields
+  // NotRenamed, any name RenamedFrom(name). The single raw→neutral normalisation the
+  // parser applies at the TOML boundary, sibling to tenantRefOf's ""→Kernel fold: the
+  // "" sentinel classification lives here, once, core-side. This is a raw-domain fold
+  // ("" IS the omission in the raw string domain), so its "" is legitimate exactly as
+  // tenantRefOf's is. The Rust image is the parse seam mapping `renamed.from` into
+  // `Option` (crates/dpaa2-config/src/parse.rs).
+  pure def renameOf(s: str): Rename =
+    if (s == "") NotRenamed else RenamedFrom(s)
 
   // The dataplane a tenant runs (design D1; ADR-0012 pricing): KernelNetlink
   // — the kernel's own driver, configured over netlink; UserspacePoll — a
@@ -87,28 +114,31 @@ module intent_types {
   // for a Restricted tenant, names the public holder it draws inside as the
   // variant payload — there is no separate `pool` field and no "" sentinel
   // (vocabulary-v2 D1). The pool legality rules are intent/refuse.qnt (task 2.6c).
-  // `from` carries an accepted `renamed = { from }` clause ("" = absent) into the
-  // neutral model for the rename matcher (ADR-0015 decision 10 / task 6.5): it
-  // widens the matcher's acceptance set, is inert after one converge, and compile
-  // ignores it (intent/derive.qnt).
-  type Tenant = { name: str, dataplane: Dataplane, maxCores: int, isolation: Isolation, from: str }
+  // `from` carries an accepted `renamed = { from }` clause as the `Rename` sum
+  // (NotRenamed | RenamedFrom(name); Rust twin `renamed: Option<ConstructName>`,
+  // dpaa2-api intent.rs) into the neutral model for the rename matcher (ADR-0015
+  // decision 10 / task 6.5): it widens the matcher's acceptance set, is inert after
+  // one converge, and compile ignores it (intent/derive.qnt).
+  type Tenant = { name: str, dataplane: Dataplane, maxCores: int, isolation: Isolation, from: Rename }
 
   // A port: the dpmac anchor, the rate the port must deliver in Mbps (the
   // unit `dpmac info` reports its maximum in), and the tenant reference that
   // terminates it (`TenantRef`, vocabulary-v2 D2 — the reserved kernel or a
   // declared tenant, never a `""` sentinel). A port named by a fabric is
   // terminated by the fabric's forwarding tenant — a port tenant that differs is
-  // a refusal (task 1.3). `from` carries an accepted rename clause ("" = absent)
-  // for the matcher (ADR-0015 decision 10 / task 6.5); compile ignores it.
-  type Port = { name: str, dpmac: int, rate: int, tenant: TenantRef, from: str }
+  // a refusal (task 1.3). `from` carries an accepted rename clause as the `Rename`
+  // sum (Rust twin `renamed: Option<ConstructName>`, dpaa2-api intent.rs) for the
+  // matcher (ADR-0015 decision 10 / task 6.5); compile ignores it.
+  type Port = { name: str, dpmac: int, rate: int, tenant: TenantRef, from: Rename }
 
   // A link: point-to-point dpni↔dpni pseudo-wire between two tenants
   // (object-model.md §2, DPNI-I9); each end is a `TenantRef` naming the tenant
   // whose interface terminates the wire — interfaces, not ports (leaves room for
   // tunnels), and the reserved kernel is nameable at an end as the Kernel case
-  // (vocabulary-v2 D2). `from` carries an accepted rename clause ("" = absent)
-  // for the matcher (ADR-0015 decision 10 / task 6.5); compile ignores it.
-  type Link = { name: str, interfaceA: TenantRef, interfaceB: TenantRef, from: str }
+  // (vocabulary-v2 D2). `from` carries an accepted rename clause as the `Rename`
+  // sum (Rust twin `renamed: Option<ConstructName>`, dpaa2-api intent.rs) for the
+  // matcher (ADR-0015 decision 10 / task 6.5); compile ignores it.
+  type Link = { name: str, interfaceA: TenantRef, interfaceB: TenantRef, from: Rename }
 
   // Who forwards between the members: Hardware — a DPSW (figure 6c), which
   // only the kernel can drive (dpsw.md: DPDK has no claim path); Software —
@@ -127,9 +157,10 @@ module intent_types {
   // task 3.3d). It does NOT number dpni ordinals — those come from the fabric's
   // NAME through the attach/wire origins (intent/derive.qnt), so a fabric block
   // reorder never renumbers a dpni (ADR-0015 decision 5).
-  // `from` carries an accepted rename clause ("" = absent) for the matcher
+  // `from` carries an accepted rename clause as the `Rename` sum (Rust twin
+  // `renamed: Option<ConstructName>`, dpaa2-api intent.rs) for the matcher
   // (ADR-0015 decision 10 / task 6.5); compile ignores it.
-  type Fabric = { name: str, switching: Switching, forwardedBy: str, members: List[Member], from: str }
+  type Fabric = { name: str, switching: Switching, forwardedBy: str, members: List[Member], from: Rename }
 
   // An accelerator for one tenant; its dpseci queue count derives from this
   // construct's own `flows` — a tenant-visible demand, never an object count
@@ -170,7 +201,7 @@ module intent_types {
   // The reserved kernel is implicitly public (task 2.6c): a Restricted tenant
   // may pool it, and it never itself draws inside another holder.
   pure def kernelTenant(maxCores: int): Tenant =
-    { name: KERNEL, dataplane: KernelNetlink, maxCores: maxCores, isolation: Public, from: "" }
+    { name: KERNEL, dataplane: KernelNetlink, maxCores: maxCores, isolation: Public, from: NotRenamed }
 
   // ---- canonical name order (ADR-0015 decision 5; task 3.3d) ----
 
@@ -283,6 +314,7 @@ module intent_types {
   pure val ETH_IFS: Set[EthInterface] = Set(XFI, CAUI, RGMII)
   pure val DATAPLANES: Set[Dataplane] = Set(KernelNetlink, UserspacePoll, UserspaceEvent)
   pure val TENANT_REFS: Set[TenantRef] = Set(Kernel, Named("t"))
+  pure val RENAMES: Set[Rename] = Set(NotRenamed, RenamedFrom("old"))
   pure val ISOLATIONS: Set[Isolation] = Set(Public, Restricted("h"), Isolated)
   pure val SWITCHINGS: Set[Switching] = Set(Hardware, Software)
   pure val MEMBERS: Set[Member] = Set(MPort("p"), MTenant("c"), MFabric("f"))

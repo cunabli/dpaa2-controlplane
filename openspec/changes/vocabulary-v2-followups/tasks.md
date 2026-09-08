@@ -22,7 +22,7 @@ bead. Evidence for every item: the review ledger in
 
 ## 2. The empty-string case-encoding leaves the twins (design D2)
 
-- [ ] 2.1 (bead dpaa2-controlplane-5vz) `types.qnt` rename field becomes
+- [x] 2.1 (bead dpaa2-controlplane-5vz) `types.qnt` rename field becomes
   the `NotRenamed | RenamedFrom` sum (model-first; Rust `Option` is its
   image, field doc names the twin); rule 15 and every `from != ""` test
   become match arms; traces regenerate. Same commit: `holderPool` becomes

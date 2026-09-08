@@ -348,7 +348,7 @@ module intent_raw {
         .foldl([], (acc, n) =>
           val t = raw.tenants.get(n)
           acc.append({ name: n, dataplane: t.dataplane, maxCores: t.maxCores,
-            isolation: rawIsolationToIsolation(t.isolation, t.pool), from: t.from })),
+            isolation: rawIsolationToIsolation(t.isolation, t.pool), from: renameOf(t.from) })),
       // Ports and links emit in canonical NAME order (task 3.3d): the neutral
       // Intent keeps a List, but the order carries no identity — the derivation
       // sorts by name (intent/derive.qnt) — so emitting name-sorted keeps the
@@ -359,17 +359,17 @@ module intent_raw {
           // Lower the raw tenant string into the neutral `TenantRef` sum: "" (the
           // omitted-tenant default) and "kernel" both become Kernel, else Named
           // (vocabulary-v2 D2, the parse-boundary normalisation `tenantRefOf`).
-          acc.append({ name: n, dpmac: p.dpmac, rate: p.rate, tenant: tenantRefOf(p.tenant), from: p.from })),
+          acc.append({ name: n, dpmac: p.dpmac, rate: p.rate, tenant: tenantRefOf(p.tenant), from: renameOf(p.from) })),
       links: sortByRank(raw.links.keys().fold([], (acc, n) => acc.append(n)), n => nameRank(n))
         .foldl([], (acc, n) =>
           val l = raw.links.get(n)
           // Lower each raw link end into the neutral `TenantRef` sum: an explicit
           // "kernel" end becomes Kernel, else Named (vocabulary-v2 D2).
-          acc.append({ name: n, interfaceA: tenantRefOf(l.interfaceA), interfaceB: tenantRefOf(l.interfaceB), from: l.from })),
+          acc.append({ name: n, interfaceA: tenantRefOf(l.interfaceA), interfaceB: tenantRefOf(l.interfaceB), from: renameOf(l.from) })),
       fabrics: raw.fabrics.keys().fold([], (acc, n) =>
         val f = raw.fabrics.get(n)
         acc.append({ name: n, switching: f.switching, forwardedBy: f.forwardedBy,
-          members: f.members.foldl([], (a2, m) => a2.append(classifyMember(raw, m))), from: f.from })),
+          members: f.members.foldl([], (a2, m) => a2.append(classifyMember(raw, m))), from: renameOf(f.from) })),
       crypto: raw.crypto.foldl([], (acc, k) => acc.append({ tenant: k.tenant, flows: k.flows })),
       extras: raw.extras.keys().fold(Set(), (acc, t) =>
         raw.extras.get(t).keys().fold(acc, (a2, fam) =>
@@ -511,14 +511,16 @@ module intent_raw {
           i.ports.length() == raw.ports.keys().size(),
           i.links.length() == raw.links.keys().size(),
           i.crypto.length() == raw.crypto.length(),
+          // The intent `from` is the `Rename` sum; lower the raw string the same way
+          // toIntent does (renameOf) before comparing — the clause survives verbatim.
           raw.tenants.keys().forall(n =>
-            i.tenants.foldl(false, (a, t) => a or (t.name == n and t.from == raw.tenants.get(n).from))),
+            i.tenants.foldl(false, (a, t) => a or (t.name == n and t.from == renameOf(raw.tenants.get(n).from)))),
           raw.ports.keys().forall(n =>
-            i.ports.foldl(false, (a, p) => a or (p.name == n and p.from == raw.ports.get(n).from))),
+            i.ports.foldl(false, (a, p) => a or (p.name == n and p.from == renameOf(raw.ports.get(n).from)))),
           raw.links.keys().forall(n =>
-            i.links.foldl(false, (a, l) => a or (l.name == n and l.from == raw.links.get(n).from))),
+            i.links.foldl(false, (a, l) => a or (l.name == n and l.from == renameOf(raw.links.get(n).from)))),
           raw.fabrics.keys().forall(n =>
-            i.fabrics.foldl(false, (a, f) => a or (f.name == n and f.from == raw.fabrics.get(n).from))),
+            i.fabrics.foldl(false, (a, f) => a or (f.name == n and f.from == renameOf(raw.fabrics.get(n).from)))),
         }
     }
 

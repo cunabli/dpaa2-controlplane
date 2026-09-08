@@ -378,24 +378,33 @@ fn convert_tenant(name: &TenantName, t: &RawTenant) -> Result<Tenant, Error> {
     // (`intent_raw.qnt`); their text is pinned by review and `raw_conformance`, so
     // a dedup would silently break the conformance suite.
     let restricted = matches!(t.isolation, RawIsolation::Restricted);
-    let pool = t.pool.clone().unwrap_or_else(|| "".into());
-    let has_pool = !pool.as_str().is_empty();
-    if restricted && !has_pool {
-        return Err(cfg(format!(
-            "tenant `{name}` is `restricted` but names no `pool` holder"
-        )));
-    }
-    if !restricted && has_pool {
-        return Err(cfg(format!(
-            "tenant `{name}` names a `pool` (`{pool}`) but is not `restricted`; a pool is legal \
-             only on a restricted tenant"
-        )));
+    // Read the optional holder as an `Option`, treating an empty string as absent (the
+    // raw "" = absent convention, `intent_raw.qnt`) — never manufacture a `""` from the
+    // `Option`, so parse's two named errors stay byte-identical (pinned by
+    // `raw_conformance`, and the config→api-seam twins of the model's raw-native
+    // `RestrictedWithoutPool` / `PoolWithoutRestricted`).
+    let pool = t.pool.clone().filter(|p| !p.as_str().is_empty());
+    match (restricted, &pool) {
+        (true, None) => {
+            return Err(cfg(format!(
+                "tenant `{name}` is `restricted` but names no `pool` holder"
+            )));
+        }
+        (false, Some(pool)) => {
+            return Err(cfg(format!(
+                "tenant `{name}` names a `pool` (`{pool}`) but is not `restricted`; a pool is legal \
+                 only on a restricted tenant"
+            )));
+        }
+        _ => {}
     }
     let isolation = match t.isolation {
         RawIsolation::Public => Isolation::Public,
-        // `restricted && has_pool` holds here by the check above, so the payload
-        // carries the accepted holder name.
-        RawIsolation::Restricted => Isolation::Restricted { pool },
+        // `restricted` with a present pool holds here by the match above, so the
+        // payload carries the accepted holder name.
+        RawIsolation::Restricted => Isolation::Restricted {
+            pool: pool.expect("a restricted tenant carries a pool by the match above"),
+        },
         RawIsolation::Isolated => Isolation::Isolated,
     };
     let dataplane = match t.dataplane {

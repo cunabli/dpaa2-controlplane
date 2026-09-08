@@ -351,8 +351,13 @@ module intent_refuse {
   // kernel counting as kernel-netlink, so a kernel-netlink drawer must pool the
   // kernel and a userspace-poll drawer pooling the kernel is a mismatch.
   // UnpricedDataplane (rule 11) is untouched.
-  pure def holderPool(h: Tenant): str =
-    match h.isolation { | Restricted(p) => p | _ => "" }
+  // Whether the holder itself carries a pool (a chain): read off the Restricted
+  // payload, never a "" sentinel. The pool NAME is not needed here — PoolChain names
+  // the drawer and its holder — so this answers the yes/no question actually asked.
+  // The Rust twin reads the same off `Isolation::Restricted { .. }` (refuse.rs
+  // pool_refusals), no sentinel.
+  pure def holderHasPool(h: Tenant): bool =
+    match h.isolation { | Restricted(_) => true | _ => false }
 
   pure def poolRefusals(intent: Intent, inv: Inventory): Set[Refusal] =
     intent.tenants.foldl(Set(), (acc, c) =>
@@ -366,7 +371,7 @@ module intent_refuse {
               | None => acc.union(Set(TenantAbsent({ referrer: RefPool(c.name), tenant: pool })))
               | Some(h) =>
                   (if (h.isolation != Public) Set(HolderNotPublic({ tenant: c.name, holder: pool })) else Set())
-                    .union(if (holderPool(h) != "") Set(PoolChain({ tenant: c.name, holder: pool })) else Set())
+                    .union(if (holderHasPool(h)) Set(PoolChain({ tenant: c.name, holder: pool })) else Set())
                     .union(if (c.dataplane != h.dataplane) Set(PoolDataplaneMismatch({ tenant: c.name, drawer: c.dataplane, holder: h.dataplane })) else Set())
                     .union(acc)
             }
@@ -397,26 +402,40 @@ module intent_refuse {
   // declared and not itself renamed away claims it twice. Tenants resolve against
   // declared tenants; ports/links/fabrics against their shared namespace (the same
   // two-namespace split parse.rs makes).
+  // "Declared and not itself renamed away": the target is present AND its own `from`
+  // is NotRenamed — the sum's nullary arm, no "" sentinel (Rust twin: `renamed.is_none()`).
   pure def tenantDeclaredUnrenamed(intent: Intent, n: str): bool =
-    intent.tenants.foldl(false, (a, t) => a or (t.name == n and t.from == ""))
+    intent.tenants.foldl(false, (a, t) => a or (t.name == n and t.from == NotRenamed))
   pure def constructDeclaredUnrenamed(intent: Intent, n: str): bool = or {
-    intent.ports.foldl(false, (a, p) => a or (p.name == n and p.from == "")),
-    intent.links.foldl(false, (a, l) => a or (l.name == n and l.from == "")),
-    intent.fabrics.foldl(false, (a, f) => a or (f.name == n and f.from == "")),
+    intent.ports.foldl(false, (a, p) => a or (p.name == n and p.from == NotRenamed)),
+    intent.links.foldl(false, (a, l) => a or (l.name == n and l.from == NotRenamed)),
+    intent.fabrics.foldl(false, (a, f) => a or (f.name == n and f.from == NotRenamed)),
   }
   pure def renameDoubleClaimRefusals(intent: Intent, inv: Inventory): Set[Refusal] =
     val fromTenants = intent.tenants.foldl(Set(), (acc, t) =>
-      if (t.from != "" and tenantDeclaredUnrenamed(intent, t.from))
-        acc.union(Set(RenameDoubleClaim({ construct: t.name, from: t.from }))) else acc)
+      match t.from {
+        | RenamedFrom(f) => if (tenantDeclaredUnrenamed(intent, f))
+            acc.union(Set(RenameDoubleClaim({ construct: t.name, from: f }))) else acc
+        | NotRenamed => acc
+      })
     val fromPorts = intent.ports.foldl(fromTenants, (acc, p) =>
-      if (p.from != "" and constructDeclaredUnrenamed(intent, p.from))
-        acc.union(Set(RenameDoubleClaim({ construct: p.name, from: p.from }))) else acc)
+      match p.from {
+        | RenamedFrom(f) => if (constructDeclaredUnrenamed(intent, f))
+            acc.union(Set(RenameDoubleClaim({ construct: p.name, from: f }))) else acc
+        | NotRenamed => acc
+      })
     val fromLinks = intent.links.foldl(fromPorts, (acc, l) =>
-      if (l.from != "" and constructDeclaredUnrenamed(intent, l.from))
-        acc.union(Set(RenameDoubleClaim({ construct: l.name, from: l.from }))) else acc)
+      match l.from {
+        | RenamedFrom(f) => if (constructDeclaredUnrenamed(intent, f))
+            acc.union(Set(RenameDoubleClaim({ construct: l.name, from: f }))) else acc
+        | NotRenamed => acc
+      })
     intent.fabrics.foldl(fromLinks, (acc, f) =>
-      if (f.from != "" and constructDeclaredUnrenamed(intent, f.from))
-        acc.union(Set(RenameDoubleClaim({ construct: f.name, from: f.from }))) else acc)
+      match f.from {
+        | RenamedFrom(fr) => if (constructDeclaredUnrenamed(intent, fr))
+            acc.union(Set(RenameDoubleClaim({ construct: f.name, from: fr }))) else acc
+        | NotRenamed => acc
+      })
 
   // Every rule runs unconditionally; the refusal set is their union.
   pure def refusals(intent: Intent, inv: Inventory): Set[Refusal] =

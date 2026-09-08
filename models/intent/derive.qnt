@@ -844,8 +844,8 @@ module intent_derive {
     DprcAttrs({ options: Set() }))
   pure val MARKS_USE: Set[Measurement] = Set(Measured, Unmeasured)
   pure val ORIGINS_USE: Set[Origin] = Set(
-    OPort({ name: "p", dpmac: 0, rate: 0, tenant: Named("c"), from: "" }),
-    OLink({ link: { name: "l", interfaceA: Named("c"), interfaceB: Named("d"), from: "" }, side: 0 }),
+    OPort({ name: "p", dpmac: 0, rate: 0, tenant: Named("c"), from: NotRenamed }),
+    OLink({ link: { name: "l", interfaceA: Named("c"), interfaceB: Named("d"), from: NotRenamed }, side: 0 }),
     OAttach("f"),
     OWireOwner({ fabric: "f", peer: "c" }),
     OWireMember("f"))
