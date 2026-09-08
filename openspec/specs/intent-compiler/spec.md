@@ -6,22 +6,33 @@ TBD - created by archiving change intent-layer. Update Purpose after archive.
 ### Requirement: Intent is a frontend-neutral vocabulary of network constructs
 The `dpaa2-api` crate SHALL define an `Intent` type composed of five
 constructs — tenant (name, dataplane `kernel-netlink`, `userspace-poll`, or
-`userspace-event`, a `max_cores` budget, an `isolation` of `public`,
-`restricted`, or `isolated` defaulting to `isolated`, and a `pool` naming
-a holder when `restricted`),
-port (dpmac anchor, rate, owning tenant), link (two tenant ends),
+`userspace-event`, a `max_cores` budget, and an `isolation` of `public`,
+`restricted` — which carries the `pool` holder name as its payload —
+or `isolated`, defaulting to `isolated`),
+port (dpmac anchor, rate, and an owning tenant reference), link (two
+tenant-reference ends),
 fabric (members — ports, tenants, or fabrics — and a `switching`
 qualifier, hardware or software), and crypto (per tenant, with a `flows`
 count) — carrying no serialization derives and no field for a dpio, dpbp,
-dpcon, dpmcp, queue or worker count. The tenant name `kernel` SHALL be
+dpcon, dpmcp, queue or worker count. A `restricted` tenant without a pool,
+and a pool on a non-restricted tenant, SHALL be unrepresentable in the
+type. Every tenant reference — a port's owning tenant and each link end
+— SHALL be one shared two-case sum: the reserved kernel, or a declared
+tenant name. The sum SHALL carry no default: a programmatic intent
+states every reference explicitly, and "an omitted port tenant means
+the kernel" is a rule of the TOML boundary applied by the parser, never
+by the type. No empty-string sentinel or optional SHALL stand for an
+absent pool or for a tenant reference. The tenant name `kernel` SHALL be
 reserved for the root-container `kernel-netlink` dataplane, is implicitly
 `public`, and MAY be named at a link interface end without being declared.
 (ADR-0005 §1, ADR-0012)
 
 #### Scenario: A port without a tenant belongs to the kernel
 - **WHEN** an intent contains a port that names no tenant
-- **THEN** the port is owned by the reserved `kernel` tenant in the
-  root container
+- **THEN** the port's tenant is the sum's kernel case, the port is owned
+  by the reserved `kernel` tenant in the root container, and no refusal
+  can name `kernel` as an absent tenant — the kernel case carries no name
+  to refuse
 
 #### Scenario: A chain of switches is stated as composition
 - **WHEN** a software fabric forwarded by a userspace-poll tenant lists
@@ -50,19 +61,26 @@ reserved for the root-container `kernel-netlink` dataplane, is implicitly
   the tenant derives no DPRC of its own, and it keeps its own dataplane
   companion draw
 
-#### Scenario: A pool is refused when its shape is illegal
-- **WHEN** a `pool` is named on a non-restricted tenant, a `restricted`
-  tenant names no pool, or the named holder is absent, not `public`,
-  itself pooled, or of a different dataplane than the drawer
+#### Scenario: An illegal pool shape is unrepresentable
+- **WHEN** Rust code attempts to state a `restricted` tenant with no
+  pool, or a pool on a `public` or `isolated` tenant
+- **THEN** the program does not compile — the shape has no constructor —
+  and no `Refusal` variant exists for either shape
+
+#### Scenario: A pool holder is refused when illegal
+- **WHEN** a `restricted` tenant's `pool` names a holder that is absent,
+  not `public`, itself pooled, or of a different dataplane than the
+  drawer
 - **THEN** the compile refuses by name and never derives the drawer into
   an illegal container
 
 #### Scenario: The kernel is nameable at a link end
 - **WHEN** a link names `kernel` at one end and the intent never declares
   the kernel tenant
-- **THEN** the compile does not refuse the end as absent, and the
-  kernel's link-end dpni is materialised in the root container at cpus
-  transmit queues
+- **THEN** the parser yields the sum's kernel case for that end, the
+  compile does not refuse it as absent — structurally it carries no name
+  to refuse — and the kernel's link-end dpni is materialised in the root
+  container at cpus transmit queues
 
 ### Requirement: The inventory is the observed hardware offer
 The compiler SHALL take an `Inventory` value describing what the
@@ -141,7 +159,16 @@ num_ifs`, PER_FDB flooding and broadcast, control interface enabled.
 ### Requirement: The compiler refuses by name
 The compiler SHALL refuse, with a variant naming the rule and the
 offending construct, on: a construct naming an undeclared tenant
-(`TenantAbsent`, DPDCEI-I1 generalised); an unanchored dpmac (not in
+(`TenantAbsent`, DPDCEI-I1 generalised), whose payload SHALL identify the
+referencing site as a typed enum (port, link end, fabric forwarder,
+crypto, extra, pool drawer) rather than a construct-name string, so no
+reserved token can collide with a declared construct name; a tenant
+declared under the reserved name `kernel` in any shape other than the
+exact reserved kernel value, which the shell legitimately injects
+(`KernelDeclared`); a link
+whose two ends resolve to the same tenant (`LinkSelfLoop`); a rename
+`from` claiming a construct that is currently declared and not itself
+renamed (`RenameDoubleClaim`); an unanchored dpmac (not in
 the inventory); a reserved or foreign dpmac; a dpmac claimed by two
 constructs; a port rate above its dpmac's `max_rate`; a hardware fabric
 forwarded by a tenant other than the kernel; a member port whose tenant
@@ -153,8 +180,7 @@ one dpseci's 16 queue pairs (`DPSECI_MAX_QUEUE_NUM`) — one block is one
 device, so the demand is refused, not clamped, and split across blocks; a
 userspace-poll tenant terminating a rate class with no
 seeded worker row; a tenant whose dataplane has no companion pricing
-(`userspace-event` today); a pool named on a non-restricted tenant, a
-restricted tenant naming no pool, a pool holder that is absent, not
+(`userspace-event` today); a pool holder that is absent, not
 `public`, or itself pooled (no chains), or a drawer whose dataplane
 differs from its holder's (the reserved kernel counting as
 kernel-netlink); a member naming an undeclared port or fabric, or a
@@ -162,6 +188,10 @@ fabric listing itself as a member; and cross-tenant infeasibility, where the
 sum of derived draws exceeds a `Counted` or `Observed` ceiling — naming
 the family, the amount needed, and the amount available. An `Unknown`
 ceiling SHALL produce a warning in provenance, never a refusal. The
+compile-side `KernelDeclared`, `LinkSelfLoop`, and `RenameDoubleClaim`
+rules SHALL mirror their parse-side twins verbatim, each site carrying a
+doc note naming its twin (deliberate duplication across the config→api
+seam, design D11). The
 `Refusal` and `Dataplane` types SHALL be `#[non_exhaustive]`, and a
 `PoolShortfall` variant SHALL be reserved for the reconciler's
 live-census refusal.
@@ -204,6 +234,34 @@ live-census refusal.
 - **WHEN** an intent claims `dpmac.17` and also exceeds `max_cores`
 - **THEN** the refusal list holds both `Reserved` and
   `CoreBudgetExceeded`
+
+#### Scenario: A programmatic self-loop link is refused
+- **WHEN** an `Intent` built in Rust (never parsed) contains a link
+  whose two ends name the same tenant
+- **THEN** compilation is refused with `LinkSelfLoop` naming the link,
+  and the link never reaches derivation
+
+#### Scenario: A programmatic kernel declaration is refused
+- **WHEN** an `Intent` built in Rust declares a tenant named `kernel`
+  whose shape differs from the exact reserved kernel value
+- **THEN** compilation is refused with `KernelDeclared`; an intent
+  carrying the exact reserved value is accepted, because the shell
+  injects that value when completing the kernel and compile cannot
+  distinguish the injection from a declaration
+
+#### Scenario: A programmatic rename double-claim is refused
+- **WHEN** an `Intent` built in Rust carries a construct whose rename
+  `from` names another construct that is currently declared and not
+  itself renamed
+- **THEN** compilation is refused with `RenameDoubleClaim` naming the
+  claiming construct and the contested name
+
+#### Scenario: A port named pool cannot collide in refusal rendering
+- **WHEN** an intent declares a port named `pool` and a restricted
+  tenant whose pool holder is undeclared
+- **THEN** the `TenantAbsent` refusal for the missing holder identifies
+  the drawing tenant through the typed referrer, distinguishable from
+  any refusal referring to the port `pool`
 
 ### Requirement: Derived counts are requests; extras add on top
 Every derived count SHALL be a *request*; an `[extra.<tenant>]` entry,
