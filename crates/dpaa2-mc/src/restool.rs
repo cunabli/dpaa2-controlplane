@@ -10,8 +10,9 @@
 use std::collections::BTreeMap;
 
 use dpaa2_api::{
-    Availability, Ceiling, ConstructName, DERIVED_FAMILIES, DpmacId, DpmacOffer, DpniId, Error,
-    Family, Inventory, McControl, ObservedDpmac, ObservedDpni, ObservedTopology,
+    Availability, Ceiling, ConstructName, DERIVED_FAMILIES, DpmacId, DpmacOffer, DpniId, DprcId,
+    Error, Family, Inventory, McControl, ObjectRef, ObservedDpmac, ObservedDpni, ObservedTopology,
+    dprc,
 };
 
 use crate::parse;
@@ -66,6 +67,33 @@ fn ceiling_of(family: Family, pools: &BTreeMap<String, i64>) -> Ceiling {
         },
         _ => Ceiling::Unknown,
     }
+}
+
+/// Renders a child-DPRC option mask into the `--options=` argument for `dprc create`,
+/// or `None` when it is the restool default. The default mask
+/// (`SPAWN|ALLOC|OBJ_CREATE|IRQ_CFG`) is applied by restool when `--options` is omitted
+/// (DPRC-I4; `docs/baseline/dprc.md` "create details"), so the common consumer-container
+/// case issues no `--options` at all. A non-default mask renders the set bits as their
+/// `DPRC_CFG_OPT_*` tokens; the lifecycle [`dprc::Options`] carries only the four
+/// refusal-gating bits, which is exactly what the derivation varies.
+fn render_options(options: dprc::Options) -> Option<String> {
+    if options == dprc::Options::DEFAULT {
+        return None;
+    }
+    let mut bits = Vec::new();
+    if options.spawn {
+        bits.push("DPRC_CFG_OPT_SPAWN_ALLOWED");
+    }
+    if options.alloc {
+        bits.push("DPRC_CFG_OPT_ALLOC_ALLOWED");
+    }
+    if options.obj_create {
+        bits.push("DPRC_CFG_OPT_OBJ_CREATE_ALLOWED");
+    }
+    if options.topology_changes {
+        bits.push("DPRC_CFG_OPT_TOPOLOGY_CHANGES_ALLOWED");
+    }
+    Some(format!("--options={}", bits.join(",")))
 }
 
 /// One step in a transactional provisioning chain (see
@@ -316,6 +344,36 @@ impl<R: Runner> RestoolMc<R> {
         self.runner.run(&["dprc", "sync"])?;
         Ok(())
     }
+
+    /// Issues one `dprc` MC command and classifies a refusal into a typed [`Error`]
+    /// (design D4). On a non-zero exit the shim reports the *shape* restool returned,
+    /// never a bare string: an MC firmware refusal carries a status token (`(0x…)`,
+    /// `docs/baseline/dprc.md` unknown-register #3) and surfaces as [`Error::McStatus`]
+    /// with the raw byte for the core to judge; a restool client-side guard fires
+    /// before any MC command and so carries no status, surfacing as
+    /// [`Error::RestoolGuard`] with the verbatim message (DPRC-I3). The adapter reports;
+    /// the classification of *which* refusal a status means lives core-side
+    /// (`dprc::Refusal`/`dprc_plan::attribute_mc`).
+    fn run_verb(&self, args: &[&str]) -> Result<String, Error> {
+        let out = self.runner.run_capture(args)?;
+        if out.code == Some(0) {
+            return Ok(out.stdout);
+        }
+        // restool prints its diagnostic to stderr; fall back to stdout if empty.
+        let diag = if out.stderr.trim().is_empty() {
+            out.stdout.as_str()
+        } else {
+            out.stderr.as_str()
+        };
+        parse::parse_mc_status(diag).map_or_else(
+            || {
+                Err(Error::RestoolGuard {
+                    detail: diag.trim().to_owned(),
+                })
+            },
+            |status| Err(Error::McStatus { status }),
+        )
+    }
 }
 
 impl<R: Runner> McControl for RestoolMc<R> {
@@ -543,11 +601,372 @@ impl<R: Runner> McControl for RestoolMc<R> {
         self.runner.run(&["dpni", "destroy", &dpni.to_string()])?;
         self.sync()
     }
+
+    fn dprc_create(
+        &self,
+        parent: DprcId,
+        options: dprc::Options,
+        label: &ConstructName,
+    ) -> Result<DprcId, Error> {
+        // `dprc create <parent> [--options] --label=<name>`. The default mask omits
+        // `--options` (DPRC-I4). No plug follows: a created DPRC reads back unplugged
+        // and restool cannot plug a DPRC (V-POOL-1 rev 2), so the create is the whole
+        // mutation. The created id is read straight back from restool's echo, the
+        // handle the caller re-observes by (DPRC-I6: re-observe, never trust `sync`).
+        let parent = parent.to_string();
+        let label = format!("--label={label}");
+        let options = render_options(options);
+        let mut args: Vec<&str> = vec!["dprc", "create", &parent];
+        if let Some(opt) = options.as_deref() {
+            args.push(opt);
+        }
+        args.push(&label);
+        let out = self.run_verb(&args)?;
+        parse::parse_dprc_id(&out)
+            .ok_or_else(|| Error::Parse(format!("no container id in `{}`", out.trim())))
+    }
+
+    fn dprc_destroy(&self, container: DprcId) -> Result<(), Error> {
+        self.run_verb(&["dprc", "destroy", &container.to_string()])?;
+        Ok(())
+    }
+
+    fn dprc_assign(
+        &self,
+        container: DprcId,
+        object: ObjectRef,
+        child: Option<DprcId>,
+        plugged: Option<bool>,
+    ) -> Result<(), Error> {
+        // One `dprc assign` bears both faces: `--child` re-parents, `--plugged` sets
+        // driver-binding. A plugged object cannot be moved — restool refuses that
+        // client-side (DPRC-I3), surfaced by `run_verb` as `Error::RestoolGuard`.
+        let container = container.to_string();
+        let mut args: Vec<String> = vec![
+            "dprc".into(),
+            "assign".into(),
+            container,
+            format!("--object={object}"),
+        ];
+        if let Some(child) = child {
+            args.push(format!("--child={child}"));
+        }
+        if let Some(plugged) = plugged {
+            args.push(format!("--plugged={}", u8::from(plugged)));
+        }
+        let args: Vec<&str> = args.iter().map(String::as_str).collect();
+        self.run_verb(&args)?;
+        Ok(())
+    }
+
+    fn dprc_unassign(&self, parent: DprcId, child: DprcId, object: ObjectRef) -> Result<(), Error> {
+        self.run_verb(&[
+            "dprc",
+            "unassign",
+            &parent.to_string(),
+            &format!("--child={child}"),
+            &format!("--object={object}"),
+        ])?;
+        Ok(())
+    }
+
+    fn dprc_set_label(&self, container: DprcId, label: &ConstructName) -> Result<(), Error> {
+        self.run_verb(&[
+            "dprc",
+            "set-label",
+            &container.to_string(),
+            &format!("--label={label}"),
+        ])?;
+        Ok(())
+    }
+
+    fn dprc_set_locked(&self, child: DprcId, locked: bool) -> Result<(), Error> {
+        self.run_verb(&[
+            "dprc",
+            "set-locked",
+            &child.to_string(),
+            &format!("--locked={}", u8::from(locked)),
+        ])?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::cell::RefCell;
+    use std::collections::HashMap;
+
+    use crate::runner::RunOutcome;
+
     use super::*;
+
+    /// A [`Runner`] that replays a canned [`RunOutcome`] keyed by the joined argument
+    /// line and records every call, so a verb's exact command and a refusal's typed
+    /// shape can both be asserted with no board (the transcript-test idiom).
+    struct ScriptedRunner {
+        outcomes: HashMap<String, RunOutcome>,
+        calls: RefCell<Vec<Vec<String>>>,
+    }
+
+    /// A success outcome carrying `stdout`.
+    fn ok(stdout: &str) -> RunOutcome {
+        RunOutcome {
+            stdout: stdout.to_owned(),
+            stderr: String::new(),
+            code: Some(0),
+        }
+    }
+
+    /// A refusal outcome: non-zero exit with `stderr` (what restool prints on refusal).
+    fn refused(stderr: &str) -> RunOutcome {
+        RunOutcome {
+            stdout: String::new(),
+            stderr: stderr.to_owned(),
+            code: Some(1),
+        }
+    }
+
+    impl ScriptedRunner {
+        fn new(pairs: Vec<(&str, RunOutcome)>) -> Self {
+            Self {
+                outcomes: pairs.into_iter().map(|(k, v)| (k.to_owned(), v)).collect(),
+                calls: RefCell::new(Vec::new()),
+            }
+        }
+
+        fn calls(&self) -> Vec<Vec<String>> {
+            self.calls.borrow().clone()
+        }
+    }
+
+    impl Runner for ScriptedRunner {
+        fn run(&self, args: &[&str]) -> Result<String, Error> {
+            let out = self.run_capture(args)?;
+            if out.code == Some(0) {
+                Ok(out.stdout)
+            } else {
+                Err(Error::Backend(out.stderr))
+            }
+        }
+
+        fn run_capture(&self, args: &[&str]) -> Result<RunOutcome, Error> {
+            self.calls
+                .borrow_mut()
+                .push(args.iter().map(|s| (*s).to_owned()).collect());
+            self.outcomes.get(&args.join(" ")).cloned().ok_or_else(|| {
+                Error::Backend(format!("no scripted outcome for `{}`", args.join(" ")))
+            })
+        }
+    }
+
+    // ---- dprc verb surface (dprc-encapsulation task 3.1) ----
+
+    #[test]
+    fn dprc_create_returns_child_id_and_reads_back_unplugged() {
+        // The create scenario contract: the child's id comes back for re-observation,
+        // and the create is the *whole* mutation — no plug follows (a created DPRC is
+        // unplugged, V-POOL-1 rev 2). Default options ⇒ no `--options` (DPRC-I4).
+        let runner =
+            ScriptedRunner::new(vec![("dprc create dprc.1 --label=scratch", ok("dprc.3\n"))]);
+        let mc = RestoolMc::with_runner(runner, DEFAULT_CONTAINER);
+
+        let id = mc
+            .dprc_create(
+                DprcId::new(1),
+                dprc::Options::DEFAULT,
+                &ConstructName::from("scratch"),
+            )
+            .expect("create");
+
+        assert_eq!(id, DprcId::new(3));
+        // Exactly one command: no plug/assign, so the child reads back unplugged.
+        assert_eq!(mc.runner().calls().len(), 1);
+    }
+
+    #[test]
+    fn dprc_create_renders_nondefault_options() {
+        // A non-default mask (topology-changes added) renders an explicit `--options=`.
+        let options = dprc::Options {
+            topology_changes: true,
+            ..dprc::Options::DEFAULT
+        };
+        let cmd = "dprc create dprc.1 \
+            --options=DPRC_CFG_OPT_SPAWN_ALLOWED,DPRC_CFG_OPT_ALLOC_ALLOWED,\
+            DPRC_CFG_OPT_OBJ_CREATE_ALLOWED,DPRC_CFG_OPT_TOPOLOGY_CHANGES_ALLOWED \
+            --label=scratch"
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ");
+        let runner = ScriptedRunner::new(vec![(cmd.as_str(), ok("dprc.4\n"))]);
+        let mc = RestoolMc::with_runner(runner, DEFAULT_CONTAINER);
+
+        let id = mc
+            .dprc_create(DprcId::new(1), options, &ConstructName::from("scratch"))
+            .expect("create with options");
+        assert_eq!(id, DprcId::new(4));
+    }
+
+    #[test]
+    fn dprc_destroy_issues_destroy() {
+        let runner = ScriptedRunner::new(vec![("dprc destroy dprc.2", ok(""))]);
+        let mc = RestoolMc::with_runner(runner, DEFAULT_CONTAINER);
+        mc.dprc_destroy(DprcId::new(2)).expect("destroy");
+        assert_eq!(mc.runner().calls()[0], vec!["dprc", "destroy", "dprc.2"]);
+    }
+
+    #[test]
+    fn dprc_assign_places_child_and_sets_plugged() {
+        let runner = ScriptedRunner::new(vec![(
+            "dprc assign dprc.1 --object=dpbp.0 --child=dprc.2 --plugged=1",
+            ok(""),
+        )]);
+        let mc = RestoolMc::with_runner(runner, DEFAULT_CONTAINER);
+        mc.dprc_assign(
+            DprcId::new(1),
+            ObjectRef::new(Family::Dpbp, 0),
+            Some(DprcId::new(2)),
+            Some(true),
+        )
+        .expect("assign");
+        assert_eq!(
+            mc.runner().calls()[0],
+            vec![
+                "dprc",
+                "assign",
+                "dprc.1",
+                "--object=dpbp.0",
+                "--child=dprc.2",
+                "--plugged=1"
+            ]
+        );
+    }
+
+    #[test]
+    fn dprc_unassign_moves_object_up_to_parent() {
+        let runner = ScriptedRunner::new(vec![(
+            "dprc unassign dprc.1 --child=dprc.2 --object=dpbp.0",
+            ok(""),
+        )]);
+        let mc = RestoolMc::with_runner(runner, DEFAULT_CONTAINER);
+        mc.dprc_unassign(
+            DprcId::new(1),
+            DprcId::new(2),
+            ObjectRef::new(Family::Dpbp, 0),
+        )
+        .expect("unassign");
+        assert_eq!(
+            mc.runner().calls()[0],
+            vec![
+                "dprc",
+                "unassign",
+                "dprc.1",
+                "--child=dprc.2",
+                "--object=dpbp.0"
+            ]
+        );
+    }
+
+    #[test]
+    fn dprc_set_label_rewrites_the_container_label() {
+        let runner = ScriptedRunner::new(vec![("dprc set-label dprc.2 --label=scratch", ok(""))]);
+        let mc = RestoolMc::with_runner(runner, DEFAULT_CONTAINER);
+        mc.dprc_set_label(DprcId::new(2), &ConstructName::from("scratch"))
+            .expect("set-label");
+        assert_eq!(
+            mc.runner().calls()[0],
+            vec!["dprc", "set-label", "dprc.2", "--label=scratch"]
+        );
+    }
+
+    #[test]
+    fn dprc_set_locked_locks_the_hierarchy() {
+        let runner = ScriptedRunner::new(vec![("dprc set-locked dprc.2 --locked=1", ok(""))]);
+        let mc = RestoolMc::with_runner(runner, DEFAULT_CONTAINER);
+        mc.dprc_set_locked(DprcId::new(2), true)
+            .expect("set-locked");
+        assert_eq!(
+            mc.runner().calls()[0],
+            vec!["dprc", "set-locked", "dprc.2", "--locked=1"]
+        );
+    }
+
+    #[test]
+    fn mc_status_refusal_carries_the_raw_status() {
+        // A no-privilege sibling move (0x4): the shim reports the raw status for the
+        // core to judge (design D4), never a scraped string.
+        let runner = ScriptedRunner::new(vec![(
+            "dprc assign dprc.1 --object=dpbp.0 --child=dprc.2",
+            refused("error: dprc_assign() failed: No privilege (0x4)"),
+        )]);
+        let mc = RestoolMc::with_runner(runner, DEFAULT_CONTAINER);
+        let err = mc
+            .dprc_assign(
+                DprcId::new(1),
+                ObjectRef::new(Family::Dpbp, 0),
+                Some(DprcId::new(2)),
+                None,
+            )
+            .expect_err("refused");
+        assert!(matches!(err, Error::McStatus { status: 4 }), "got {err:?}");
+    }
+
+    #[test]
+    fn client_guard_refusal_is_a_distinct_typed_error() {
+        // The plugged-move guard (DPRC-I3) fires before any MC command, so there is no
+        // status token; it must surface as `RestoolGuard`, distinguishable from an MC
+        // status refusal (the create-scenario's companion contract).
+        let guard =
+            "error: cannot be moved because it is currently in plugged state; unplug it first";
+        let runner = ScriptedRunner::new(vec![(
+            "dprc assign dprc.1 --object=dpbp.0 --child=dprc.2",
+            refused(guard),
+        )]);
+        let mc = RestoolMc::with_runner(runner, DEFAULT_CONTAINER);
+        let err = mc
+            .dprc_assign(
+                DprcId::new(1),
+                ObjectRef::new(Family::Dpbp, 0),
+                Some(DprcId::new(2)),
+                None,
+            )
+            .expect_err("refused");
+        match err {
+            Error::RestoolGuard { detail } => assert!(detail.contains("plugged state")),
+            other => panic!("expected RestoolGuard, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn destroy_distinguishes_mc_ebusy_from_client_guard() {
+        // Destroying a container with a plugged resident is refused. Two shapes must
+        // stay distinct: the MC's own `-EBUSY` (a status token ⇒ `McStatus`) and a
+        // restool client-side pre-check (no token ⇒ `RestoolGuard`).
+        let mc_ebusy = RestoolMc::with_runner(
+            ScriptedRunner::new(vec![(
+                "dprc destroy dprc.2",
+                refused("error: dprc_destroy() failed: Device is busy (0x10)"),
+            )]),
+            DEFAULT_CONTAINER,
+        );
+        assert!(matches!(
+            mc_ebusy.dprc_destroy(DprcId::new(2)).expect_err("ebusy"),
+            Error::McStatus { status: 0x10 }
+        ));
+
+        let client_guard = RestoolMc::with_runner(
+            ScriptedRunner::new(vec![(
+                "dprc destroy dprc.2",
+                refused("error: container still holds plugged objects; unplug them first"),
+            )]),
+            DEFAULT_CONTAINER,
+        );
+        assert!(matches!(
+            client_guard
+                .dprc_destroy(DprcId::new(2))
+                .expect_err("guard"),
+            Error::RestoolGuard { .. }
+        ));
+    }
 
     /// A [`Runner`] that replays canned output keyed by the joined argument line.
     struct CannedRunner(std::collections::HashMap<String, String>);

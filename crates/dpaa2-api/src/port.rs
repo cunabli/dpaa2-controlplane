@@ -7,10 +7,11 @@
 //! than an action we execute. One northbound port ([`ConfigSource`]) yields the
 //! neutral [`Intent`].
 
+use crate::dprc;
 use crate::error::Error;
 use crate::intent::Intent;
 use crate::inventory::Inventory;
-use crate::model::{DpmacId, DpniId, MacAddr, ObservedTopology};
+use crate::model::{DpmacId, DpniId, DprcId, MacAddr, ObjectRef, ObservedTopology};
 use crate::types::ConstructName;
 
 /// Southbound MC-portal control at MC-command granularity.
@@ -82,6 +83,84 @@ pub trait McControl {
     /// # Errors
     /// Returns an error if destruction fails.
     fn destroy(&self, dpni: DpniId) -> Result<(), Error>;
+
+    // ---- child-DPRC container verbs (dprc-encapsulation, task 3.1) ----
+    //
+    // One method per restool `dprc` subcommand, at MC-command granularity, so a
+    // future ioctl backend maps each one-to-one (mc-backend spec). Each surfaces a
+    // refusal as a typed [`Error`]: an MC firmware status as [`Error::McStatus`] (raw,
+    // core-judged via `dprc::Refusal`/`dprc_plan::attribute_mc`), a restool client-side
+    // guard as [`Error::RestoolGuard`] (design D4; `docs/baseline/dprc.md` DPRC-I3).
+    // The [`dprc`] containment vocabulary stays module-namespaced — imported from its
+    // module path, never flat re-exported — because its `Options` is a distinct type
+    // from the intent-compile surface (design D4).
+
+    /// `dprc create <parent> [--options] [--label]`: mints a child container under
+    /// `parent` and returns its MC-assigned [`DprcId`] for re-observation. The new
+    /// child reads back **unplugged** — a created DPRC is never driver-bound, and
+    /// restool cannot plug a DPRC (`docs/baseline/dprc.md` "Lifecycle ordering",
+    /// V-POOL-1 rev 2) — so this issues no plug.
+    ///
+    /// # Errors
+    /// Returns [`Error::McStatus`] if the MC refuses (e.g. `0x6` when the parent lacks
+    /// `SPAWN_ALLOWED`), [`Error::RestoolGuard`] on a client-side refusal, or
+    /// [`Error::Parse`] if the created id cannot be read back.
+    fn dprc_create(
+        &self,
+        parent: DprcId,
+        options: dprc::Options,
+        label: &ConstructName,
+    ) -> Result<DprcId, Error>;
+
+    /// `dprc destroy <container>`: destroys the child container. A container holding a
+    /// plugged resident is refused `-EBUSY` at the MC ([`Error::McStatus`]); a restool
+    /// client guard may fire first ([`Error::RestoolGuard`]) — the two stay distinct so
+    /// the caller can tell an MC precondition from a client refusal.
+    ///
+    /// # Errors
+    /// Returns [`Error::McStatus`], [`Error::RestoolGuard`], or [`Error::Backend`].
+    fn dprc_destroy(&self, container: DprcId) -> Result<(), Error>;
+
+    /// `dprc assign <container> --object=<o> [--child=<c>] [--plugged=0|1]`: moves
+    /// `object` into `child` (when `child` is `Some`) and/or sets its plugged state
+    /// (when `plugged` is `Some`) — the single restool subcommand that does both. A
+    /// plugged object cannot be moved: restool refuses that client-side before any MC
+    /// command ([`Error::RestoolGuard`]; DPRC-I3).
+    ///
+    /// # Errors
+    /// Returns [`Error::McStatus`] (e.g. `0x4` No privilege on a sibling move) or
+    /// [`Error::RestoolGuard`] (the plugged-move guard).
+    fn dprc_assign(
+        &self,
+        container: DprcId,
+        object: ObjectRef,
+        child: Option<DprcId>,
+        plugged: Option<bool>,
+    ) -> Result<(), Error>;
+
+    /// `dprc unassign <parent> --child=<c> --object=<o>`: moves `object` one hop up
+    /// from `child` back to `parent` (the eviction direction, ADR-0007 §3).
+    ///
+    /// # Errors
+    /// Returns [`Error::McStatus`] or [`Error::RestoolGuard`].
+    fn dprc_unassign(&self, parent: DprcId, child: DprcId, object: ObjectRef) -> Result<(), Error>;
+
+    /// `dprc set-label <container> --label=<s>`: rewrites the container's MC label —
+    /// the label-drift repair verb (design open question: label drift on a locked
+    /// container is repairable; the verb lands even under lock, V-DPRC-3). Distinct
+    /// from [`McControl::set_label`], which labels a DPNI.
+    ///
+    /// # Errors
+    /// Returns [`Error::McStatus`] or [`Error::RestoolGuard`].
+    fn dprc_set_label(&self, container: DprcId, label: &ConstructName) -> Result<(), Error>;
+
+    /// `dprc set-locked <child> --locked=0|1`: locks or unlocks the child container and
+    /// its entire sub-hierarchy (`docs/baseline/dprc.md` "Command surface"; the lock
+    /// strips create/destroy/assign/unassign/lock from the hierarchy, DPRC-I11).
+    ///
+    /// # Errors
+    /// Returns [`Error::McStatus`] or [`Error::RestoolGuard`].
+    fn dprc_set_locked(&self, child: DprcId, locked: bool) -> Result<(), Error>;
 }
 
 /// Southbound kernel-side control: driver binding and netdev observation.

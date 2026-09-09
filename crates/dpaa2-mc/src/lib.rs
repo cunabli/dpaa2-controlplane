@@ -20,4 +20,4 @@ pub mod runner;
 
 pub use kernel::SysfsKernel;
 pub use restool::{DEFAULT_CONTAINER, RestoolMc};
-pub use runner::{RestoolRunner, Runner};
+pub use runner::{RestoolRunner, RunOutcome, Runner};

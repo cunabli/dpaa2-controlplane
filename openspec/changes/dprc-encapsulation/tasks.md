@@ -11,7 +11,7 @@
 
 ## 3. Southbound (dpaa2-mc)
 
-- [ ] 3.1 Restool shim dprc verbs — create, destroy, assign (child + plugged), unassign, set-label, set-locked — at MC-command granularity; MC statuses and restool client-guard refusals surfaced as distinct typed errors; unit tests against recorded restool transcripts
+- [x] 3.1 Restool shim dprc verbs — create, destroy, assign (child + plugged), unassign, set-label, set-locked — at MC-command granularity; MC statuses and restool client-guard refusals surfaced as distinct typed errors; unit tests against recorded restool transcripts
 - [ ] 3.2 KernelControl VFIO face: driver_override write, bind, unbind, bound-state + IOMMU-group observation for child DPRCs; sysfs plumbing testable via the existing Runner seam
 
 ## 4. Northbound and end-to-end (dpaa2-config, dpaa2-tools)

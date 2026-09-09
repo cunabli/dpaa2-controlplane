@@ -7,7 +7,7 @@
 use std::collections::BTreeMap;
 
 use dpaa2_api::{
-    ALL_FAMILIES, DpmacId, DpmacLinkType, DpniId, EthInterface, Family, LinkType, MacAddr,
+    ALL_FAMILIES, DpmacId, DpmacLinkType, DpniId, DprcId, EthInterface, Family, LinkType, MacAddr,
 };
 
 /// Strips `prefix` from `tok` and parses the remainder as the numeric index behind
@@ -21,6 +21,36 @@ fn parse_indexed<T: From<u32>>(tok: &str, prefix: &str) -> Option<T> {
 #[must_use]
 pub fn parse_dpni_object_id(stdout: &str) -> Option<DpniId> {
     parse_indexed(stdout.trim(), "dpni.")
+}
+
+/// Parses the container id `restool dprc create` echoes, e.g. `dprc.3`, into a
+/// [`DprcId`] (`docs/baseline/dprc.md` "create details": the create returns the child
+/// id). Scans for the first `dprc.<n>` token so a portal-offset suffix on the same
+/// line is ignored.
+#[must_use]
+pub fn parse_dprc_id(stdout: &str) -> Option<DprcId> {
+    stdout
+        .split_whitespace()
+        .find_map(|tok| parse_indexed(tok.trim_end_matches([',', ':']), "dprc."))
+}
+
+/// Extracts the MC status byte from a failed `restool` dprc invocation's output.
+///
+/// restool surfaces an MC firmware refusal with the status in parentheses, e.g.
+/// `... (0x6)` (`docs/baseline/dprc.md` unknown-register #3: Configuration error
+/// `0x6`, No resources `0x8`, No privilege `0x4`). Returns the parsed byte, or `None`
+/// when no such token is present — the signal the shim reads as a client-side guard,
+/// which fires before any MC command and so carries no MC status
+/// (`docs/baseline/dprc.md` DPRC-I3). The adapter only extracts the raw byte; the
+/// core judges its meaning (design D4).
+#[must_use]
+pub fn parse_mc_status(output: &str) -> Option<u8> {
+    let start = output.find("(0x")? + 3;
+    let hex: String = output[start..]
+        .chars()
+        .take_while(char::is_ascii_hexdigit)
+        .collect();
+    u8::from_str_radix(&hex, 16).ok()
 }
 
 /// Parses the bare object reference produced by any `restool --script <type> create`
@@ -427,6 +457,34 @@ dpni.7          wan0            plugged
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].family, Family::Dpni);
         assert_eq!(rows[0].num, 7);
+    }
+
+    #[test]
+    fn dprc_id_parses_created_container() {
+        assert_eq!(parse_dprc_id("dprc.3\n"), Some(DprcId::new(3)));
+        // A portal-offset suffix on the line is ignored.
+        assert_eq!(
+            parse_dprc_id("dprc.4, portal offset 0x10\n"),
+            Some(DprcId::new(4))
+        );
+        assert_eq!(parse_dprc_id("no container here"), None);
+    }
+
+    #[test]
+    fn mc_status_extracts_the_parenthesized_byte() {
+        // The three refusal shapes restool prints (unknown-register #3).
+        assert_eq!(parse_mc_status("Configuration error (0x6)"), Some(6));
+        assert_eq!(parse_mc_status("No resources (0x8)"), Some(8));
+        assert_eq!(parse_mc_status("No privilege (0x4)"), Some(4));
+    }
+
+    #[test]
+    fn mc_status_absent_when_no_status_token() {
+        // A restool client-side guard fires before any MC command: no status token.
+        assert_eq!(
+            parse_mc_status("error: cannot be moved because it is currently in plugged state"),
+            None
+        );
     }
 
     #[test]
