@@ -16,6 +16,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use thiserror::Error;
 
 use crate::compiled::CompiledPlan;
+use crate::family::Family;
 use crate::intent::kernel_tenant;
 use crate::types::ConstructName;
 
@@ -184,6 +185,94 @@ impl fmt::Display for DpniId {
 }
 
 impl fmt::Debug for DpniId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{self}")
+    }
+}
+
+/// Identity of a DPRC container object, e.g. `dprc.2`.
+///
+/// The addressing handle a child container is re-observed by after `dprc create`
+/// returns it (`docs/baseline/dprc.md` "create details": the create returns the child
+/// id). Mirrors [`DpniId`]/[`DpmacId`] — an MC-assigned index used only to address an
+/// object, never to match intent — and is the operand of the container-level verbs
+/// (`destroy`/`set-locked`/`assign`'s parent and child).
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct DprcId(u32);
+
+impl DprcId {
+    /// Wraps a raw MC index.
+    #[must_use]
+    pub const fn new(index: u32) -> Self {
+        Self(index)
+    }
+
+    /// The raw MC index. Prefer [`Display`](fmt::Display) (`dprc.N`) for output;
+    /// this is the last-resort accessor for arithmetic or map keys.
+    #[must_use]
+    pub const fn into_inner(self) -> u32 {
+        self.0
+    }
+}
+
+impl From<u32> for DprcId {
+    fn from(index: u32) -> Self {
+        Self(index)
+    }
+}
+
+impl fmt::Display for DprcId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "dprc.{}", self.0)
+    }
+}
+
+impl fmt::Debug for DprcId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{self}")
+    }
+}
+
+/// A concrete board object reference — a `family.ordinal` token such as `dpbp.0`.
+///
+/// The operand of the container `assign`/`unassign` verbs, which move or plug an
+/// arbitrary resident named by this token (`docs/baseline/dprc.md` "Command surface":
+/// `assign <container> --object=<o>`). A name-typed value, so a newtype carrying the
+/// [`Family`] and ordinal rather than a bare `String`; it renders to the restool token
+/// only at the shim boundary (crate rule: name slots use api newtypes).
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct ObjectRef {
+    family: Family,
+    ordinal: u32,
+}
+
+impl ObjectRef {
+    /// Builds a reference to `family.ordinal`.
+    #[must_use]
+    pub const fn new(family: Family, ordinal: u32) -> Self {
+        Self { family, ordinal }
+    }
+
+    /// The referenced object's family.
+    #[must_use]
+    pub const fn family(self) -> Family {
+        self.family
+    }
+
+    /// The referenced object's ordinal.
+    #[must_use]
+    pub const fn ordinal(self) -> u32 {
+        self.ordinal
+    }
+}
+
+impl fmt::Display for ObjectRef {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}.{}", self.family, self.ordinal)
+    }
+}
+
+impl fmt::Debug for ObjectRef {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{self}")
     }

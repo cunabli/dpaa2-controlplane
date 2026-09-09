@@ -16,7 +16,8 @@ use std::collections::HashMap;
 use crate::error::Error;
 use crate::inventory::Inventory;
 use crate::model::{
-    DpmacId, DpniId, LinkType, MacAddr, ObservedDpmac, ObservedDpni, ObservedTopology,
+    DpmacId, DpniId, DprcId, LinkType, MacAddr, ObjectRef, ObservedDpmac, ObservedDpni,
+    ObservedTopology,
 };
 use crate::port::{KernelControl, McControl};
 
@@ -44,6 +45,9 @@ struct FakeState {
     /// The hardware offer [`McControl::read_inventory`] returns; injected by tests
     /// (design D2). Defaults empty — the board offers nothing until seeded.
     inventory: Inventory,
+    /// Next child-DPRC id handed out by [`McControl::dprc_create`]; `dprc.1` is the
+    /// root, so children start at `dprc.2`.
+    next_dprc: u32,
 }
 
 /// In-memory fake implementing both southbound ports over a shared state.
@@ -64,6 +68,7 @@ impl FakeBackend {
                 bind_latency: 0,
                 ready_at: HashMap::new(),
                 inventory: Inventory::default(),
+                next_dprc: 2,
             }),
         }
     }
@@ -265,6 +270,57 @@ impl McControl for FakeBackend {
         let mut st = self.state.borrow_mut();
         st.dpnis.retain(|d| d.id != dpni);
         st.ready_at.remove(&dpni);
+        Ok(())
+    }
+
+    // The container verbs are not modelled by this DPNI-topology fake: reconcile does
+    // not dispatch them yet (that wiring is a later tile), so these keep the trait
+    // total without inventing container state. `dprc_create` still hands back a fresh,
+    // unplugged [`DprcId`] so a caller can re-observe by id (the create contract).
+    fn dprc_create(
+        &self,
+        _parent: DprcId,
+        _options: crate::dprc::Options,
+        _label: &crate::types::ConstructName,
+    ) -> Result<DprcId, Error> {
+        let mut st = self.state.borrow_mut();
+        let id = DprcId::new(st.next_dprc);
+        st.next_dprc += 1;
+        Ok(id)
+    }
+
+    fn dprc_destroy(&self, _container: DprcId) -> Result<(), Error> {
+        Ok(())
+    }
+
+    fn dprc_assign(
+        &self,
+        _container: DprcId,
+        _object: ObjectRef,
+        _child: Option<DprcId>,
+        _plugged: Option<bool>,
+    ) -> Result<(), Error> {
+        Ok(())
+    }
+
+    fn dprc_unassign(
+        &self,
+        _parent: DprcId,
+        _child: DprcId,
+        _object: ObjectRef,
+    ) -> Result<(), Error> {
+        Ok(())
+    }
+
+    fn dprc_set_label(
+        &self,
+        _container: DprcId,
+        _label: &crate::types::ConstructName,
+    ) -> Result<(), Error> {
+        Ok(())
+    }
+
+    fn dprc_set_locked(&self, _child: DprcId, _locked: bool) -> Result<(), Error> {
         Ok(())
     }
 }
