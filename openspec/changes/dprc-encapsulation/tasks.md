@@ -1,7 +1,7 @@
 ## 1. Model gate (Quint first)
 
 - [x] 1.1 Extend `models/families/dprc.qnt` with the container lifecycle sum (Declared → Created/unplugged → Populated → Plugged|Locked → Emptied → Destroyed, VFIO bind state on the plugged face) and the guarded transitions: permission matrix with distinct refusal statuses (0x6/0x8/0x4), eviction law (ADR-0007 §3), visibility law (DPRC-I6), plugged-move precondition (DPRC-I3); typecheck + simulate green
-- [ ] 1.2 Name and mark the invariants (DPRC-I1, I5, I7, I9, I10, restool-reachable remainder of I11) with Apalache marks; update `models/COVERAGE.md` dispositions; record deferral rows for the portal faces (I8, I11 unlock face, OBJ_CREATE gate → tile #10); resolve design open question on label-under-lock repairability in the model
+- [x] 1.2 Name and mark the invariants (DPRC-I1, I5, I7, I9, I10, restool-reachable remainder of I11) with Apalache marks; update `models/COVERAGE.md` dispositions; record deferral rows for the portal faces (I8, I11 unlock face, OBJ_CREATE gate → tile #10); resolve design open question on label-under-lock repairability in the model
 
 ## 2. Pure core (dpaa2-api, sans-io)
 
