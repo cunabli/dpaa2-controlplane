@@ -338,4 +338,31 @@ impl KernelControl for FakeBackend {
         };
         Ok(Self::visible_netdev(&st, obj))
     }
+
+    // The reconcile/convergence tests never bind VFIO (that face is board-only, design
+    // D6), so the fake reports an unbound, group-less, override-clear child and accepts
+    // the actuations as no-ops.
+    fn vfio_set_override(&self, _dprc: DprcId) -> Result<(), Error> {
+        Ok(())
+    }
+
+    fn vfio_bind(&self, _dprc: DprcId) -> Result<(), Error> {
+        Ok(())
+    }
+
+    fn vfio_unbind(&self, _dprc: DprcId) -> Result<(), Error> {
+        Ok(())
+    }
+
+    fn bound_driver(&self, _dprc: DprcId) -> Result<Option<String>, Error> {
+        Ok(None)
+    }
+
+    fn driver_override(&self, _dprc: DprcId) -> Result<Option<String>, Error> {
+        Ok(None)
+    }
+
+    fn iommu_group(&self, _dprc: DprcId) -> Result<Option<u32>, Error> {
+        Ok(None)
+    }
 }
