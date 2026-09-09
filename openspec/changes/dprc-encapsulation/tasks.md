@@ -6,7 +6,7 @@
 ## 2. Pure core (dpaa2-api, sans-io)
 
 - [x] 2.1 Child-DPRC lifecycle typestates isomorphic to the 1.1 sum; invalid transitions unrepresentable; parity test binding Rust to the Quint sum per the ADR-0002 law
-- [ ] 2.2 Plan semantics: containment guards (assign-only-while-unplugged ordering, plugged-move refusal), eviction-law teardown planning with predicted post-state, re-observation-based convergence verdicts (no sync), typed refusal discrimination in drift/permission-gap reporting
+- [x] 2.2 Plan semantics: containment guards (assign-only-while-unplugged ordering, plugged-move refusal), eviction-law teardown planning with predicted post-state, re-observation-based convergence verdicts (no sync), typed refusal discrimination in drift/permission-gap reporting
 - [ ] 2.3 ITF conformance: frozen traces from the 1.x model replay green through the pure core in cargo test
 
 ## 3. Southbound (dpaa2-mc)
