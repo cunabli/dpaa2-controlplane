@@ -13,6 +13,9 @@ use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::collections::HashMap;
 
+use crate::compiled::Container;
+use crate::dprc::ContainerState;
+use crate::dprc_plan::ObservedContainer;
 use crate::error::Error;
 use crate::inventory::Inventory;
 use crate::model::{
@@ -48,6 +51,14 @@ struct FakeState {
     /// Next child-DPRC id handed out by [`McControl::dprc_create`]; `dprc.1` is the
     /// root, so children start at `dprc.2`.
     next_dprc: u32,
+    /// Child containers this backend holds, keyed by handle — the state
+    /// [`McControl::dprc_create`] populates and [`McControl::observe_containers`]
+    /// re-queries, so a create-then-reobserve loop converges idempotently (DPRC-I6).
+    containers: BTreeMap<DprcId, ObservedContainer>,
+    /// When set, the next [`McControl::dprc_create`] returns this typed refusal instead
+    /// of minting a container — the one-shot seam that drives the refusal (non-zero
+    /// exit) path. Consumed on use ([`Error`] is not `Clone`).
+    refuse_dprc_create: Option<Error>,
 }
 
 /// In-memory fake implementing both southbound ports over a shared state.
@@ -69,8 +80,20 @@ impl FakeBackend {
                 ready_at: HashMap::new(),
                 inventory: Inventory::default(),
                 next_dprc: 2,
+                containers: BTreeMap::new(),
+                refuse_dprc_create: None,
             }),
         }
+    }
+
+    /// Makes the next [`McControl::dprc_create`] refuse with `error` — a typed shim
+    /// refusal (`Error::McStatus`/`Error::RestoolGuard`) — so tests exercise the refusal
+    /// path (typed attribution, non-zero exit) without a board. One-shot: consumed on
+    /// the first create.
+    #[must_use]
+    pub fn with_dprc_create_refusal(self, error: Error) -> Self {
+        self.state.borrow_mut().refuse_dprc_create = Some(error);
+        self
     }
 
     /// Seeds the hardware offer [`McControl::read_inventory`] returns, so the
@@ -273,23 +296,44 @@ impl McControl for FakeBackend {
         Ok(())
     }
 
-    // The container verbs are not modelled by this DPNI-topology fake: reconcile does
-    // not dispatch them yet (that wiring is a later tile), so these keep the trait
-    // total without inventing container state. `dprc_create` still hands back a fresh,
-    // unplugged [`DprcId`] so a caller can re-observe by id (the create contract).
+    fn observe_containers(&self) -> Result<BTreeMap<DprcId, ObservedContainer>, Error> {
+        Ok(self.state.borrow().containers.clone())
+    }
+
+    // `dprc_create` mints a fresh, unplugged child container and records it so a
+    // subsequent [`observe_containers`] re-queries it (the create-then-reobserve loop,
+    // DPRC-I6). A created DPRC reads back on the [`ContainerState::Created`] (unplugged)
+    // face with its create-time mask (the whole mutation — restool cannot plug a DPRC).
     fn dprc_create(
         &self,
-        _parent: DprcId,
-        _options: crate::dprc::Options,
-        _label: &crate::types::ConstructName,
+        parent: DprcId,
+        options: crate::dprc::Options,
+        label: &crate::types::ConstructName,
     ) -> Result<DprcId, Error> {
         let mut st = self.state.borrow_mut();
+        if let Some(error) = st.refuse_dprc_create.take() {
+            return Err(error);
+        }
         let id = DprcId::new(st.next_dprc);
         st.next_dprc += 1;
+        // The container-only scope creates consumers under the root (`dprc.1`,
+        // [`DprcId::ROOT`]); the fake models that single placement.
+        debug_assert_eq!(parent, DprcId::ROOT);
+        st.containers.insert(
+            id,
+            ObservedContainer {
+                state: ContainerState::Created,
+                options,
+                label: label.clone(),
+                placement: Container::Root,
+                residents: BTreeMap::new(),
+            },
+        );
         Ok(id)
     }
 
-    fn dprc_destroy(&self, _container: DprcId) -> Result<(), Error> {
+    fn dprc_destroy(&self, container: DprcId) -> Result<(), Error> {
+        self.state.borrow_mut().containers.remove(&container);
         Ok(())
     }
 

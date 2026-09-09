@@ -14,7 +14,7 @@ use dpaa2_api::{
     reconcile_with,
 };
 use dpaa2_mc::{RestoolMc, SysfsKernel};
-use dpaa2_tools::engine::{self, ConvergeConfig, Outcome};
+use dpaa2_tools::engine::{self, ContainerOutcome, ConvergeConfig, Outcome};
 use dpaa2_tools::{StatusReport, link, render};
 
 /// Declarative DPAA2 (DPNI↔DPMAC) provisioning for the LX2160A.
@@ -157,6 +157,14 @@ fn run(cli: &Cli) -> Result<ExitCode, Error> {
                 "{}",
                 render::render_dry_run(&compiled.plan, &compiled.warnings, &plan)
             );
+            // The child-DPRC (consumer container) convergence the same run would drive,
+            // re-observed off the board (design D2; DPRC-I6): container-only steps and
+            // per-object provenance, alongside the port families above.
+            let containers = engine::plan_containers(&compiled.plan, &mc)?;
+            print!(
+                "{}",
+                render::render_container_convergence(&compiled.plan, &containers)
+            );
             Ok(ExitCode::SUCCESS)
         }
         Command::Ensure {
@@ -209,6 +217,25 @@ fn ensure(
              implied)."
         );
         return Ok(ExitCode::FAILURE);
+    }
+
+    // Converge the child-DPRC containers declared consumers own (design D2; reconciler
+    // delta). Container-only: this creates each consumer's DPRC, no companion/dpni
+    // steps. A refusal exits non-zero with the discriminated cause, changing nothing.
+    match engine::converge_containers(&compiled.plan, mc, cfg)? {
+        ContainerOutcome::Converged => {}
+        ContainerOutcome::DisruptionRefused { headline, allowed } => {
+            println!(
+                "refused: a consumer container plan's headline is `{headline}`, but the run allows \
+                 only up to `{allowed}`.\nre-run with `--allow={headline}` to actuate it \
+                 (disruptive is never implied)."
+            );
+            return Ok(ExitCode::FAILURE);
+        }
+        ContainerOutcome::Refused { label, attribution } => {
+            println!("refused: the child DPRC for `{label}` was denied: {attribution:?}");
+            return Ok(ExitCode::FAILURE);
+        }
     }
 
     // Apply stable names *after* convergence: the matchable MAC lives on the DPNI,

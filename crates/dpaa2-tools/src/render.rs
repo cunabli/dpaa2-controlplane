@@ -10,6 +10,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
 
+use dpaa2_api::dprc_plan::{ConsumerConvergence, ContainerVerdict};
 use dpaa2_api::{
     AttachPoint, Attributes, CompiledPlan, Container, Family, Measurement, ObjectKey, Plan,
     PlannedObject, ProvenanceKey, Refusal, Warning,
@@ -162,6 +163,53 @@ pub fn render_plan_only(summary: &BTreeMap<Family, usize>) -> String {
         let _ = writeln!(out, "  {} x{n}", fam.as_str());
     }
     out
+}
+
+/// Renders the child-DPRC (consumer container) convergence the dry-run would drive
+/// (design D2/D6; reconciler delta): each declared consumer's container-only plan, its
+/// re-observation verdict (DPRC-I6), and — the per-object provenance the operator
+/// traces — the derived container's provenance node resolved to its baseline anchor via
+/// the plan's DAG (the 4.1 `ConsumerContainer.provenance` key). A converged container
+/// shows zero steps: the second run's zero-action proof, printed.
+#[must_use]
+pub fn render_container_convergence(
+    plan: &CompiledPlan,
+    convergences: &[ConsumerConvergence],
+) -> String {
+    let mut out = String::new();
+    let _ = writeln!(
+        out,
+        "container convergence ({} consumer(s)) [container-only: no companion/dpni steps]:",
+        convergences.len()
+    );
+    if convergences.is_empty() {
+        let _ = writeln!(out, "  (none)");
+    }
+    for c in convergences {
+        let _ = writeln!(
+            out,
+            "  {label} [{verdict}] {n} step(s) [headline: {headline}]",
+            label = c.container.label,
+            verdict = render_verdict(&c.verdict),
+            n = c.plan.steps.len(),
+            headline = c.plan.headline(),
+        );
+        // The container's provenance: the rule node citing the baseline anchor.
+        let mut path = BTreeSet::new();
+        render_prov_tree(plan, &c.container.provenance, 2, &mut path, &mut out);
+        for step in &c.plan.steps {
+            let _ = writeln!(out, "    [{}] {step:?}", step.class());
+        }
+    }
+    out
+}
+
+/// Renders a container verdict as a short operator token.
+fn render_verdict(verdict: &ContainerVerdict) -> String {
+    match verdict {
+        ContainerVerdict::Converged => "converged".to_owned(),
+        ContainerVerdict::Diverged(reasons) => format!("diverged: {reasons:?}"),
+    }
 }
 
 /// Renders every refusal with its named rule and offending construct (design D5/D10),

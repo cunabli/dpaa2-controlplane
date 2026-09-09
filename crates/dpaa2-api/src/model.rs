@@ -201,6 +201,11 @@ impl fmt::Debug for DpniId {
 pub struct DprcId(u32);
 
 impl DprcId {
+    /// The fsl-mc root container, `dprc.1` — the parent a consumer's child DPRC is
+    /// created under ([`Container::Root`](crate::Container); `docs/baseline/dprc.md`
+    /// "Intent mapping"). The one placement the container-only convergence path targets.
+    pub const ROOT: Self = Self(1);
+
     /// Wraps a raw MC index.
     #[must_use]
     pub const fn new(index: u32) -> Self {

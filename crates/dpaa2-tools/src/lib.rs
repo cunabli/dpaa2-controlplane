@@ -11,5 +11,8 @@ pub mod link;
 pub mod render;
 pub mod status;
 
-pub use engine::{ConvergeConfig, Outcome, apply, ensure, observe};
+pub use engine::{
+    ContainerOutcome, ConvergeConfig, Outcome, apply, converge_containers, ensure, observe,
+    plan_containers,
+};
 pub use status::{PortStatus, StatusReport};

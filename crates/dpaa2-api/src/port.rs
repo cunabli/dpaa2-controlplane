@@ -7,7 +7,10 @@
 //! than an action we execute. One northbound port ([`ConfigSource`]) yields the
 //! neutral [`Intent`].
 
+use std::collections::BTreeMap;
+
 use crate::dprc;
+use crate::dprc_plan::ObservedContainer;
 use crate::error::Error;
 use crate::intent::Intent;
 use crate::inventory::Inventory;
@@ -94,6 +97,18 @@ pub trait McControl {
     // The [`dprc`] containment vocabulary stays module-namespaced — imported from its
     // module path, never flat re-exported — because its `Options` is a distinct type
     // from the intent-compile surface (design D4).
+
+    /// Re-observes every child container the root holds, keyed by its re-observation
+    /// handle [`DprcId`], as freshly-queried [`ObservedContainer`]s (design D2/D6;
+    /// reconciler delta "Mutation visibility is established only by re-observation",
+    /// DPRC-I6). This is the read half of container convergence: a step's success verdict
+    /// comes from re-querying the affected container here, never from a bus rescan
+    /// (`sync`) or an assumed dispatch outcome. The adapter reports raw observations; the
+    /// verdict is judged core-side (`dprc_plan::verdict`).
+    ///
+    /// # Errors
+    /// Returns an error if the backend cannot be queried.
+    fn observe_containers(&self) -> Result<BTreeMap<DprcId, ObservedContainer>, Error>;
 
     /// `dprc create <parent> [--options] [--label]`: mints a child container under
     /// `parent` and returns its MC-assigned [`DprcId`] for re-observation. The new

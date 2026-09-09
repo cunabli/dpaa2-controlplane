@@ -10,9 +10,14 @@ use std::collections::HashMap;
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
+use dpaa2_api::dprc::{Options, Refusal};
+use dpaa2_api::dprc_plan::{
+    Attribution, ConsumerConvergence, ContainerStep, ContainerVerdict, attribute_mc,
+    plan_consumer_convergence,
+};
 use dpaa2_api::{
-    Class, DesiredTopology, DpmacId, DpniId, Error, KernelControl, McControl, ObservedTopology,
-    Plan, ReconcileOptions, Transition, reconcile_with,
+    Class, CompiledPlan, ConstructName, Container, DesiredTopology, DpmacId, DpniId, DprcId, Error,
+    KernelControl, McControl, ObservedTopology, Plan, ReconcileOptions, Transition, reconcile_with,
 };
 
 /// Policy for a convergence run.
@@ -59,6 +64,165 @@ pub enum Outcome {
         /// The maximum class the run allowed.
         allowed: Class,
     },
+}
+
+/// The outcome of a child-DPRC (consumer container) convergence pass — the container
+/// analog of [`Outcome`] (design D2; reconciler delta). Kept distinct because a
+/// container refusal is a typed [`Attribution`] (design D4), not a DPMAC-anchored port
+/// deadline: the two families do not share a failure vocabulary.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ContainerOutcome {
+    /// Every declared consumer's container matches its derived intent by re-observation.
+    Converged,
+    /// A container plan's headline exceeded the run's `--allow` gate (ADR-0015
+    /// decision 12); nothing was actuated.
+    DisruptionRefused {
+        /// The headline class the container plan would have actuated.
+        headline: Class,
+        /// The maximum class the run allowed.
+        allowed: Class,
+    },
+    /// A dispatched container verb was refused; the typed cause is attributed
+    /// (design D4) and the refusal shapes (0x6/0x8/0x4, or a restool client guard) stay
+    /// discriminated — never collapsed into one denial.
+    Refused {
+        /// The container whose create was refused.
+        label: ConstructName,
+        /// The discriminated cause the reconciler reports.
+        attribution: Attribution,
+    },
+}
+
+/// Reconciles every declared consumer's child container toward the compiled intent
+/// (design D2; reconciler delta "Consumer convergence is container-only").
+///
+/// The container half of the product pipeline: it re-observes the board's containers
+/// (DPRC-I6 — a fresh MC query, never `sync`), plans container-only via
+/// [`plan_consumer_convergence`] (the child DPRC alone, so no companion/dpni step is
+/// representable — bead cd3.8), gates the headline against `cfg.allow`, dispatches each
+/// step to the task-3.1 verbs, and judges convergence by a second re-observation. A
+/// second run against the post-converged state plans zero steps and returns
+/// [`ContainerOutcome::Converged`] without dispatching. A typed shim refusal
+/// (`Error::McStatus`/`Error::RestoolGuard`) becomes a discriminated
+/// [`ContainerOutcome::Refused`]; any other error propagates.
+///
+/// # Errors
+/// Propagates a backend read/dispatch error that is not a typed container refusal, and
+/// reports a post-dispatch divergence (a container that failed to converge) as an error.
+pub fn converge_containers<M: McControl>(
+    plan: &CompiledPlan,
+    mc: &M,
+    cfg: ConvergeConfig,
+) -> Result<ContainerOutcome, Error> {
+    // Read: re-observe the root's child containers (DPRC-I6).
+    let observed = mc.observe_containers()?;
+    let convergences = plan_consumer_convergence(plan, &observed);
+    if convergences.iter().all(|c| c.plan.is_converged()) {
+        return Ok(ContainerOutcome::Converged);
+    }
+
+    // Gate on the combined headline before touching the board (ADR-0015 decision 12):
+    // creating a container is disruptive, so a hitless-only run refuses it, unchanged.
+    let headline = convergences
+        .iter()
+        .map(|c| c.plan.headline())
+        .max()
+        .unwrap_or(Class::Hitless);
+    if headline > cfg.allow {
+        tracing::error!(%headline, allowed = %cfg.allow, "container plan exceeds allowed disruption class");
+        return Ok(ContainerOutcome::DisruptionRefused {
+            headline,
+            allowed: cfg.allow,
+        });
+    }
+
+    // Dispatch: each container-only step maps one-to-one to a task-3.1 verb. A typed
+    // shim refusal is attributed (design D4) and surfaced discriminated.
+    for c in &convergences {
+        for step in &c.plan.steps {
+            if let Err(e) = dispatch_container_step(step, mc) {
+                return match attribute_refusal(&e, c.container.options) {
+                    Some(attribution) => Ok(ContainerOutcome::Refused {
+                        label: c.container.label.clone(),
+                        attribution,
+                    }),
+                    None => Err(e),
+                };
+            }
+        }
+    }
+
+    // Verdict by re-observation (DPRC-I6): re-query and judge, never assume the dispatch.
+    let observed = mc.observe_containers()?;
+    for c in &plan_consumer_convergence(plan, &observed) {
+        if let ContainerVerdict::Diverged(reasons) = &c.verdict {
+            return Err(Error::Backend(format!(
+                "container `{}` did not converge after dispatch: {reasons:?}",
+                c.container.label
+            )));
+        }
+    }
+    Ok(ContainerOutcome::Converged)
+}
+
+/// Plans (without dispatching) container-only convergence for every declared consumer,
+/// re-observing the board — the read seam `dry-run` renders (design D2/D6). Each
+/// [`ConsumerConvergence`] carries the derived container's provenance key, which the
+/// renderer resolves to the baseline anchor in the plan's DAG.
+///
+/// # Errors
+/// Propagates the backend read failure.
+pub fn plan_containers<M: McControl>(
+    plan: &CompiledPlan,
+    mc: &M,
+) -> Result<Vec<ConsumerConvergence>, Error> {
+    let observed = mc.observe_containers()?;
+    Ok(plan_consumer_convergence(plan, &observed))
+}
+
+/// Dispatches one container-only step to its task-3.1 verb. The container-only
+/// convergence path emits only [`ContainerStep::CreateContainer`] (existence, options,
+/// label, placement); any other step is out of this change's scope (companion/dpni are
+/// tiles #5/#6) and is an error, not a silent no-op.
+fn dispatch_container_step<M: McControl>(step: &ContainerStep, mc: &M) -> Result<(), Error> {
+    match step {
+        ContainerStep::CreateContainer {
+            label,
+            options,
+            placement,
+        } => {
+            let parent = match placement {
+                Container::Root => DprcId::ROOT,
+                Container::Child(tenant) => {
+                    return Err(Error::Backend(format!(
+                        "consumer container places in root, not child:{tenant}"
+                    )));
+                }
+            };
+            let id = mc.dprc_create(parent, *options, label)?;
+            tracing::info!(%id, %label, "created child dprc container");
+            Ok(())
+        }
+        other => Err(Error::Backend(format!(
+            "container-only convergence emits no {other:?} (companion/dpni are tiles #5/#6)"
+        ))),
+    }
+}
+
+/// Attributes a typed shim refusal to its discriminated cause (design D4), or `None`
+/// when the error is not a container refusal (and so propagates). An MC status is
+/// decoded core-side ([`Refusal::from_status`]) then attributed against the container's
+/// mask ([`attribute_mc`]); a restool client guard is its own attribution.
+fn attribute_refusal(error: &Error, options: Options) -> Option<Attribution> {
+    match error {
+        Error::McStatus { status } => {
+            Refusal::from_status(*status).map(|r| attribute_mc(r, options))
+        }
+        Error::RestoolGuard { detail } => Some(Attribution::RestoolClientGuard {
+            detail: detail.clone(),
+        }),
+        _ => None,
+    }
 }
 
 /// Reads MC state and enriches each DPNI with its kernel netdev name.
