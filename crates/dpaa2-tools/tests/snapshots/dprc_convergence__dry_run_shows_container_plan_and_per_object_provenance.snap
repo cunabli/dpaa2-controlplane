@@ -1,0 +1,8 @@
+---
+source: crates/dpaa2-tools/tests/dprc_convergence.rs
+expression: "render::render_container_convergence(&compiled.plan, &planned)"
+---
+container convergence (1 consumer(s)) [container-only: no companion/dpni steps]:
+  router [diverged: [Missing]] 1 step(s) [headline: disruptive]
+    - dprc request=1 value=1 [measured] anchor: dprc.md: restool-default child options
+    [disruptive] CreateContainer { label: ConstructName("router"), options: Options { spawn: true, alloc: true, obj_create: true, topology_changes: false }, placement: Root }

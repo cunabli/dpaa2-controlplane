@@ -44,6 +44,7 @@ use crate::compiled::{
 };
 use crate::dprc::{ContainerState, Options, Refusal, Resident, ResidentId, ResidentKind};
 use crate::family::Permission;
+use crate::model::DprcId;
 use crate::plan::Class;
 use crate::types::{ConstructName, TenantName};
 
@@ -616,6 +617,61 @@ pub fn plan_consumer_container(
     plan
 }
 
+/// One declared consumer's container-only convergence: its 4.1 realization paired with
+/// the plan to reach it from a fresh observation and the re-observation verdict
+/// (design D2/D5; DPRC-I6). Container-only by construction — the realization comes from
+/// [`derive_consumer_containers`], which projects the child DPRC alone, so no
+/// companion/dpni step can appear (reconciler delta "Consumer convergence is
+/// container-only"; carry-forward decision pinned on bead cd3.8).
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct ConsumerConvergence {
+    /// The derived child-DPRC realization (task 4.1): label, options, placement, and the
+    /// provenance key that resolves the baseline anchor in the plan's DAG.
+    pub container: ConsumerContainer,
+    /// The container-only plan to reach it from the observation (empty when converged).
+    pub plan: ContainerPlan,
+    /// The re-observation verdict against the derived intent (DPRC-I6).
+    pub verdict: ContainerVerdict,
+}
+
+/// Plans container-only convergence for every declared consumer in `compiled` against a
+/// fresh observation `observed` keyed by re-observation handle (design D2/D5; DPRC-I6:
+/// the observation is re-queried, never a `sync`-assumed state).
+///
+/// The single seam the imperative shell drives: it projects the consumers via
+/// [`derive_consumer_containers`] (container-only — the child DPRC alone), matches each
+/// to its observed container by name-keyed label, and pairs the create-only
+/// [`plan_consumer_container`] plan with the [`verdict`]. Because every plan is projected
+/// from the `Family::Dprc` object alone, no companion-population step is representable —
+/// the intent layer's dormant companion/dpni sizing (tiles #5/#6) never reaches this
+/// path (carry-forward decision, bead cd3.8).
+#[must_use]
+pub fn plan_consumer_convergence(
+    compiled: &CompiledPlan,
+    observed: &BTreeMap<DprcId, ObservedContainer>,
+) -> Vec<ConsumerConvergence> {
+    let derived = derive_consumer_containers(compiled);
+    compiled
+        .objects
+        .iter()
+        .filter_map(|object| {
+            if !matches!(object.attributes(), Attributes::Dprc { .. }) {
+                return None;
+            }
+            let container = derived.get(&object.key().tenant)?.clone();
+            // Match the observed container by its name-keyed label (ADR-0015 decisions
+            // 9+13); the id domain is the MC's, so identity rides on the label, not the
+            // ordinal (`derive_consumer_containers` keys intent by name).
+            let seen = observed.values().find(|c| c.label == container.label);
+            Some(ConsumerConvergence {
+                container,
+                plan: plan_consumer_container(object, seen),
+                verdict: verdict(object, seen),
+            })
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     //! The reconciler-delta scenarios (`specs/reconciler/spec.md`) covered as pure unit
@@ -930,6 +986,54 @@ mod tests {
                 .iter()
                 .all(|s| matches!(s, ContainerStep::CreateContainer { .. }))
         );
+    }
+
+    fn plan_with(object: PlannedObject) -> CompiledPlan {
+        let mut plan = CompiledPlan::default();
+        plan.order.push(object.key().clone());
+        plan.objects.insert(object);
+        plan
+    }
+
+    fn observed(object: &PlannedObject) -> ObservedContainer {
+        ObservedContainer {
+            state: ContainerState::Created,
+            options: Options::DEFAULT,
+            label: object.label().clone(),
+            placement: object.container().clone(),
+            residents: BTreeMap::new(),
+        }
+    }
+
+    #[test]
+    fn convergence_creates_on_empty_and_is_idempotent_when_present() {
+        // The whole-plan seam the shell drives: an empty board plans exactly one
+        // CreateContainer per consumer, and a re-observation with the container present
+        // plans zero steps and a Converged verdict (DPRC-I6; reconciler delta).
+        let object = consumer_dprc();
+        let plan = plan_with(object.clone());
+
+        let empty = plan_consumer_convergence(&plan, &BTreeMap::new());
+        assert_eq!(empty.len(), 1);
+        assert_eq!(
+            empty[0].plan.steps,
+            vec![ContainerStep::CreateContainer {
+                label: object.label().clone(),
+                options: Options::DEFAULT,
+                placement: Placement::Root,
+            }]
+        );
+        assert_eq!(
+            empty[0].verdict,
+            ContainerVerdict::Diverged(vec![Divergence::Missing])
+        );
+        assert_eq!(empty[0].container.provenance, object.provenance().clone());
+
+        let present = BTreeMap::from([(DprcId::new(2), observed(&object))]);
+        let converged = plan_consumer_convergence(&plan, &present);
+        assert_eq!(converged.len(), 1);
+        assert!(converged[0].plan.is_converged());
+        assert_eq!(converged[0].verdict, ContainerVerdict::Converged);
     }
 
     #[test]

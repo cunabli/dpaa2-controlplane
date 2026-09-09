@@ -187,6 +187,23 @@ impl Refusal {
             Self::TopologyLockGate => MC_STATUS_NO_PRIVILEGE,
         }
     }
+
+    /// Recovers the refusal a raw MC status byte carries — the inverse of
+    /// [`mc_status`](Self::mc_status), the single core-side sentinel decode (design D4).
+    /// A southbound [`Error::McStatus`](crate::Error::McStatus) carries only the byte;
+    /// this turns it back into the discriminated shape a reconciler attributes with
+    /// [`attribute_mc`](crate::dprc_plan::attribute_mc), keeping the classification
+    /// core-side, never in the adapter. A status outside `0x4/0x6/0x8` is `None` — an
+    /// unknown code is not silently collapsed into one of the three known shapes.
+    #[must_use]
+    pub const fn from_status(status: u8) -> Option<Self> {
+        match status {
+            MC_STATUS_CONFIG_ERROR => Some(Self::SpawnViolation),
+            MC_STATUS_NO_RESOURCES => Some(Self::AllocViolation),
+            MC_STATUS_NO_PRIVILEGE => Some(Self::TopologyLockGate),
+            _ => None,
+        }
+    }
 }
 
 /// The recorded outcome of a guarded transition (`dprc.qnt` `type Outcome`): the
@@ -1095,6 +1112,20 @@ mod tests {
             REFUSAL_VARIANTS,
             ["SpawnViolation", "AllocViolation", "TopologyLockGate"]
         );
+    }
+
+    #[test]
+    fn from_status_is_the_inverse_of_mc_status() {
+        // Each refusal round-trips through its byte; the three shapes stay distinct and
+        // an unknown status is not collapsed into one of them (design D4).
+        for r in [
+            Refusal::SpawnViolation,
+            Refusal::AllocViolation,
+            Refusal::TopologyLockGate,
+        ] {
+            assert_eq!(Refusal::from_status(r.mc_status()), Some(r));
+        }
+        assert_eq!(Refusal::from_status(0x10), None);
     }
 
     #[test]

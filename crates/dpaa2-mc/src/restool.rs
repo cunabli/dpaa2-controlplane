@@ -10,9 +10,9 @@
 use std::collections::BTreeMap;
 
 use dpaa2_api::{
-    Availability, Ceiling, ConstructName, DERIVED_FAMILIES, DpmacId, DpmacOffer, DpniId, DprcId,
-    Error, Family, Inventory, McControl, ObjectRef, ObservedDpmac, ObservedDpni, ObservedTopology,
-    dprc,
+    Availability, Ceiling, ConstructName, Container, DERIVED_FAMILIES, DpmacId, DpmacOffer, DpniId,
+    DprcId, Error, Family, Inventory, McControl, ObjectRef, ObservedDpmac, ObservedDpni,
+    ObservedTopology, dprc, dprc_plan,
 };
 
 use crate::parse;
@@ -419,6 +419,36 @@ impl<R: Runner> McControl for RestoolMc<R> {
         Ok(ObservedTopology { dpnis, dpmacs })
     }
 
+    fn observe_containers(&self) -> Result<BTreeMap<DprcId, dprc_plan::ObservedContainer>, Error> {
+        // Re-observe the root's child containers from one `dprc show` (DPRC-I6: the
+        // convergence verdict re-queries, it never trusts `sync`). Each `dprc.N` child
+        // row carries its name-keyed label; the row is a child of the root, so its
+        // placement is [`Container::Root`]. A consumer child DPRC carries the DPRC-I4
+        // default mask by construction, which is the container-only convergence surface
+        // this change targets — so the observed options are that default.
+        // ponytail: options/residents/plug-state are read as the container-only default
+        // (mask = DPRC-I4, unplugged, no residents); full read-back of an arbitrary
+        // container's mask and members is board task 5.3, not this off-board wiring.
+        let show = self.runner.run(&["dprc", "show", &self.container])?;
+        let mut containers = BTreeMap::new();
+        for row in parse::parse_dprc_rows(&show) {
+            if row.family != Family::Dprc {
+                continue;
+            }
+            containers.insert(
+                DprcId::from(row.num),
+                dprc_plan::ObservedContainer {
+                    state: dprc::ContainerState::Created,
+                    options: dprc::Options::DEFAULT,
+                    label: ConstructName::from(row.label),
+                    placement: Container::Root,
+                    residents: BTreeMap::new(),
+                },
+            );
+        }
+        Ok(containers)
+    }
+
     fn read_inventory(&self) -> Result<Inventory, Error> {
         // One `dprc show`, read as rows so the label column (ADR-0010 Consequences)
         // feeds both the label map and each dpmac's availability.
@@ -804,6 +834,29 @@ mod tests {
             .dprc_create(DprcId::new(1), options, &ConstructName::from("scratch"))
             .expect("create with options");
         assert_eq!(id, DprcId::new(4));
+    }
+
+    #[test]
+    fn observe_containers_surfaces_child_dprcs_by_label() {
+        // Re-observation reads the root's child DPRC rows: each `dprc.N <label>` child
+        // becomes an ObservedContainer keyed by its handle, placed in root on the
+        // unplugged (Created) face — the read half of container convergence (DPRC-I6).
+        // Non-dprc rows (dpni/dpmac) are not containers and are skipped.
+        let show = dprc_show(&[
+            "dpni.0                          plugged",
+            "dprc.2          router          unplugged",
+            "dpmac.7                         plugged",
+        ]);
+        let runner = CannedRunner::new(&[("dprc show dprc.1", &show)]);
+        let mc = RestoolMc::with_runner(runner, DEFAULT_CONTAINER);
+
+        let seen = mc.observe_containers().expect("observe containers");
+        assert_eq!(seen.len(), 1);
+        let c = &seen[&DprcId::new(2)];
+        assert_eq!(c.label, ConstructName::from("router"));
+        assert_eq!(c.placement, Container::Root);
+        assert_eq!(c.options, dprc::Options::DEFAULT);
+        assert!(c.residents.is_empty());
     }
 
     #[test]
