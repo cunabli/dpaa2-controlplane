@@ -13,6 +13,7 @@
 pub mod compiled;
 mod derive;
 pub mod dprc;
+pub mod dprc_plan;
 pub mod error;
 pub mod family;
 pub mod intent;
