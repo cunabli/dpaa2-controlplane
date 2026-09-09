@@ -68,6 +68,20 @@ pub enum VfioBind {
 /// [`VfioBind::name`]).
 pub const VFIO_BIND_VARIANTS: [&str; 2] = ["Unbound", "BoundVfioFslMc"];
 
+/// The `vfio-fsl-mc` driver name — the value written to a child DPRC's
+/// `driver_override` and the driver it binds to (`docs/baseline/dprc.md`
+/// "Kernel-defined semantics": `vfio-fsl-mc` has no match table, so `driver_override`
+/// is the only bind path). The single core-side sentinel; the southbound
+/// [`KernelControl`](crate::KernelControl) reads it, never spelling its own copy
+/// (adapters report, never judge — the classification rule and its sentinel live once,
+/// here).
+pub const VFIO_FSL_MC_DRIVER: &str = "vfio-fsl-mc";
+
+/// The default DPRC driver a container is eligible for once its `driver_override` is
+/// cleared (`docs/baseline/dprc.md` "Binding": `fsl_mc_dprc` binds every DPRC). The
+/// unbind scenario's post-state observable.
+pub const FSL_MC_DPRC_DRIVER: &str = "fsl_mc_dprc";
+
 impl VfioBind {
     /// This variant's name, the token [`VFIO_BIND_VARIANTS`] lists. The exhaustive
     /// `match` ties that list to the enum (ADR-0014).
@@ -76,6 +90,20 @@ impl VfioBind {
         match self {
             Self::Unbound => "Unbound",
             Self::BoundVfioFslMc => "BoundVfioFslMc",
+        }
+    }
+
+    /// Judge a raw observed bound-driver name — what the sysfs `driver` link reports,
+    /// or `None` when the DPRC has no driver — into the bind state (design D4/D5: the
+    /// adapter reports the raw name, the core judges it). Only [`VFIO_FSL_MC_DRIVER`]
+    /// is [`Self::BoundVfioFslMc`]; every other driver (or none) reads [`Self::Unbound`],
+    /// because this is the userspace-passthrough face, not a general "has a driver" test.
+    #[must_use]
+    pub fn classify(bound_driver: Option<&str>) -> Self {
+        if bound_driver == Some(VFIO_FSL_MC_DRIVER) {
+            Self::BoundVfioFslMc
+        } else {
+            Self::Unbound
         }
     }
 }
@@ -1025,6 +1053,25 @@ mod tests {
             assert!(VFIO_BIND_VARIANTS.contains(&v.name()));
         }
         assert_eq!(VFIO_BIND_VARIANTS, ["Unbound", "BoundVfioFslMc"]);
+    }
+
+    #[test]
+    fn classify_maps_observed_driver_to_bind_state() {
+        // design D4/D5: the core judges the raw observed driver. Only vfio-fsl-mc is
+        // Bound; the default fsl_mc_dprc, a foreign driver, and no driver all read Unbound.
+        assert_eq!(
+            VfioBind::classify(Some(VFIO_FSL_MC_DRIVER)),
+            VfioBind::BoundVfioFslMc
+        );
+        assert_eq!(
+            VfioBind::classify(Some(FSL_MC_DPRC_DRIVER)),
+            VfioBind::Unbound
+        );
+        assert_eq!(
+            VfioBind::classify(Some("something_else")),
+            VfioBind::Unbound
+        );
+        assert_eq!(VfioBind::classify(None), VfioBind::Unbound);
     }
 
     #[test]
