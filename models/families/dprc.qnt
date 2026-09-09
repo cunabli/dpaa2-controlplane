@@ -72,9 +72,25 @@ module dprc {
 // never rewritten by any transition — the DPRC-I10 immutability hook.
 //
 // Scope: this module defines the sum, the guards, and directed `*Test` runs that
-// pin the four acceptance shapes. Named baseline invariants (DPRC-I1/I5/I7/I9/
-// I10 and the I11 remainder), their Apalache marks and COVERAGE.md dispositions
-// are task 1.2's; the structure below is arranged so they attach without rework.
+// pin the four acceptance shapes, plus (task 1.2) the named baseline-invariant
+// properties and their COVERAGE.md dispositions. Named invariants and witnesses:
+//   DPRC-I1  eviction boundary — `evictionBothKindsTest` / `DPRC_I1Test`
+//            (a created resident never crosses into the parent);
+//   DPRC-I5  connect precondition (restool face) — `connectWithTopologyTest` /
+//            `connectNoTopologyRefused0x4Test` (the TOPOLOGY_CHANGES gate);
+//   DPRC-I7  Linux removal ≠ MC destroy (Breaking) — `DPRC_I7Test` over the
+//            no-op `busRemoveEvent`;
+//   DPRC-I9  teardown reachability (liveness) — `teardownReachableTest`;
+//   DPRC-I10 identity/options immutability — the `DPRC_I10` state invariant;
+//   DPRC-I11 remainder (restool-reachable lock strip) — `lockStripsCreateTest` /
+//            `lockRefusesPlugTest` / `unlockRestoresTest`, label-under-lock by
+//            `labelUnderLockTest`.
+// Apalache-marked subset (task 1.2): the `stateInvariants` conjunction — only
+// DPRC-I10, the one state-expressible property here; I1/I5/I7/I9/I11 are
+// action-guard, liveness or Breaking-absence properties carried as directed
+// runs (simulate-only), exactly as main.qnt splits its own candidates. The
+// restool-unreachable faces (the I11 child-portal unlock, the OBJ_CREATE gate,
+// the I8 batch-scan ordering) are deferral rows to `mc-portal-backend` (#10).
 module dprc_lifecycle {
   // The kernel-side bind state, carried only on the Plugged face. Two cases,
   // not a bool — the Rust twin is an enum (ADR-0002 §3).
@@ -401,6 +417,17 @@ module dprc_lifecycle {
     },
   }
 
+  // A Linux bus event on a kernel-active container: a device_del, a driver
+  // unbind, or a stray rescan notification. DPRC-I7 (Breaking, dprc.md
+  // "Kernel-side behavior"): object removal is Linux-side only — the MC
+  // object and its residents survive untouched — so the event leaves `world`
+  // unchanged but for the recorded outcome. No transition maps a bus event to
+  // Destroyed; the action exists so DPRC_I7Test can witness that absence.
+  action busRemoveEvent: bool = all {
+    isActive(world.child),
+    world' = world.with("lastOutcome", Accepted),
+  }
+
   action stutter: bool = world' = world
 
   // ---- nondet wrappers: draw args from finite constant sets ----
@@ -439,7 +466,30 @@ module dprc_lifecycle {
     unlock,
     emptyContainer,
     destroyContainer,
+    busRemoveEvent,
     stutter,
+  }
+
+  // ---- named baseline-invariant properties (task 1.2) ----
+
+  // DPRC-I10 — container identity is pool-assigned once and never rewritten,
+  // and the option mask never drifts off the create menu: whenever the child
+  // is active its identity is POOL_IDENTITY, and its options always sit in
+  // OPTION_DRAWS. The immutability face of LAW 1 for dprc (dprc.md
+  // "Attribute mutability": icid/portal_id/options are create-time only). The
+  // one state-expressible property here, hence the only Apalache-marked one.
+  val DPRC_I10: bool = and {
+    isActive(world.child) implies world.child.identity == POOL_IDENTITY,
+    OPTION_DRAWS.contains(world.child.options),
+  }
+
+  // The simulator/Apalache conjunction (`pnpm model:simulate` / `model:verify`
+  // pass --invariant=stateInvariants): the state invariants dprc_lifecycle
+  // enforces on every reachable state. Only DPRC-I10 is state-expressible;
+  // I1/I5/I7/I9/I11 are directed runs (COVERAGE.md records the simulate-only
+  // disposition), the same split main.qnt applies to its candidates.
+  val stateInvariants: bool = and {
+    DPRC_I10,
   }
 
   // A stutter-check step for directed runs (local, as main.qnt defines its own).
@@ -593,5 +643,39 @@ module dprc_lifecycle {
         world.child.phase == Populated,
         world.lastOutcome == Accepted,
         world.child.residents.exists(r => r.id == 2),
+      })
+
+  // ---- task 1.2 named baseline-invariant runs (simulate-only) ----
+
+  // DPRC-I1 — allocation never crosses the container boundary: the resident
+  // the child created (CreatedIn) is released with the container, never
+  // re-homed into the parent (a different container); only the assigned-in
+  // resident evicts one hop up. A CreatedIn object surfacing in the parent
+  // would be a cross-boundary allocation (dprc.md DPRC-I1, ADR-0007 §3).
+  run DPRC_I1Test =
+    init
+      .then(createContainerWith(DEFAULT_OPTIONS))
+      .then(createResidentAt(1))       // CreatedIn — the child's own
+      .then(assignResidentInAt(2))     // AssignedIn — on loan from the parent
+      .then(destroyContainer)
+      .expect(and {
+        not(world.parentResidents.exists(r => r.id == 1)),  // stayed in-container
+        world.parentResidents.exists(r => r.id == 2),        // returned home
+      })
+
+  // DPRC-I7 (Breaking) — a Linux bus event is not an MC destroy: after a
+  // bus-remove event on a plugged, VFIO-bound container, the container object
+  // and its residents survive unchanged (dprc.md: object removal is
+  // Linux-side only). Mirrors main.qnt `DPRC_I7Test` on the lifecycle sum.
+  run DPRC_I7Test =
+    init
+      .then(createContainerWith(DEFAULT_OPTIONS))
+      .then(createResidentAt(1))
+      .then(plugContainer)
+      .then(bindVfio)
+      .then(busRemoveEvent)
+      .expect(and {
+        world.child.phase == Plugged(BoundVfioFslMc),
+        world.child.residents.exists(r => r.id == 1),
       })
 }
