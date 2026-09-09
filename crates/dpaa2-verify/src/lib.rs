@@ -7,6 +7,9 @@
 //! See `openspec/changes/verify-foundation` for the requirements.
 
 pub mod adapter;
+/// Reader for frozen dprc-lifecycle ITF traces (dprc-encapsulation task 2.3); the
+/// stepped-machine twin of [`intent_itf`], replayed by `tests/dprc_replay.rs`.
+pub mod dprc_itf;
 pub mod driver;
 pub mod edits_itf;
 /// The read-only fit-check emitter: renders a board sitting from a probe
