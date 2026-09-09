@@ -39,11 +39,13 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::compiled::{Attributes, Container as Placement, PlannedObject};
+use crate::compiled::{
+    Attributes, CompiledPlan, Container as Placement, PlannedObject, ProvenanceKey,
+};
 use crate::dprc::{ContainerState, Options, Refusal, Resident, ResidentId, ResidentKind};
 use crate::family::Permission;
 use crate::plan::Class;
-use crate::types::ConstructName;
+use crate::types::{ConstructName, TenantName};
 
 /// The child-DPRC option mask derived from a [`PlannedObject`]'s
 /// [`Attributes::Dprc`] permission set (`compiled::dprc_default_options`).
@@ -515,6 +517,71 @@ pub fn verdict(desired: &PlannedObject, observed: Option<&ObservedContainer>) ->
     } else {
         ContainerVerdict::Diverged(reasons)
     }
+}
+
+/// The child-DPRC realization the intent compiler derives for one declared consumer
+/// runtime (ADR-0005 §1 consumer/runtime construct; `docs/baseline/dprc.md` "Intent
+/// mapping": one child DPRC per declared consumer).
+///
+/// A consumer runtime is a declared [`crate::intent::Tenant`] that owns its own
+/// container — an isolated tenant or a public holder. This is the container ALONE: the
+/// board-verified default option mask ([`Options::DEFAULT`], DPRC-I4 —
+/// `{spawn, alloc, obj_create}` with `topology_changes` reserved to the root), root
+/// placement ([`Placement::Root`], dprc.1), and the consumer's name-keyed label as a
+/// [`ConstructName`] (ADR-0015 decisions 9+13 — never a `String` in a name slot).
+///
+/// Container-only (this change, tile #4): no companion (dpio/dpbp/dpcon/dpmcp) or dpni
+/// is realized here — the sizing rules stay dormant until tiles #5/#6. The realization
+/// carries the derived object's provenance key ([`ProvenanceKey`]) so a caller resolves
+/// its rule node — the baseline anchor — in the same [`CompiledPlan`] provenance DAG the
+/// intent layer already populates (design D6).
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct ConsumerContainer {
+    /// The consumer runtime the container belongs to.
+    pub tenant: TenantName,
+    /// The MC label — the consumer's name-keyed identity (ADR-0015 decisions 9+13).
+    pub label: ConstructName,
+    /// The create-time-immutable option mask, typed as the lifecycle [`Options`]
+    /// (task 2.1) — the board-verified child default (DPRC-I4).
+    pub options: Options,
+    /// Where the container lives: a consumer's child DPRC sits under the root
+    /// container ([`Placement::Root`], dprc.1).
+    pub placement: Placement,
+    /// The derived object's provenance key; its node in the plan's DAG carries the
+    /// baseline anchor (`docs/baseline/dprc.md`).
+    pub provenance: ProvenanceKey,
+}
+
+/// Derives, from a compiled plan, the child-DPRC realization of every declared consumer
+/// runtime (intent-compiler spec: "A declared consumer derives its container").
+///
+/// The realization reads the child DPRC the intent compiler already emitted (one
+/// `Family::Dprc` object per consumer, [`crate::intent::Tenant::child_dprc`]) and re-keys
+/// it into the typestate vocabulary: the derivation's [`Permission`] mask becomes the
+/// lifecycle [`Options`] via [`options_from_permissions`] (the one bridge — no second
+/// mask representation). The reserved kernel tenant remains the root container and emits
+/// no child DPRC, so it never appears here (ADR-0005; `docs/baseline/dprc.md` "Intent
+/// mapping"). Container-only by construction: only the `Dprc` family is projected, so no
+/// companion or dpni the full plan may carry for the consumer is realized (tiles #5/#6).
+#[must_use]
+pub fn derive_consumer_containers(plan: &CompiledPlan) -> BTreeMap<TenantName, ConsumerContainer> {
+    plan.objects
+        .iter()
+        .filter_map(|o| {
+            let Attributes::Dprc { options } = o.attributes() else {
+                return None;
+            };
+            let tenant = o.key().tenant.clone();
+            let realization = ConsumerContainer {
+                tenant: tenant.clone(),
+                label: o.label().clone(),
+                options: options_from_permissions(options),
+                placement: o.container().clone(),
+                provenance: o.provenance().clone(),
+            };
+            Some((tenant, realization))
+        })
+        .collect()
 }
 
 /// Plans convergence for a declared consumer's child container against a fresh

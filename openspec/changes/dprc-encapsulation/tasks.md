@@ -16,7 +16,7 @@
 
 ## 4. Northbound and end-to-end (dpaa2-config, dpaa2-tools)
 
-- [ ] 4.1 Consumer→container derivation: default options mask, root placement, name-keyed label, provenance citing the baseline anchor; kernel tenant derives no container; container-only (no residents) asserted by test
+- [x] 4.1 Consumer→container derivation: default options mask, root placement, name-keyed label, provenance citing the baseline anchor; kernel tenant derives no container; container-only (no residents) asserted by test
 - [ ] 4.2 End-to-end convergence through dpaa2-tools: declared consumer converges to the container on first run, zero actions on re-run; dry-run shows per-object provenance
 
 ## 5. Board milestone (operator-launched)
