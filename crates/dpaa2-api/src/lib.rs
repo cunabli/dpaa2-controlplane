@@ -12,6 +12,7 @@
 
 pub mod compiled;
 mod derive;
+pub mod dprc;
 pub mod error;
 pub mod family;
 pub mod intent;
@@ -116,6 +117,10 @@ pub use compiled::{
     AttachPoint, Attributes, CompiledPlan, Container, Edge, Interface, Measurement, ObjectKey,
     PlannedObject, ProvenanceKey, ProvenanceNode,
 };
+// The child-DPRC lifecycle keeps its own module namespace (`dpaa2_api::dprc::*`): its
+// containment `Refusal` is a distinct vocabulary from the intent-compile
+// [`refuse::Refusal`] (design D4), so the two are deliberately not flattened into one
+// crate-root namespace where they would collide.
 pub use error::Error;
 pub use family::{ALL_FAMILIES, DERIVED_FAMILIES, Family, Permission};
 pub use intent::{
