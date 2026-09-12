@@ -35,6 +35,29 @@ depending on the types of changes defined by
 
 If the required subsection does not exist yet under **Unreleased**, create it!
 
+## Commit hooks
+
+The tracked hooks in `.githooks/` enforce commit mechanics and two repo rules.
+Point git at them once per clone:
+
+```shell
+git config core.hooksPath .githooks
+```
+
+The `commit-msg` hook checks each commit message:
+
+- Title is `<area>: <summary>` with a lowercase area prefix, at most 72 chars.
+- A blank line separates the title from the body.
+- Body lines stay within 72 chars (URLs and trailers exempt).
+- The body is at most 15 substantive lines — detail belongs in the ADR/spec/bead.
+- Exactly one `Change: <slug>` and one `BeadId: dpaa2-controlplane-<id>` trailer.
+- The referenced bead is already closed (close-then-commit).
+- `.beads/issues.jsonl` is staged when the close changed it.
+- One writer per crate per task: a commit touches at most one `crates/<name>`.
+
+The beads hooks still run; `.githooks/` delegates to them. Use
+`git commit --no-verify` to bypass the checks.
+
 ## Developing
 
 ### Set up

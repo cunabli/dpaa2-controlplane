@@ -1,0 +1,13 @@
+#!/usr/bin/env sh
+# Delegates to the beads-managed hook, then runs repo lints (a sibling parcel
+# provides scripts/checks/pre-commit-lints.sh).
+root="$(git rev-parse --show-toplevel)"
+hook="$root/.beads/hooks/pre-commit"
+if [ -x "$hook" ]; then
+  "$hook" "$@" || exit $?
+fi
+lints="$root/scripts/checks/pre-commit-lints.sh"
+if [ -x "$lints" ]; then
+  exec "$lints" "$@"
+fi
+exit 0

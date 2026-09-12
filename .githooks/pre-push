@@ -1,0 +1,5 @@
+#!/usr/bin/env sh
+# Delegates to the beads-managed hook when present (see .beads/hooks).
+hook="$(git rev-parse --show-toplevel)/.beads/hooks/pre-push"
+[ -x "$hook" ] && exec "$hook" "$@"
+exit 0

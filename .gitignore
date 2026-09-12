@@ -12,7 +12,10 @@ output
 
 # Board captures: operator material (MACs, topology details) — never committed
 /results
-/scripts
+/scripts/*
+!/scripts/checks/
+/scripts/checks/*
+!/scripts/checks/*.sh
 
 # Apalache scratch output (quint verify)
 _apalache-out/
