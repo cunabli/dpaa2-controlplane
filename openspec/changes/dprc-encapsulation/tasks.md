@@ -22,7 +22,7 @@
 ## 5. Board milestone (operator-launched)
 
 - [x] 5.1 Container lifecycle suite on scratch children (create, populate, plug, lock, unlock, evict, destroy; refusal-shape assertions); self-cleaning, reference-pair asserted
-- [ ] 5.2 VFIO suite: driver_override + bind on a scratch child, override propagation to a subsequently-added child (settle the design open question on post-bind resident creation), unbind, teardown, census clean
+- [x] 5.2 VFIO suite: driver_override + bind on a scratch child, override propagation to a subsequently-added child (settle the design open question on post-bind resident creation), unbind, teardown, census clean
 - [ ] 5.3 End-to-end convergence suite: intent-declared consumer converged and re-converged clean; read-back diffed against the derived model
 - [ ] 5.4 Online-MBT discovery sessions for the candidate containment faces (DPRC-I1 pool boundary, I9 under reconciler plans, I11 restool-reachable remainder); divergences amend model + `docs/baseline/dprc.md` in-change
 

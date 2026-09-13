@@ -487,6 +487,19 @@
       "refusals": []
     }
   },
+  "V-DPRC-8": {
+    "rev1": {
+      "pass": false,
+      "date": "2026-09-13",
+      "kind": "batch",
+      "revision": 1,
+      "steps": "2/2",
+      "source_hash": "fnv1a64:94a31f947d18a9c4",
+      "hook": "7/8",
+      "archive": null,
+      "refusals": []
+    }
+  },
   "V-DPRTC-1": {
     "V-DPRTC-1/probes": {
       "pass": true,

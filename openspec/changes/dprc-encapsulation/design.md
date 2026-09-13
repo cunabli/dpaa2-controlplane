@@ -124,9 +124,14 @@ teardown path (destroy after evict), exercised by DPRC-I9 suites.
 
 ## Open Questions
 
-- Whether override propagation to subsequently-added children is observable
+- ~~Whether override propagation to subsequently-added children is observable
   with container-only population (a child must be *added* while bound) — the
-  suite may need a resident create post-bind; settle at suite authoring.
+  suite may need a resident create post-bind; settle at suite authoring.~~
+  Settled at suite authoring (V-DPRC-8, task 5.2): the suite creates a
+  resident post-bind, carried by the `vfio.sh` hook — the core machine
+  cannot trace a dprc bind (`o.fam != Dprc` guard) and the generator has no
+  override read-back, so the propagation oracle is the hook's judged line.
+  The board's answer amends `docs/baseline/dprc.md` after the sitting.
 - Label semantics under lock (set-label is accepted on locked children,
   V-DPRC-3): does the reconciler treat label drift on a locked container as
   repairable? Default: yes (the board says the verb works); confirm in model.
