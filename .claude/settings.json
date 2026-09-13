@@ -6,6 +6,10 @@
           {
             "command": "$CLAUDE_PROJECT_DIR/scripts/checks/hook-anchored-refs.sh",
             "type": "command"
+          },
+          {
+            "command": "$CLAUDE_PROJECT_DIR/scripts/checks/hook-offload-tripwire.sh",
+            "type": "command"
           }
         ],
         "matcher": "Edit|Write"

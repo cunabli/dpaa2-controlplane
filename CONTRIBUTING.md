@@ -55,6 +55,11 @@ The `commit-msg` hook checks each commit message:
 - `.beads/issues.jsonl` is staged when the close changed it.
 - One writer per crate per task: a commit touches at most one `crates/<name>`.
 
+The `pre-commit` hook runs fast staged-source lints; among them:
+
+- CHANGELOG.md is cliff-owned: staging an edit to it fails, since git-cliff generates it at release time.
+- A public-repo leak scan rejects added lines carrying a real IP or MAC address or a board-vendor brand name.
+
 The beads hooks still run; `.githooks/` delegates to them. Use
 `git commit --no-verify` to bypass the checks.
 

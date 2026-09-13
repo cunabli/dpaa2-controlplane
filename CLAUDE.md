@@ -42,8 +42,8 @@ The repository also contains:
 - Explanations are active voice and 3rd person and succinct.
 - Unit and integration tests follow rust idioms and are separate.
 - TDD is used to drive spec tasks and part of the later.
-- Development workflow is complete when `cargo build | fmt | clippy | clippy --tests | doc` all pass
-- Git commits messages are conventional and include assistance authorship, reference to spec phase, and describe why the change takes place succinctly and simple words
+- Development workflow is complete when `cargo build | fmt | clippy | clippy --tests | doc` all pass, mechanized as `scripts/checks/quality-floor.sh`
+- Git commits messages are conventional and include assistance authorship, reference to spec phase, and describe why the change takes place succinctly and simple words; message mechanics (title/body bounds and required `Change:`/`BeadId:` trailers) are enforced by the `.githooks` commit-msg hook
 - Git commit content is self standing, it is amendable until sealed, and branches may be forked off to help reordering commits for independent review
 - docs/{adr,ROADMAP.md} are always kept up to date after changes
 

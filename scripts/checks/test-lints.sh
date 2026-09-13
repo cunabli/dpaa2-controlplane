@@ -118,5 +118,62 @@ printf 'crates/x/src/s.rs:name: String\n' > "$tmp/allow.txt"
 if ! STRING_SLOTS_ALLOW="$tmp/allow.txt" sh "$checks/string-slots.sh" >/dev/null; then
   fail "string-slots ignored its allowlist"
 fi
+rm crates/x/src/s.rs
+
+# --- CHANGELOG guard ---------------------------------------------------------
+# The guard lives inline in pre-commit-lints.sh; staging CHANGELOG.md must make
+# that entry point fail with its cliff-owned message.
+printf 'edited by hand\n' > CHANGELOG.md
+git add CHANGELOG.md
+if out=$("$checks/pre-commit-lints.sh" 2>&1); then
+  fail "CHANGELOG guard passed a staged CHANGELOG.md edit"
+fi
+case "$out" in
+  *cliff-owned*) ;;
+  *) fail "CHANGELOG guard fired without its message" ;;
+esac
+git reset -q
+rm CHANGELOG.md
+
+# --- leak-scan ---------------------------------------------------------------
+# leak_case <fail|pass> <path> <content> <message>: stage one added line and
+# assert leak-scan either flags it (fail) or lets it through (pass).
+leak_case() {
+  mkdir -p "$(dirname "$2")"
+  printf '%s\n' "$3" > "$2"
+  git add "$2"
+  if sh "$checks/leak-scan.sh" >/dev/null; then hit=0; else hit=1; fi
+  git reset -q; rm "$2"
+  { [ "$1" = fail ] && [ "$hit" = 0 ]; } && fail "$4"
+  { [ "$1" = pass ] && [ "$hit" = 1 ]; } && fail "$4"
+  return 0
+}
+
+leak_case fail crates/x/src/leak.rs '// mac 01:23:45:67:89:ab' "leak-scan missed a MAC address"
+leak_case fail crates/x/src/leak.rs '// host 10.0.0.1' "leak-scan missed a real IPv4"
+leak_case fail crates/x/src/leak.rs '# built for the ClearFog LX2160A' "leak-scan missed a brand name"
+# RFC 5737/3849 documentation addresses pass, as does plain text.
+leak_case pass crates/x/src/leak.rs '// doc 192.0.2.1 and 2001:db8::1 are examples' "leak-scan flagged RFC docs"
+leak_case pass crates/x/src/leak.rs '// ordinary prose with nothing to leak' "leak-scan flagged plain text"
+# The suite's own fixtures carry test IPs/MACs/brands; scripts/checks/ is skipped.
+leak_case pass scripts/checks/fixture.sh '// 01:23:45:67:89:ab 10.0.0.1 clearfog' "leak-scan scanned a scripts/checks/ fixture"
+
+# --- offload tripwire --------------------------------------------------------
+# The hook resolves the repo from its own location, so exercise it with paths
+# under the real repo (the files need not exist — the hook only inspects paths).
+repo=$(git -C "$checks" rev-parse --show-toplevel)
+
+out=$(printf '{"tool_input":{"file_path":"%s"}}' "$repo/crates/x/src/lib.rs" |
+  sh "$checks/hook-offload-tripwire.sh" 2>&1) && rc=0 || rc=$?
+[ "$rc" = 2 ] || fail "tripwire should exit 2 on a crates/*.rs edit"
+case "$out" in
+  *"offload tripwire"*) ;;
+  *) fail "tripwire fired without its message" ;;
+esac
+
+if ! printf '{"tool_input":{"file_path":"%s"}}' "$repo/README.md" |
+  sh "$checks/hook-offload-tripwire.sh" >/dev/null 2>&1; then
+  fail "tripwire fired on a README.md edit"
+fi
 
 echo "SELFTEST PASS"

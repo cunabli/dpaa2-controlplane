@@ -9,9 +9,17 @@ set -eu
 here=$(dirname "$0")
 rc=0
 
+# CHANGELOG.md is git-cliff's output, generated at release time; a session must
+# never hand-edit it. --no-verify is the escape for an actual release run.
+if git diff --cached --name-only | grep -q '^CHANGELOG[.]md$'; then
+  echo "CHANGELOG.md is cliff-owned — generated at release, never edited in a session (--no-verify for a release run)" >&2
+  rc=1
+fi
+
 sh "$here/anchored-refs.sh" --staged || rc=1
 sh "$here/comment-density.sh" --staged || rc=1
 sh "$here/string-slots.sh" || rc=1
+sh "$here/leak-scan.sh" || rc=1
 sh "$here/shell-sanity.sh" || rc=1
 
 # Run shellcheck over the suite and hooks; a casual clone without a shellcheck

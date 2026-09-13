@@ -182,13 +182,14 @@ control for one that should not exist.
 **Triage every process rule into one of three bins, recurringly:**
 
 - **(a) Mechanically checkable** → promote to a machine check (hook, lint,
-  commit-message check, tracker validation) and delete the prose. Known
-  members today — all still pending promotion, tracked on bead
-  `dpaa2-controlplane-pil`: peer-messaging stripped from observation
-  automation; close-then-commit ordering with the change trailer; one
-  writer per crate per task; name-slot newtype audits; the quality-floor
-  command set. Until promoted, a member of this bin is a plan, not a
-  protection.
+  commit-message check, tracker validation) and delete the prose. The
+  founding members landed 2026-09-13 (tracked on bead
+  `dpaa2-controlplane-pil`): peer-messaging observation automation
+  removed outright; close-then-commit ordering with the change trailer,
+  one writer per crate per task, name-slot newtype audits, and the
+  quality-floor command set all enforce via `.githooks/` and
+  `scripts/checks/`. Until promoted, a member of this bin is a plan,
+  not a protection.
 - **(b) Genuine judgment** → keep as prose only with its *why* and a
   revisit trigger attached. Known members today: "gate on intent, not
   mechanism"; "capture ambivalence in an ADR"; the five refusal reasons
@@ -218,6 +219,13 @@ reader concludes is the measured drift.
 
 ### 4. Did we do a good job (audit and revisit)
 
+- 2026-09-13 — the first §3 triage ran: it binned 39 bead memory keys,
+  the CLAUDE.md rules, and the account memory directory; promotions now
+  live as machine checks (commit mechanics, one writer per crate,
+  name-slot newtypes, the quality floor, anchored refs, comment density,
+  plus a CHANGELOG guard, a public-leak scan, and an offload tripwire); it
+  deleted 5 stale keys; the full ledger is recorded on bead
+  `dpaa2-controlplane-jbg`.
 - At each phase close: the honesty check (per-gate catches, parcel
   economics, deviations flagged vs. discovered) is recorded on the epic.
 - The rule pile is re-triaged at each phase close, or immediately when
