@@ -123,6 +123,7 @@ fn a_cap_net_admin_suite_carries_the_operator_note() {
         hook: None,
         create_args: CreateArgs::default(),
         expected_refusals: BTreeMap::new(),
+        pool_record: false,
     };
     let suite = generate(&spec, &trace, RecoveryGuarantee::Verified).expect("generate");
     assert!(

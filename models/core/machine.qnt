@@ -540,17 +540,21 @@ module machine {
     s.objs.get(o).owner == s.objs.get(o).parent,
     // A container destroy handles residents by ownership (V-DPRC-1 both
     // sittings): residents the container created are released with it;
-    // foreign residents are evicted one hop up, not destroyed. Only the
-    // observed resident shape is admitted either way — unplugged,
-    // unbound, undrawn, not itself a dprc. NXP's own teardown tooling
-    // empties containers first, so wider shapes stay refused until a
-    // probe proves them (ADR-0007).
+    // foreign residents are evicted one hop up, not destroyed. Every
+    // resident must be unbound, undrawn and not itself a dprc. The plugged
+    // fence splits by ownership: an OWNED resident MAY be plugged — the
+    // board cascade-destroyed a scratch container holding a plugged owned
+    // dpbp with no refusal from MC or restool (V-DPRC-7 rev 1 anchor,
+    // 2026-09-13) — while a FOREIGN (assigned-in) resident stays
+    // unplugged-only, since the wider evict shape is still unobserved and
+    // NXP's own teardown tooling empties containers first (ADR-0007).
     if (o.fam == Dprc)
       residents(s, o).forall(r => and {
         r.fam != Dprc,
-        not(s.objs.get(r).plugged),
         s.objs.get(r).bind == Unbound,
         s.objs.get(r).allocatedBy == None,
+        // owned => plugged allowed; foreign => must be unplugged
+        s.objs.get(r).owner == Some(o) or not(s.objs.get(r).plugged),
       })
     else true,
     s' = destroyT(s, o),

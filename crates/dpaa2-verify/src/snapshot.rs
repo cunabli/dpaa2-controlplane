@@ -300,7 +300,7 @@ fn parse_connections(dts: &str) -> Vec<(String, String)> {
 /// Each line is `<pool-name>: <count>` (e.g. `mcp: 200`, `cqch.ctm0.ins1:
 /// 31`); a line that does not split on a colon into a name and an integer
 /// is skipped (a header, a blank, or an error message from the capture).
-fn parse_resources(text: &str) -> BTreeMap<String, u32> {
+pub(crate) fn parse_resources(text: &str) -> BTreeMap<String, u32> {
     let mut out = BTreeMap::new();
     for line in text.lines() {
         if let Some((name, count)) = line.split_once(':')

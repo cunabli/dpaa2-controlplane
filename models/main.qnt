@@ -218,9 +218,8 @@ module main {
       .expect(s.objs.get(dpni0).parent == Some(dprc3))
 
   // Container destroy releases what it created, observed shape only
-  // (ADR-0007 §2; board V-DPRC-1): an unplugged, unbound resident the
-  // container created goes with it; a plugged resident keeps the
-  // refusal.
+  // (ADR-0007 §2; board V-DPRC-1): an unbound resident the container
+  // created goes with it, plugged or not.
   run destroyReleasesOwnedResidentTest =
     init
       .then(createContainerAt(dprc1))
@@ -228,12 +227,35 @@ module main {
       .then(destroyAt(dprc2))
       .expect(not(s.objs.keys().contains(dpni0)))
 
-  run destroyOwnedPluggedRefusedTest =
+  // A plugged OWNED resident does not block the destroy: the container
+  // and its plugged owned resident cascade away together (board V-DPRC-7
+  // rev 1, 2026-09-13 — `dprc destroy` exited 0 and removed both, no MC or
+  // restool refusal). The fence widened here from the earlier conservative
+  // unplugged-only shape.
+  run destroyOwnedPluggedCascadesTest =
     init
       .then(createContainerAt(dprc1))
       .then(createObjectAt(Dpni, dprc2))
       .then(plugAt(dpni0))
-      .then(destroyAt(dprc2).fail())
+      .then(destroyAt(dprc2))
+      .expect(and {
+        not(s.objs.keys().contains(dpni0)),
+        not(s.dprcs.keys().contains(dprc2)),
+      })
+
+  // A plugged FOREIGN (assigned-in) resident still blocks the destroy: the
+  // wider evict-a-plugged-resident shape is unobserved, so it stays fenced
+  // (ADR-0007). dpni0 created in dprc2, moved into dprc3 (owner stays
+  // dprc2), then plugged there — destroy of dprc3 is disabled.
+  run destroyForeignPluggedRefusedTest =
+    init
+      .then(createContainerAt(dprc1))                  // dprc.2
+      .then(createContainerAt(dprc1))                  // dprc.3
+      .then(createObjectAt(Dpni, dprc2))
+      .then(assignChildAt(dpni0, dprc1))               // up-hop
+      .then(assignChildAt(dpni0, dprc3))               // down-hop (foreign in dprc.3)
+      .then(plugAt(dpni0))
+      .then(destroyAt(dprc3).fail())
 
   // …but a foreign resident is evicted one hop up, not destroyed
   // (ADR-0007 §2; board V-DPRC-1 rev 2: the moved-in dpni reappeared in

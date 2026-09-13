@@ -107,4 +107,19 @@ dpni, with a cap of 64 per family.
   earlier suites — neither one per object nor zero. Either the listing
   lags, or some portals come from a reserve it does not count. A run
   that reads the pool after each create and each destroy resolves it.
+  New datum (V-DPRC-7 rev 1, 2026-09-13): a sitting that created **no**
+  dpmcp — two scratch children with a dpbp each, plug/lock/cascade faces
+  — still read `mcp` 203 → 201, two portals gone with zero dpmcp churn.
+  The rev 2 sitting (2026-09-13, PASS 9/9) ran the prescribed per-step
+  instrument (`dpaa2-verify generate --pool-record`) over the same trace
+  faces — create ×2, populate ×2, plug ×2, unplug, release destroy,
+  cascade destroy — and `mcp` read 201 at the baseline and 201 after
+  every step, with the pre- and post-sitting snapshots at zero deltas.
+  The trace faces are exonerated: none of them draws or leaks a portal.
+  The only rev 1 faces rev 2 did not replay are the lock/unlock accepts
+  and the refused commands (the destroy attempt, the failed unplug, the
+  teardown re-destroys) — those, or the uncounted-reserve/listing-lag
+  reading itself, are the remaining candidates for the two portals.
+  `bp`, by contrast, moved symmetrically to the object at every step,
+  and the cascade destroy of a still-plugged dpbp returned its unit.
 - Any firmware or DPC change re-anchors all three numbers.

@@ -81,6 +81,12 @@ pub struct StepOutcome {
     pub expected_refusal: Option<String>,
     /// The operator skipped the step (probe runs only).
     pub skipped: bool,
+    /// Pool families that moved across this step, `family: old -> new`,
+    /// from the `--pool-record` instrument (ADR-0011). Empty and absent
+    /// unless the suite carried the instrument and a pool count changed;
+    /// pool movement is recorded data only and never touches pass/fail.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pool_moves: Vec<String>,
 }
 
 /// One `PASS `/`FAIL ` line emitted by a suite's hook script.
@@ -303,6 +309,48 @@ pub fn parse_created(text: &str) -> Vec<(String, String)> {
         .collect()
 }
 
+/// The pool families that moved between two `dprc show mc.global
+/// --resources` captures, as `family: old -> new` lines (the ADR-0011
+/// `--pool-record` instrument). A family whose count is unchanged is
+/// omitted; one present on only one side renders the missing side as `-`.
+/// Recorded data only — the caller never lets it touch pass/fail.
+#[must_use]
+pub fn pool_moves_between(prior: &str, current: &str) -> Vec<String> {
+    let (a, b) = (
+        crate::snapshot::parse_resources(prior),
+        crate::snapshot::parse_resources(current),
+    );
+    let mut names: Vec<&String> = a.keys().chain(b.keys()).collect();
+    names.sort();
+    names.dedup();
+    names
+        .into_iter()
+        .filter_map(|name| {
+            let (old, new) = (a.get(name), b.get(name));
+            (old != new).then(|| {
+                let show = |v: Option<&u32>| v.map_or_else(|| "-".to_owned(), u32::to_string);
+                format!("{name}: {} -> {}", show(old), show(new))
+            })
+        })
+        .collect()
+}
+
+/// The pool moves recorded for step `index`, pairing its `step-<N>-pool.txt`
+/// against the prior step's file (or `pool-baseline.txt` for step 0).
+/// Empty when either capture is absent — a suite generated without
+/// `--pool-record` emits no pool files, so this stays silent.
+fn step_pool_moves(read: &impl Fn(&str) -> Option<String>, index: usize) -> Vec<String> {
+    let prior_name = if index == 0 {
+        "pool-baseline.txt".to_owned()
+    } else {
+        format!("step-{}-pool.txt", index - 1)
+    };
+    match (read(&prior_name), read(&format!("step-{index}-pool.txt"))) {
+        (Some(prior), Some(current)) => pool_moves_between(&prior, &current),
+        _ => Vec::new(),
+    }
+}
+
 /// Builds a verdict from a batch suite's plan and its result files.
 ///
 /// `read` maps a result file name to its content; `list` returns every
@@ -349,6 +397,7 @@ pub fn from_batch(
                 refusal,
                 expected_refusal,
                 skipped: false,
+                pool_moves: step_pool_moves(&read, r.index),
             }
         })
         .collect();
@@ -432,6 +481,7 @@ pub fn from_fit(
                     .and_then(mc_status),
                 expected_refusal: None,
                 skipped: false,
+                pool_moves: Vec::new(),
             }
         })
         .collect();
@@ -490,6 +540,7 @@ fn probe_outcome(pr: &ProbeRecord) -> StepOutcome {
         refusal: pr.output.as_deref().and_then(mc_status),
         expected_refusal: pr.refusal.clone(),
         skipped: pr.skipped,
+        pool_moves: Vec::new(),
     }
 }
 
@@ -508,6 +559,7 @@ fn trace_outcome(sr: &StepRecord) -> StepOutcome {
         refusal: mc_status(&sr.stderr),
         expected_refusal: None,
         skipped: false,
+        pool_moves: Vec::new(),
     }
 }
 
@@ -702,6 +754,7 @@ mod tests {
             steps: vec![],
             hook: None,
             create_args: crate::adapter::CreateArgs::default(),
+            pool_record: false,
         }
     }
 
@@ -888,6 +941,21 @@ mod tests {
         assert_eq!(back["V-T-1"]["V-T-1-rev2"].steps, "1/1");
         // Empty text is the empty index.
         assert!(parse_index("  ").unwrap().is_empty());
+    }
+
+    #[test]
+    fn pool_moves_reports_only_changed_families() {
+        let prior = "mcp: 203\nbp: 63\ngone: 4\nheader with no colon count\n";
+        let current = "mcp: 201\nbp: 63\nfresh: 1\n";
+        assert_eq!(
+            pool_moves_between(prior, current),
+            vec![
+                "fresh: - -> 1".to_owned(),
+                "gone: 4 -> -".to_owned(),
+                "mcp: 203 -> 201".to_owned(),
+            ]
+        );
+        assert!(pool_moves_between(current, current).is_empty());
     }
 
     #[test]

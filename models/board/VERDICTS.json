@@ -463,6 +463,30 @@
       "refusals": []
     }
   },
+  "V-DPRC-7": {
+    "V-DPRC-7-rev1": {
+      "pass": false,
+      "date": "2026-09-13",
+      "kind": "batch",
+      "revision": 1,
+      "steps": "8/8",
+      "source_hash": "fnv1a64:b3c71baaa47fe766",
+      "hook": "3/5",
+      "archive": null,
+      "refusals": []
+    },
+    "V-DPRC-7-rev2": {
+      "pass": true,
+      "date": "2026-09-13",
+      "kind": "batch",
+      "revision": 2,
+      "steps": "9/9",
+      "source_hash": "fnv1a64:11d7d2511c6c4a28",
+      "hook": null,
+      "archive": null,
+      "refusals": []
+    }
+  },
   "V-DPRTC-1": {
     "V-DPRTC-1/probes": {
       "pass": true,

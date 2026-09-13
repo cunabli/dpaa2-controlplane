@@ -98,6 +98,13 @@ enum Command {
         /// MC status instead. Repeatable.
         #[arg(long, value_name = "N=STATUS")]
         expect_refusal: Vec<String>,
+        /// Capture `dprc show mc.global --resources` once before step 0
+        /// (`pool-baseline.txt`) and after every step (`step-<N>-pool.txt`),
+        /// the per-step pool instrument ADR-0011 prescribes. Read-only;
+        /// `diff` reports the per-step moves and never lets them affect
+        /// pass/fail. Off by default.
+        #[arg(long)]
+        pool_record: bool,
         /// Directory to write `<id>.sh` and `<id>.plan.json` into.
         #[arg(long)]
         out: PathBuf,
@@ -346,6 +353,7 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
             hook,
             create_args,
             expect_refusal,
+            pool_record,
             out,
         } => {
             // The fit-check arm: a read-only sitting from a probe plan
@@ -396,6 +404,7 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
                     .iter()
                     .map(|s| parse_expect_refusal(s))
                     .collect::<Result<_, String>>()?,
+                pool_record,
             };
             let recovery = if recovery_marker.exists() {
                 RecoveryGuarantee::Verified
@@ -760,6 +769,14 @@ fn run_diff_plan(plan_path: &Path, args: &DiffArgs) -> Result<ExitCode, String> 
         revision,
         date,
     );
+    // Per-step pool movement (the --pool-record instrument, ADR-0011):
+    // recorded data, printed as RECORD lines and never touching pass/fail.
+    // Silent when the suite carried no pool captures.
+    for s in &v.steps {
+        for mv in &s.pool_moves {
+            println!("step {:>3}  RECORD  pool {mv}", s.index);
+        }
+    }
     let verdict_path = results.join("verdict.json");
     write_verdict_file(&verdict_path, &v)?;
     let label = args.label.clone().unwrap_or_else(|| base_name(results));

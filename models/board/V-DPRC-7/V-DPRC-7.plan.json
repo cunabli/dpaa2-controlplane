@@ -1,0 +1,260 @@
+{
+  "id": "V-DPRC-7",
+  "class": "object-lifecycle-only",
+  "flagged": false,
+  "trace_file": "models/board/V-DPRC-7/vdprc7.itf.json",
+  "steps": [
+    {
+      "index": 0,
+      "title": "CreateContainer { parent: ObjRef { fam: Dprc, num: 1 } }",
+      "driven": true,
+      "probes": [
+        {
+          "Restool": [
+            "dprc",
+            "show",
+            "dprc.1"
+          ]
+        }
+      ],
+      "created": {
+        "fam": "Dprc",
+        "num": 2
+      },
+      "expected": {
+        "object": {
+          "fam": "Dprc",
+          "num": 2
+        },
+        "present": true,
+        "plugged": false,
+        "endpoint": null,
+        "driver_bound": null,
+        "link_up": null
+      }
+    },
+    {
+      "index": 1,
+      "title": "CreateContainer { parent: ObjRef { fam: Dprc, num: 1 } }",
+      "driven": true,
+      "probes": [
+        {
+          "Restool": [
+            "dprc",
+            "show",
+            "dprc.1"
+          ]
+        }
+      ],
+      "created": {
+        "fam": "Dprc",
+        "num": 3
+      },
+      "expected": {
+        "object": {
+          "fam": "Dprc",
+          "num": 3
+        },
+        "present": true,
+        "plugged": false,
+        "endpoint": null,
+        "driver_bound": null,
+        "link_up": null
+      }
+    },
+    {
+      "index": 2,
+      "title": "CreateObject { fam: Dpbp, container: ObjRef { fam: Dprc, num: 2 } }",
+      "driven": true,
+      "probes": [
+        {
+          "Restool": [
+            "dprc",
+            "show",
+            "dprc.2"
+          ]
+        }
+      ],
+      "created": {
+        "fam": "Dpbp",
+        "num": 0
+      },
+      "expected": {
+        "object": {
+          "fam": "Dpbp",
+          "num": 0
+        },
+        "present": true,
+        "plugged": false,
+        "endpoint": null,
+        "driver_bound": null,
+        "link_up": null
+      }
+    },
+    {
+      "index": 3,
+      "title": "CreateObject { fam: Dpbp, container: ObjRef { fam: Dprc, num: 3 } }",
+      "driven": true,
+      "probes": [
+        {
+          "Restool": [
+            "dprc",
+            "show",
+            "dprc.3"
+          ]
+        }
+      ],
+      "created": {
+        "fam": "Dpbp",
+        "num": 1
+      },
+      "expected": {
+        "object": {
+          "fam": "Dpbp",
+          "num": 1
+        },
+        "present": true,
+        "plugged": false,
+        "endpoint": null,
+        "driver_bound": null,
+        "link_up": null
+      }
+    },
+    {
+      "index": 4,
+      "title": "Plug { obj: ObjRef { fam: Dpbp, num: 0 } }",
+      "driven": true,
+      "probes": [
+        {
+          "Restool": [
+            "dprc",
+            "show",
+            "dprc.2"
+          ]
+        }
+      ],
+      "created": null,
+      "expected": {
+        "object": {
+          "fam": "Dpbp",
+          "num": 0
+        },
+        "present": true,
+        "plugged": true,
+        "endpoint": null,
+        "driver_bound": null,
+        "link_up": null
+      }
+    },
+    {
+      "index": 5,
+      "title": "Plug { obj: ObjRef { fam: Dpbp, num: 1 } }",
+      "driven": true,
+      "probes": [
+        {
+          "Restool": [
+            "dprc",
+            "show",
+            "dprc.3"
+          ]
+        }
+      ],
+      "created": null,
+      "expected": {
+        "object": {
+          "fam": "Dpbp",
+          "num": 1
+        },
+        "present": true,
+        "plugged": true,
+        "endpoint": null,
+        "driver_bound": null,
+        "link_up": null
+      }
+    },
+    {
+      "index": 6,
+      "title": "Unplug { obj: ObjRef { fam: Dpbp, num: 0 } }",
+      "driven": true,
+      "probes": [
+        {
+          "Restool": [
+            "dprc",
+            "show",
+            "dprc.2"
+          ]
+        },
+        {
+          "SysfsRead": {
+            "path": "/sys/bus/fsl-mc/devices/dpbp.0/driver"
+          }
+        }
+      ],
+      "created": null,
+      "expected": {
+        "object": {
+          "fam": "Dpbp",
+          "num": 0
+        },
+        "present": true,
+        "plugged": false,
+        "endpoint": null,
+        "driver_bound": false,
+        "link_up": null
+      }
+    },
+    {
+      "index": 7,
+      "title": "Destroy { obj: ObjRef { fam: Dprc, num: 2 } }",
+      "driven": true,
+      "probes": [
+        {
+          "Restool": [
+            "dprc",
+            "show",
+            "dprc.1"
+          ]
+        }
+      ],
+      "created": null,
+      "expected": {
+        "object": {
+          "fam": "Dprc",
+          "num": 2
+        },
+        "present": false,
+        "plugged": null,
+        "endpoint": null,
+        "driver_bound": null,
+        "link_up": null
+      }
+    },
+    {
+      "index": 8,
+      "title": "Destroy { obj: ObjRef { fam: Dprc, num: 3 } }",
+      "driven": true,
+      "probes": [
+        {
+          "Restool": [
+            "dprc",
+            "show",
+            "dprc.1"
+          ]
+        }
+      ],
+      "created": null,
+      "expected": {
+        "object": {
+          "fam": "Dprc",
+          "num": 3
+        },
+        "present": false,
+        "plugged": null,
+        "endpoint": null,
+        "driver_bound": null,
+        "link_up": null
+      }
+    }
+  ],
+  "pool_record": true
+}

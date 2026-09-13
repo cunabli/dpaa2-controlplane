@@ -344,7 +344,14 @@ object-lifecycle-only scenarios except where noted):
    neither refused nor an error; restool exited 0 both times and only
    the read-back told the two cases apart. A resident the container
    created dies with it; a resident merely assigned in survives,
-   evicted unplugged into the parent (ADR-0007 §3).
+   evicted unplugged into the parent (ADR-0007 §3). The owned resident
+   need not even be unplugged: board suite V-DPRC-7 rev 1, 2026-09-13,
+   `dprc destroy` of a scratch child holding a **plugged** owned dpbp
+   exited 0 and cascade-destroyed the container and its plugged resident,
+   with no refusal from MC or restool — so the destroy fence in
+   `models/core/machine.qnt` admits a plugged *owned* resident, while a
+   *foreign* (assigned-in) resident stays unplugged-only until the wider
+   evict shape is observed.
 2. ~~Are DPRC `options` mutable post-create by any MC command (restool has
    none)?~~ **Closed by absence** (task 5.10): restool exposes no verb and
    the flib has no `dprc_set_options`; the options are create-time only

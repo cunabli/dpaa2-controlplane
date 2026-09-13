@@ -96,6 +96,13 @@ pub struct SuiteSpec {
     /// once the action is refused the model's post-state is wrong by
     /// construction. Validated against [`crate::mcstatus`].
     pub expected_refusals: BTreeMap<usize, String>,
+    /// Whether the script captures `dprc show mc.global --resources` once
+    /// before step 0 (`pool-baseline.txt`) and after every step
+    /// (`step-<N>-pool.txt`), the per-step pool instrument ADR-0011
+    /// prescribes for the "listing lags or uncounted reserve" question.
+    /// Off by default; the capture is read-only and never touches
+    /// pass/fail.
+    pub pool_record: bool,
 }
 
 /// One step of the offline-diffable plan.
@@ -148,6 +155,18 @@ pub struct SuitePlan {
     /// byte-identically.
     #[serde(default, skip_serializing_if = "CreateArgs::is_empty")]
     pub create_args: CreateArgs,
+    /// Whether the suite carries the per-step pool instrument (ADR-0011).
+    /// Absent (not present-false) when off, so every plan generated
+    /// without it re-serializes byte-identically.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub pool_record: bool,
+}
+
+/// serde predicate: skip a `bool` field when it is `false`, so a
+/// default-off flag is absent from the JSON rather than present-false.
+#[allow(clippy::trivially_copy_pass_by_ref)] // serde's skip_serializing_if takes &T
+fn is_false(b: &bool) -> bool {
+    !*b
 }
 
 /// A generated suite: the reviewable script and its plan.
@@ -337,7 +356,7 @@ sysfs_write() {{ n="$1"; echo "+ echo $3 > $2"; sh -c "echo $3 > $2" 2>"$RESULTS
 probe() {{ n="$1"; m="$2"; shift 2; echo "+ (probe) $*"; "$@" > "$RESULTS/step-$n-probe-$m.txt" 2>"$RESULTS/.err" || true; keep_err "$n"; }}
 # probe_link N M path: capture a sysfs driver link (empty = unbound).
 probe_link() {{ n="$1"; m="$2"; readlink "$3" > "$RESULTS/step-$n-probe-$m.txt" 2>/dev/null || true; }}
-
+{pool_helper}
 {ref_pair}"#,
         id = spec.id,
         class = spec.run.class,
@@ -348,9 +367,19 @@ probe_link() {{ n="$1"; m="$2"; readlink "$3" > "$RESULTS/step-$n-probe-$m.txt" 
         },
         trace = spec.trace_file,
         deny = TOTAL_DENY_GREP,
+        pool_helper = if spec.pool_record { POOL_HELPER } else { "" },
         ref_pair = REF_PAIR_ASSERT,
     )
 }
+
+/// The `pool_capture` helper, emitted only for a `--pool-record` suite
+/// (ADR-0011's per-step pool instrument): snapshot the MC-global resource
+/// pools to a file, best-effort, never failing the script. The pool
+/// families named in the output (`mcp`, `bp`, …) never match the total-deny
+/// grep, so the self-check is untouched.
+const POOL_HELPER: &str = "\
+# pool_capture FILE: snapshot MC-global resource pools (ADR-0011), best-effort.
+pool_capture() { restool dprc show mc.global --resources > \"$RESULTS/$1\" 2>/dev/null || true; }\n";
 
 /// The total-deny pattern the emitted self-checks grep for, shared by
 /// the preamble (which scans the script itself) and the suite hook's
@@ -648,6 +677,13 @@ pub fn generate(
     let mut model_names = Binding::seed(&trace.init);
     let mut pre = trace.init.clone();
     let mut body = String::new();
+    // The pool baseline is taken once before step 0 (ADR-0011 instrument);
+    // each step then captures its own post-state pool below.
+    if spec.pool_record {
+        body.push_str(
+            "\n# --- pool baseline (--pool-record, ADR-0011) ---\npool_capture pool-baseline.txt\n",
+        );
+    }
     // (model id, shell var, parent's rendered name) per created object;
     // the parent is needed for the trap's best-effort unplug.
     let mut teardown: Vec<(ObjRef, String, Option<String>)> = Vec::new();
@@ -762,6 +798,11 @@ pub fn generate(
                     let _ = writeln!(body, "probe_link {i} {m} {path}");
                 }
             }
+        }
+        // The step's post-state pool reading (ADR-0011 instrument), after
+        // the read-back probes; the diff pairs it against the prior step's.
+        if spec.pool_record {
+            let _ = writeln!(body, "pool_capture step-{i}-pool.txt");
         }
         let plan_probes = readback(&step.action, &pre, &step.post, &model_names)
             .map_err(|e| format!("step {i}: {e}"))?;
@@ -926,6 +967,7 @@ pub fn generate(
             steps,
             hook: spec.hook.as_ref().map(|h| h.path.clone()),
             create_args: spec.create_args.clone(),
+            pool_record: spec.pool_record,
         },
     })
 }
@@ -1091,6 +1133,7 @@ mod tests {
             hook: None,
             create_args: CreateArgs::default(),
             expected_refusals: BTreeMap::new(),
+            pool_record: false,
         }
     }
 
