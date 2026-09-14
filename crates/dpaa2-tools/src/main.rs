@@ -14,7 +14,7 @@ use dpaa2_api::{
     reconcile_with,
 };
 use dpaa2_mc::{RestoolMc, SysfsKernel};
-use dpaa2_tools::engine::{self, ContainerOutcome, ConvergeConfig, Outcome};
+use dpaa2_tools::engine::{self, ContainerOutcome, ConvergeConfig, Outcome, PruneOutcome};
 use dpaa2_tools::{StatusReport, link, render};
 
 /// Declarative DPAA2 (DPNI↔DPMAC) provisioning for the LX2160A.
@@ -165,6 +165,10 @@ fn run(cli: &Cli) -> Result<ExitCode, Error> {
                 "{}",
                 render::render_container_convergence(&compiled.plan, &containers)
             );
+            // The undeclared-consumer prune report (dprc-encapsulation task 4.3),
+            // classified read-only off the board — a dry-run dispatches nothing.
+            let prune = engine::plan_prune_report(&compiled.plan, &mc)?;
+            print!("{}", render::render_prune(&prune));
             Ok(ExitCode::SUCCESS)
         }
         Command::Ensure {
@@ -234,6 +238,29 @@ fn ensure(
         }
         ContainerOutcome::Refused { label, attribution } => {
             println!("refused: the child DPRC for `{label}` was denied: {attribution:?}");
+            return Ok(ExitCode::FAILURE);
+        }
+    }
+
+    // Prune undeclared consumer containers under the double gate (dprc-encapsulation task 4.3).
+    // A separate pass so an empty intent still prunes; the report is printed before the
+    // outcome, and a below-disruptive refusal exits non-zero, changing nothing.
+    match engine::prune_containers(&compiled.plan, mc, cfg)? {
+        PruneOutcome::Clean => {}
+        PruneOutcome::ReportOnly { items } | PruneOutcome::Pruned { items } => {
+            print!("{}", render::render_prune(&items));
+        }
+        PruneOutcome::DisruptionRefused {
+            headline,
+            allowed,
+            items,
+        } => {
+            print!("{}", render::render_prune(&items));
+            println!(
+                "refused: pruning an undeclared container is `{headline}`, but the run allows \
+                 only up to `{allowed}`.\nre-run with `--prune --allow={headline}` to actuate it \
+                 (disruptive is never implied)."
+            );
             return Ok(ExitCode::FAILURE);
         }
     }

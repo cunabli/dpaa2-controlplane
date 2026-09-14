@@ -10,9 +10,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
 
-use dpaa2_api::dprc_plan::{ConsumerConvergence, ContainerVerdict};
+use dpaa2_api::dprc_plan::{ConsumerConvergence, ContainerVerdict, FingerprintField, PruneItem};
 use dpaa2_api::{
-    AttachPoint, Attributes, CompiledPlan, Container, Family, Measurement, ObjectKey, Plan,
+    AttachPoint, Attributes, CompiledPlan, Container, DprcId, Family, Measurement, ObjectKey, Plan,
     PlannedObject, ProvenanceKey, Refusal, Warning,
 };
 
@@ -210,6 +210,61 @@ fn render_verdict(verdict: &ContainerVerdict) -> String {
         ContainerVerdict::Converged => "converged".to_owned(),
         ContainerVerdict::Diverged(reasons) => format!("diverged: {reasons:?}"),
     }
+}
+
+/// Renders the undeclared-consumer prune report (dprc-encapsulation task 4.3; reconciler
+/// spec "Undeclared consumer containers are pruned under the double gate"): a header with
+/// the candidate and report-only counts, then per container its id, [`PruneBucket`] name,
+/// matched/unmatched fingerprint fields, and — for a candidate — the eviction-law teardown
+/// steps and predicted post-state (ADR-0007 §3). Nothing is dispatched without `--prune`
+/// and `--allow disruptive`, which the header states, so the same text serves the dry-run
+/// (which never dispatches) and the `ensure` report.
+///
+/// [`PruneBucket`]: dpaa2_api::dprc_plan::PruneBucket
+#[must_use]
+pub fn render_prune(items: &BTreeMap<DprcId, PruneItem>) -> String {
+    let candidates = items.values().filter(|i| i.plan.is_some()).count();
+    let report_only = items.len() - candidates;
+    let mut out = String::new();
+    let _ = writeln!(
+        out,
+        "prune ({candidates} candidate(s), {report_only} report-only) \
+         [double gate: --prune --allow disruptive]:"
+    );
+    if items.is_empty() {
+        let _ = writeln!(out, "  (none)");
+    }
+    for (id, item) in items {
+        let c = &item.classification;
+        let _ = writeln!(
+            out,
+            "  {id} [{}] matched: {} unmatched: {}",
+            c.bucket.name(),
+            render_fields(&c.matched),
+            render_fields(&c.unmatched),
+        );
+        let Some(plan) = &item.plan else {
+            continue;
+        };
+        for step in &plan.steps {
+            let _ = writeln!(out, "    [{}] {step:?}", step.class());
+        }
+        if let Some(pred) = &plan.predicted {
+            let _ = writeln!(
+                out,
+                "    post-state: {:?}, parent gains {} resident(s)",
+                pred.final_state,
+                pred.parent_gained.len(),
+            );
+        }
+    }
+    out
+}
+
+/// Renders a set of fingerprint fields as a bracketed, comma-joined list.
+fn render_fields(fields: &BTreeSet<FingerprintField>) -> String {
+    let names: Vec<String> = fields.iter().map(|f| format!("{f:?}")).collect();
+    format!("[{}]", names.join(", "))
 }
 
 /// Renders every refusal with its named rule and offending construct (design D5/D10),

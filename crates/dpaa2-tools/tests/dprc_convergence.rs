@@ -9,15 +9,17 @@
 
 use std::collections::BTreeMap;
 
-use dpaa2_api::dprc::Options;
-use dpaa2_api::dprc_plan::{Attribution, ContainerVerdict, OptionBit};
+use dpaa2_api::dprc::{ContainerState, Options, Resident, ResidentId, ResidentKind};
+use dpaa2_api::dprc_plan::{
+    Attribution, ContainerVerdict, ObservedContainer, OptionBit, PruneBucket, plan_prune,
+};
 use dpaa2_api::fake::FakeBackend;
 use dpaa2_api::{
-    Availability, Ceiling, Class, Compiled, Container, Dataplane, DpmacId, DpmacLinkType,
-    DpmacOffer, Error, EthInterface, Family, Intent, Inventory, Isolation, MacMode, McControl,
-    Port, Tenant, TenantRef, compile,
+    Availability, Ceiling, Class, Compiled, ConstructName, Container, Dataplane, DpmacId,
+    DpmacLinkType, DpmacOffer, DprcId, Error, EthInterface, Family, Intent, Inventory, Isolation,
+    MacMode, McControl, Port, Tenant, TenantRef, compile,
 };
-use dpaa2_tools::engine::{self, ContainerOutcome, ConvergeConfig};
+use dpaa2_tools::engine::{self, ContainerOutcome, ConvergeConfig, PruneOutcome};
 use dpaa2_tools::render;
 
 fn inventory() -> Inventory {
@@ -164,4 +166,222 @@ fn a_refused_create_is_attributed_and_does_not_converge() {
         backend.observe_containers().unwrap().is_empty(),
         "a refused create leaves no container"
     );
+}
+
+// ---- undeclared-consumer prune under the double gate (dprc-encapsulation task 4.3) ----
+
+fn prune_disruptive_cfg() -> ConvergeConfig {
+    ConvergeConfig {
+        prune: true,
+        allow: Class::Disruptive,
+        ..ConvergeConfig::default()
+    }
+}
+
+/// An empty intent: no declared consumer, so every observed child container is undeclared.
+fn compiled_empty() -> Compiled {
+    compile(&Intent::default(), &inventory()).expect("empty intent must compile")
+}
+
+/// An orphan child container seeded with two residents (created + assigned-in) so a
+/// teardown predicts a real eviction post-state (ADR-0007 §3).
+fn orphan_container(
+    label: impl Into<ConstructName>,
+    options: Options,
+    placement: Container,
+) -> ObservedContainer {
+    let mut residents = BTreeMap::new();
+    residents.insert(
+        ResidentId::new(1),
+        Resident {
+            kind: ResidentKind::CreatedIn,
+            plugged: false,
+        },
+    );
+    residents.insert(
+        ResidentId::new(2),
+        Resident {
+            kind: ResidentKind::AssignedIn,
+            plugged: false,
+        },
+    );
+    ObservedContainer {
+        state: ContainerState::Populated,
+        options,
+        label: label.into(),
+        placement,
+        residents,
+    }
+}
+
+#[test]
+fn full_fingerprint_orphan_is_pruned_and_reruns_clean() {
+    // Full fingerprint + empty intent + double gate: destroyed, absent on re-observation,
+    // and the second pass plans zero and reports Clean (idempotent).
+    let compiled = compiled_empty();
+    let backend = FakeBackend::new().with_container(
+        DprcId::new(5),
+        orphan_container("foreign", Options::DEFAULT, Container::Root),
+    );
+    assert!(matches!(
+        engine::prune_containers(&compiled.plan, &backend, prune_disruptive_cfg()).unwrap(),
+        PruneOutcome::Pruned { .. }
+    ));
+    assert!(
+        backend.observe_containers().unwrap().is_empty(),
+        "the orphan was torn down"
+    );
+    assert_eq!(
+        engine::prune_containers(&compiled.plan, &backend, prune_disruptive_cfg()).unwrap(),
+        PruneOutcome::Clean
+    );
+}
+
+#[test]
+fn partial_fingerprint_orphan_is_pruned_under_the_double_gate() {
+    // A non-default mask (seeded via with_container, which dprc_create's default cannot
+    // produce) is a partial candidate; the double gate still tears it down.
+    let compiled = compiled_empty();
+    let partial = Options {
+        spawn: false,
+        ..Options::DEFAULT
+    };
+    let backend = FakeBackend::new().with_container(
+        DprcId::new(5),
+        orphan_container("foreign", partial, Container::Root),
+    );
+    assert!(matches!(
+        engine::prune_containers(&compiled.plan, &backend, prune_disruptive_cfg()).unwrap(),
+        PruneOutcome::Pruned { .. }
+    ));
+    assert!(backend.observe_containers().unwrap().is_empty());
+}
+
+#[test]
+fn empty_label_container_is_report_only_and_untouched() {
+    // The report-only fence (ADR-0001 §4): an unlabeled container is never dispatched,
+    // even under --prune --allow disruptive, and survives.
+    let compiled = compiled_empty();
+    let backend = FakeBackend::new().with_container(
+        DprcId::new(5),
+        orphan_container("", Options::DEFAULT, Container::Root),
+    );
+    match engine::prune_containers(&compiled.plan, &backend, prune_disruptive_cfg()).unwrap() {
+        PruneOutcome::ReportOnly { items } => {
+            assert_eq!(
+                items[&DprcId::new(5)].classification.bucket,
+                PruneBucket::ReportOnly
+            );
+        }
+        other => panic!("expected report-only, got {other:?}"),
+    }
+    assert_eq!(
+        backend.observe_containers().unwrap().len(),
+        1,
+        "the report-only container is never touched"
+    );
+}
+
+#[test]
+fn candidate_without_prune_is_reported_not_dispatched() {
+    // First gate withheld: --allow disruptive but no --prune reports the candidate and
+    // dispatches nothing.
+    let compiled = compiled_empty();
+    let backend = FakeBackend::new().with_container(
+        DprcId::new(5),
+        orphan_container("foreign", Options::DEFAULT, Container::Root),
+    );
+    let cfg = ConvergeConfig {
+        allow: Class::Disruptive,
+        ..ConvergeConfig::default()
+    };
+    assert!(matches!(
+        engine::prune_containers(&compiled.plan, &backend, cfg).unwrap(),
+        PruneOutcome::ReportOnly { .. }
+    ));
+    assert_eq!(backend.observe_containers().unwrap().len(), 1);
+}
+
+#[test]
+fn candidate_below_disruptive_is_refused_not_dispatched() {
+    // Second gate withheld: --prune but --allow below disruptive refuses, changing nothing.
+    let compiled = compiled_empty();
+    let backend = FakeBackend::new().with_container(
+        DprcId::new(5),
+        orphan_container("foreign", Options::DEFAULT, Container::Root),
+    );
+    let cfg = ConvergeConfig {
+        prune: true,
+        allow: Class::Hitless,
+        ..ConvergeConfig::default()
+    };
+    match engine::prune_containers(&compiled.plan, &backend, cfg).unwrap() {
+        PruneOutcome::DisruptionRefused {
+            headline, allowed, ..
+        } => {
+            assert_eq!(headline, Class::Disruptive);
+            assert_eq!(allowed, Class::Hitless);
+        }
+        other => panic!("expected disruption-refused, got {other:?}"),
+    }
+    assert_eq!(backend.observe_containers().unwrap().len(), 1);
+}
+
+#[test]
+fn declared_consumer_is_torn_down_once_intent_empties() {
+    // Acceptance: converge a declared consumer (existing flow), then re-run with an empty
+    // intent under the double gate — its now-undeclared container is torn down end to end,
+    // and a second re-run is Clean.
+    let compiled = compiled_router();
+    let backend = FakeBackend::new();
+    assert_eq!(
+        engine::converge_containers(&compiled.plan, &backend, disruptive_cfg()).unwrap(),
+        ContainerOutcome::Converged
+    );
+    assert_eq!(backend.observe_containers().unwrap().len(), 1);
+
+    let empty = compiled_empty();
+    assert!(matches!(
+        engine::prune_containers(&empty.plan, &backend, prune_disruptive_cfg()).unwrap(),
+        PruneOutcome::Pruned { .. }
+    ));
+    assert!(backend.observe_containers().unwrap().is_empty());
+    assert_eq!(
+        engine::prune_containers(&empty.plan, &backend, prune_disruptive_cfg()).unwrap(),
+        PruneOutcome::Clean
+    );
+}
+
+#[test]
+fn render_prune_shows_candidate_partial_and_report_only() {
+    // The dry-run block: a full candidate, a partial candidate, and a report-only fence
+    // rendered together with buckets, fingerprint fields, steps and predicted post-state.
+    let observed = BTreeMap::from([
+        (
+            DprcId::new(2),
+            orphan_container("full", Options::DEFAULT, Container::Root),
+        ),
+        (
+            DprcId::new(3),
+            orphan_container(
+                "partial",
+                Options {
+                    spawn: false,
+                    ..Options::DEFAULT
+                },
+                Container::Root,
+            ),
+        ),
+        (
+            DprcId::new(4),
+            orphan_container("", Options::DEFAULT, Container::Root),
+        ),
+    ]);
+    let items = plan_prune(&observed, &BTreeMap::new());
+    insta::assert_snapshot!(render::render_prune(&items));
+}
+
+#[test]
+fn render_prune_empty_says_none() {
+    insta::assert_snapshot!(render::render_prune(&BTreeMap::new()));
 }

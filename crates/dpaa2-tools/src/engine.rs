@@ -6,14 +6,14 @@
 //! DPNI index for a freshly-created port from the id the MC assigned this pass, and
 //! for existing ports from the observed connection edge (design D1).
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
 use dpaa2_api::dprc::{Options, Refusal};
 use dpaa2_api::dprc_plan::{
-    Attribution, ConsumerConvergence, ContainerStep, ContainerVerdict, attribute_mc,
-    plan_consumer_convergence,
+    Attribution, ConsumerConvergence, ContainerPlan, ContainerStep, ContainerVerdict, PruneBucket,
+    PruneItem, attribute_mc, derive_consumer_containers, plan_consumer_convergence, plan_prune,
 };
 use dpaa2_api::{
     Class, CompiledPlan, ConstructName, Container, DesiredTopology, DpmacId, DpniId, DprcId, Error,
@@ -90,6 +90,41 @@ pub enum ContainerOutcome {
         label: ConstructName,
         /// The discriminated cause the reconciler reports.
         attribution: Attribution,
+    },
+}
+
+/// The outcome of the undeclared-consumer prune pass (reconciler spec "Undeclared
+/// consumer containers are pruned under the double gate"). Every non-`Clean` variant
+/// carries the [`PruneItem`] map so the shell renders each container's bucket,
+/// fingerprint fields and predicted post-state before reporting the outcome. The
+/// `Converged` bucket (a declared consumer) is convergence's job, so it is filtered out
+/// of the carried map — only prune candidates and the report-only fence appear.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PruneOutcome {
+    /// Nothing to prune or report — no undeclared child container under the root.
+    Clean,
+    /// Candidates and/or report-only containers exist but nothing was dispatched:
+    /// either `--prune` was withheld, or the only undeclared containers are the
+    /// report-only fence (ADR-0001 §4). Items are carried for rendering.
+    ReportOnly {
+        /// Every undeclared container, keyed by re-observation handle.
+        items: BTreeMap<DprcId, PruneItem>,
+    },
+    /// `--prune` was given but the run's `--allow` gate sits below the teardown's
+    /// disruptive headline (ADR-0015 decision 12); nothing was dispatched.
+    DisruptionRefused {
+        /// The headline the candidate teardowns would actuate.
+        headline: Class,
+        /// The maximum class the run allowed.
+        allowed: Class,
+        /// Every undeclared container, keyed by re-observation handle.
+        items: BTreeMap<DprcId, PruneItem>,
+    },
+    /// Both gates held: every candidate was torn down and its absence confirmed by
+    /// re-observation (DPRC-I6).
+    Pruned {
+        /// Every undeclared container, keyed by re-observation handle.
+        items: BTreeMap<DprcId, PruneItem>,
     },
 }
 
@@ -178,6 +213,119 @@ pub fn plan_containers<M: McControl>(
 ) -> Result<Vec<ConsumerConvergence>, Error> {
     let observed = mc.observe_containers()?;
     Ok(plan_consumer_convergence(plan, &observed))
+}
+
+/// Classifies every observed root child container against the declared consumers and
+/// returns the prune-relevant items — the [`plan_prune`] map minus the `Converged`
+/// bucket, whose declared containers are [`converge_containers`]'s job (reconciler spec;
+/// dprc-encapsulation task 4.3). The read seam `dry-run` renders read-only.
+///
+/// # Errors
+/// Propagates the backend read failure.
+pub fn plan_prune_report<M: McControl>(
+    plan: &CompiledPlan,
+    mc: &M,
+) -> Result<BTreeMap<DprcId, PruneItem>, Error> {
+    let observed = mc.observe_containers()?;
+    let declared = derive_consumer_containers(plan);
+    Ok(plan_prune(&observed, &declared)
+        .into_iter()
+        .filter(|(_, item)| item.classification.bucket != PruneBucket::Converged)
+        .collect())
+}
+
+/// Prunes undeclared consumer containers under the double gate (dprc-encapsulation task 4.3).
+/// Reconciler spec "Undeclared consumer containers are pruned under the double gate":
+/// re-observes the root's children (DPRC-I6), classifies each against the
+/// declared set via [`plan_prune_report`], and dispatches a candidate's eviction-law
+/// teardown (ADR-0007 §3) only when `cfg.prune` AND `cfg.allow` reaches the disruptive
+/// headline — the two gates. A report-only container is never dispatched regardless of
+/// flags (ADR-0001 §4). The verdict comes from a second re-observation (DPRC-I6): a
+/// pruned id that survives is an error, never assumed gone.
+///
+/// # Errors
+/// Propagates a backend read/dispatch error, and reports a survivor (a pruned container
+/// still observed) as an [`Error::Backend`].
+pub fn prune_containers<M: McControl>(
+    plan: &CompiledPlan,
+    mc: &M,
+    cfg: ConvergeConfig,
+) -> Result<PruneOutcome, Error> {
+    let items = plan_prune_report(plan, mc)?;
+    if items.is_empty() {
+        return Ok(PruneOutcome::Clean);
+    }
+
+    // Report-only fence, or `--prune` withheld: nothing is dispatched (ADR-0001 §4).
+    let has_candidates = items.values().any(|i| i.plan.is_some());
+    if !has_candidates || !cfg.prune {
+        return Ok(PruneOutcome::ReportOnly { items });
+    }
+
+    // Second gate (ADR-0015 decision 12): a teardown is disruptive, so a run allowing
+    // less refuses it, dispatching nothing.
+    let headline = items
+        .values()
+        .filter_map(|i| i.plan.as_ref())
+        .map(ContainerPlan::headline)
+        .max()
+        .unwrap_or(Class::Hitless);
+    if headline > cfg.allow {
+        tracing::error!(%headline, allowed = %cfg.allow, "prune plan exceeds allowed disruption class");
+        return Ok(PruneOutcome::DisruptionRefused {
+            headline,
+            allowed: cfg.allow,
+            items,
+        });
+    }
+
+    // Dispatch each candidate's teardown against its container id (DPRC-I6 judges after).
+    for (id, item) in &items {
+        if let Some(candidate) = &item.plan {
+            for step in &candidate.steps {
+                dispatch_teardown_step(step, *id, mc)?;
+            }
+        }
+    }
+
+    // Verdict by re-observation only (DPRC-I6): every pruned id must be gone.
+    let after = mc.observe_containers()?;
+    for (id, item) in &items {
+        if item.plan.is_some() && after.contains_key(id) {
+            return Err(Error::Backend(format!(
+                "container {id} survived prune dispatch"
+            )));
+        }
+    }
+    Ok(PruneOutcome::Pruned { items })
+}
+
+/// Dispatches one prune-teardown step against the target container `id`. A [`Destroy`]
+/// maps to `dprc_destroy(id)`; an [`UnplugResident`] is unreachable from observation
+/// today (restool resident read-back is deferred, dprc-encapsulation board task 5.3) and
+/// so returns a typed [`Error::Backend`] rather than inventing a resident-id bridge.
+///
+/// [`Destroy`]: ContainerStep::Destroy
+/// [`UnplugResident`]: ContainerStep::UnplugResident
+fn dispatch_teardown_step<M: McControl>(
+    step: &ContainerStep,
+    id: DprcId,
+    mc: &M,
+) -> Result<(), Error> {
+    match step {
+        ContainerStep::Destroy => {
+            mc.dprc_destroy(id)?;
+            tracing::info!(%id, "destroyed undeclared child dprc container");
+            Ok(())
+        }
+        ContainerStep::UnplugResident { .. } => Err(Error::Backend(format!(
+            "resident read-back is deferred (dprc-encapsulation board task 5.3); \
+             container {id} teardown cannot unplug an unobservable resident"
+        ))),
+        other => Err(Error::Backend(format!(
+            "prune teardown emits only Destroy/UnplugResident, not {other:?}"
+        ))),
+    }
 }
 
 /// Dispatches one container-only step to its task-3.1 verb. The container-only

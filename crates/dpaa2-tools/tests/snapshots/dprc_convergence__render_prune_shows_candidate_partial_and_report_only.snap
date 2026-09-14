@@ -1,0 +1,12 @@
+---
+source: crates/dpaa2-tools/tests/dprc_convergence.rs
+expression: "render::render_prune(&items)"
+---
+prune (2 candidate(s), 1 report-only) [double gate: --prune --allow disruptive]:
+  dprc.2 [PruneCandidateFull] matched: [Label, OptionsMask, Placement] unmatched: []
+    [disruptive] Destroy
+    post-state: Destroyed, parent gains 1 resident(s)
+  dprc.3 [PruneCandidatePartial] matched: [Label, Placement] unmatched: [OptionsMask]
+    [disruptive] Destroy
+    post-state: Destroyed, parent gains 1 resident(s)
+  dprc.4 [ReportOnly] matched: [OptionsMask, Placement] unmatched: [Label]

@@ -1,0 +1,6 @@
+---
+source: crates/dpaa2-tools/tests/dprc_convergence.rs
+expression: "render::render_prune(&BTreeMap::new())"
+---
+prune (0 candidate(s), 0 report-only) [double gate: --prune --allow disruptive]:
+  (none)

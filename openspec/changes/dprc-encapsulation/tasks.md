@@ -21,7 +21,7 @@
 
 - [x] 4.1 Consumer→container derivation: default options mask, root placement, name-keyed label, provenance citing the baseline anchor; kernel tenant derives no container; container-only (no residents) asserted by test
 - [x] 4.2 End-to-end convergence through dpaa2-tools: declared consumer converges to the container on first run, zero actions on re-run; dry-run shows per-object provenance
-- [ ] 4.3 `ensure --prune` dispatches container teardown: engine dispatches unplug/destroy, `--prune` widened to containers behind `--allow disruptive`, buckets and predicted post-state rendered before dispatch, FakeBackend + snapshot tests (bead dpaa2-controlplane-cd3.18)
+- [x] 4.3 `ensure --prune` dispatches container teardown: engine dispatches unplug/destroy, `--prune` widened to containers behind `--allow disruptive`, buckets and predicted post-state rendered before dispatch, FakeBackend + snapshot tests (bead dpaa2-controlplane-cd3.18)
 
 ## 5. Board milestone (operator-launched)
 
