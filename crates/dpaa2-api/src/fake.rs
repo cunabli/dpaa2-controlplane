@@ -105,6 +105,23 @@ impl FakeBackend {
         self
     }
 
+    /// Seeds a child container at `id` as if a prior run or bare restool had created it,
+    /// so tests can inject an orphan whose fingerprint [`McControl::dprc_create`] cannot
+    /// produce — a partial mask, a voided label, or seeded residents. Feeds the
+    /// dprc-encapsulation task 4.3 prune fixtures; the id advances the next-child counter
+    /// so a later create never collides.
+    #[must_use]
+    pub fn with_container(self, id: DprcId, container: ObservedContainer) -> Self {
+        {
+            let mut st = self.state.borrow_mut();
+            st.containers.insert(id, container);
+            if id.into_inner() >= st.next_dprc {
+                st.next_dprc = id.into_inner() + 1;
+            }
+        }
+        self
+    }
+
     /// Sets how many observation ticks pass after connect before a PHY netdev
     /// appears, simulating the driver's asynchronous probe.
     #[must_use]
