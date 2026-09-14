@@ -472,7 +472,7 @@
       "steps": "8/8",
       "source_hash": "fnv1a64:b3c71baaa47fe766",
       "hook": "3/5",
-      "archive": null,
+      "archive": "~/dpaa2-board-evidence/dprc-encapsulation-board-2026-09-14.tar.gz",
       "refusals": []
     },
     "V-DPRC-7-rev2": {
@@ -483,7 +483,7 @@
       "steps": "9/9",
       "source_hash": "fnv1a64:11d7d2511c6c4a28",
       "hook": null,
-      "archive": null,
+      "archive": "~/dpaa2-board-evidence/dprc-encapsulation-board-2026-09-14.tar.gz",
       "refusals": []
     }
   },
@@ -496,7 +496,7 @@
       "steps": "2/2",
       "source_hash": "fnv1a64:94a31f947d18a9c4",
       "hook": "7/8",
-      "archive": null,
+      "archive": "~/dpaa2-board-evidence/dprc-encapsulation-board-2026-09-14.tar.gz",
       "refusals": []
     }
   },
@@ -509,7 +509,7 @@
       "steps": "9/9",
       "source_hash": "fnv1a64:aa45f00c40500407",
       "hook": null,
-      "archive": null,
+      "archive": "~/dpaa2-board-evidence/dprc-encapsulation-board-2026-09-14.tar.gz",
       "refusals": []
     }
   },
