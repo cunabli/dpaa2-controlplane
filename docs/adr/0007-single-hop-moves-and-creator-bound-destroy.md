@@ -85,6 +85,25 @@ destroy a container while objects it created reside elsewhere:
 repatriate or destroy the creations first. This ordering constraint is a
 topology-intent input for the controlplane design.
 
+## Amendment 2026-09-14 — the owned shape widens; the release law holds under plans
+
+Board sittings of change `dprc-encapsulation` (tasks 5.1 and 5.4) extend
+Decision 2's observed-shape guard on the release side:
+
+- **An owned resident may be plugged.** `dprc destroy` of a scratch
+  child holding a *plugged* owned dpbp exited 0 and cascade-destroyed
+  container and resident, with no MC or restool refusal (V-DPRC-7 rev 1,
+  2026-09-13; rev 2 re-anchored the face in a clean 9-step trace). The
+  destroy fence in `models/core/machine.qnt` admits a plugged *owned*
+  resident; a *foreign* (assigned-in) resident stays unplugged-only
+  until the wider evict shape is observed.
+- **Ownership is the creating container, not the creating actor.** A
+  dpbp created *by restool* inside the reconciler's own labelled
+  container was classified and released with the container — one
+  cascade, parent gained 0 residents — under the reconciler's own
+  generated plan (V-DPRC-11 rev 1, 2026-09-14). The release law needs no
+  explicit empty-first leg, consistent with V-DPRC-7's cascade.
+
 ## Open questions and revisit triggers
 
 - **Where does owned-resident release live?** Whether `restool dprc
@@ -92,10 +111,11 @@ topology-intent input for the controlplane design.
   `DPRC_DESTROY_CONTAINER` releases them itself is not decidable from
   this evidence. Revisit if restool or MC firmware is upgraded, or when
   an online-driver session can afford a strace/verbose run.
-- **Release/eviction over wider shapes.** A probe destroying a container
-  with a kernel-bound or nested-dprc resident would extend or refute the
-  observed-shape guard. Do this only on a scratch subtree, never on a
-  container holding live traffic objects.
+- **Release/eviction over wider shapes.** The plugged *owned* shape is
+  now observed (amendment above); a probe destroying a container with a
+  kernel-bound or nested-dprc resident, or evicting a plugged *foreign*
+  one, would extend or refute the remaining guard. Do this only on a
+  scratch subtree, never on a container holding live traffic objects.
 - **Eviction destination.** The evicted dpni landed in the destroyed
   container's parent, which was also the restool caller's root — the two
   candidate destinations coincide on a depth-2 scratch tree. A deeper

@@ -138,7 +138,7 @@ suites, ADR-0003).
 |---|---|---|
 | `icid` | create-time-immutable, pool-assigned | no restool/MC update path found [read] |
 | `portal_id` | create-time-immutable, pool-assigned | as above [read] |
-| `options` mask | create-time-immutable (assumed) | restool has no update command; MC-side mutability unconfirmed → unknown register |
+| `options` mask | create-time-immutable | restool has no update command and the flib has no `dprc_set_options` — register #2, closed by absence |
 | `label` | mutable (`set-label`) | [read] |
 | locked state | mutable (`set-locked 0/1`) | [read] |
 | membership (which objects it holds) | mutable (`assign`/`unassign`), only for unplugged objects | [read] |
@@ -232,6 +232,13 @@ Linux-side only: unbinding/removing devices never destroys MC objects
   propagates the override to every subsequently added child; the container
   is the IOMMU/VFIO grouping unit (`vfio_fsl_mc.c:423-452, 523-526,
   600-607`). This is the VPP-consumer binding path (change #4 typestates).
+  The propagation is real but **deferred to the next bind-time container
+  scan** [verified 2026-09-13, V-DPRC-8 rev 1]: a dpbp created while the
+  container was bound was MC-accepted and listed by `dprc show`
+  immediately, but got no bus device until the re-bind scan surfaced it
+  with the override propagated and in the container's IOMMU group — and
+  no restool verb triggers that scan while the container stays bound
+  (ADR-0017).
 - Endpoint lookup: `-ENOTCONN` when unconnected, `-EPERM` when the peer
   exists but in another container (`fsl-mc-bus.c:945-1005`).
 - Non-DPRC objects inherit the parent DPRC's ICID and MSI domain; a kernel
@@ -262,8 +269,9 @@ rescan/autorescan ABI are stock upstream.
 - `connect` may span containers but is issued on a common ancestor —
   cross-DPRC links (the kernel↔VPP pseudo-wire, change #9) are therefore
   root-issued operations [read].
-- `destroy` refuses the root; behavior on a non-empty container
-  (recursive vs refuse) is not stated by help text → unknown register.
+- `destroy` refuses the root; behavior on a non-empty container is not
+  stated by help text — answered at register #1: release/evict by
+  ownership (ADR-0007).
 - The board's own child container (`dprc.2`, VPP) is *unplugged* in the
   parent's listing while fully operational [verified] — plugged state of a
   DPRC does not gate its use as a container (consistent with "not possible
@@ -296,7 +304,11 @@ foreign objects in it are never touched (ADR-0001 §4).
   nothing there unless that container's own IRQ path (`autorescan`) is
   live [read, `fsl-mc-bus.c:217-248`]. Loudness invariant candidate for
   the models: "visibility of a mutation is confirmed by re-observation,
-  never by issuing sync".
+  never by issuing sync". The VFIO-bound variant of the same trap
+  [verified 2026-09-13, V-DPRC-8 rev 1]: a create into a bound container
+  is MC-accepted with no kernel or VFIO effect until the next bind-time
+  scan, and no restool verb triggers one while the bind holds
+  (ADR-0017).
 - `generate-dpl` prints `/* Unrecognized options found... */` when an
   object carries option bits newer than restool's tables — the emitted DPL
   is silently incomplete and would not round-trip [verified on this board:
@@ -322,17 +334,17 @@ false belief.
 
 | Id | Proposition | Observables | Status |
 |---|---|---|---|
-| DPRC-I1 | Kernel allocation of dpmcp/dpbp/dpcon/irq never crosses container boundaries: `container(consumer) = container(pool)` for every allocation | consumer probe outcome; `dprc show` of both containers; `-ENXIO "No more resources of type %s left"` on local exhaustion regardless of remote surplus | candidate |
+| DPRC-I1 | Kernel allocation of dpmcp/dpbp/dpcon/irq never crosses container boundaries: `container(consumer) = container(pool)` for every allocation | consumer probe outcome; `dprc show` of both containers; `-ENXIO "No more resources of type %s left"` on local exhaustion regardless of remote surplus | verified 2026-09-14 (V-DPRC-10 rev 2, 17/17, dprc-encapsulation task 5.4): with root's dpcon and dpbp pools locally dry and a sibling child holding free units of both, the scratch root dpni's dpaa2-eth probe was refused by dprc.1's own allocator (`No more resources of type dpcon left`, the -ENXIO shape) and all four sibling objects read back resident — the draw refused locally with genuine surplus one hop away, so the boundary is witnessed, not vacuous |
 | DPRC-I2 | Plug gating: object bound to a kernel driver ⟺ plugged ∧ matching driver present; `assign --plugged=1` ⇒ eventually bound, `--plugged=0` ⇒ released | plugged column of `dprc show`; presence of `driver` symlink under `/sys/bus/fsl-mc/devices/<obj>/` | verified 2026-08-23 (V-LINK-5): the release direction holds by refusal — `assign --plugged=0` on a kernel-bound, netdev-backed dpni came back −EBUSY with the object still plugged and the driver still bound, not a race; the bind direction is V-LIFE-DPNI-1's canonical order |
 | DPRC-I3 | Move precondition: `assign --child` is enabled only for unplugged objects; a move of a plugged object is refused and the object's container membership is unchanged | command exit + MC status; object's container membership unchanged after refusal | verified 2026-08-29 (V-DPRC-6 rev 1): the one-hop move of a plugged dpbp was refused by restool's own client guard ("cannot be moved because it is currently in plugged state" / "unplug it first") before any MC command, and the dpbp stayed put — the refusal is the restool layer, so the MC-layer status stays unreachable through restool |
-| DPRC-I4 | `dprc create` without `--options` yields exactly {SPAWN, ALLOC, OBJ_CREATE, IRQ_CFG}_ALLOWED | options mask in `dprc info` | verified |
+| DPRC-I4 | `dprc create` without `--options` yields exactly {SPAWN, ALLOC, OBJ_CREATE, IRQ_CFG}_ALLOWED | options mask in `dprc info` | verified; re-anchored 2026-09-14 (V-DPRC-9 rev 1, dprc-encapsulation task 5.3): a tool-created container's mask read back 0x47 through the shipped `dpaa2ctl`, decoding to exactly this set — the fingerprint judged the real read-back, not an assumed default |
 | DPRC-I5 | Connect precondition: `connect(p, e1, e2)` enabled only if p is a common ancestor of e1 and e2 and both are currently unconnected | command exit; `GET_CONNECTION` per endpoint | candidate |
 | DPRC-I6 | **Breaking:** the model must NOT assume `sync` ⇒ mutation visible. Bus rescan reaches root containers only and discards errors; visibility of a mutation is established only by re-observation of the affected container | child-container object list unchanged after sync following an out-of-band mutation | verified 2026-08-29 (V-DPRC-5 rev 1): a dpci created in a scratch child was absent from `/sys/bus/fsl-mc/devices` before and after `dprc sync` while `dprc show` listed it in the child throughout; only the root-created dpci reached the bus. Settled for every child restool can make [V-POOL-1 rev 2, 2026-08-29]: a restool-created child is unplugged and restool refuses to plug a dprc, so the child never gets a driver and its residents never reach the bus — visibility is root-only at runtime; a kernel-driven child exists only when the DPL defines it |
-| DPRC-I7 | **Breaking:** the model must NOT assume Linux device removal destroys MC objects; removal is Linux-side only, objects survive on the bus | object still listed by `dprc show` after driver unbind/device_del | candidate |
+| DPRC-I7 | **Breaking:** the model must NOT assume Linux device removal destroys MC objects; removal is Linux-side only, objects survive on the bus | object still listed by `dprc show` after driver unbind/device_del | candidate — unbind half anchored 2026-09-13 (V-DPRC-8 rev 1, dprc-encapsulation task 5.2): censuses unmoved across the scratch child's vfio bind and unbind; the device_del face is unprobed |
 | DPRC-I8 | Scan ordering postcondition (ADR-0006 fold): plugging an allocatable (dpmcp/dpbp/dpcon) lands it in its container's kernel pool before any consumer in the same scan probes | consumer probe success when pool objects and consumer are plugged in one batch | candidate — no runtime observable through restool (V-POOL-1 rev 2, 2026-08-29: a child container cannot be plugged by the tool, so no batch plug→probe ever runs outside the root); needs a DPL-defined child or the raw command path (#10) |
-| DPRC-I9 | Teardown reachability (liveness): from every reachable scratch-container state some finite action sequence empties and destroys the container | suite replay ending in `destroy` success + container absent from `list` | verified 2026-08-23 (V-DPRC-1 rev 3, 13/13): the scratch container was emptied through both move directions and destroyed, absent in read-back; unknown #1 is answered by ADR-0007 §3's release/evict law, so a non-empty destroy never blocks teardown either |
+| DPRC-I9 | Teardown reachability (liveness): from every reachable scratch-container state some finite action sequence empties and destroys the container | suite replay ending in `destroy` success + container absent from `list` | verified 2026-08-23 (V-DPRC-1 rev 3, 13/13): the scratch container was emptied through both move directions and destroyed, absent in read-back; unknown #1 is answered by ADR-0007 §3's release/evict law, so a non-empty destroy never blocks teardown either. The under-reconciler-plans face settled 2026-09-14 (dprc-encapsulation tasks 5.3–5.4): V-DPRC-9 rev 1 pruned an empty declared-away container through the reconciler's own plan, and V-DPRC-11 rev 1 destroyed a POPULATED remainder (a foreign restool dpbp, CreatedIn) in one cascade — released with the container, not evicted, parent gained 0 residents, census clean |
 | DPRC-I10 | Immutability: icid, portal_id, and options of a container never change across any post-create action sequence | `dprc info` before/after every suite | candidate |
-| DPRC-I11 | `set-locked 1` on a child removes create/destroy/assign/unassign/lock from the entire sub-hierarchy; `set-locked 0` restores it (who may unlock: unknown #4) | denied MC status on each operation class inside the locked hierarchy | modeled in `main.qnt` `DPRC_I11Test` + spawn/unlock tests (simulate); board open after rev 1 (V-DPRC-3, 2026-08-29) — the lock refused assign (No privilege, object unplugged), left reads working and lifted from the root, but also accepted `set-label`, which the hook had predicted stripped; the corrected hook settles it at rev 2, while the child-portal unlock face stays restool-unreachable → `dprc-encapsulation` (#4) |
+| DPRC-I11 | `set-locked 1` on a child removes create/destroy/assign/unassign/lock from the entire sub-hierarchy; `set-locked 0` restores it (who may unlock: unknown #4) | denied MC status on each operation class inside the locked hierarchy | board-settled for the restool-reachable surface 2026-09-14 (V-DPRC-12 rev 1, 17/17, dprc-encapsulation task 5.4): under `set-locked 1` from the root, a dpbp create into the locked child is refused No privilege (0x4) — the create-strip status register #4 had no row for — and `assign --plugged=1` is refused No privilege (0x4); reads survive the lock (the locked fingerprint read back through `dpaa2ctl dry-run --prune`, and lock state is no part of the prune fingerprint, so a locked candidate still plans its destroy); `set-locked 0` restores both classes. Earlier rev 1 (V-DPRC-3, 2026-08-29): the lock refused assign, left reads working and lifted from the root, but accepted `set-label` — corrected at rev 2, label-under-lock resolved to repairable. The child-portal unlock face stays restool-unreachable → `mc-portal-backend` (#10) |
 | DPRC-I12 | Prune traceability: a container the tool created (labeled at create, per the reconciler's fingerprint rule) never leaves the prune-findable buckets — no post-create verb sequence strands it as report-only, unless a voiding verb is taken | label read-back in `dprc info`/`list` after every label/options/placement verb; the fingerprint bucket the reconciler assigns on re-observation | modeled in `families/dprc.qnt` `dprc_lifecycle` `DPRC_I12` (apalache); the voiding-verb enumeration found exactly one stranding sequence — `set-label` to empty, accepted even under lock (V-DPRC-3) — recorded as the accepted escape; label-repair and lock semantics per DPRC-I11 |
 
 ## Unknown / unverified register
@@ -397,8 +409,12 @@ object-lifecycle-only scenarios except where noted):
    is accepted and the plug then succeeds. Only the root could be
    exercised as the unlocker: restool's `set-locked` opens the target's
    parent portal, so a child-portal unlock stays unprobed until a child
-   portal exists. The create class under lock is unprobed by design (a
-   hook does not create for the thing under test).
+   portal exists. ~~The create class under lock is unprobed by design (a
+   hook does not create for the thing under test).~~ **The create class
+   is now probed** — board suite V-DPRC-12 rev 1, 2026-09-14
+   (dprc-encapsulation task 5.4): a dpbp create into the locked child is
+   refused **No privilege (0x4)**, the same status as the assign class,
+   and `set-locked 0` restores it.
 5. ~~What `dprc.0`/`mc.global` reveals via `show`, and whether any
    operation against it is accepted.~~ **Answered** — board plan V-DPRC-4
    rev 1, 2026-08-29: `dprc show mc.global` lists exactly one object,

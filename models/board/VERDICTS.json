@@ -121,6 +121,19 @@
       "refusals": []
     }
   },
+  "V-DPDBG-2": {
+    "V-DPDBG-2-rev1": {
+      "pass": true,
+      "date": "2026-09-14",
+      "kind": "probes",
+      "revision": 1,
+      "steps": "8/8",
+      "source_hash": "fnv1a64:3a742cdc8ca1085e",
+      "hook": null,
+      "archive": "~/dpaa2-board-evidence/dprc-encapsulation-board-2026-09-14.tar.gz",
+      "refusals": []
+    }
+  },
   "V-DPDMAI-2": {
     "V-DPDMAI-2-rev1": {
       "pass": true,
@@ -311,7 +324,7 @@
       "steps": "15/15",
       "source_hash": "fnv1a64:1003984bc6e6a045",
       "hook": null,
-      "archive": null,
+      "archive": "~/dpaa2-board-evidence/dprc-encapsulation-board-2026-09-14.tar.gz",
       "refusals": []
     },
     "V-DPRC-10-rev2/V-DPRC-10-rev2": {
@@ -322,7 +335,7 @@
       "steps": "17/17",
       "source_hash": "fnv1a64:03aab2d1e86a1b13",
       "hook": null,
-      "archive": null,
+      "archive": "~/dpaa2-board-evidence/dprc-encapsulation-board-2026-09-14.tar.gz",
       "refusals": []
     }
   },
@@ -335,7 +348,7 @@
       "steps": "12/12",
       "source_hash": "fnv1a64:a5d8ce9e7cded0ae",
       "hook": null,
-      "archive": null,
+      "archive": "~/dpaa2-board-evidence/dprc-encapsulation-board-2026-09-14.tar.gz",
       "refusals": []
     }
   },
@@ -348,7 +361,7 @@
       "steps": "17/17",
       "source_hash": "fnv1a64:0846b6f816c80a47",
       "hook": null,
-      "archive": null,
+      "archive": "~/dpaa2-board-evidence/dprc-encapsulation-board-2026-09-14.tar.gz",
       "refusals": [
         "No privilege"
       ]

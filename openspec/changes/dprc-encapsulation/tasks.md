@@ -32,4 +32,4 @@
 
 ## 6. Docs and close-out
 
-- [ ] 6.1 Baseline amendments from 5.x outcomes; ADR for any decision that solidified or died on the board; roadmap row #4 status; deferral rows verified present and pointing at #10; CHANGELOG via cliff; full quality floor (`cargo build | fmt | clippy | clippy --tests | doc | test`) green
+- [x] 6.1 Baseline amendments from 5.x outcomes; ADR for any decision that solidified or died on the board; roadmap row #4 status; deferral rows verified present and pointing at #10; CHANGELOG via cliff; full quality floor (`cargo build | fmt | clippy | clippy --tests | doc | test`) green

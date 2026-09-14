@@ -1,7 +1,7 @@
 # ADR-0011: Resource ceilings are pool-bound where the census can see, and two places it cannot
 
-- **Status:** Accepted — board sitting 2026-08-29 (task 5.11, suite
-  V-CEIL-1); §3 was ambivalent after rev 1 and settled by the rev 2
+- **Status:** Accepted — board sitting 2026-08-29 (2026-08-30-verify-foundation task 5.11,
+  suite V-CEIL-1); §3 was ambivalent after rev 1 and settled by the rev 2
   sitting the same day; §2 stays an open question rather than a forced
   pass/fail cell
 - **Date:** 2026-08-29
@@ -13,12 +13,12 @@
 ## Context
 
 The firmware's own container answers `dprc show mc.global --resources`
-with per-pool free counts (task 5.10: buffer pools, MC portals, frame
+with per-pool free counts (2026-08-30-verify-foundation task 5.10: buffer pools, MC portals, frame
 queues, congestion groups, queuing destinations, and a dozen WRIOP
 tables). A reconciler that creates objects needs to know when a create
 will be refused and whether a destroy gives the resource back —
 otherwise "converge to N dpnis" is a plan it cannot judge before
-issuing. Task 5.11 ran create-until-refused per family in a scratch
+issuing. 2026-08-30-verify-foundation task 5.11 ran create-until-refused per family in a scratch
 child container, reading the pools before, at the ceiling, and after
 the family's destroys, for dpbp, dpcon, dpmcp, dpci, dpdmai, dpdcei and
 dpni, with a cap of 64 per family.
@@ -122,4 +122,19 @@ dpni, with a cap of 64 per family.
   reading itself, are the remaining candidates for the two portals.
   `bp`, by contrast, moved symmetrically to the object at every step,
   and the cascade destroy of a still-plugged dpbp returned its unit.
+  Three more sittings (dprc-encapsulation tasks 5.3–5.4, 2026-09-14)
+  corroborate a one-portal shape: V-DPRC-9 rev 1, V-DPRC-10 rev 2 and
+  V-DPRC-12 rev 1 each read `mcp` 203 → 202 across a sitting whose
+  child-container create/destroy cycle was the first of its boot window,
+  while later cycles in the same window left the count flat (V-DPRC-11
+  flat at 202; V-DPRC-8 and V-DPRC-7 rev 2 flat at 201 — the latter
+  through two full cycles with the per-step instrument attached).
+  Candidate reading, recorded not judged: every child DPRC draws its own
+  MC portal (`dprc.md`, create details), the listing never shows that
+  portal returned within the boot (§3's created-once-reused law), and a
+  later create reuses it — which would also account for rev 1's 203 →
+  201 (that sitting created two children). The reading is in tension
+  with V-POOL-4's exoneration of empty dprc create/destroy cycles, so it
+  stays open: the discriminating probe is the per-step pool instrument
+  (`--pool-record`) over the *first* container cycle of a fresh boot.
 - Any firmware or DPC change re-anchors all three numbers.

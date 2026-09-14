@@ -168,7 +168,12 @@ teardown path (destroy after evict), exercised by DPRC-I9 suites.
   resident post-bind, carried by the `vfio.sh` hook — the core machine
   cannot trace a dprc bind (`o.fam != Dprc` guard) and the generator has no
   override read-back, so the propagation oracle is the hook's judged line.
-  The board's answer amends `docs/baseline/dprc.md` after the sitting.
-- Label semantics under lock (set-label is accepted on locked children,
+  The board's answer — propagation is real and deferred-to-scan — amended
+  `docs/baseline/dprc.md` and landed as ADR-0017 (task 6.1).
+- ~~Label semantics under lock (set-label is accepted on locked children,
   V-DPRC-3): does the reconciler treat label drift on a locked container as
-  repairable? Default: yes (the board says the verb works); confirm in model.
+  repairable? Default: yes (the board says the verb works); confirm in
+  model.~~ Confirmed in model (task 1.2): resolved to repairable, encoded in
+  `families/dprc.qnt` `dprc_lifecycle` `setLabelAt`/`labelUnderLockTest`
+  (COVERAGE.md DPRC-I11 row); the restool-reachable lock remainder is
+  board-settled by V-DPRC-12 rev 1 (task 5.4).
