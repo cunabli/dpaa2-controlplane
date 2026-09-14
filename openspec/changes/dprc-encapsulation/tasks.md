@@ -2,8 +2,8 @@
 
 - [x] 1.1 Extend `models/families/dprc.qnt` with the container lifecycle sum (Declared → Created/unplugged → Populated → Plugged|Locked → Emptied → Destroyed, VFIO bind state on the plugged face) and the guarded transitions: permission matrix with distinct refusal statuses (0x6/0x8/0x4), eviction law (ADR-0007 §3), visibility law (DPRC-I6), plugged-move precondition (DPRC-I3); typecheck + simulate green
 - [x] 1.2 Name and mark the invariants (DPRC-I1, I5, I7, I9, I10, restool-reachable remainder of I11) with Apalache marks; update `models/COVERAGE.md` dispositions; record deferral rows for the portal faces (I8, I11 unlock face, OBJ_CREATE gate → tile #10); resolve design open question on label-under-lock repairability in the model
-- [ ] 1.3 Spec/design delta for undeclared-consumer prune: fingerprint ownership rule, full+partial prune under `--prune` + `--allow disruptive`, report-only fence, re-observation verdicts (bead dpaa2-controlplane-cd3.15; closes the task 2.2/4.2 dispatch seam found at 5.3 authoring)
-- [ ] 1.4 Model: DPRC-I12 prune traceability — `createdByUs` ghost bit, bucket invariant, voiding-verb enumeration; escapes fold back into the 1.3 artifacts (bead dpaa2-controlplane-cd3.16)
+- [x] 1.3 Spec/design delta for undeclared-consumer prune: fingerprint ownership rule, full+partial prune under `--prune` + `--allow disruptive`, report-only fence, re-observation verdicts (bead dpaa2-controlplane-cd3.15; closes the task 2.2/4.2 dispatch seam found at 5.3 authoring)
+- [x] 1.4 Model: DPRC-I12 prune traceability — `createdByUs` ghost bit, bucket invariant, voiding-verb enumeration; escapes fold back into the 1.3 artifacts (bead dpaa2-controlplane-cd3.16)
 
 ## 2. Pure core (dpaa2-api, sans-io)
 

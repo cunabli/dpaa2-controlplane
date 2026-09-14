@@ -125,6 +125,20 @@ gate. The model guard-rail is DPRC-I12 (`createdByUs` traceability, bead
 dpaa2-controlplane-cd3.16): everything dpaa2ctl creates stays out of the
 report-only bucket, or the voiding verb sequences are enumerated.
 
+The enumeration (settled 2026-09-14, bead dpaa2-controlplane-cd3.16) found
+exactly one stranding sequence: set-label to the empty string, accepted in
+every active phase including Locked (V-DPRC-3), drops a managed container
+into the report-only bucket. Decision: record the escape, do not widen the
+fingerprint — widening would admit empty-label containers with default mask
+at root, which is exactly the bare-restool shape the report-only fence
+protects (ADR-0001 §4). The stranded container stays visible in every drift
+report; the remedies are procedural: re-label it (the ownership signal is
+repairable, V-DPRC-3) and the next prune pass under the double gate handles
+it, or a reboot's DPL rebuild clears every runtime-created container as the
+catch-all. Explicit-target adoption (`--prune dprc.N`) would sidestep
+classification but is new flag surface — out of this change by the D8 rule
+above.
+
 ## Risks / Trade-offs
 
 - [Two-pass interlock: VFIO binding a scratch child may interact with

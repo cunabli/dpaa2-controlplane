@@ -84,10 +84,29 @@ module dprc {
 //   DPRC-I10 identity/options immutability — the `DPRC_I10` state invariant;
 //   DPRC-I11 remainder (restool-reachable lock strip) — `lockStripsCreateTest` /
 //            `lockRefusesPlugTest` / `unlockRestoresTest`, label-under-lock by
-//            `labelUnderLockTest`.
-// Apalache-marked subset (task 1.2): the `stateInvariants` conjunction — only
-// DPRC-I10, the one state-expressible property here; I1/I5/I7/I9/I11 are
-// action-guard, liveness or Breaking-absence properties carried as directed
+//            `labelUnderLockTest`;
+//   DPRC-I12 prune-traceability (dpaa2ctl-created stays findable) — the
+//            `DPRC_I12` state invariant, witnessed by `DPRC_I12Test` (foreign
+//            non-empty label demotes but never strands), `labelVoidEscapeTest`
+//            and `labelVoidUnderLockEscapeTest` (the enumerated escape).
+//
+// Voiding-verb enumeration (dprc-encapsulation task 1.4): DPRC-I12 asks which verb sequences can
+// strand a container dpaa2ctl created (drop it into the report-only bucket). The
+// enumeration finds exactly one:
+//   (a) set-label to empty is the ONLY stranding verb, and it is accepted even
+//       under lock (V-DPRC-3) — the accepted escape (`labelVoidEscapeTest` /
+//       `labelVoidUnderLockEscapeTest`). set-label to a foreign non-empty label
+//       only DEMOTES Converged to a prune candidate; the container stays findable.
+//   (b) an option-mask post-create mutation is not a verb — the mask is
+//       create-time-only (DPRC-I10, dprc.md "Attribute mutability"), so it can
+//       never move a container off its fingerprint after create.
+//   (c) a placement move of the child dprc drops only the root-placement
+//       fingerprint field — a non-empty label keeps it a partial candidate, never
+//       report-only (root placement is constant-true in this single-child module).
+// Apalache-marked subset (dprc-encapsulation task 1.2 + 1.4): the `stateInvariants` conjunction —
+// DPRC-I10 and DPRC-I12, the two state-expressible properties here (DPRC-I12 is
+// state-expressible thanks to the createdByUs/labelVoided ghosts); I1/I5/I7/I9/I11
+// are action-guard, liveness or Breaking-absence properties carried as directed
 // runs (simulate-only), exactly as main.qnt splits its own candidates. The
 // restool-unreachable faces (the I11 child-portal unlock, the OBJ_CREATE gate,
 // the I8 batch-scan ordering) are deferral rows to `mc-portal-backend` (#10).
@@ -165,12 +184,46 @@ module dprc_lifecycle {
   // is that no transition rewrites it (DPRC-I10).
   pure val POOL_IDENTITY: Identity = { icid: 100, portalId: 5 }
 
+  // ---- prune fingerprint (reconciler spec: undeclared-consumer prune) ----
+
+  // The classification a drift report assigns each observed child container
+  // against the declared-consumer set (reconciler spec "Undeclared consumer
+  // containers are pruned under the double gate").
+  type PruneBucket =
+    | Converged             // label names a declared consumer — the intent owns it
+    | PruneCandidateFull    // no declared match; full fingerprint (label + default mask + root)
+    | PruneCandidatePartial // no declared match; partial fingerprint (non-empty label + a subset)
+    | ReportOnly            // empty label (or zero overlap): unmanaged, never touched
+
+  // The declared-intent stand-in: the one consumer this single-child module names.
+  pure val DECLARED_CONSUMERS: Set[str] = Set("consumer")
+
+  // The ownership fingerprint (reconciler spec): non-empty MC label + derived
+  // default option mask + root placement. dpaa2ctl always labels what it creates;
+  // bare restool creates do not. Root placement is constant-true in this
+  // single-child-under-root module (the child sits directly under the root), so
+  // that fingerprint field never distinguishes here — say so, not silently drop it.
+  pure def pruneBucket(c: Container, declared: Set[str]): PruneBucket =
+    // label in declared => the intent owns it, Converged
+    if (declared.contains(c.label)) Converged
+    // else empty label => report-only, never touched (ADR-0001 §4)
+    else if (c.label == "") ReportOnly
+    // else non-empty label + derived default mask + root => full prune candidate
+    else if (c.options == DEFAULT_OPTIONS) PruneCandidateFull
+    // else non-empty label + a matched subset => partial prune candidate
+    else PruneCandidatePartial
+
   // ---- state ----
 
   type World = {
     child: Container,             // the child container under test
     parentResidents: Set[Resident], // the parent — the eviction destination
     lastOutcome: Outcome,         // the recorded outcome of the last transition
+    // Ghost fields — model-only knowledge (NOT part of the Rust twin; the
+    // ADR-0002 isomorphism law binds only Container/the phase sum). They let
+    // DPRC-I12 speak about creation provenance and label-void history in state.
+    createdByUs: bool,            // ghost: set true only by the managed create below
+    labelVoided: bool,            // ghost: set true when a set-label writes ""
   }
 
   var world: World
@@ -217,6 +270,8 @@ module dprc_lifecycle {
     },
     parentResidents: Set(),
     lastOutcome: Accepted,
+    createdByUs: false,          // ghost: nothing created yet
+    labelVoided: false,          // ghost: no label voided yet
   }
 
   // ---- transitions: each <name>[At] directed, with a nondet wrapper below ----
@@ -231,6 +286,24 @@ module dprc_lifecycle {
         .with("phase", Created)
         .with("options", opts)
         .with("identity", POOL_IDENTITY))
+      .with("lastOutcome", Accepted),
+  }
+
+  // The managed create face: dpaa2ctl always labels the containers it creates
+  // (reconciler spec "Undeclared consumer containers are pruned under the double
+  // gate"). Same guard/effect as createContainerWith(DEFAULT_OPTIONS) plus the
+  // label and the createdByUs ghost — createContainerWith stays the bare/restool
+  // face (empty label, createdByUs untouched). This is what DPRC-I12 protects:
+  // everything created here must stay findable, never falling to report-only.
+  action createManagedWith(label: str): bool = all {
+    world.child.phase == Declared,
+    world' = world
+      .with("child", world.child
+        .with("phase", Created)
+        .with("options", DEFAULT_OPTIONS)
+        .with("identity", POOL_IDENTITY)
+        .with("label", label))
+      .with("createdByUs", true)
       .with("lastOutcome", Accepted),
   }
 
@@ -384,10 +457,14 @@ module dprc_lifecycle {
   // set-label — accepted on a locked child (V-DPRC-3): label drift on a locked
   // container is repairable (design Open Question, default yes). Permitted in
   // every active phase, Locked included.
+  // The set-label to empty writes the labelVoided ghost — bookkeeping only; the
+  // verb's acceptance is unchanged (accepted in every active phase, Locked
+  // included, V-DPRC-3). This is the one verb DPRC-I12 enumerates as stranding.
   action setLabelAt(newLabel: str): bool = all {
     isActive(world.child),
     world' = world
       .with("child", world.child.with("label", newLabel))
+      .with("labelVoided", world.labelVoided or (newLabel == ""))
       .with("lastOutcome", Accepted),
   }
 
@@ -439,9 +516,12 @@ module dprc_lifecycle {
     DEFAULT_OPTIONS.with("topologyChanges", true) // topology permitted
   )
   pure val RESIDENT_IDS: Set[int] = Set(1, 2, 3)
-  pure val LABELS: Set[str] = Set("scratch", "vpp", "consumer")
+  // "" makes the voiding set-label drawable nondeterministically (DPRC-I12).
+  pure val LABELS: Set[str] = Set("scratch", "vpp", "consumer", "")
 
   action doCreateContainer = { nondet opts = OPTION_DRAWS.oneOf() createContainerWith(opts) }
+  // The managed create draws only non-empty labels — dpaa2ctl always labels.
+  action doCreateManaged = { nondet s = LABELS.filter(l => l != "").oneOf() createManagedWith(s) }
   action doCreateResident = { nondet id = RESIDENT_IDS.oneOf() createResidentAt(id) }
   action doAssignIn = { nondet id = RESIDENT_IDS.oneOf() assignResidentInAt(id) }
   action doMoveOut = { nondet id = RESIDENT_IDS.oneOf() moveResidentOutAt(id) }
@@ -451,6 +531,7 @@ module dprc_lifecycle {
 
   action step = any {
     doCreateContainer,
+    doCreateManaged,
     doCreateResident,
     doAssignIn,
     doMoveOut,
@@ -476,20 +557,32 @@ module dprc_lifecycle {
   // and the option mask never drifts off the create menu: whenever the child
   // is active its identity is POOL_IDENTITY, and its options always sit in
   // OPTION_DRAWS. The immutability face of LAW 1 for dprc (dprc.md
-  // "Attribute mutability": icid/portal_id/options are create-time only). The
-  // one state-expressible property here, hence the only Apalache-marked one.
+  // "Attribute mutability": icid/portal_id/options are create-time only). One of
+  // the two state-expressible properties here (DPRC-I12 is the other), so both
+  // are Apalache-marked.
   val DPRC_I10: bool = and {
     isActive(world.child) implies world.child.identity == POOL_IDENTITY,
     OPTION_DRAWS.contains(world.child.options),
   }
 
+  // DPRC-I12 — prune-traceability: everything dpaa2ctl creates stays findable.
+  // If the child was created by us, is still active, and its label was never
+  // voided, its fingerprint never lands in the report-only bucket — so the prune
+  // pass can always find and reason about it (reconciler spec "Undeclared
+  // consumer containers are pruned under the double gate"). State-expressible
+  // only because the createdByUs/labelVoided ghosts carry the model-only history.
+  val DPRC_I12: bool =
+    (world.createdByUs and isActive(world.child) and not(world.labelVoided))
+      implies pruneBucket(world.child, DECLARED_CONSUMERS) != ReportOnly
+
   // The simulator/Apalache conjunction (`pnpm model:simulate` / `model:verify`
   // pass --invariant=stateInvariants): the state invariants dprc_lifecycle
-  // enforces on every reachable state. Only DPRC-I10 is state-expressible;
-  // I1/I5/I7/I9/I11 are directed runs (COVERAGE.md records the simulate-only
-  // disposition), the same split main.qnt applies to its candidates.
+  // enforces on every reachable state. DPRC-I10 and DPRC-I12 are the two
+  // state-expressible properties; I1/I5/I7/I9/I11 are directed runs (COVERAGE.md
+  // records the simulate-only disposition), the same split main.qnt applies.
   val stateInvariants: bool = and {
     DPRC_I10,
+    DPRC_I12,
   }
 
   // A stutter-check step for directed runs (local, as main.qnt defines its own).
@@ -677,5 +770,43 @@ module dprc_lifecycle {
       .expect(and {
         world.child.phase == Plugged(BoundVfioFslMc),
         world.child.residents.exists(r => r.id == 1),
+      })
+
+  // ---- dprc-encapsulation task 1.4 DPRC-I12 prune-traceability runs ----
+
+  // DPRC-I12 — a managed create labels its container into the declared set
+  // (Converged); a later set-label to a FOREIGN non-empty label demotes it to a
+  // full prune candidate but never strands it (still findable, not ReportOnly).
+  run DPRC_I12Test =
+    init
+      .then(createManagedWith("consumer"))
+      .expect(pruneBucket(world.child, DECLARED_CONSUMERS) == Converged)
+      .then(setLabelAt("scratch"))
+      .expect(pruneBucket(world.child, DECLARED_CONSUMERS) == PruneCandidateFull)
+
+  // The enumerated escape: set-label to empty voids the label, dropping a
+  // managed container into the report-only bucket — the one stranding sequence.
+  run labelVoidEscapeTest =
+    init
+      .then(createManagedWith("consumer"))
+      .then(setLabelAt(""))
+      .expect(and {
+        pruneBucket(world.child, DECLARED_CONSUMERS) == ReportOnly,
+        world.labelVoided,
+      })
+
+  // The lock does not fence the escape: set-label to empty is accepted even on a
+  // locked child (V-DPRC-3), so the escape strands a managed container under lock
+  // too — the phase stays Locked, the outcome Accepted, the bucket ReportOnly.
+  run labelVoidUnderLockEscapeTest =
+    init
+      .then(createManagedWith("consumer"))
+      .then(createResidentAt(1))
+      .then(lockHierarchy)
+      .then(setLabelAt(""))
+      .expect(and {
+        world.lastOutcome == Accepted,
+        world.child.phase == Locked,
+        pruneBucket(world.child, DECLARED_CONSUMERS) == ReportOnly,
       })
 }

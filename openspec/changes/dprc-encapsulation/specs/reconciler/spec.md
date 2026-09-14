@@ -77,6 +77,10 @@ and prune success is judged by re-observation only (DPRC-I6).
 - **WHEN** the root holds an unlabeled container (bare restool create) absent from intent
 - **THEN** it is reported as unmanaged and no plan step targets it, regardless of flags
 
+#### Scenario: Label-voided managed container is report-only until re-labeled
+- **WHEN** a container the tool created has its label emptied out-of-band (set-label accepts the empty string even under lock, V-DPRC-3 — the accepted DPRC-I12 escape)
+- **THEN** it is reported as unmanaged and never pruned; re-labeling it re-enters the fingerprint buckets, and the next prune pass under the double gate handles it
+
 ### Requirement: Consumer convergence is container-only in this change
 Converging a declared consumer SHALL produce the container itself — existence,
 options, label, placement, lock state, VFIO bindability — and SHALL NOT emit

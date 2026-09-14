@@ -333,6 +333,7 @@ false belief.
 | DPRC-I9 | Teardown reachability (liveness): from every reachable scratch-container state some finite action sequence empties and destroys the container | suite replay ending in `destroy` success + container absent from `list` | verified 2026-08-23 (V-DPRC-1 rev 3, 13/13): the scratch container was emptied through both move directions and destroyed, absent in read-back; unknown #1 is answered by ADR-0007 §3's release/evict law, so a non-empty destroy never blocks teardown either |
 | DPRC-I10 | Immutability: icid, portal_id, and options of a container never change across any post-create action sequence | `dprc info` before/after every suite | candidate |
 | DPRC-I11 | `set-locked 1` on a child removes create/destroy/assign/unassign/lock from the entire sub-hierarchy; `set-locked 0` restores it (who may unlock: unknown #4) | denied MC status on each operation class inside the locked hierarchy | modeled in `main.qnt` `DPRC_I11Test` + spawn/unlock tests (simulate); board open after rev 1 (V-DPRC-3, 2026-08-29) — the lock refused assign (No privilege, object unplugged), left reads working and lifted from the root, but also accepted `set-label`, which the hook had predicted stripped; the corrected hook settles it at rev 2, while the child-portal unlock face stays restool-unreachable → `dprc-encapsulation` (#4) |
+| DPRC-I12 | Prune traceability: a container the tool created (labeled at create, per the reconciler's fingerprint rule) never leaves the prune-findable buckets — no post-create verb sequence strands it as report-only, unless a voiding verb is taken | label read-back in `dprc info`/`list` after every label/options/placement verb; the fingerprint bucket the reconciler assigns on re-observation | modeled in `families/dprc.qnt` `dprc_lifecycle` `DPRC_I12` (apalache); the voiding-verb enumeration found exactly one stranding sequence — `set-label` to empty, accepted even under lock (V-DPRC-3) — recorded as the accepted escape; label-repair and lock semantics per DPRC-I11 |
 
 ## Unknown / unverified register
 
@@ -353,7 +354,7 @@ object-lifecycle-only scenarios except where noted):
    *foreign* (assigned-in) resident stays unplugged-only until the wider
    evict shape is observed.
 2. ~~Are DPRC `options` mutable post-create by any MC command (restool has
-   none)?~~ **Closed by absence** (task 5.10): restool exposes no verb and
+   none)?~~ **Closed by absence** (2026-08-30-verify-foundation task 5.10): restool exposes no verb and
    the flib has no `dprc_set_options`; the options are create-time only
    through every client this project drives, so drift is refuse-and-
    report (object-model.md §6 law 1).
