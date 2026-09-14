@@ -1,0 +1,21 @@
+# The declared-consumer operand of suite V-DPRC-9 (dprc-encapsulation task
+# 5.3): the smallest intent that derives exactly one consumer child DPRC.
+# One userspace-poll tenant, no ports — a portless tenant is main-only
+# (T = 1) and derives a container with zero residents
+# (crates/dpaa2-api/src/derive.rs portless note; `derive.qnt` threadCount).
+# The suite converges just that container through the shipped `dpaa2ctl`, so
+# no `[port.*]` table appears: port reconciliation on the wired pair is
+# outside this change's container-only charter (reconciler delta).
+#
+# This operand lives in the suite dir, not models/intent/scenarios/, on
+# purpose: that dir's `intent_pairing` test requires every `.toml` to have a
+# paired `.qnt` and a frozen accepted trace (crates/dpaa2-verify/tests/
+# intent_pairing.rs), and a board-suite operand needs neither — it is an
+# input to a `dpaa2ctl` sitting, not a model-checked scenario.
+
+[intent]
+schema = 1
+
+[tenant.vdprc9]
+dataplane = "userspace-poll"
+max_cores = 2
