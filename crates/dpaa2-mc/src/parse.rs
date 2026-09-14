@@ -8,6 +8,7 @@ use std::collections::BTreeMap;
 
 use dpaa2_api::{
     ALL_FAMILIES, DpmacId, DpmacLinkType, DpniId, DprcId, EthInterface, Family, LinkType, MacAddr,
+    dprc,
 };
 
 /// Strips `prefix` from `tok` and parses the remainder as the numeric index behind
@@ -90,6 +91,8 @@ pub struct DprcRow {
     pub num: u32,
     /// The label column, empty when the row set none.
     pub label: String,
+    /// Whether the trailing state token was `plugged` (vs. `unplugged`).
+    pub plugged: bool,
 }
 
 /// Parses `restool dprc show <container>` into its data rows, surfacing the label
@@ -119,9 +122,48 @@ pub fn parse_dprc_rows(stdout: &str) -> Vec<DprcRow> {
         } else {
             String::new()
         };
-        rows.push(DprcRow { family, num, label });
+        rows.push(DprcRow {
+            family,
+            num,
+            label,
+            plugged: state == "plugged",
+        });
     }
     rows
+}
+
+/// Parses `restool dprc info dprc.N` into the lifecycle option mask (DPRC-I4;
+/// `docs/baseline/dprc.md` "create details"). restool prints a `dprc options: 0x…`
+/// line then one tab-indented `DPRC_CFG_OPT_*` token per set bit; this reads those
+/// decoded tokens into the four permission bits [`dprc::Options`] carries (its doc;
+/// the write-side inverse is `render_options` in [`RestoolMc`](crate::RestoolMc)).
+/// The `IRQ_CFG`/`AIOP`/`PL` tokens fall outside that mask and are ignored. Returns `None`
+/// when no `dprc options:` line is present — a malformed or refused read the caller
+/// reports, never reads as the default.
+#[must_use]
+pub fn parse_dprc_info(stdout: &str) -> Option<dprc::Options> {
+    if !stdout
+        .lines()
+        .any(|l| l.trim_start().starts_with("dprc options:"))
+    {
+        return None;
+    }
+    let mut options = dprc::Options {
+        spawn: false,
+        alloc: false,
+        obj_create: false,
+        topology_changes: false,
+    };
+    for line in stdout.lines() {
+        match line.trim() {
+            "DPRC_CFG_OPT_SPAWN_ALLOWED" => options.spawn = true,
+            "DPRC_CFG_OPT_ALLOC_ALLOWED" => options.alloc = true,
+            "DPRC_CFG_OPT_OBJ_CREATE_ALLOWED" => options.obj_create = true,
+            "DPRC_CFG_OPT_TOPOLOGY_CHANGES_ALLOWED" => options.topology_changes = true,
+            _ => {}
+        }
+    }
+    Some(options)
 }
 
 /// Recovers `(family, ordinal)` from a `family.N` name token by scanning
@@ -428,16 +470,19 @@ dpbp.0                          unplugged
                     family: Family::Dpmac,
                     num: 17,
                     label: String::new(),
+                    plugged: true,
                 },
                 DprcRow {
                     family: Family::Dpni,
                     num: 0,
                     label: "eth0".to_owned(),
+                    plugged: true,
                 },
                 DprcRow {
                     family: Family::Dpbp,
                     num: 0,
                     label: String::new(),
+                    plugged: false,
                 },
             ]
         );
@@ -457,6 +502,55 @@ dpni.7          wan0            plugged
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].family, Family::Dpni);
         assert_eq!(rows[0].num, 7);
+    }
+
+    // A `dprc info` body: the mask line then one tab-indented token per set bit.
+    fn dprc_info(tokens: &[&str]) -> String {
+        let mut s = "container id: 2\nicid: 27\nportal id: 3\ndprc options: 0x603\n".to_owned();
+        for t in tokens {
+            s.push('\t');
+            s.push_str(t);
+            s.push('\n');
+        }
+        s
+    }
+
+    #[test]
+    fn dprc_info_decodes_the_default_mask() {
+        // DPRC-I4 default; the IRQ_CFG token is outside the mask and ignored.
+        let opts = parse_dprc_info(&dprc_info(&[
+            "DPRC_CFG_OPT_SPAWN_ALLOWED",
+            "DPRC_CFG_OPT_ALLOC_ALLOWED",
+            "DPRC_CFG_OPT_OBJ_CREATE_ALLOWED",
+            "DPRC_CFG_OPT_IRQ_CFG_ALLOWED",
+        ]))
+        .expect("options present");
+        assert_eq!(opts, dprc::Options::DEFAULT);
+    }
+
+    #[test]
+    fn dprc_info_decodes_a_nondefault_mask() {
+        let opts = parse_dprc_info(&dprc_info(&[
+            "DPRC_CFG_OPT_SPAWN_ALLOWED",
+            "DPRC_CFG_OPT_ALLOC_ALLOWED",
+            "DPRC_CFG_OPT_OBJ_CREATE_ALLOWED",
+            "DPRC_CFG_OPT_TOPOLOGY_CHANGES_ALLOWED",
+        ]))
+        .expect("options present");
+        assert!(opts.topology_changes);
+        assert_eq!(
+            opts,
+            dprc::Options {
+                topology_changes: true,
+                ..dprc::Options::DEFAULT
+            }
+        );
+    }
+
+    #[test]
+    fn dprc_info_absent_options_line_is_none() {
+        // No `dprc options:` line (a refused/malformed read) => None, never a default.
+        assert_eq!(parse_dprc_info("container id: 2\nicid: 27\n"), None);
     }
 
     #[test]

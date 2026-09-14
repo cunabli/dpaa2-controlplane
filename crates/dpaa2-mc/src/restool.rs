@@ -423,26 +423,58 @@ impl<R: Runner> McControl for RestoolMc<R> {
         // Re-observe the root's child containers from one `dprc show` (DPRC-I6: the
         // convergence verdict re-queries, it never trusts `sync`). Each `dprc.N` child
         // row carries its name-keyed label; the row is a child of the root, so its
-        // placement is [`Container::Root`]. A consumer child DPRC carries the DPRC-I4
-        // default mask by construction, which is the container-only convergence surface
-        // this change targets — so the observed options are that default.
-        // ponytail: options/residents/plug-state are read as the container-only default
-        // (mask = DPRC-I4, unplugged, no residents); full read-back of an arbitrary
-        // container's mask and members is board task 5.3, not this off-board wiring.
+        // placement is [`Container::Root`].
         let show = self.runner.run(&["dprc", "show", &self.container])?;
         let mut containers = BTreeMap::new();
         for row in parse::parse_dprc_rows(&show) {
             if row.family != Family::Dprc {
                 continue;
             }
+            let obj = format!("dprc.{}", row.num);
+
+            // Options are read back from the child's own `dprc info`; a `None` parse
+            // (no options line, a refused/malformed read) is an error, never the default.
+            let info = self.runner.run(&["dprc", "info", &obj])?;
+            let options = parse::parse_dprc_info(&info)
+                .ok_or_else(|| Error::Parse(format!("no dprc options in `dprc info {obj}`")))?;
+
+            // Residents are the child's own `dprc show` rows; a grandchild DPRC is a
+            // container, not a resident, in the model's World, so it is skipped.
+            let child_show = self.runner.run(&["dprc", "show", &obj])?;
+            let mut residents = BTreeMap::new();
+            for r in parse::parse_dprc_rows(&child_show) {
+                if r.family == Family::Dprc {
+                    continue;
+                }
+                // Origin is not observable from any read verb; CreatedIn is the default,
+                // as this tool creates everything in a child (ADR-0007 §3, `dprc.md`).
+                // ponytail: the bare ResidentId key collides across families (dpbp.0 and
+                // dpmcp.0), so residents may under-report; revisit when residents are managed.
+                residents.insert(
+                    dprc::ResidentId::new(r.num),
+                    dprc::Resident {
+                        kind: dprc::ResidentKind::CreatedIn,
+                        plugged: r.plugged,
+                    },
+                );
+            }
+
+            // A DPRC never plugs (restool refuses; even the live DPL child lists
+            // unplugged), so state is Created when empty, Populated otherwise (`dprc.md`).
+            let state = if residents.is_empty() {
+                dprc::ContainerState::Created
+            } else {
+                dprc::ContainerState::Populated
+            };
+
             containers.insert(
                 DprcId::from(row.num),
                 dprc_plan::ObservedContainer {
-                    state: dprc::ContainerState::Created,
-                    options: dprc::Options::DEFAULT,
+                    state,
+                    options,
                     label: ConstructName::from(row.label),
                     placement: Container::Root,
-                    residents: BTreeMap::new(),
+                    residents,
                 },
             );
         }
@@ -837,17 +869,26 @@ mod tests {
     }
 
     #[test]
-    fn observe_containers_surfaces_child_dprcs_by_label() {
-        // Re-observation reads the root's child DPRC rows: each `dprc.N <label>` child
-        // becomes an ObservedContainer keyed by its handle, placed in root on the
-        // unplugged (Created) face — the read half of container convergence (DPRC-I6).
-        // Non-dprc rows (dpni/dpmac) are not containers and are skipped.
-        let show = dprc_show(&[
+    fn observe_containers_reads_real_options_and_empty_child_is_created() {
+        // Each child DPRC row becomes an ObservedContainer; the info here is the
+        // DPRC-I4 default mask and an empty child reads the Created face.
+        let root = dprc_show(&[
             "dpni.0                          plugged",
             "dprc.2          router          unplugged",
             "dpmac.7                         plugged",
         ]);
-        let runner = CannedRunner::new(&[("dprc show dprc.1", &show)]);
+        let info = dprc_info(&[
+            "DPRC_CFG_OPT_SPAWN_ALLOWED",
+            "DPRC_CFG_OPT_ALLOC_ALLOWED",
+            "DPRC_CFG_OPT_OBJ_CREATE_ALLOWED",
+            "DPRC_CFG_OPT_IRQ_CFG_ALLOWED",
+        ]);
+        let child = dprc_show(&[]);
+        let runner = CannedRunner::new(&[
+            ("dprc show dprc.1", &root),
+            ("dprc info dprc.2", &info),
+            ("dprc show dprc.2", &child),
+        ]);
         let mc = RestoolMc::with_runner(runner, DEFAULT_CONTAINER);
 
         let seen = mc.observe_containers().expect("observe containers");
@@ -856,7 +897,76 @@ mod tests {
         assert_eq!(c.label, ConstructName::from("router"));
         assert_eq!(c.placement, Container::Root);
         assert_eq!(c.options, dprc::Options::DEFAULT);
+        assert_eq!(c.state, dprc::ContainerState::Created);
         assert!(c.residents.is_empty());
+    }
+
+    #[test]
+    fn observe_containers_reads_a_nondefault_mask() {
+        let root = dprc_show(&["dprc.2          router          unplugged"]);
+        let info = dprc_info(&[
+            "DPRC_CFG_OPT_SPAWN_ALLOWED",
+            "DPRC_CFG_OPT_ALLOC_ALLOWED",
+            "DPRC_CFG_OPT_OBJ_CREATE_ALLOWED",
+            "DPRC_CFG_OPT_TOPOLOGY_CHANGES_ALLOWED",
+        ]);
+        let child = dprc_show(&[]);
+        let runner = CannedRunner::new(&[
+            ("dprc show dprc.1", &root),
+            ("dprc info dprc.2", &info),
+            ("dprc show dprc.2", &child),
+        ]);
+        let mc = RestoolMc::with_runner(runner, DEFAULT_CONTAINER);
+
+        let c = mc.observe_containers().expect("observe")[&DprcId::new(2)].clone();
+        assert!(c.options.topology_changes);
+        assert_ne!(c.options, dprc::Options::DEFAULT);
+    }
+
+    #[test]
+    fn observe_containers_populated_child_lists_its_residents() {
+        let root = dprc_show(&["dprc.2          router          unplugged"]);
+        let info = dprc_info(&[
+            "DPRC_CFG_OPT_SPAWN_ALLOWED",
+            "DPRC_CFG_OPT_ALLOC_ALLOWED",
+            "DPRC_CFG_OPT_OBJ_CREATE_ALLOWED",
+            "DPRC_CFG_OPT_IRQ_CFG_ALLOWED",
+        ]);
+        let child = dprc_show(&[
+            "dpni.5          wan0            plugged",
+            "dpbp.0                          unplugged",
+            "dprc.9          grandchild      unplugged",
+        ]);
+        let runner = CannedRunner::new(&[
+            ("dprc show dprc.1", &root),
+            ("dprc info dprc.2", &info),
+            ("dprc show dprc.2", &child),
+        ]);
+        let mc = RestoolMc::with_runner(runner, DEFAULT_CONTAINER);
+
+        let c = mc.observe_containers().expect("observe")[&DprcId::new(2)].clone();
+        assert_eq!(c.state, dprc::ContainerState::Populated);
+        // Only dpni.5 and dpbp.0 are residents; the grandchild dprc.9 is skipped.
+        assert_eq!(c.residents.len(), 2);
+        assert!(!c.residents.contains_key(&dprc::ResidentId::new(9)));
+        let dpni = &c.residents[&dprc::ResidentId::new(5)];
+        assert_eq!(dpni.kind, dprc::ResidentKind::CreatedIn);
+        assert!(dpni.plugged);
+        assert!(!c.residents[&dprc::ResidentId::new(0)].plugged);
+    }
+
+    #[test]
+    fn observe_containers_errors_on_a_refused_info_read() {
+        let root = dprc_show(&["dprc.2          router          unplugged"]);
+        let runner = CannedRunner::new(&[
+            ("dprc show dprc.1", &root),
+            ("dprc info dprc.2", "container id: 2\nicid: 27\n"),
+        ]);
+        let mc = RestoolMc::with_runner(runner, DEFAULT_CONTAINER);
+        match mc.observe_containers().expect_err("refused info") {
+            Error::Parse(msg) => assert!(msg.contains("dprc.2"), "{msg}"),
+            other => panic!("expected Parse, got {other:?}"),
+        }
     }
 
     #[test]
@@ -1066,6 +1176,17 @@ mod tests {
         s.push_str("object          label           plugged-state\n");
         for r in rows {
             s.push_str(r);
+            s.push('\n');
+        }
+        s
+    }
+
+    // A `dprc info` body: the mask line then one tab-indented token per set bit.
+    fn dprc_info(tokens: &[&str]) -> String {
+        let mut s = "container id: 2\nicid: 27\nportal id: 3\ndprc options: 0x603\n".to_owned();
+        for t in tokens {
+            s.push('\t');
+            s.push_str(t);
             s.push('\n');
         }
         s
