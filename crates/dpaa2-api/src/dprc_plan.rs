@@ -672,6 +672,195 @@ pub fn plan_consumer_convergence(
         .collect()
 }
 
+// ---- undeclared-consumer prune (reconciler spec) ----
+
+/// The classification a drift report assigns each observed child container against the
+/// declared-consumer set (reconciler spec "Undeclared consumer containers are pruned
+/// under the double gate"; `dprc.qnt` `type PruneBucket`).
+///
+/// The Rust twin of the model sum, same declaration order. A container is [`Converged`]
+/// when its label names a declared consumer, a prune candidate ([`PruneCandidateFull`] or
+/// [`PruneCandidatePartial`]) when it matches no declared consumer but carries a non-empty
+/// label, and [`ReportOnly`] when its label is empty (a bare-restool create, or the voided
+/// label of the accepted DPRC-I12 escape) — the report-only fence never touches it
+/// (ADR-0001 §4).
+///
+/// [`Converged`]: PruneBucket::Converged
+/// [`PruneCandidateFull`]: PruneBucket::PruneCandidateFull
+/// [`PruneCandidatePartial`]: PruneBucket::PruneCandidatePartial
+/// [`ReportOnly`]: PruneBucket::ReportOnly
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum PruneBucket {
+    /// The label names a declared consumer — the intent owns it; drift repair on it is
+    /// [`plan_consumer_convergence`]'s job, not the pruner's.
+    Converged,
+    /// No declared match; full fingerprint (non-empty label + default mask + root).
+    PruneCandidateFull,
+    /// No declared match; partial fingerprint (non-empty label + a matched subset).
+    PruneCandidatePartial,
+    /// Empty label (or zero overlap): unmanaged, never touched (ADR-0001 §4).
+    ReportOnly,
+}
+
+/// The [`PruneBucket`] variant names, in declaration order — the Rust copy of the
+/// `dprc.qnt` `type PruneBucket` cases (ADR-0014-style parity, tied by
+/// [`PruneBucket::name`]).
+pub const PRUNE_BUCKETS: [&str; 4] = [
+    "Converged",
+    "PruneCandidateFull",
+    "PruneCandidatePartial",
+    "ReportOnly",
+];
+
+impl PruneBucket {
+    /// This variant's name, the token [`PRUNE_BUCKETS`] lists.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Converged => "Converged",
+            Self::PruneCandidateFull => "PruneCandidateFull",
+            Self::PruneCandidatePartial => "PruneCandidatePartial",
+            Self::ReportOnly => "ReportOnly",
+        }
+    }
+}
+
+/// One field of the ownership fingerprint (reconciler spec): the typed vocabulary a
+/// dry-run render names as matched or unmatched, so the operator sees WHY a container
+/// landed in its bucket rather than a bare verdict.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
+pub enum FingerprintField {
+    /// The MC label — matched iff non-empty (`dpaa2ctl` always labels; bare restool
+    /// creates do not).
+    Label,
+    /// The create-time option mask — matched iff it equals the derived child default.
+    OptionsMask,
+    /// The container placement — matched iff it sits under the root (dprc.1).
+    Placement,
+}
+
+/// A container's prune classification: its [`PruneBucket`] plus the matched and unmatched
+/// fingerprint fields the dry-run render surfaces (reconciler spec: every candidate
+/// "rendered with its matched and unmatched fingerprint fields").
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct PruneClassification {
+    /// The bucket the observed container falls into.
+    pub bucket: PruneBucket,
+    /// The fingerprint fields that matched the ownership fingerprint.
+    pub matched: BTreeSet<FingerprintField>,
+    /// The fingerprint fields that did not.
+    pub unmatched: BTreeSet<FingerprintField>,
+}
+
+/// Classifies one observed child container against the declared-consumer set by ownership
+/// fingerprint (reconciler spec "Undeclared consumer containers are pruned under the
+/// double gate"; `dprc.qnt` `pruneBucket`).
+///
+/// The bucket precedence mirrors the `dprc.qnt` `pruneBucket` arms exactly, in order:
+/// a label that names a declared consumer is [`PruneBucket::Converged`] first of all —
+/// repairing drift on a declared tenant stays [`plan_consumer_convergence`]'s job, not the
+/// pruner's; else an empty label is [`PruneBucket::ReportOnly`] (the ADR-0001 §4
+/// report-only fence, and the shape the accepted DPRC-I12 escape leaves behind — a voided
+/// label reads as unmanaged, design D8 (dprc-encapsulation)); else the full
+/// fingerprint (non-empty label + derived default mask + root) is
+/// [`PruneBucket::PruneCandidateFull`]; else [`PruneBucket::PruneCandidatePartial`]. The
+/// matched/unmatched sets are computed the same way for every bucket (report-only
+/// included), so the renderer can show why nothing matched.
+#[must_use]
+pub fn classify_container(
+    observed: &ObservedContainer,
+    declared: &BTreeMap<TenantName, ConsumerContainer>,
+) -> PruneClassification {
+    let default_mask = options_from_permissions(&crate::compiled::dprc_default_options());
+
+    let label_ok = !observed.label.is_empty();
+    let mask_ok = observed.options == default_mask;
+    let root_ok = observed.placement == Placement::Root;
+
+    let mut matched = BTreeSet::new();
+    let mut unmatched = BTreeSet::new();
+    for (field, ok) in [
+        (FingerprintField::Label, label_ok),
+        (FingerprintField::OptionsMask, mask_ok),
+        (FingerprintField::Placement, root_ok),
+    ] {
+        if ok {
+            matched.insert(field);
+        } else {
+            unmatched.insert(field);
+        }
+    }
+
+    // Precedence pinned to the `dprc.qnt` `pruneBucket` arm order: declared match, then the
+    // empty-label fence, then full, then partial.
+    let bucket = if declared.values().any(|c| c.label == observed.label) {
+        PruneBucket::Converged
+    } else if !label_ok {
+        PruneBucket::ReportOnly
+    } else if mask_ok && root_ok {
+        PruneBucket::PruneCandidateFull
+    } else {
+        PruneBucket::PruneCandidatePartial
+    };
+
+    PruneClassification {
+        bucket,
+        matched,
+        unmatched,
+    }
+}
+
+/// One observed child container's prune disposition: its [`PruneClassification`] paired
+/// with the eviction-law teardown plan, present only for a prune candidate.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct PruneItem {
+    /// The container's classification and matched/unmatched fingerprint fields.
+    pub classification: PruneClassification,
+    /// The teardown plan (ADR-0007 §3; [`plan_teardown`]) carrying the eviction-law
+    /// predicted post-state — `Some` for the two prune-candidate buckets, `None` for
+    /// [`PruneBucket::Converged`] and [`PruneBucket::ReportOnly`]. Even when present, the
+    /// plan is only ever dispatched behind the `--prune` + `--allow disruptive` double
+    /// gate (reconciler spec); the gate itself is the engine's, not this pure core's.
+    pub plan: Option<ContainerPlan>,
+}
+
+/// Classifies every observed root child container against the declared-consumer set and
+/// pairs each with its prune disposition (reconciler spec "Undeclared consumer containers
+/// are pruned under the double gate").
+///
+/// Every observed root child yields a [`PruneItem`]: the [`classify_container`] verdict for
+/// all, plus a [`plan_teardown`] plan (ADR-0007 §3, carrying the eviction-law predicted
+/// post-state) for exactly the two prune-candidate buckets. Converged and report-only
+/// containers carry no plan. This is pure prediction only — no `--prune`/`--allow
+/// disruptive` gate logic lives here; the double gate that decides whether a candidate's
+/// plan is actually dispatched is the engine's (the dispatch half, a separate bead), and
+/// prune success is judged by re-observation only (DPRC-I6).
+#[must_use]
+pub fn plan_prune(
+    observed: &BTreeMap<DprcId, ObservedContainer>,
+    declared: &BTreeMap<TenantName, ConsumerContainer>,
+) -> BTreeMap<DprcId, PruneItem> {
+    observed
+        .iter()
+        .map(|(id, container)| {
+            let classification = classify_container(container, declared);
+            let plan = match classification.bucket {
+                PruneBucket::PruneCandidateFull | PruneBucket::PruneCandidatePartial => {
+                    Some(plan_teardown(container))
+                }
+                PruneBucket::Converged | PruneBucket::ReportOnly => None,
+            };
+            (
+                *id,
+                PruneItem {
+                    classification,
+                    plan,
+                },
+            )
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     //! The reconciler-delta scenarios (`specs/reconciler/spec.md`) covered as pure unit
@@ -1054,5 +1243,166 @@ mod tests {
         assert_eq!(ContainerPlan::new().headline(), Class::Hitless);
         let plan = plan_consumer_container(&consumer_dprc(), None);
         assert_eq!(plan.headline(), Class::Disruptive);
+    }
+
+    // ---- Requirement: Undeclared consumer containers are pruned under the double gate ----
+
+    fn declared_consumers() -> BTreeMap<TenantName, ConsumerContainer> {
+        // The single declared consumer ("vpp") every prune fixture classifies against.
+        derive_consumer_containers(&plan_with(consumer_dprc()))
+    }
+
+    fn orphan(
+        label: impl Into<ConstructName>,
+        options: Options,
+        placement: Placement,
+    ) -> ObservedContainer {
+        // Two residents (created + assigned-in) so a teardown predicts a real post-state.
+        let mut residents = BTreeMap::new();
+        residents.insert(ResidentId::new(1), res(ResidentKind::CreatedIn, false));
+        residents.insert(ResidentId::new(2), res(ResidentKind::AssignedIn, false));
+        ObservedContainer {
+            state: ContainerState::Populated,
+            options,
+            label: label.into(),
+            placement,
+            residents,
+        }
+    }
+
+    #[test]
+    fn scenario_declared_consumer_container_is_converged_no_plan() {
+        // Declared-label match is Converged even under a drifted mask (`dprc.qnt`
+        // `pruneBucket` arm order wins over the fingerprint).
+        let declared = declared_consumers();
+        let drifted = orphan(
+            "vpp",
+            Options {
+                spawn: false,
+                ..Options::DEFAULT
+            },
+            Placement::Root,
+        );
+        assert_eq!(
+            classify_container(&drifted, &declared).bucket,
+            PruneBucket::Converged
+        );
+        let items = plan_prune(&BTreeMap::from([(DprcId::new(2), drifted)]), &declared);
+        assert!(items[&DprcId::new(2)].plan.is_none());
+    }
+
+    #[test]
+    fn scenario_full_fingerprint_orphan_is_a_prune_candidate() {
+        // Foreign label + default mask + root => PruneCandidateFull, its plan carrying the
+        // eviction-law predicted post-state (ADR-0007 §3): created released, assigned-in
+        // re-parented unplugged.
+        let declared = declared_consumers();
+        let orphan = orphan("foreign", Options::DEFAULT, Placement::Root);
+        let c = classify_container(&orphan, &declared);
+        assert_eq!(c.bucket, PruneBucket::PruneCandidateFull);
+        assert_eq!(
+            c.matched,
+            BTreeSet::from([
+                FingerprintField::Label,
+                FingerprintField::OptionsMask,
+                FingerprintField::Placement,
+            ])
+        );
+        assert!(c.unmatched.is_empty());
+
+        let items = plan_prune(&BTreeMap::from([(DprcId::new(2), orphan)]), &declared);
+        let plan = items[&DprcId::new(2)]
+            .plan
+            .as_ref()
+            .expect("a candidate carries a plan");
+        let predicted = plan
+            .predicted
+            .as_ref()
+            .expect("a teardown predicts its post-state");
+        assert_eq!(predicted.final_state, ContainerState::Destroyed);
+        assert!(!predicted.parent_gained.contains_key(&ResidentId::new(1)));
+        assert!(!predicted.parent_gained[&ResidentId::new(2)].plugged);
+    }
+
+    #[test]
+    fn scenario_partial_fingerprint_names_matched_and_unmatched() {
+        // Non-default mask (+ non-empty label + root) => PruneCandidatePartial: OptionsMask
+        // unmatched, Label and Placement matched (the dry-run render vocabulary).
+        let declared = declared_consumers();
+        let orphan = orphan(
+            "foreign",
+            Options {
+                spawn: false,
+                ..Options::DEFAULT
+            },
+            Placement::Root,
+        );
+        let c = classify_container(&orphan, &declared);
+        assert_eq!(c.bucket, PruneBucket::PruneCandidatePartial);
+        assert!(c.unmatched.contains(&FingerprintField::OptionsMask));
+        assert!(c.matched.contains(&FingerprintField::Label));
+        assert!(c.matched.contains(&FingerprintField::Placement));
+
+        let items = plan_prune(&BTreeMap::from([(DprcId::new(2), orphan)]), &declared);
+        assert!(items[&DprcId::new(2)].plan.is_some());
+    }
+
+    #[test]
+    fn scenario_empty_label_is_report_only_the_label_void_escape() {
+        // `labelVoidEscapeTest` twin (DPRC-I12): a would-be full candidate drops to
+        // ReportOnly with plan None when its label is voided (ADR-0001 §4 fence).
+        let declared = declared_consumers();
+        let voided = orphan("", Options::DEFAULT, Placement::Root);
+        let c = classify_container(&voided, &declared);
+        assert_eq!(c.bucket, PruneBucket::ReportOnly);
+        assert!(c.unmatched.contains(&FingerprintField::Label));
+
+        let items = plan_prune(&BTreeMap::from([(DprcId::new(2), voided)]), &declared);
+        assert!(items[&DprcId::new(2)].plan.is_none());
+    }
+
+    #[test]
+    fn scenario_relabel_remedy_re_enters_the_candidate_buckets() {
+        // Re-label remedy (design D8, dprc-encapsulation): a non-empty label restored
+        // re-enters the fingerprint buckets — a full candidate again.
+        let declared = declared_consumers();
+        let relabeled = orphan("foreign", Options::DEFAULT, Placement::Root);
+        assert_eq!(
+            classify_container(&relabeled, &declared).bucket,
+            PruneBucket::PruneCandidateFull
+        );
+    }
+
+    #[test]
+    fn scenario_empty_label_beats_a_matching_fingerprint() {
+        // Quint arm order: an empty label is ReportOnly even when mask and placement match —
+        // the fence outranks the full fingerprint (ADR-0001 §4).
+        let declared = declared_consumers();
+        let voided = orphan("", Options::DEFAULT, Placement::Root);
+        let c = classify_container(&voided, &declared);
+        assert_eq!(c.bucket, PruneBucket::ReportOnly);
+        assert_ne!(c.bucket, PruneBucket::PruneCandidateFull);
+        assert!(c.matched.contains(&FingerprintField::OptionsMask));
+        assert!(c.matched.contains(&FingerprintField::Placement));
+        assert!(c.unmatched.contains(&FingerprintField::Label));
+    }
+
+    #[test]
+    fn prune_buckets_match_the_enum_and_the_model() {
+        // dprc.qnt `type PruneBucket`: the exact four cases, in order.
+        let sample = [
+            PruneBucket::Converged,
+            PruneBucket::PruneCandidateFull,
+            PruneBucket::PruneCandidatePartial,
+            PruneBucket::ReportOnly,
+        ];
+        for b in sample {
+            assert!(PRUNE_BUCKETS.contains(&b.name()), "{}", b.name());
+        }
+        assert_eq!(PRUNE_BUCKETS.len(), sample.len());
+        let mut seen = PRUNE_BUCKETS.to_vec();
+        seen.sort_unstable();
+        seen.dedup();
+        assert_eq!(seen.len(), PRUNE_BUCKETS.len(), "duplicate bucket name");
     }
 }

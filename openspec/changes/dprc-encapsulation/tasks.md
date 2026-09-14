@@ -10,7 +10,7 @@
 - [x] 2.1 Child-DPRC lifecycle typestates isomorphic to the 1.1 sum; invalid transitions unrepresentable; parity test binding Rust to the Quint sum per the ADR-0002 law
 - [x] 2.2 Plan semantics: containment guards (assign-only-while-unplugged ordering, plugged-move refusal), eviction-law teardown planning with predicted post-state, re-observation-based convergence verdicts (no sync), typed refusal discrimination in drift/permission-gap reporting
 - [x] 2.3 ITF conformance: frozen traces from the 1.x model replay green through the pure core in cargo test
-- [ ] 2.4 Prune buckets and planning in dpaa2-api: classifier over observed root children (converged / prune-candidate full+partial / report-only), `plan_prune` through `plan_teardown`, tests pinned to the 1.4 enumeration (bead dpaa2-controlplane-cd3.17)
+- [x] 2.4 Prune buckets and planning in dpaa2-api: classifier over observed root children (converged / prune-candidate full+partial / report-only), `plan_prune` through `plan_teardown`, tests pinned to the 1.4 enumeration (bead dpaa2-controlplane-cd3.17)
 
 ## 3. Southbound (dpaa2-mc)
 
