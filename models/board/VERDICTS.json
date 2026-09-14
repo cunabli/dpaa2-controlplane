@@ -302,6 +302,58 @@
       "refusals": []
     }
   },
+  "V-DPRC-10": {
+    "V-DPRC-10-rev1/V-DPRC-10-rev1": {
+      "pass": true,
+      "date": "2026-09-14",
+      "kind": "probes",
+      "revision": 1,
+      "steps": "15/15",
+      "source_hash": "fnv1a64:1003984bc6e6a045",
+      "hook": null,
+      "archive": null,
+      "refusals": []
+    },
+    "V-DPRC-10-rev2/V-DPRC-10-rev2": {
+      "pass": true,
+      "date": "2026-09-14",
+      "kind": "probes",
+      "revision": 2,
+      "steps": "17/17",
+      "source_hash": "fnv1a64:03aab2d1e86a1b13",
+      "hook": null,
+      "archive": null,
+      "refusals": []
+    }
+  },
+  "V-DPRC-11": {
+    "V-DPRC-11-rev1/V-DPRC-11-rev1": {
+      "pass": true,
+      "date": "2026-09-14",
+      "kind": "probes",
+      "revision": 1,
+      "steps": "12/12",
+      "source_hash": "fnv1a64:a5d8ce9e7cded0ae",
+      "hook": null,
+      "archive": null,
+      "refusals": []
+    }
+  },
+  "V-DPRC-12": {
+    "V-DPRC-12-rev1/V-DPRC-12-rev1": {
+      "pass": true,
+      "date": "2026-09-14",
+      "kind": "probes",
+      "revision": 1,
+      "steps": "17/17",
+      "source_hash": "fnv1a64:0846b6f816c80a47",
+      "hook": null,
+      "archive": null,
+      "refusals": [
+        "No privilege"
+      ]
+    }
+  },
   "V-DPRC-2-NOALLOC-1": {
     "V-DPRC-2-NOALLOC-1-rev1": {
       "pass": false,

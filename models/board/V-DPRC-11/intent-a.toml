@@ -1,0 +1,22 @@
+# The declared-consumer operand of suite V-DPRC-11 (dprc-encapsulation task
+# 5.4): the smallest intent that derives exactly one consumer child DPRC,
+# labelled `vdprc11`. One userspace-poll tenant, no ports — a portless tenant
+# is main-only (T = 1) and derives a container with zero residents
+# (crates/dpaa2-api/src/derive.rs portless note; `derive.qnt` threadCount).
+# The suite then populates that container by hand (a foreign restool-created
+# dpbp) and prunes it under the double gate, so DPRC-I9 teardown liveness is
+# exercised on a POPULATED remainder — the case V-DPRC-9 left open by pruning
+# an empty container.
+#
+# This operand lives in the suite dir, not models/intent/scenarios/, on
+# purpose: that dir's `intent_pairing` test requires every `.toml` to have a
+# paired `.qnt` and a frozen accepted trace (crates/dpaa2-verify/tests/
+# intent_pairing.rs), and a board-suite operand needs neither — it is an
+# input to a `dpaa2ctl` sitting, not a model-checked scenario.
+
+[intent]
+schema = 1
+
+[tenant.vdprc11]
+dataplane = "userspace-poll"
+max_cores = 2

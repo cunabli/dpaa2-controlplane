@@ -1,0 +1,17 @@
+# The read-back operand of suite V-DPRC-12 (dprc-encapsulation task 5.4): a
+# declared-empty intent used ONLY as the read-only `dry-run --prune` operand
+# that renders the locked `vdprc12` child's fingerprint (its label and default
+# option mask) through the product path (commit 0b07112). A dry-run dispatches
+# nothing, so this operand never mutates the board — it is the least-mutating
+# way to prove the container reads back while set-locked (reads survive the
+# lock, V-DPRC-3 rev 2). Empty by design: declaring nothing keeps the pass a
+# pure read of whatever the board holds.
+#
+# Lives in the suite dir, not models/intent/scenarios/, for the same reason as
+# V-DPRC-11's intents: that dir's `intent_pairing` test requires every `.toml`
+# to have a paired `.qnt` and a frozen accepted trace (crates/dpaa2-verify/
+# tests/intent_pairing.rs), and a board-suite operand needs neither — it is an
+# input to a `dpaa2ctl` sitting, not a model-checked scenario.
+
+[intent]
+schema = 1

@@ -1,0 +1,15 @@
+# The prune-leg operand of suite V-DPRC-11 (dprc-encapsulation task 5.4): a
+# declared-empty intent. Under `ensure --prune --allow disruptive` the
+# reconciler classifies the `vdprc11` container as a prune candidate by its
+# label fingerprint EVEN THOUGH an operator populated it with a foreign dpbp,
+# and tears it down through its own generated plan — empty-first then destroy
+# (ADR-0007 §3 release/evict law; DPRC-I9 teardownReachableTest). Unlabelled
+# DPL-born containers are report-only and left untouched (DPRC-I12 buckets).
+# Empty by design: nothing is declared, so the labelled scratch container the
+# intent-a leg created is now undeclared.
+#
+# Lives in the suite dir for the same reason as intent-a.toml: a board-suite
+# operand is not a models/intent/scenarios/ pairing (no `.qnt`, no trace).
+
+[intent]
+schema = 1

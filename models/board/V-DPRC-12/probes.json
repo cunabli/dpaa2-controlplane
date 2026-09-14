@@ -1,0 +1,109 @@
+{
+  "suite": "V-DPRC-12",
+  "class": "lifecycle",
+  "steps": [
+    {
+      "label": "pre-census: container list",
+      "cmd": ["restool", "dprc", "list"],
+      "expect": "zero exit; the container list captured whole as the census-clean baseline diffed against the final step. A divergence halts the face — per-step confirmation is the operator's brake.",
+      "exit": "zero"
+    },
+    {
+      "label": "pre-census: root container tree",
+      "cmd": ["restool", "dprc", "show", "dprc.1"],
+      "expect": "zero exit; the root listing captured as the blast-radius reference for the final step.",
+      "exit": "zero"
+    },
+    {
+      "label": "pre-census: MC-global resource pools",
+      "cmd": ["restool", "dprc", "show", "mc.global", "--resources"],
+      "expect": "zero exit; the MC-global pool snapshot (ADR-0011) — the pre-suite baseline for the dpbp free count (judged against the post capture) and the dpmcp count (recorded, not judged — see the post step).",
+      "exit": "zero"
+    },
+    {
+      "label": "create + label scratch child dprc as vdprc12",
+      "cmd": ["sh", "-c", "set -e; n=$(restool --script dprc create dprc.1); restool dprc set-label \"$n\" --label=vdprc12; echo \"created $n labelled vdprc12\""],
+      "expect": "zero exit; restool has no --label at create, so the child is created then labelled in one shell step, capturing the pool-assigned name from create stdout (label resolution of a pool-assigned name — the sanctioned sh -c use). Default child option mask SPAWN|ALLOC|OBJ_CREATE (DPRC-I4). Teardown is the label-scoped destroy below. A divergence halts the face.",
+      "exit": "zero"
+    },
+    {
+      "label": "pre-lock: create a dpbp in the child (restore baseline)",
+      "cmd": ["sh", "-c", "c=$(restool dprc show dprc.1 | awk '$2==\"vdprc12\"{print $1; exit}'); [ -n \"$c\" ] || { echo 'no vdprc12 child resolved' >&2; exit 1; }; restool dpbp create --container=\"$c\"; restool dprc show \"$c\""],
+      "expect": "zero exit; a dpbp created in the unlocked child — the create/assign classes work before the lock, and this resident is the object the post-unlock plug will restore. DPRC-I11; dprc.qnt unlockRestoresTest is the model prediction the later steps validate.",
+      "exit": "zero"
+    },
+    {
+      "label": "set-locked 1 on the child (from the root portal)",
+      "cmd": ["sh", "-c", "c=$(restool dprc show dprc.1 | awk '$2==\"vdprc12\"{print $1; exit}'); [ -n \"$c\" ] || { echo 'no vdprc12 child resolved' >&2; exit 1; }; restool dprc set-locked \"$c\" --locked=1"],
+      "expect": "zero exit; set-locked --locked=1 is accepted when issued from above the container — restool opens the child's parent (root) portal (DPRC-I11; dprc.qnt lockHierarchy; V-DPRC-3 rev 1 observed the lock set from the root). The child-portal unlock face stays #10-deferred and is not probed here.",
+      "exit": "zero"
+    },
+    {
+      "label": "locked child: a second dpbp create is refused",
+      "cmd": ["sh", "-c", "c=$(restool dprc show dprc.1 | awk '$2==\"vdprc12\"{print $1; exit}'); [ -n \"$c\" ] || { echo 'no vdprc12 child resolved' >&2; exit 1; }; restool dpbp create --container=\"$c\""],
+      "expect": "nonzero exit; the lock strips the create class from the whole sub-hierarchy, so this create is refused (DPRC-I11; dprc.qnt lockStripsCreateTest predicts Refused(TopologyLockGate), MC 0x4 No privilege). The observed status is itself a discovery — capture it verbatim; the register (docs/baseline/mc-status.md) carries no create-under-lock row yet, so no refusal name is asserted and the step is judged by exit + the captured message. A clean success contradicts the model and halts the face.",
+      "exit": "nonzero"
+    },
+    {
+      "label": "locked child: plugging the pre-lock dpbp is refused",
+      "cmd": ["sh", "-c", "c=$(restool dprc show dprc.1 | awk '$2==\"vdprc12\"{print $1; exit}'); [ -n \"$c\" ] || { echo 'no vdprc12 child resolved' >&2; exit 1; }; d=$(restool dprc show \"$c\" | awk '$1 ~ /^dpbp\\./{print $1; exit}'); [ -n \"$d\" ] || { echo 'no dpbp in child' >&2; exit 1; }; restool dprc assign \"$c\" --object=\"$d\" --plugged=1"],
+      "expect": "nonzero exit refused with No privilege; the lock strips the assign class, so assign --plugged=1 is refused No privilege (DPRC-I11; dprc.qnt lockRefusesPlugTest; docs/baseline/mc-status.md `dprc · assign --plugged=1` under lock, V-DPRC-3 rev 1 — the dpbp reads back unplugged). A divergent status halts the face.",
+      "exit": "nonzero",
+      "refusal": "No privilege"
+    },
+    {
+      "label": "read back the locked child through the product path",
+      "cmd": ["target/release/dpaa2ctl", "--config", "models/board/V-DPRC-12/intent.toml", "dry-run", "--prune"],
+      "expect": "any exit; the least-mutating product-path read-back — a dry-run dispatches nothing (chosen over `status`, which renders only port divergence and would not surface the container fingerprint). Against this suite's own empty intent the prune pass reads the board back and renders vdprc12's label and default option mask in its prune-candidate fingerprint (commit 0b07112 landed real options/resident read-back). Reads survive the lock (DPRC-I11; V-DPRC-3 rev 2 — reads keep working under set-locked). No child portal is opened.",
+      "exit": "any"
+    },
+    {
+      "label": "set-locked 0 on the child (from the root portal)",
+      "cmd": ["sh", "-c", "c=$(restool dprc show dprc.1 | awk '$2==\"vdprc12\"{print $1; exit}'); [ -n \"$c\" ] || { echo 'no vdprc12 child resolved' >&2; exit 1; }; restool dprc set-locked \"$c\" --locked=0"],
+      "expect": "zero exit; set-locked --locked=0 from the root lifts the lock (DPRC-I11; dprc.qnt unlock; V-DPRC-3 rev 1 lifted the lock from the root). The create and assign classes are restored, which the next two steps validate.",
+      "exit": "zero"
+    },
+    {
+      "label": "unlocked child: a dpbp create now succeeds",
+      "cmd": ["sh", "-c", "c=$(restool dprc show dprc.1 | awk '$2==\"vdprc12\"{print $1; exit}'); [ -n \"$c\" ] || { echo 'no vdprc12 child resolved' >&2; exit 1; }; restool dpbp create --container=\"$c\"; restool dprc show \"$c\""],
+      "expect": "zero exit; with the lock lifted the create class is restored, so the second dpbp create now succeeds (DPRC-I11; dprc.qnt unlockRestoresTest). A refusal here contradicts the unlock and halts the face.",
+      "exit": "zero"
+    },
+    {
+      "label": "unlocked child: plugging the pre-lock dpbp now succeeds",
+      "cmd": ["sh", "-c", "c=$(restool dprc show dprc.1 | awk '$2==\"vdprc12\"{print $1; exit}'); [ -n \"$c\" ] || { echo 'no vdprc12 child resolved' >&2; exit 1; }; d=$(restool dprc show \"$c\" | awk '$1 ~ /^dpbp\\./{print $1; exit}'); [ -n \"$d\" ] || { echo 'no dpbp in child' >&2; exit 1; }; restool dprc assign \"$c\" --object=\"$d\" --plugged=1; restool dprc show \"$c\""],
+      "expect": "zero exit; with the lock lifted the assign class is restored, so assign --plugged=1 now succeeds and the dpbp reads back plugged (DPRC-I11; dprc.qnt unlockRestoresTest — the restore mirror of lockRefusesPlugTest). A refusal here contradicts the unlock and halts the face.",
+      "exit": "zero"
+    },
+    {
+      "label": "unplug the dpbp so teardown is not gated",
+      "cmd": ["sh", "-c", "c=$(restool dprc show dprc.1 | awk '$2==\"vdprc12\"{print $1; exit}'); [ -n \"$c\" ] || { echo 'no vdprc12 child resolved' >&2; exit 1; }; d=$(restool dprc show \"$c\" | awk '$1 ~ /^dpbp\\./ && $NF==\"plugged\"{print $1; exit}'); [ -n \"$d\" ] || { echo 'no plugged dpbp — nothing to unplug'; exit 0; }; restool dprc assign \"$c\" --object=\"$d\" --plugged=0"],
+      "expect": "zero (or a clean skip if nothing is plugged); unplug the dpbp so the destroy in teardown is not refused on a plugged owned resident (dprc.qnt destroyContainer requires residents unplugged). Leaves the child in the same unlocked, unplugged shape the pre-lock baseline held.",
+      "exit": "zero"
+    },
+    {
+      "label": "teardown: destroy the child (label-scoped, eviction law)",
+      "cmd": ["sh", "-c", "c=$(restool dprc show dprc.1 | awk '$2==\"vdprc12\"{print $1; exit}'); [ -n \"$c\" ] || { echo 'no vdprc12 child resolved — already gone'; exit 0; }; restool dprc set-locked \"$c\" --locked=0 2>/dev/null || true; restool dprc destroy \"$c\""],
+      "expect": "any exit; label-scoped destroy of the vdprc12 child — the lock is force-cleared first (idempotent, so a lock left set never blocks teardown) then the container destroyed. The eviction law releases its CreatedIn dpbps with the container (ADR-0007 §3; dprc.qnt evictionBothKindsTest). Skip (s) only if the create step never ran.",
+      "exit": "any"
+    },
+    {
+      "label": "post-census: container list",
+      "cmd": ["restool", "dprc", "list"],
+      "expect": "zero exit; must match the pre-census container list object-for-object (the census-clean guarantee — the scratch child and its dpbps are gone, DPL-born containers untouched).",
+      "exit": "zero"
+    },
+    {
+      "label": "post-census: root container tree",
+      "cmd": ["restool", "dprc", "show", "dprc.1"],
+      "expect": "zero exit; must match the pre-census root listing for offline diff.",
+      "exit": "zero"
+    },
+    {
+      "label": "post-census: MC-global resource pools",
+      "cmd": ["restool", "dprc", "show", "mc.global", "--resources"],
+      "expect": "zero exit; the dpbp pool must return to the pre-census snapshot — every dpbp the suite created in the child was released when the container was destroyed, returning its unit (V-CEIL-1 board-settled the dpbp pool floor); that face is judged. The mcp count is RECORDED, not judged: the known shape is a possible one-portal drop across a container create/destroy cycle (V-DPRC-9 rev 1 observed mcp 203 -> 202, an ADR-0011 open portal-count datum carried to task 6.1). Only an mcp movement beyond that known one-per-container-create shape is a divergence that halts the face.",
+      "exit": "zero"
+    }
+  ]
+}

@@ -1,0 +1,78 @@
+{
+  "suite": "V-DPRC-11",
+  "class": "lifecycle",
+  "steps": [
+    {
+      "label": "pre-census: container list",
+      "cmd": ["restool", "dprc", "list"],
+      "expect": "zero exit; the container list captured whole as the census-clean baseline diffed against the final step. A divergence halts the face — per-step confirmation is the operator's brake.",
+      "exit": "zero"
+    },
+    {
+      "label": "pre-census: root container tree",
+      "cmd": ["restool", "dprc", "show", "dprc.1"],
+      "expect": "zero exit; the root listing captured as the blast-radius reference for the final step.",
+      "exit": "zero"
+    },
+    {
+      "label": "pre-census: MC-global resource pools",
+      "cmd": ["restool", "dprc", "show", "mc.global", "--resources"],
+      "expect": "zero exit; the MC-global pool snapshot (ADR-0011) — the pre-suite baseline for the dpbp free count (judged against the post capture) and the dpmcp count (recorded, not judged — see the post step).",
+      "exit": "zero"
+    },
+    {
+      "label": "ensure intent-a: reconciler creates the vdprc11 child",
+      "cmd": ["target/release/dpaa2ctl", "--config", "models/board/V-DPRC-11/intent-a.toml", "ensure", "--no-link", "--allow", "disruptive"],
+      "expect": "zero exit; CreateContainer headlines `disruptive`, so the gate is opened with --allow disruptive (never implied); --no-link keeps it portless. The reconciler creates the child DPRC labelled vdprc11 (dpaa2ctl always labels what it creates — DPRC-I12). A divergence halts the face.",
+      "exit": "zero"
+    },
+    {
+      "label": "populate the child by hand with a foreign dpbp",
+      "cmd": ["sh", "-c", "c=$(restool dprc show dprc.1 | awk '$2==\"vdprc11\"{print $1; exit}'); [ -n \"$c\" ] || { echo 'no vdprc11 child resolved' >&2; exit 1; }; restool dpbp create --container=\"$c\"; restool dprc show \"$c\""],
+      "expect": "zero exit; a dpbp created directly in the reconciler's container (a CreatedIn resident foreign to the reconciler's own plan). This makes the prune remainder POPULATED — the case V-DPRC-9 did not cover. Label resolution of the pool-assigned child name is the sanctioned sh -c use.",
+      "exit": "zero"
+    },
+    {
+      "label": "prune dry-run: candidate despite the resident",
+      "cmd": ["target/release/dpaa2ctl", "--config", "models/board/V-DPRC-11/intent-b.toml", "dry-run", "--prune"],
+      "expect": "any exit; the prune report classifies vdprc11 as a prune candidate by its label fingerprint even though it now holds a foreign resident, and renders the eviction-law post-state the destructive leg will produce (dprc-encapsulation design D8; DPRC-I12 prune buckets). DPL-born containers stay report-only. Dispatches nothing — the operator reads this before the ensure leg.",
+      "exit": "any"
+    },
+    {
+      "label": "prune ensure: reconciler empties then destroys the populated container",
+      "cmd": ["target/release/dpaa2ctl", "--config", "models/board/V-DPRC-11/intent-b.toml", "ensure", "--prune", "--allow", "disruptive", "--no-link"],
+      "expect": "zero exit; the reconciler's own generated plan empties the container (releasing the foreign dpbp) then destroys it — DPRC-I9 teardown liveness under a reconciler-generated plan on a POPULATED remainder (ADR-0007 §3 release/evict law; dprc.qnt teardownReachableTest reaches Destroyed from a populated, mixed-kind container). Unlabelled DPL-born containers are untouched. A nonzero exit or a surviving container halts the face.",
+      "exit": "zero"
+    },
+    {
+      "label": "read back: the vdprc11 child is absent",
+      "cmd": ["sh", "-c", "c=$(restool dprc show dprc.1 | awk '$2==\"vdprc11\"{print $1; exit}'); if [ -z \"$c\" ]; then echo 'absent — reconciler destroyed the populated container'; else echo \"present: $c — reconciler did NOT destroy\"; exit 1; fi"],
+      "expect": "zero exit means the child labelled vdprc11 no longer appears under dprc.1 — the reconciler tore the populated container down through its own path (DPRC-I9). A nonzero exit (still present) is a divergence and halts the face; the contingency destroy below then cleans it up.",
+      "exit": "zero"
+    },
+    {
+      "label": "contingency: restool destroy if the reconciler leg failed",
+      "cmd": ["sh", "-c", "c=$(restool dprc show dprc.1 | awk '$2==\"vdprc11\"{print $1; exit}'); [ -n \"$c\" ] || { echo 'already gone — nothing to tear down'; exit 0; }; restool dprc destroy \"$c\""],
+      "expect": "skip (s) if the previous read-back reported absent. Run only if the reconciler leg left the vdprc11 container standing: a label-scoped restool destroy is the fallback so the run still reaches a clean census. The eviction law releases the foreign dpbp with the container. Any exit.",
+      "exit": "any"
+    },
+    {
+      "label": "post-census: container list",
+      "cmd": ["restool", "dprc", "list"],
+      "expect": "zero exit; must match the pre-census container list object-for-object (the census-clean guarantee — the scratch child is gone, DPL-born containers untouched).",
+      "exit": "zero"
+    },
+    {
+      "label": "post-census: root container tree",
+      "cmd": ["restool", "dprc", "show", "dprc.1"],
+      "expect": "zero exit; must match the pre-census root listing for offline diff.",
+      "exit": "zero"
+    },
+    {
+      "label": "post-census: MC-global resource pools",
+      "cmd": ["restool", "dprc", "show", "mc.global", "--resources"],
+      "expect": "zero exit; the dpbp pool must return to the pre-census snapshot — the foreign dpbp created in the container was released when the reconciler destroyed it, returning its unit (V-CEIL-1 board-settled the dpbp pool floor); that face is judged. The mcp count is RECORDED, not judged: the known shape is a possible one-portal drop across a container create/destroy cycle (V-DPRC-9 rev 1 observed mcp 203 -> 202, an ADR-0011 open portal-count datum carried to task 6.1). Only an mcp movement beyond that known one-per-container-create shape is a divergence that halts the face.",
+      "exit": "zero"
+    }
+  ]
+}

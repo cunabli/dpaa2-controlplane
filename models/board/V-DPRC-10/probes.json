@@ -1,0 +1,108 @@
+{
+  "suite": "V-DPRC-10",
+  "class": "lifecycle",
+  "steps": [
+    {
+      "label": "pre-census: container list",
+      "cmd": ["restool", "dprc", "list"],
+      "expect": "zero exit; the container list captured whole as the census-clean baseline diffed against the final step (ADR-0003 §5 queries are lifecycle-only). A divergence here halts the face — per-step confirmation is the operator's brake.",
+      "exit": "zero"
+    },
+    {
+      "label": "pre-census: root container tree",
+      "cmd": ["restool", "dprc", "show", "dprc.1"],
+      "expect": "zero exit; the root listing captured as the blast-radius reference for the final step. The pool boundary this suite probes (DPRC-I1) is a property of dprc.1's local allocator, so its resident set is the baseline. Rev 1 observed the reference boot holds exactly one dpbp row (dpbp.0, plugged) and zero free dpcons at root — the surplus staged below covers both candidate families so the probe cannot run dry on an unstaged one.",
+      "exit": "zero"
+    },
+    {
+      "label": "pre-census: MC-global resource pools",
+      "cmd": ["restool", "dprc", "show", "mc.global", "--resources"],
+      "expect": "zero exit; the MC-global pool snapshot (ADR-0011). The dpbp/dpcon free counts here frame the DPRC-I1 discovery: a consumer draws only from its own container's local pool, never the global figure.",
+      "exit": "zero"
+    },
+    {
+      "label": "create + label scratch child dprc as vdprc10",
+      "cmd": ["sh", "-c", "set -e; n=$(restool --script dprc create dprc.1); restool dprc set-label \"$n\" --label=vdprc10; echo \"created $n labelled vdprc10\""],
+      "expect": "zero exit; restool has no --label at create, so the child is created then labelled in one shell step, capturing the pool-assigned name from create stdout (label resolution of a pool-assigned name — the sanctioned sh -c use). The scratch child sits under dprc.1 with the default child option mask SPAWN|ALLOC|OBJ_CREATE (DPRC-I4). Its teardown is the label-scoped destroy step below. A divergence halts the face.",
+      "exit": "zero"
+    },
+    {
+      "label": "create surplus in the child: two dpcon and two dpbp",
+      "cmd": ["sh", "-c", "c=$(restool dprc show dprc.1 | awk '$2==\"vdprc10\"{print $1; exit}'); [ -n \"$c\" ] || { echo 'no vdprc10 child resolved' >&2; exit 1; }; restool dpcon create --num-priorities=2 --container=\"$c\"; restool dpcon create --num-priorities=2 --container=\"$c\"; restool dpbp create --container=\"$c\"; restool dpbp create --container=\"$c\"; restool dprc show \"$c\""],
+      "expect": "zero exit; two dpcon (create argv from V-LIFE-DPNI-1: dpcon create --num-priorities=2) and two dpbp created in the child (CreatedIn residents) — the sibling-container surplus of BOTH candidate families the root consumer draws from. Rev 1 staged dpbp only and the probe ran dry at dpcon, so the non-crossing was witnessed vacuously (the child held no dpcon); staging both families fixes that. The model releases these with the container on destroy (dprc.qnt evictionBothKindsTest), so the teardown destroy accounts for them. DPRC-I1: allocation is container-scoped.",
+      "exit": "zero"
+    },
+    {
+      "label": "count free (unplugged) dpbps at root",
+      "cmd": ["sh", "-c", "restool dprc show dprc.1 | awk '$1 ~ /^dpbp\\./{if ($NF==\"unplugged\") free++; total++; print} END{print \"root dpbp rows: \" total+0 \", unplugged/free: \" free+0}'"],
+      "expect": "any exit (the awk count is the evidence, never the exit). DPL-born dpbps are held by their bound dpni consumers and read back plugged; only unplugged rows are free. Rev 1 found exactly one dpbp row (dpbp.0, plugged) and zero free at root — the dpbp pool was already naturally exhausted. The next step runs ONLY if free dpbps exist — skip (s) it if the count is zero, since root's local dpbp pool is already empty.",
+      "exit": "any"
+    },
+    {
+      "label": "contingency: move root's free dpbps into the child",
+      "cmd": ["sh", "-c", "c=$(restool dprc show dprc.1 | awk '$2==\"vdprc10\"{print $1; exit}'); [ -n \"$c\" ] || { echo 'no vdprc10 child resolved' >&2; exit 0; }; restool dprc show dprc.1 | awk '$1 ~ /^dpbp\\./ && $NF==\"unplugged\"{print $1}' | while read o; do echo \"+ move $o into $c\"; restool dprc assign dprc.1 --object=\"$o\" --child=\"$c\" || true; done; restool dprc show \"$c\""],
+      "expect": "skip (s) if the previous step found no free dpbps at root (rev 1: none). Otherwise: move root's free (unplugged) dpbps into the child so dprc.1's local dpbp pool is empty — the assign --child move verb (V-DPRC-1 steps 3-4, V-DPRC-9). These become AssignedIn residents; the model evicts them one hop back up to root, unplugged, when the child is destroyed (dprc.qnt evictionBothKindsTest / moveResidentOutAt), so the teardown destroy returns them census-clean. Any exit — the read-back is the evidence.",
+      "exit": "any"
+    },
+    {
+      "label": "count free (unplugged) dpcons at root",
+      "cmd": ["sh", "-c", "restool dprc show dprc.1 | awk '$1 ~ /^dpcon\\./{if ($NF==\"unplugged\") free++; total++; print} END{print \"root dpcon rows: \" total+0 \", unplugged/free: \" free+0}'"],
+      "expect": "any exit (the awk count is the evidence, never the exit). DPL-born dpcons are held by their bound dpni consumers and read back plugged; only unplugged rows are free. Rev 1 found zero free dpcons at root — the dpcon pool was already naturally exhausted, and dpcon is the family the probe ran dry at. The next step runs ONLY if free dpcons exist — skip (s) it if the count is zero, since root's local dpcon pool is already empty.",
+      "exit": "any"
+    },
+    {
+      "label": "contingency: move root's free dpcons into the child",
+      "cmd": ["sh", "-c", "c=$(restool dprc show dprc.1 | awk '$2==\"vdprc10\"{print $1; exit}'); [ -n \"$c\" ] || { echo 'no vdprc10 child resolved' >&2; exit 0; }; restool dprc show dprc.1 | awk '$1 ~ /^dpcon\\./ && $NF==\"unplugged\"{print $1}' | while read o; do echo \"+ move $o into $c\"; restool dprc assign dprc.1 --object=\"$o\" --child=\"$c\" || true; done; restool dprc show \"$c\""],
+      "expect": "skip (s) if the previous step found no free dpcons at root (rev 1: none). Otherwise: move root's free (unplugged) dpcons into the child so dprc.1's local dpcon pool is empty — the same assign --child move verb. These become AssignedIn residents evicted one hop back up to root unplugged when the child is destroyed (dprc.qnt evictionBothKindsTest / moveResidentOutAt), census-clean at teardown. Any exit — the read-back is the evidence.",
+      "exit": "any"
+    },
+    {
+      "label": "create + label + plug a scratch dpni at root",
+      "cmd": ["sh", "-c", "set -e; n=$(restool --script dpni create --container=dprc.1); restool dprc set-label \"$n\" --label=vdprc10ni; restool dprc assign dprc.1 --object=\"$n\" --plugged=1; echo \"created $n labelled vdprc10ni, plugged\""],
+      "expect": "zero exit for the create/label/plug verbs (mirror V-LIFE-DPNI-1 dpni create + assign --plugged=1). The dpni is a root consumer; plugging it makes it bus-visible so the kernel dpaa2-eth driver probes it and tries to draw its buffer pool (dpbp) and queue-notification (dpcon) companions from dprc.1's own local pool. Labelled vdprc10ni for the label-scoped teardown. The probe outcome is read in the next (dmesg) step, not here.",
+      "exit": "zero"
+    },
+    {
+      "label": "dmesg: dpaa2-eth probe draws from the root's empty local pools",
+      "cmd": ["sh", "-c", "dmesg | tail -n 60"],
+      "expect": "any exit; the model predicts the root consumer allocates ONLY from dprc.1's own local pool (DPRC-I1, core/invariants.qnt DPRC_I1: container(consumer) == container(pool object)). With every candidate family's free objects staged into the sibling child, the probe's first locally-dry family is refused by the fsl-mc allocator with `No more resources of type <fam> left` — the -ENXIO shape (the kernel maps an empty fsl-mc allocator pool to -ENXIO; this is kernel dmesg text, not an MC status, so no refusal is named). Rev 1 observed exactly this line for dpcon (`fsl_mc_dprc dprc.1: No more resources of type dpcon left`, right after the dpni's `Adding to iommu group`), because root's dpcon pool was first-dry. Since the child now holds surplus of every candidate family, the non-crossing is genuinely witnessed — the probe never reaches across the sibling boundary to the child's surplus. A probe that instead succeeds by drawing across that boundary contradicts DPRC-I1 and halts the face.",
+      "exit": "any"
+    },
+    {
+      "label": "read back the child: its dpcons and dpbps still resident and unallocated",
+      "cmd": ["sh", "-c", "c=$(restool dprc show dprc.1 | awk '$2==\"vdprc10\"{print $1; exit}'); [ -n \"$c\" ] || { echo 'no vdprc10 child resolved' >&2; exit 0; }; restool dprc show \"$c\" | awk '$1 ~ /^dpcon\\./{cn++} $1 ~ /^dpbp\\./{bn++} $1 ~ /^dp(con|bp)\\./{print} END{print \"child dpcon rows: \" cn+0 \", dpbp rows: \" bn+0}'"],
+      "expect": "any exit; the child's dpcons and dpbps (the surplus created plus any moved in) are ALL still resident and unplugged/unallocated — the root consumer's failed draw never crossed the sibling boundary to take one of either family (DPRC-I1, dprc.qnt DPRC_I1Test: a resident never crosses out of its container to a sibling). The two counts are the evidence.",
+      "exit": "any"
+    },
+    {
+      "label": "teardown: unplug and destroy the scratch dpni (label-scoped)",
+      "cmd": ["sh", "-c", "n=$(restool dprc show dprc.1 | awk '$2==\"vdprc10ni\"{print $1; exit}'); [ -n \"$n\" ] || { echo 'no vdprc10ni dpni resolved — already gone'; exit 0; }; restool dprc assign dprc.1 --object=\"$n\" --plugged=0 || true; restool dpni destroy \"$n\""],
+      "expect": "any exit; label-scoped teardown of the scratch dpni created above — resolve by the vdprc10ni label, unplug, then destroy. Skip (s) only if the create step was skipped or aborted. Best-effort so the run always reaches a clean census. Divergence branch: if the DPRC-I1 face diverged — the dpaa2-eth probe unexpectedly drew its companions and bound the dpni — then the unplug (assign --plugged=0) is refused with -EBUSY by restool's client guard (\"unbind it first\"; DPRC-I2, V-LINK-5), so the operator first unbinds the netdev through the dpaa2-eth driver's unbind node (echo the dpni name to /sys/bus/fsl-mc/drivers/fsl_dpaa2_eth/unbind), then re-runs this step so the destroy succeeds.",
+      "exit": "any"
+    },
+    {
+      "label": "teardown: destroy the child (label-scoped, eviction law)",
+      "cmd": ["sh", "-c", "c=$(restool dprc show dprc.1 | awk '$2==\"vdprc10\"{print $1; exit}'); [ -n \"$c\" ] || { echo 'no vdprc10 child resolved — already gone'; exit 0; }; restool dprc destroy \"$c\""],
+      "expect": "any exit; label-scoped destroy of the vdprc10 child. The eviction law (ADR-0007 §3, dprc.qnt evictionBothKindsTest) releases the CreatedIn dpcons and dpbps with the container and evicts any moved-in AssignedIn dpcons/dpbps one hop back up to dprc.1 unplugged — so the root pools are restored census-clean. Skip (s) only if the create step never ran.",
+      "exit": "any"
+    },
+    {
+      "label": "post-census: container list",
+      "cmd": ["restool", "dprc", "list"],
+      "expect": "zero exit; must match the pre-census container list object-for-object (the census-clean guarantee — the scratch child is gone, DPL-born containers untouched).",
+      "exit": "zero"
+    },
+    {
+      "label": "post-census: root container tree",
+      "cmd": ["restool", "dprc", "show", "dprc.1"],
+      "expect": "zero exit; must match the pre-census root listing for offline diff — any moved dpcons/dpbps are back at root unplugged and the scratch dpni is gone, so dprc.1's local pools are restored.",
+      "exit": "zero"
+    },
+    {
+      "label": "post-census: MC-global resource pools",
+      "cmd": ["restool", "dprc", "show", "mc.global", "--resources"],
+      "expect": "zero exit; the dpbp and dpcon pools must return to the pre-census snapshot — every dpbp and dpcon this suite created was released or destroyed and every unit returned (V-CEIL-1 board-settled the dpbp pool floor); that face is judged. The mcp count is RECORDED, not judged: the known shape is a possible one-portal drop across a container create/destroy cycle (V-DPRC-9 rev 1 observed mcp 203 -> 202, the create drawing a portal the immediate post-destroy read did not show returned — an ADR-0011 open portal-count datum carried to task 6.1). Only an mcp movement beyond that known one-per-container-create shape is a divergence that halts the face.",
+      "exit": "zero"
+    }
+  ]
+}
