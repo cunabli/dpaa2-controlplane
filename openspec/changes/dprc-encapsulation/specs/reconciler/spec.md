@@ -46,6 +46,37 @@ runtime, and convergence verdicts come from re-querying the affected container.
 - **WHEN** a plan step mutates a child container's membership
 - **THEN** the step's success is judged by re-observing that container via MC queries, never by issuing sync
 
+### Requirement: Undeclared consumer containers are pruned under the double gate
+The reconciler SHALL classify every child container observed under the root
+against the declared consumer set by ownership fingerprint — non-empty MC
+label plus derived default option mask plus root placement (`dpaa2ctl` always
+labels the containers it creates; bare restool creates do not). A container
+matching no declared consumer is a prune candidate when the fingerprint
+matches fully OR partially (any matched subset that includes a non-empty
+label); prune candidates are destroyed only when `--prune` AND
+`--allow disruptive` are both given — the existing `--prune` flag widens to
+containers, with no new flag surface. Containers with an empty label or zero
+fingerprint overlap are report-only and SHALL never be touched (ADR-0001 §4).
+Every candidate is rendered in dry-run with its matched and unmatched
+fingerprint fields and the eviction-law predicted post-state (ADR-0007 §3),
+and prune success is judged by re-observation only (DPRC-I6).
+
+#### Scenario: Fully fingerprinted orphan is pruned under the double gate
+- **WHEN** the root holds a labeled container matching a derived fingerprint on all fields but no declared consumer, and the run passes `--prune --allow disruptive`
+- **THEN** the plan destroys it via the eviction-law teardown path and the verdict comes from re-observing the root's children
+
+#### Scenario: Prune candidate without the disruptive gate is planned but not dispatched
+- **WHEN** the same orphan is observed and the run passes `--prune` without `--allow disruptive`
+- **THEN** the candidate is reported with its fingerprint fields and predicted post-state, and no destroy is dispatched
+
+#### Scenario: Partial fingerprint match is rendered with matched and unmatched fields
+- **WHEN** a non-empty-label container matches the derived mask but sits outside root placement
+- **THEN** dry-run renders it as a partial prune candidate naming which fingerprint fields matched and which did not, alongside the eviction-law predicted post-state
+
+#### Scenario: Empty-label container is report-only
+- **WHEN** the root holds an unlabeled container (bare restool create) absent from intent
+- **THEN** it is reported as unmanaged and no plan step targets it, regardless of flags
+
 ### Requirement: Consumer convergence is container-only in this change
 Converging a declared consumer SHALL produce the container itself — existence,
 options, label, placement, lock state, VFIO bindability — and SHALL NOT emit

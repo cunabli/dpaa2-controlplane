@@ -102,6 +102,29 @@ containment/pool faces still marked candidate (DPRC-I1, I5, I7, I9-under-
 reconciler, I10, lock remainder of I11). Divergences amend model + baseline
 in-change (DoD gates 1–2). Deferred faces emit deferral rows, never probes.
 
+### D8 — Undeclared-consumer prune keys on the label-anchored fingerprint
+
+Added 2026-09-13 at 5.3 suite authoring: the prune/dispatch requirement fell
+through the seam between task 2.2 (eviction-law teardown *planning*) and task
+4.2 (create-only acceptance) — the Migration Plan below asserts rollback is
+the reconciler's own teardown path, but no task owned the join.
+
+Ownership is signaled by a non-empty MC label (`dpaa2ctl` always labels; bare
+restool creates do not); the prune fingerprint is label + derived default
+option mask + root placement, and both full and partial matches (any subset
+with a non-empty label) are candidates, double-gated behind `--prune` +
+`--allow disruptive`. Alternatives rejected: label-only matching (too
+aggressive — any labeled container would qualify) and dedicated
+ownership-marker labels (breaks the shipped ADR-0015 name-keyed derivation).
+Partial-match pruning is accepted because the procedural dry-run review —
+every candidate rendered with matched/unmatched fingerprint fields and the
+eviction-law predicted post-state — is the misclassification control.
+Named consequence: an undeclared live VPP tenant under `--prune` plans its
+own destruction; that is the declarative contract, held behind the double
+gate. The model guard-rail is DPRC-I12 (`createdByUs` traceability, bead
+dpaa2-controlplane-cd3.16): everything dpaa2ctl creates stays out of the
+report-only bucket, or the voiding verb sequences are enumerated.
+
 ## Risks / Trade-offs
 
 - [Two-pass interlock: VFIO binding a scratch child may interact with
