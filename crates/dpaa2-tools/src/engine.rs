@@ -28,7 +28,9 @@ pub struct ConvergeConfig {
     pub deadline: Duration,
     /// Delay between re-observation passes (accounts for async netdev appearance).
     pub poll_interval: Duration,
-    /// Whether to tear down ports declared absent (design D7).
+    /// Whether to tear down declared-absent ports and undeclared containers.
+    /// dprc-hardening design D8 widened the intent-layer prune (D7) to
+    /// containers behind `--allow disruptive` (PASS4-F5).
     pub prune: bool,
     /// The maximum disruption class the run may actuate (ADR-0015 decision 12). A
     /// plan whose headline exceeds this is refused, not applied — the default allows

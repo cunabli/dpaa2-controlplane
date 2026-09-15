@@ -66,7 +66,9 @@ enum Command {
         /// Overall convergence budget, in seconds.
         #[arg(long, default_value_t = 30)]
         deadline: u64,
-        /// Tear down ports declared absent (opt-in).
+        /// Tear down declared-absent ports and, behind `--allow disruptive`,
+        /// undeclared containers — the tool's most destructive act
+        /// (dprc-hardening design D8).
         #[arg(long)]
         prune: bool,
         /// Maximum disruption class the run may actuate (ADR-0015 decision 12); a
@@ -91,7 +93,9 @@ enum Command {
     Status,
     /// Print the plan reconcile would execute; change nothing.
     DryRun {
-        /// Tear down ports declared absent (opt-in).
+        /// Tear down declared-absent ports and, behind `--allow disruptive`,
+        /// undeclared containers — the tool's most destructive act
+        /// (dprc-hardening design D8).
         #[arg(long)]
         prune: bool,
     },
