@@ -446,12 +446,10 @@ impl<R: Runner> McControl for RestoolMc<R> {
                 if r.family == Family::Dprc {
                     continue;
                 }
-                // Origin is not observable from any read verb; CreatedIn is the default,
-                // as this tool creates everything in a child (ADR-0007 §3, `dprc.md`).
-                // ponytail: the bare ResidentId key collides across families (dpbp.0 and
-                // dpmcp.0), so residents may under-report; revisit when residents are managed.
+                // Origin is unobservable; CreatedIn is the default (ADR-0007 §3, `dprc.md`).
+                // Keyed by family-qualified ObjectRef so `dpbp.0`/`dpmcp.0` never collide (review M1; PASS3-F14).
                 residents.insert(
-                    dprc::ResidentId::new(r.num),
+                    ObjectRef::new(r.family, r.num),
                     dprc::Resident {
                         kind: dprc::ResidentKind::CreatedIn,
                         plugged: r.plugged,
@@ -946,13 +944,13 @@ mod tests {
 
         let c = mc.observe_containers().expect("observe")[&DprcId::new(2)].clone();
         assert_eq!(c.state, dprc::ContainerState::Populated);
-        // Only dpni.5 and dpbp.0 are residents; the grandchild dprc.9 is skipped.
+        // Only dpni.5 and dpbp.0 are residents (grandchild dprc.9 skipped), keyed by ObjectRef (review M1; PASS3-F14).
         assert_eq!(c.residents.len(), 2);
-        assert!(!c.residents.contains_key(&dprc::ResidentId::new(9)));
-        let dpni = &c.residents[&dprc::ResidentId::new(5)];
+        assert!(!c.residents.contains_key(&ObjectRef::new(Family::Dprc, 9)));
+        let dpni = &c.residents[&ObjectRef::new(Family::Dpni, 5)];
         assert_eq!(dpni.kind, dprc::ResidentKind::CreatedIn);
         assert!(dpni.plugged);
-        assert!(!c.residents[&dprc::ResidentId::new(0)].plugged);
+        assert!(!c.residents[&ObjectRef::new(Family::Dpbp, 0)].plugged);
     }
 
     #[test]
