@@ -809,4 +809,49 @@ module dprc_lifecycle {
         world.child.phase == Locked,
         pruneBucket(world.child, DECLARED_CONSUMERS) == ReportOnly,
       })
+
+  // ---- dprc-hardening task 5.1 (review M9) freeze-witness runs ----
+
+  // PASS2-F7 — the accepted move-out and accepted resident-unplug arms, unreached
+  // by every refusal trace (the only move-out trace is the plugged refusal). Plug
+  // resident 1, unplug it (the accepted unplug), then move it one hop up (the
+  // accepted move-out), landing it in the parent unplugged (docs/baseline/dprc.md
+  // "Lifecycle ordering"; ADR-0007 §3 re-parent). Drives the replay's single_removed
+  // and now_plugged==false single_plug_flip inference branches.
+  run acceptedUnplugAndMoveOutTest =
+    init
+      .then(createContainerWith(DEFAULT_OPTIONS))
+      .then(createResidentAt(1))
+      .then(plugResidentAt(1))
+      .then(unplugResidentAt(1))
+      .then(moveResidentOutAt(1))
+      .expect(and {
+        world.lastOutcome == Accepted,
+        not(world.child.residents.exists(r => r.id == 1)),
+        world.parentResidents.exists(r => r.id == 1 and not(r.plugged)),
+      })
+
+  // PASS2-F7 (folded) — one lock-strip sweep witnessing the five Container<Locked>
+  // refusing methods no trace or unit test reaches (Pass 2 trace map: spawn, assign,
+  // move-out, unplug, destroy under lock; connect + create already replayed). Plug
+  // resident 1 pre-lock so the unplug/move arms are enabled under lock; each verb is
+  // refused No privilege (0x4, DPRC-I11 remainder, docs/baseline/dprc.md permission
+  // matrix), leaving the world unchanged but for the recorded refusal — the phase
+  // stays Locked throughout.
+  run lockStripSweepTest =
+    init
+      .then(createContainerWith(DEFAULT_OPTIONS))
+      .then(createResidentAt(1))
+      .then(plugResidentAt(1))
+      .then(lockHierarchy)
+      .then(spawnGrandchild)
+      .then(assignResidentInAt(2))
+      .then(moveResidentOutAt(1))
+      .then(unplugResidentAt(1))
+      .then(destroyContainer)
+      .expect(and {
+        world.child.phase == Locked,
+        world.lastOutcome == Refused(TopologyLockGate),
+        mcStatus(world.lastOutcome) == 4,
+      })
 }
