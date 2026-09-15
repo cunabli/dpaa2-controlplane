@@ -4,7 +4,7 @@
 
 ## 2. Board sitting (operator-launched, blocks nothing)
 
-- [ ] 2.1 OI-1 + OI-3 probe pair on a scratch child, serial, self-cleaning: duplicate-id create under `set-locked 1` (0x4 vs config error settles the lock-strip ordering; loser side — model or `dprc.rs:937-980` doc — amended as an ADR-0002 note, PASS2-F5); dpmcp census across restool spawns (budget draw or not; COVERAGE/baseline row recorded, PASS3-F13-OQ). Outcomes land in this task, not task 6 (bead dpaa2-controlplane-am0.2)
+- [ ] 2.1 OI-3 dpmcp-budget sitting + OI-1 off-board note (implementation found the OI-1 probe not board-expressible): V-DPRC-13 (`models/board/V-DPRC-13/V-DPRC-13.sh`, hand-authored, creates nothing) censuses the MC-global `mcp` pool free count across a baseline plus three trivial read-only restool spawns and a post-settle reading, settling whether a spawn draws from the never-returned per-boot dpmcp budget (PASS3-F13-OQ; ledger row pending an operator window). OI-1 (duplicate-id-under-lock ordering, PASS2-F5) is resolved off-board — a duplicate id is not constructible through restool (no id-pinning create; ids mint lowest-free in one global namespace per family, ADR-0010), so the MC's duplicate check is unreachable; quint directed evidence plus a note on ADR-0002 record the model's precondition-first guard as a deliberate, moot divergence. Outcomes land in this task, not task 6 (bead dpaa2-controlplane-am0.2)
 
 ## 3. Parcel A — prune soundness (dpaa2-api, dpaa2-tools)
 

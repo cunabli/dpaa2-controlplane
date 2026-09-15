@@ -93,7 +93,14 @@ change's own deltas merge at its archive.
 
 ## Open Questions
 
-- OI-1 outcome (lock-strip vs enabling-precondition ordering on the real
-  MC) — settled by task 2.1's sitting; amends model or `dprc.rs` doc.
-- OI-3 outcome (dpmcp budget draw per restool spawn) — settled by the
-  same sitting; reprioritizes the tile-#5 seam bead if it is a leak.
+- OI-1 (lock-strip vs enabling-precondition ordering on the real MC) —
+  **resolved off-board 2026-09-15**: a duplicate id is not constructible
+  through restool (no id-pinning create; ids mint lowest-free in one
+  global namespace per family, ADR-0010), so the MC's duplicate check is
+  unreachable and no sitting can discriminate the order. Quint directed
+  evidence confirmed the model's precondition-first guard; recorded as a
+  note on ADR-0002 (PASS2-F5). The divergence is deliberate and moot,
+  revisited only if the #10 ioctl tile adds an id-carrying create.
+- OI-3 outcome (dpmcp budget draw per restool spawn) — **pending** the
+  V-DPRC-13 sitting (task 2.1); reprioritizes the tile-#5 seam bead if it
+  is a leak.

@@ -178,6 +178,48 @@ under-covering and volume has a question to answer.
   hatches are the mitigation, and each use of either is a data point on
   whether Quint was the right primary.
 
+## Note 2026-09-15 — a model↔code guard-order divergence that is deliberate and moot (dprc-hardening, PASS2-F5)
+
+The `dprc-encapsulation` epic review found the model and the Rust core
+order two guards differently on the locked container's create face
+(PASS2-F5). The Rust arm strips the lock first: `Container<Locked>::
+create_resident` refuses `TopologyLockGate` (`0x4`) unconditionally, its
+doc stating "the lock strip dominates, so no allocation or duplicate check
+is reached" (`crates/dpaa2-api/src/dprc.rs:940`). The model orders the
+enabling precondition first: `createResidentAt` conjoins
+`not(residents.exists(r => r.id == id))` **before** the lock branch
+(`models/families/dprc.qnt:326-340`), so a duplicate id under lock is a
+*disabled* action — it fires no transition and mints no status — while a
+fresh id under lock is *enabled* and refused `0x4`.
+
+Directed quint evidence confirms the model side. A REPL session on
+`models/families/dprc.qnt::dprc_lifecycle` drove `init` →
+`createContainerWith(DEFAULT_OPTIONS)` → `createResidentAt(1)` →
+`lockHierarchy`, then evaluated the two creates against the locked child
+holding resident 1: `createResidentAt(1)` returned `false` (disabled — the
+duplicate precondition dominates), while `createResidentAt(2)` returned
+`true`, moving `lastOutcome` to `Refused(TopologyLockGate)`. The
+duplicate precondition is reached before the lock strip.
+
+The ordering is unobservable on the board and stays a deliberate,
+recorded divergence rather than an amend to either side: restool exposes
+no id-pinning create, and object ids mint lowest-free in one global
+namespace per family (ADR-0010), so two live objects can never share an
+id and the MC's duplicate-id check is never reached — a fresh create is
+all restool can issue, and `docs/baseline/mc-status.md` carries no
+duplicate/`EEXIST` row. Both sides therefore refuse deterministically
+everywhere the behavior is reachable (`0x4` on a fresh create under lock,
+settled on the board by V-DPRC-12 rev 1); they disagree only on an
+unreachable duplicate-under-lock input. The ADR-0002 amend-in-place rule
+is satisfied by this note: the divergence is understood and moot, not a
+latent conformance bug.
+
+**Revisit trigger.** The ioctl/portal tile (`mc-portal-backend`, roadmap
+#10) may add an id-carrying create over `/dev/dprc.N`, which would make
+the ordering observable. When it does, one directed sitting settles which
+side the firmware takes, and the loser (model or `dprc.rs:940` doc)
+amends under this note.
+
 ## References
 
 - OpenSpec change `restool-baseline`, `design.md` D2–D3.
