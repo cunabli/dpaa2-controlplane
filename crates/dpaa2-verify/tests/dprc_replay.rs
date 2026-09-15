@@ -32,7 +32,9 @@ use dpaa2_api::dprc::{
     Parent, Plugged, Populated, Refusal, ResidentId, ResidentKind, ResidentOp, ResidentStep,
     Teardown, Unlocked, VfioBind,
 };
-use dpaa2_api::dprc_plan::{Attribution, PlanOutcome, Verb, attribute_mc, plan_move_out};
+use dpaa2_api::dprc_plan::{
+    Attribution, OptionBit, PlanOutcome, Verb, attribute_mc, plan_move_out,
+};
 use dpaa2_verify::dprc_itf::{WorldView, parse_dprc_trace};
 
 /// Every committed trace under `models/families/traces/`, with the model face it pins
@@ -87,6 +89,26 @@ const TRACES: &[(&str, &str)] = &[
     (
         "DPRC_I7Test",
         "visibility/no-op bus event: MC survives (DPRC-I6/I7)",
+    ),
+    (
+        "acceptedUnplugAndMoveOutTest",
+        "accepted resident unplug + accepted move-out (dprc-hardening PASS2-F7)",
+    ),
+    (
+        "lockStripSweepTest",
+        "the five Container<Locked> refusals: spawn/assign/move-out/unplug/destroy (dprc-hardening PASS2-F7)",
+    ),
+    (
+        "DPRC_I12Test",
+        "prune-traceability: managed create then foreign relabel demotes, never strands (dprc-hardening PASS2-F9)",
+    ),
+    (
+        "labelVoidEscapeTest",
+        "the one stranding verb: set-label to empty voids a managed container (dprc-hardening PASS2-F9)",
+    ),
+    (
+        "labelVoidUnderLockEscapeTest",
+        "the void escape holds under lock (dprc-hardening PASS2-F9)",
     ),
 ];
 
@@ -231,25 +253,41 @@ fn single_plug_flip(prev: &WorldView, next: &WorldView) -> Option<(ResidentId, b
     (flips.len() == 1).then(|| flips[0])
 }
 
+/// The fixed MC status each [`Attribution`] arm predicts (review M6 / PASS2-F1;
+/// `ResidentPlugged` is `0x10`, outside the 0x4/0x6/0x8 matrix). The two non-MC arms are
+/// unreachable from `attribute_mc` over a matrix refusal, so meeting one is a finding.
+fn attribution_status(file: &str, step: usize, attr: &Attribution) -> u8 {
+    match attr {
+        Attribution::PermissionGap {
+            bit: OptionBit::Spawn,
+        } => 6,
+        Attribution::PermissionGap {
+            bit: OptionBit::Alloc,
+        }
+        | Attribution::PoolExhaustion => 8,
+        Attribution::PermissionGap {
+            bit: OptionBit::TopologyChanges,
+        }
+        | Attribution::LockGate
+        | Attribution::PluggedMove => 4,
+        Attribution::ResidentPlugged => 0x10,
+        Attribution::FaceNotAssignable | Attribution::RestoolClientGuard { .. } => {
+            finding(file, step, &format!("{attr:?} is not an MC-status refusal"))
+        }
+    }
+}
+
 /// Consumes a refusal step: world unchanged, `lastOutcome = Refused(r)`. Drives
 /// `dprc_plan::attribute_mc` and a context-selected typestate refusing method, asserting
 /// both agree with the frozen refusal. Returns the outcome; the container is unchanged.
 fn check_refusal(file: &str, step: usize, any: &AnyContainer, prev: &WorldView, r: Refusal) {
-    // Attribution is well-defined and its MC status matches the refusal's (design D4).
     let attr = attribute_mc(r, prev.options, Verb::Connect);
-    let attr_status = match attr {
-        Attribution::PermissionGap { .. }
-        | Attribution::PoolExhaustion
-        | Attribution::LockGate
-        | Attribution::PluggedMove
-        | Attribution::FaceNotAssignable
-        | Attribution::ResidentPlugged
-        | Attribution::RestoolClientGuard { .. } => r.mc_status(),
-    };
+    let attr_status = attribution_status(file, step, &attr);
     assert_eq!(
         attr_status,
         r.mc_status(),
-        "{file}: attribution status drift"
+        "{file}: attribution {attr:?} maps to {attr_status:#x}, refusal {r:?} is {:#x}",
+        r.mc_status()
     );
     assert!(
         matches!(r.mc_status(), 4 | 6 | 8),
@@ -261,16 +299,20 @@ fn check_refusal(file: &str, step: usize, any: &AnyContainer, prev: &WorldView, 
     let plugged = prev.residents.iter().find(|(_, res)| res.plugged);
     match (prev.phase, r) {
         (ContainerState::Locked, Refusal::TopologyLockGate) => {
-            if let AnyContainer::Locked(c) = any {
-                assert_eq!(
-                    c.connect_endpoints(),
-                    Outcome::Refused(Refusal::TopologyLockGate)
-                );
-                assert_eq!(
-                    c.create_resident(ResidentId::new(9)),
-                    Outcome::Refused(Refusal::TopologyLockGate)
-                );
-            }
+            let AnyContainer::Locked(c) = any else {
+                finding(file, step, "locked refusal on a non-Locked face");
+            };
+            // Drive all seven Locked refusing methods so the sweep trace (PASS2-F7 fold)
+            // witnesses the five untested by the earlier set (spawn/assign/move-out/unplug/destroy).
+            let lock = Outcome::Refused(Refusal::TopologyLockGate);
+            let id = ResidentId::new(9);
+            assert_eq!(c.connect_endpoints(), lock);
+            assert_eq!(c.create_resident(id), lock);
+            assert_eq!(c.spawn_grandchild(), lock);
+            assert_eq!(c.assign_in(id), lock);
+            assert_eq!(c.move_out(id), lock);
+            assert_eq!(c.unplug_resident(id), lock);
+            assert_eq!(c.destroy(), lock);
         }
         (_, Refusal::TopologyLockGate) if plugged.is_some() => {
             // Plugged-move (DPRC-I3): drive move_out on the plugged resident (a clone) and
@@ -396,13 +438,15 @@ fn apply(
         };
     }
 
-    // create: Declared → Created (identity/options pool-assigned).
+    // create: Declared → Created. The managed-create face also lands a label in the same
+    // step (PASS2-F9), so carry it on; the bare face freezes an empty label, a no-op.
     if prev.phase == ContainerState::Declared && next.phase == ContainerState::Created {
         return match any {
-            AnyContainer::Declared(c) => (
-                AnyContainer::Created(c.create(next.options)),
-                Outcome::Accepted,
-            ),
+            AnyContainer::Declared(c) => {
+                let mut created = c.create(next.options);
+                let _ = created.set_label(next.label.clone());
+                (AnyContainer::Created(created), Outcome::Accepted)
+            }
             _ => finding(file, step, "create on a non-Declared face"),
         };
     }
