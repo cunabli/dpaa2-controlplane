@@ -1439,6 +1439,17 @@ mod tests {
     }
 
     #[test]
+    fn unlock_of_an_empty_container_restores_created() {
+        // dprc.qnt `unlock` residentless branch (dprc-hardening PASS2-F8): the twin of
+        // unlock_restores_test's Occupied arm — a residentless lock unlocks to `Created`,
+        // the model's `Unlocked::Empty`.
+        let Unlocked::Empty(c) = created().lock().unlock() else {
+            panic!("a residentless container unlocks to Created");
+        };
+        assert_eq!(c.phase(), ContainerState::Created);
+    }
+
+    #[test]
     fn dprc_i7_bus_event_is_not_an_mc_destroy() {
         // dprc.qnt `DPRC_I7Test`: a bus event leaves a plugged, bound container intact.
         let c = placed(created(), 1, ResidentKind::CreatedIn);

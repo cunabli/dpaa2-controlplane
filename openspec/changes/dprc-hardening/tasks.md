@@ -19,7 +19,7 @@
 
 ## 5. Parcel C — model witnesses (models, dpaa2-verify)
 
-- [ ] 5.1 Freeze the missing witnesses (M9) and fix the tautology (M6): one directed run frozen for accepted move-out + resident unplug (PASS2-F7), one lock-strip sweep covering the five untested `Container<Locked>` refusals, the three task-1.4 runs frozen states-only (PASS2-F9, fingerprint untouched); `created().lock().unlock()` matches `Unlocked::Empty` (PASS2-F8); `dprc_replay.rs` maps each `Attribution` arm to its expected MC status — a mutated `attribute_mc` fails the suite — and the silent `if let` gets a loud else (PASS2-F1); `every_committed_trace_is_listed` green at 17+ traces (bead dpaa2-controlplane-am0.8)
+- [x] 5.1 Freeze the missing witnesses (M9) and fix the tautology (M6): one directed run frozen for accepted move-out + resident unplug (PASS2-F7), one lock-strip sweep covering the five untested `Container<Locked>` refusals, the three task-1.4 runs frozen states-only (PASS2-F9, fingerprint untouched); `created().lock().unlock()` matches `Unlocked::Empty` (PASS2-F8); `dprc_replay.rs` maps each `Attribution` arm to its expected MC status — a mutated `attribute_mc` fails the suite — and the silent `if let` gets a loud else (PASS2-F1); `every_committed_trace_is_listed` green at 17+ traces (bead dpaa2-controlplane-am0.8)
 
 ## 6. Doc polish (desk-only, independent)
 
