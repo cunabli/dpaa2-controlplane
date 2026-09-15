@@ -10,10 +10,10 @@ use std::collections::{BTreeMap, HashMap};
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
-use dpaa2_api::dprc::{Options, Refusal};
 use dpaa2_api::dprc_plan::{
     Attribution, ConsumerConvergence, ContainerPlan, ContainerStep, ContainerVerdict, PruneBucket,
-    PruneItem, attribute_mc, derive_consumer_containers, plan_consumer_convergence, plan_prune,
+    PruneItem, Verb, attribute_refusal, derive_consumer_containers, plan_consumer_convergence,
+    plan_prune,
 };
 use dpaa2_api::{
     Class, CompiledPlan, ConstructName, Container, DesiredTopology, DpmacId, DpniId, DprcId, Error,
@@ -176,7 +176,7 @@ pub fn converge_containers<M: McControl>(
     for c in &convergences {
         for step in &c.plan.steps {
             if let Err(e) = dispatch_container_step(step, mc) {
-                return match attribute_refusal(&e, c.container.options) {
+                return match attribute_refusal(&e, c.container.options, Verb::SpawnChild) {
                     Some(attribution) => Ok(ContainerOutcome::Refused {
                         label: c.container.label.clone(),
                         attribution,
@@ -354,22 +354,6 @@ fn dispatch_container_step<M: McControl>(step: &ContainerStep, mc: &M) -> Result
         other => Err(Error::Backend(format!(
             "container-only convergence emits no {other:?} (companion/dpni are tiles #5/#6)"
         ))),
-    }
-}
-
-/// Attributes a typed shim refusal to its discriminated cause (design D4), or `None`
-/// when the error is not a container refusal (and so propagates). An MC status is
-/// decoded core-side ([`Refusal::from_status`]) then attributed against the container's
-/// mask ([`attribute_mc`]); a restool client guard is its own attribution.
-fn attribute_refusal(error: &Error, options: Options) -> Option<Attribution> {
-    match error {
-        Error::McStatus { status } => {
-            Refusal::from_status(*status).map(|r| attribute_mc(r, options))
-        }
-        Error::RestoolGuard { detail } => Some(Attribution::RestoolClientGuard {
-            detail: detail.clone(),
-        }),
-        _ => None,
     }
 }
 
