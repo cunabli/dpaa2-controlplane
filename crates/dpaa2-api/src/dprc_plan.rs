@@ -43,6 +43,7 @@ use crate::compiled::{
     Attributes, CompiledPlan, Container as Placement, PlannedObject, ProvenanceKey,
 };
 use crate::dprc::{ContainerState, Options, Refusal, Resident, ResidentId, ResidentKind};
+use crate::error::Error;
 use crate::family::Permission;
 use crate::model::DprcId;
 use crate::plan::Class;
@@ -181,17 +182,20 @@ pub enum Attribution {
     },
 }
 
-/// Attributes an MC-status refusal (`dprc.qnt` `type Refusal`) to a typed cause, given
-/// the container's option mask (design D4).
-///
-/// The discrimination the reconciler must not lose: 0x8 (`AllocViolation`) is a
-/// [`Attribution::PermissionGap`] when the mask lacks `ALLOC_ALLOWED`, and only a
-/// [`Attribution::PoolExhaustion`] when the bit is present. 0x6 is always a spawn
-/// permission gap; 0x4 (`TopologyLockGate`) is read as a topology permission gap when
-/// the mask lacks the bit, else a [`Attribution::LockGate`] (a plugged-move is
-/// attributed by the plan that refuses it, [`plan_move_out`], not by status alone).
+/// The refused MC operation; connect gates on topology, structural verbs on the lock (review M7; `docs/baseline/dprc.md` permission matrix).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Verb {
+    /// `dprc create` of a child container.
+    SpawnChild,
+    /// Create a created-in resident.
+    CreateResident,
+    /// `dprc connect` — the sole topology-changes-gated verb.
+    Connect,
+}
+
+/// Attributes an MC refusal to a typed cause from the mask and `verb`: a 0x4 is a topology gap only for a [`Verb::Connect`], else the lock (review M7; `docs/baseline/dprc.md` permission matrix).
 #[must_use]
-pub fn attribute_mc(refusal: Refusal, options: Options) -> Attribution {
+pub fn attribute_mc(refusal: Refusal, options: Options, verb: Verb) -> Attribution {
     match refusal {
         Refusal::SpawnViolation => Attribution::PermissionGap {
             bit: OptionBit::Spawn,
@@ -206,14 +210,28 @@ pub fn attribute_mc(refusal: Refusal, options: Options) -> Attribution {
             }
         }
         Refusal::TopologyLockGate => {
-            if options.topology_changes {
-                Attribution::LockGate
-            } else {
+            if verb == Verb::Connect && !options.topology_changes {
                 Attribution::PermissionGap {
                     bit: OptionBit::TopologyChanges,
                 }
+            } else {
+                Attribution::LockGate
             }
         }
+    }
+}
+
+/// Attributes a shim [`Error`] via [`attribute_mc`], or `None` when not a container refusal (review M7).
+#[must_use]
+pub fn attribute_refusal(error: &Error, options: Options, verb: Verb) -> Option<Attribution> {
+    match error {
+        Error::McStatus { status } => {
+            Refusal::from_status(*status).map(|r| attribute_mc(r, options, verb))
+        }
+        Error::RestoolGuard { detail } => Some(Attribution::RestoolClientGuard {
+            detail: detail.clone(),
+        }),
+        _ => None,
     }
 }
 
@@ -976,7 +994,7 @@ mod tests {
             alloc: false,
             ..Options::DEFAULT
         };
-        let attr = attribute_mc(Refusal::AllocViolation, no_alloc);
+        let attr = attribute_mc(Refusal::AllocViolation, no_alloc, Verb::CreateResident);
         assert_eq!(
             attr,
             Attribution::PermissionGap {
@@ -998,7 +1016,11 @@ mod tests {
     fn alloc_with_the_bit_present_reads_as_exhaustion() {
         // The counter-reading: 0x8 with ALLOC present is genuine exhaustion.
         assert_eq!(
-            attribute_mc(Refusal::AllocViolation, Options::DEFAULT),
+            attribute_mc(
+                Refusal::AllocViolation,
+                Options::DEFAULT,
+                Verb::CreateResident
+            ),
             Attribution::PoolExhaustion
         );
     }
@@ -1008,13 +1030,13 @@ mod tests {
         // 0x6/0x8/0x4 are never collapsed to one shape (design D4).
         let no_topo = Options::DEFAULT; // topology_changes is false by default (DPRC-I4)
         assert_eq!(
-            attribute_mc(Refusal::SpawnViolation, Options::DEFAULT),
+            attribute_mc(Refusal::SpawnViolation, Options::DEFAULT, Verb::SpawnChild),
             Attribution::PermissionGap {
                 bit: OptionBit::Spawn
             }
         );
         assert_eq!(
-            attribute_mc(Refusal::TopologyLockGate, no_topo),
+            attribute_mc(Refusal::TopologyLockGate, no_topo, Verb::Connect),
             Attribution::PermissionGap {
                 bit: OptionBit::TopologyChanges
             }
@@ -1025,9 +1047,41 @@ mod tests {
                 Options {
                     topology_changes: true,
                     ..Options::DEFAULT
-                }
+                },
+                Verb::Connect
             ),
             Attribution::LockGate
+        );
+    }
+
+    #[test]
+    fn create_verb_0x4_reads_the_lock_gate_not_a_topology_gap() {
+        // A create verb's 0x4 is the lock, not the child's absent topology bit (review M7).
+        assert_eq!(
+            attribute_mc(
+                Refusal::TopologyLockGate,
+                Options::DEFAULT,
+                Verb::CreateResident
+            ),
+            Attribution::LockGate
+        );
+    }
+
+    #[test]
+    fn attribution_covers_exactly_the_model_refusal_vocabulary() {
+        // attribute_mc discriminates exactly dprc.qnt `type Refusal`, via REFUSAL_VARIANTS.
+        let vocabulary = [
+            Refusal::SpawnViolation,
+            Refusal::AllocViolation,
+            Refusal::TopologyLockGate,
+        ];
+        for (refusal, name) in vocabulary.iter().zip(crate::dprc::REFUSAL_VARIANTS) {
+            assert_eq!(refusal.name(), name);
+            let _: Attribution = attribute_mc(*refusal, Options::DEFAULT, Verb::Connect);
+        }
+        assert_eq!(
+            crate::dprc::REFUSAL_VARIANTS,
+            ["SpawnViolation", "AllocViolation", "TopologyLockGate"]
         );
     }
 
