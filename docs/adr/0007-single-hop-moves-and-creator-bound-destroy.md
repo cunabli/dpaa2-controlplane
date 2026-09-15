@@ -104,6 +104,27 @@ Decision 2's observed-shape guard on the release side:
   generated plan (V-DPRC-11 rev 1, 2026-09-14). The release law needs no
   explicit empty-first leg, consistent with V-DPRC-7's cascade.
 
+## Amendment 2026-09-15 — resident origin is unobservable through restool
+
+Change `dprc-hardening` review finding PASS3-F2 caught the southbound shim
+hardcoding `ResidentKind::CreatedIn` for every observed resident. A `dprc
+show` row carries the plugged bit but never who created the object, so
+origin is **unobservable through restool**; the earlier default was a guess
+that the one consumer — the undeclared-container prune — would turn into a
+post-state lie ("parent gains 0 residents") for a foreign, assigned-in
+resident, which Decision 2 evicts one hop up. V-DPRC-11's board evidence
+only ever exercised the created-in case, so the guess was unproven, not
+proven.
+
+Resolution: the shim reports origin as `Option<ResidentKind>` and never
+invents a kind (`None` when unobserved); the core predicts the eviction
+post-state conservatively — only a *known* created-in resident is released,
+any unknown origin is kept in the parent's gained set and the render marks
+it origin-unobservable rather than claiming a release. Revisit when an
+origin-bearing observation face arrives (a DPL-defined child, or the MC
+portal path that can read creation provenance), at which point the
+prediction can narrow from conservative to exact.
+
 ## Open questions and revisit triggers
 
 - **Where does owned-resident release live?** Whether `restool dprc

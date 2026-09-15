@@ -42,7 +42,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use crate::compiled::{
     Attributes, CompiledPlan, Container as Placement, PlannedObject, ProvenanceKey,
 };
-use crate::dprc::{ContainerState, Options, Refusal, Resident, ResidentId, ResidentKind};
+use crate::dprc::{
+    ContainerState, ObservedResident, Options, Refusal, Resident, ResidentId, ResidentKind,
+};
 use crate::error::Error;
 use crate::family::Permission;
 use crate::model::{DprcId, ObjectRef};
@@ -254,9 +256,10 @@ pub struct PredictedPostState {
     /// The container's phase after the teardown.
     pub final_state: ContainerState,
     /// The residents the container still holds afterwards (empty after a destroy).
-    pub container_residents: BTreeMap<ObjectRef, Resident>,
-    /// The residents the parent gains — the assigned-in evictees, unplugged.
-    pub parent_gained: BTreeMap<ObjectRef, Resident>,
+    pub container_residents: BTreeMap<ObjectRef, ObservedResident>,
+    /// The residents the parent gains — the assigned-in evictees plus any
+    /// origin-unobservable resident kept conservatively, all unplugged (review M2, PASS3-F2).
+    pub parent_gained: BTreeMap<ObjectRef, ObservedResident>,
 }
 
 /// Predicts the eviction law over `residents` for a teardown reaching `final_state`
@@ -265,19 +268,22 @@ pub struct PredictedPostState {
 /// container (absent afterwards), [`ResidentKind::AssignedIn`] residents move one hop up
 /// into the parent, **unplugged** — the plug bit cleared so the parent never tracks a
 /// resident as bound that VFIO does not hold. DPRC-I1: a created resident never crosses
-/// the boundary.
+/// the boundary. Origin is `None` when the shim could not observe it, so the prediction
+/// is conservative: only a *known* [`ResidentKind::CreatedIn`] is released; an unknown
+/// origin is kept in `parent_gained` rather than lie that the parent gains nothing
+/// (review M2, PASS3-F2; ADR-0007 note 2026-09-15).
 #[must_use]
 pub fn predict_eviction(
-    residents: &BTreeMap<ObjectRef, Resident>,
+    residents: &BTreeMap<ObjectRef, ObservedResident>,
     final_state: ContainerState,
 ) -> PredictedPostState {
     let parent_gained = residents
         .iter()
-        .filter(|(_, r)| r.kind == ResidentKind::AssignedIn)
+        .filter(|(_, r)| r.origin != Some(ResidentKind::CreatedIn))
         .map(|(id, r)| {
             (
                 *id,
-                Resident {
+                ObservedResident {
                     plugged: false,
                     ..*r
                 },
@@ -510,8 +516,9 @@ pub struct ObservedContainer {
     /// The residents observed in the container, keyed by family-qualified [`ObjectRef`]
     /// so two same-ordinal residents of different families (e.g. `dpbp.0` and `dpmcp.0`)
     /// both count — the [`crate::dprc::Container`] model twin keeps its [`ResidentId`] key
-    /// untouched (review M1; PASS3-F14; ADR-0014).
-    pub residents: BTreeMap<ObjectRef, Resident>,
+    /// untouched (review M1; PASS3-F14; ADR-0014). Each carries [`ObservedResident`], whose
+    /// origin is `None` when unobservable (review M2, PASS3-F2).
+    pub residents: BTreeMap<ObjectRef, ObservedResident>,
 }
 
 /// One way an observed container diverges from its declared intent (the reasons a
@@ -920,7 +927,18 @@ mod tests {
     use crate::dprc::{Container, Parent, Teardown, VfioBind};
     use crate::intent::{Dataplane, Isolation, Tenant};
 
-    fn res(kind: ResidentKind, plugged: bool) -> Resident {
+    /// An observed resident with a known origin — the observation type the census and
+    /// eviction prediction traffic in (review M2, PASS3-F2).
+    fn res(kind: ResidentKind, plugged: bool) -> ObservedResident {
+        ObservedResident {
+            origin: Some(kind),
+            plugged,
+        }
+    }
+
+    /// A model-twin [`Resident`] for the typestate-facing planners (`plan_move_out`),
+    /// whose origin is always known by construction.
+    fn core_res(kind: ResidentKind, plugged: bool) -> Resident {
         Resident { kind, plugged }
     }
 
@@ -947,12 +965,12 @@ mod tests {
     fn scenario_plugged_object_is_never_planned_into_a_move() {
         // "Plugged objects cannot be planned into a move": a plugged resident yields no
         // move step, attributed PluggedMove (DPRC-I3).
-        let plugged = res(ResidentKind::AssignedIn, true);
+        let plugged = core_res(ResidentKind::AssignedIn, true);
         let out = plan_move_out(ContainerState::Populated, &plugged, ResidentId::new(1));
         assert_eq!(out, PlanOutcome::Refused(Attribution::PluggedMove));
 
         // An unplugged resident does yield the move step.
-        let unplugged = res(ResidentKind::AssignedIn, false);
+        let unplugged = core_res(ResidentKind::AssignedIn, false);
         assert_eq!(
             plan_move_out(ContainerState::Populated, &unplugged, ResidentId::new(1)),
             PlanOutcome::Step(ContainerStep::MoveResidentOut {
@@ -1220,7 +1238,7 @@ mod tests {
     #[test]
     fn move_out_of_a_torn_down_face_is_face_not_assignable() {
         // PASS2-F4 (review M1): a non-active face refuses the move like its sibling planners.
-        let r = res(ResidentKind::AssignedIn, false);
+        let r = core_res(ResidentKind::AssignedIn, false);
         assert_eq!(
             plan_move_out(ContainerState::Destroyed, &r, ResidentId::new(1)),
             PlanOutcome::Refused(Attribution::FaceNotAssignable)
@@ -1257,6 +1275,36 @@ mod tests {
         assert_eq!(
             parent.get(ResidentId::new(2)).map(|r| r.plugged),
             predicted.parent_gained.get(&oref(2)).map(|r| r.plugged)
+        );
+    }
+
+    #[test]
+    fn unobservable_origin_is_kept_in_parent_gained_conservatively() {
+        // review M2, PASS3-F2: a None-origin resident is conservatively kept in the
+        // parent's gained set (never released as if known created-in), so the render
+        // cannot lie that the parent gains nothing; only a known created-in is dropped.
+        let residents = BTreeMap::from([
+            (
+                oref(1),
+                ObservedResident {
+                    origin: None,
+                    plugged: true,
+                },
+            ),
+            (oref(2), res(ResidentKind::CreatedIn, false)),
+        ]);
+        let predicted = predict_eviction(&residents, ContainerState::Destroyed);
+        assert!(
+            predicted.parent_gained.contains_key(&oref(1)),
+            "unknown origin is kept"
+        );
+        assert!(
+            !predicted.parent_gained[&oref(1)].plugged,
+            "the evictee is unplugged"
+        );
+        assert!(
+            !predicted.parent_gained.contains_key(&oref(2)),
+            "a known created-in resident is released, not gained"
         );
     }
 

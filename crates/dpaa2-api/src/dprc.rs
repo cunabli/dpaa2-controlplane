@@ -44,6 +44,7 @@
 
 use std::collections::BTreeMap;
 
+use crate::model::ObjectRef;
 use crate::types::ConstructName;
 
 // ---- the four (plus [`Outcome`]) model sums, each lint-bijected to `dprc.qnt` ----
@@ -296,6 +297,23 @@ impl ContainerState {
             Self::Destroyed => "Destroyed",
         }
     }
+
+    /// Judge a child DPRC's raw observed residents into its lifecycle state — the core
+    /// owns the Created-vs-Populated rule, the shim only reports the residents it read
+    /// (the sibling seam of [`VfioBind::classify`]; adapters report, never judge — review
+    /// M2, PASS3-F1). Restool's `dprc show` of a child DPRC only ever surfaces the two
+    /// unplugged, assignable faces: a restool-made child is never plugged and lock is not
+    /// in the listing (`docs/baseline/dprc.md` membership rows + "Attribute mutability",
+    /// V-POOL-1 rev 2). So an empty child reads [`Self::Created`], a populated one
+    /// [`Self::Populated`] — the `dprc.qnt` `unpluggedFace` split.
+    #[must_use]
+    pub fn classify(residents: &BTreeMap<ObjectRef, ObservedResident>) -> Self {
+        if residents.is_empty() {
+            Self::Created
+        } else {
+            Self::Populated
+        }
+    }
 }
 
 // ---- the container's create-time-immutable identity and option mask ----
@@ -402,6 +420,20 @@ pub struct Resident {
     /// Origin, deciding the eviction fate (ADR-0007 §3).
     pub kind: ResidentKind,
     /// Whether the resident is handed to a driver (`assign --plugged=1`).
+    pub plugged: bool,
+}
+
+/// A resident as the southbound shim can actually observe it — origin is unobservable
+/// through restool (a `dprc show` row carries a plugged bit, never who created the
+/// object), so [`Self::origin`] is `None` until an origin-bearing face arrives; the shim
+/// never invents [`ResidentKind::CreatedIn`] (review M2, PASS3-F2; ADR-0007 note
+/// 2026-09-15). The core predicts the eviction post-state conservatively from this
+/// (`predict_eviction`), unlike the model-twin [`Resident`] whose origin is always known.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ObservedResident {
+    /// The origin if the observation could establish it; `None` when unobservable.
+    pub origin: Option<ResidentKind>,
+    /// Whether the resident is handed to a driver (the `dprc show` plugged column).
     pub plugged: bool,
 }
 
@@ -1089,6 +1121,35 @@ mod tests {
             VfioBind::Unbound
         );
         assert_eq!(VfioBind::classify(None), VfioBind::Unbound);
+    }
+
+    #[test]
+    fn classify_maps_observed_residents_to_the_unplugged_faces() {
+        // review M2, PASS3-F1: the core owns the Created-vs-Populated rule and restool
+        // only observes the two unplugged faces (`dprc.qnt` `unpluggedFace`). An empty
+        // child reads Created; a populated one reads Populated over every origin —
+        // known or unobservable (PASS3-F2). Both are model states in CONTAINER_STATES.
+        let empty: BTreeMap<ObjectRef, ObservedResident> = BTreeMap::new();
+        assert_eq!(ContainerState::classify(&empty), ContainerState::Created);
+        for origin in [
+            Some(ResidentKind::CreatedIn),
+            Some(ResidentKind::AssignedIn),
+            None,
+        ] {
+            let populated = BTreeMap::from([(
+                ObjectRef::new(crate::family::Family::Dpbp, 0),
+                ObservedResident {
+                    origin,
+                    plugged: false,
+                },
+            )]);
+            assert_eq!(
+                ContainerState::classify(&populated),
+                ContainerState::Populated
+            );
+        }
+        assert!(CONTAINER_STATES.contains(&ContainerState::Created.name()));
+        assert!(CONTAINER_STATES.contains(&ContainerState::Populated.name()));
     }
 
     #[test]
