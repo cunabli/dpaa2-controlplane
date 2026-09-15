@@ -243,6 +243,7 @@ fn check_refusal(file: &str, step: usize, any: &AnyContainer, prev: &WorldView, 
         | Attribution::LockGate
         | Attribution::PluggedMove
         | Attribution::FaceNotAssignable
+        | Attribution::ResidentPlugged
         | Attribution::RestoolClientGuard { .. } => r.mc_status(),
     };
     assert_eq!(
