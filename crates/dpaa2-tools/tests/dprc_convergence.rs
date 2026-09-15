@@ -353,6 +353,54 @@ fn declared_consumer_is_torn_down_once_intent_empties() {
 }
 
 #[test]
+fn plugged_resident_orphan_prune_is_refused_not_aborted() {
+    // Plugged resident → destroy is -EBUSY/MC 0x10 (docs/baseline/dprc.md DPRC-I2); sound per-candidate refusal is dprc-hardening task 3.3 / PASS3-F5.
+    let compiled = compiled_empty();
+    let mut orphan = orphan_container("plugged-orphan", Options::DEFAULT, Container::Root);
+    orphan
+        .residents
+        .get_mut(&ResidentId::new(1))
+        .expect("seed resident 1")
+        .plugged = true;
+    let backend = FakeBackend::new().with_container(DprcId::new(5), orphan);
+
+    let outcome = engine::prune_containers(&compiled.plan, &backend, prune_disruptive_cfg())
+        .expect(
+            "a plugged-resident candidate must be a per-candidate refusal, not an aborting Err",
+        );
+    assert!(
+        !matches!(outcome, PruneOutcome::Clean),
+        "a refused candidate is reported, not silently clean"
+    );
+    assert_eq!(
+        backend.observe_containers().unwrap().len(),
+        1,
+        "a refused teardown leaves the plugged orphan in place (destroy is -EBUSY)"
+    );
+}
+
+#[test]
+fn locked_orphan_prune_is_lock_gated_and_survives() {
+    // Locked → destroy is lock-stripped (docs/baseline/dprc.md DPRC-I11); sound lock-gate is dprc-hardening task 3.3.
+    let compiled = compiled_empty();
+    let mut orphan = orphan_container("locked-orphan", Options::DEFAULT, Container::Root);
+    orphan.state = ContainerState::Locked;
+    let backend = FakeBackend::new().with_container(DprcId::new(5), orphan);
+
+    let outcome =
+        engine::prune_containers(&compiled.plan, &backend, prune_disruptive_cfg()).unwrap();
+    assert!(
+        !matches!(outcome, PruneOutcome::Pruned { .. }),
+        "a locked candidate is lock-gated, not torn down"
+    );
+    assert_eq!(
+        backend.observe_containers().unwrap().len(),
+        1,
+        "a Locked orphan survives the prune: destroy is lock-stripped (dprc.md DPRC-I11)"
+    );
+}
+
+#[test]
 fn render_prune_shows_candidate_partial_and_report_only() {
     // The dry-run block: a full candidate, a partial candidate, and a report-only fence
     // rendered together with buckets, fingerprint fields, steps and predicted post-state.
