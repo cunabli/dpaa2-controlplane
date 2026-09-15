@@ -101,6 +101,8 @@ change's own deltas merge at its archive.
   evidence confirmed the model's precondition-first guard; recorded as a
   note on ADR-0002 (PASS2-F5). The divergence is deliberate and moot,
   revisited only if the #10 ioctl tile adds an id-carrying create.
-- OI-3 outcome (dpmcp budget draw per restool spawn) — **pending** the
-  V-DPRC-13 sitting (task 2.1); reprioritizes the tile-#5 seam bead if it
-  is a leak.
+- OI-3 (dpmcp budget draw per restool spawn) — **settled 2026-09-15**: no
+  budget draw. V-DPRC-13 rev 1 read `mcp` flat 203 across a baseline,
+  three trivial read-only restool spawns, and a post-settle census — a
+  serial spawn returns its portal (PASS3-F13). The tile-#5 seam bead
+  keeps its priority; the leak contingency did not fire.

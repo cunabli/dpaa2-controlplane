@@ -367,6 +367,19 @@
       ]
     }
   },
+  "V-DPRC-13": {
+    "V-DPRC-13-rev1": {
+      "pass": true,
+      "date": "2026-09-15",
+      "kind": "probes",
+      "revision": 1,
+      "steps": "5/5",
+      "source_hash": "fnv1a64:61b04c0213ebace3",
+      "hook": null,
+      "archive": "~/dpaa2-board-evidence/V-DPRC-13-rev1",
+      "refusals": []
+    }
+  },
   "V-DPRC-2-NOALLOC-1": {
     "V-DPRC-2-NOALLOC-1-rev1": {
       "pass": false,

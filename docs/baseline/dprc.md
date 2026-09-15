@@ -211,6 +211,11 @@ checked but its value is not, and there is no per-container scoping — an
 opener can address any object it can obtain a token for. Every additional
 concurrent opener consumes a DPMCP from the root pool
 (`fsl-mc-uapi.c:477-522`) — an exhaustion vector for portal-hungry setups.
+The draw is per **concurrent** opener: a *serial* restool spawn returns
+its portal on exit, so a run of back-to-back restool invocations draws
+nothing lasting — `mcp` read a flat 203 across a baseline, three trivial
+read-only spawns, and a post-settle census [verified 2026-09-15,
+V-DPRC-13 rev 1; PASS3-F13/OI-3].
 This node is the restool transport and the exact surface the Rust MC portal
 (ADR-0004) will speak.
 
