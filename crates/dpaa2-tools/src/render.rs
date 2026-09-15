@@ -250,12 +250,27 @@ pub fn render_prune(items: &BTreeMap<DprcId, PruneItem>) -> String {
             let _ = writeln!(out, "    [{}] {step:?}", step.class());
         }
         if let Some(pred) = &plan.predicted {
-            let _ = writeln!(
+            // Origin is unobservable through restool, so a gained resident of unknown
+            // origin is counted conservatively and flagged rather than lying that the
+            // parent gains nothing (review M2; PASS3-F2).
+            let unknown = pred
+                .parent_gained
+                .values()
+                .filter(|r| r.origin.is_none())
+                .count();
+            let _ = write!(
                 out,
                 "    post-state: {:?}, parent gains {} resident(s)",
                 pred.final_state,
                 pred.parent_gained.len(),
             );
+            if unknown > 0 {
+                let _ = write!(
+                    out,
+                    " ({unknown} origin-unobservable, conservatively evicted)"
+                );
+            }
+            let _ = writeln!(out);
         }
     }
     out

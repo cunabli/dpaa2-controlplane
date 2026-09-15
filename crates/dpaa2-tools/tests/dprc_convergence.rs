@@ -9,7 +9,7 @@
 
 use std::collections::BTreeMap;
 
-use dpaa2_api::dprc::{ContainerState, Options, Resident, ResidentKind};
+use dpaa2_api::dprc::{ContainerState, ObservedResident, Options, ResidentKind};
 use dpaa2_api::dprc_plan::{
     Attribution, ContainerVerdict, ObservedContainer, OptionBit, PruneBucket, plan_prune,
 };
@@ -194,15 +194,15 @@ fn orphan_container(
     let mut residents = BTreeMap::new();
     residents.insert(
         ObjectRef::new(Family::Dpbp, 1),
-        Resident {
-            kind: ResidentKind::CreatedIn,
+        ObservedResident {
+            origin: Some(ResidentKind::CreatedIn),
             plugged: false,
         },
     );
     residents.insert(
         ObjectRef::new(Family::Dpmcp, 2),
-        Resident {
-            kind: ResidentKind::AssignedIn,
+        ObservedResident {
+            origin: Some(ResidentKind::AssignedIn),
             plugged: false,
         },
     );
