@@ -32,7 +32,7 @@ use dpaa2_api::dprc::{
     Parent, Plugged, Populated, Refusal, ResidentId, ResidentKind, ResidentOp, ResidentStep,
     Teardown, Unlocked, VfioBind,
 };
-use dpaa2_api::dprc_plan::{Attribution, PlanOutcome, attribute_mc, plan_move_out};
+use dpaa2_api::dprc_plan::{Attribution, PlanOutcome, Verb, attribute_mc, plan_move_out};
 use dpaa2_verify::dprc_itf::{WorldView, parse_dprc_trace};
 
 /// Every committed trace under `models/families/traces/`, with the model face it pins
@@ -236,7 +236,7 @@ fn single_plug_flip(prev: &WorldView, next: &WorldView) -> Option<(ResidentId, b
 /// both agree with the frozen refusal. Returns the outcome; the container is unchanged.
 fn check_refusal(file: &str, step: usize, any: &AnyContainer, prev: &WorldView, r: Refusal) {
     // Attribution is well-defined and its MC status matches the refusal's (design D4).
-    let attr = attribute_mc(r, prev.options);
+    let attr = attribute_mc(r, prev.options, Verb::Connect);
     let attr_status = match attr {
         Attribution::PermissionGap { .. }
         | Attribution::PoolExhaustion
