@@ -45,7 +45,7 @@ use crate::compiled::{
 use crate::dprc::{ContainerState, Options, Refusal, Resident, ResidentId, ResidentKind};
 use crate::error::Error;
 use crate::family::Permission;
-use crate::model::DprcId;
+use crate::model::{DprcId, ObjectRef};
 use crate::plan::Class;
 use crate::types::{ConstructName, TenantName};
 
@@ -96,10 +96,12 @@ pub enum ContainerStep {
         id: ResidentId,
     },
     /// `assign --plugged=0`: unplug a resident so a destroy is not `-EBUSY`
-    /// (`dprc.qnt` `unplugResidentAt`, F-ebusy).
+    /// (`dprc.qnt` `unplugResidentAt`, F-ebusy). Names the resident by its
+    /// family-qualified [`ObjectRef`] — the operand `dprc_assign`/`dprc_unassign` need
+    /// (review M1; the observation keys residents by `ObjectRef`, PASS3-F14).
     UnplugResident {
         /// The resident to unplug.
-        id: ResidentId,
+        object: ObjectRef,
     },
     /// Move a resident OUT, one hop up into the parent (`dprc.qnt` `moveResidentOutAt`).
     /// Emitted only for an unplugged resident (DPRC-I3).
@@ -173,6 +175,10 @@ pub enum Attribution {
     /// emptied or destroyed): the assign/create is unrepresentable at the type level
     /// (F4), so the plan declines to emit it — no MC command is issued.
     FaceNotAssignable,
+    /// A destroy bounced `-EBUSY` (MC `0x10`) because a resident is still plugged — the
+    /// plan-layer twin of the typestate [`crate::dprc::Teardown::ResidentPlugged`],
+    /// outside the 0x4/0x6/0x8 matrix (review M1; `docs/baseline/dprc.md` DPRC-I2).
+    ResidentPlugged,
     /// restool rejected the operation with its own client-side guard, before the MC
     /// saw it (design D4). A distinct attribution: it is not one of the three MC
     /// statuses. The southbound adapter assigns this (`dpaa2-mc`); the core carries it.
@@ -191,6 +197,9 @@ pub enum Verb {
     CreateResident,
     /// `dprc connect` — the sole topology-changes-gated verb.
     Connect,
+    /// `dprc destroy` of a child container — a structural verb, so its `0x4` reads the
+    /// lock, never a topology gap (review M1).
+    DestroyContainer,
 }
 
 /// Attributes an MC refusal to a typed cause from the mask and `verb`: a 0x4 is a topology gap only for a [`Verb::Connect`], else the lock (review M7; `docs/baseline/dprc.md` permission matrix).
@@ -225,6 +234,9 @@ pub fn attribute_mc(refusal: Refusal, options: Options, verb: Verb) -> Attributi
 #[must_use]
 pub fn attribute_refusal(error: &Error, options: Options, verb: Verb) -> Option<Attribution> {
     match error {
+        // A destroy against a still-plugged resident bounces `-EBUSY` (MC `0x10`), the one
+        // teardown refusal outside the 0x4/0x6/0x8 matrix (review M1; `docs/baseline/dprc.md` DPRC-I2).
+        Error::McStatus { status: 0x10 } => Some(Attribution::ResidentPlugged),
         Error::McStatus { status } => {
             Refusal::from_status(*status).map(|r| attribute_mc(r, options, verb))
         }
@@ -242,9 +254,9 @@ pub struct PredictedPostState {
     /// The container's phase after the teardown.
     pub final_state: ContainerState,
     /// The residents the container still holds afterwards (empty after a destroy).
-    pub container_residents: BTreeMap<ResidentId, Resident>,
+    pub container_residents: BTreeMap<ObjectRef, Resident>,
     /// The residents the parent gains — the assigned-in evictees, unplugged.
-    pub parent_gained: BTreeMap<ResidentId, Resident>,
+    pub parent_gained: BTreeMap<ObjectRef, Resident>,
 }
 
 /// Predicts the eviction law over `residents` for a teardown reaching `final_state`
@@ -256,7 +268,7 @@ pub struct PredictedPostState {
 /// the boundary.
 #[must_use]
 pub fn predict_eviction(
-    residents: &BTreeMap<ResidentId, Resident>,
+    residents: &BTreeMap<ObjectRef, Resident>,
     final_state: ContainerState,
 ) -> PredictedPostState {
     let parent_gained = residents
@@ -335,13 +347,22 @@ pub fn plan_assign_in(state: ContainerState, id: ResidentId) -> PlanOutcome {
     }
 }
 
-/// Plans a move-out step for a resident (`dprc.qnt` `moveResidentOutAt`). The
-/// plugged-move precondition (DPRC-I3): a plugged resident is refused
-/// [`Attribution::PluggedMove`] and no move is emitted; an unplugged resident yields the
-/// [`ContainerStep::MoveResidentOut`]. A locked container is [`Attribution::LockGate`].
+/// Plans a move-out step for a resident (`dprc.qnt` `moveResidentOutAt`). The model's
+/// guard requires an active, unlocked face and an unplugged resident (review M1; PASS2-F4
+/// folds the missing active-face check the sibling planners already had): a locked
+/// container is [`Attribution::LockGate`]; a non-active face (plugged, declared, emptied,
+/// destroyed) is [`Attribution::FaceNotAssignable`]; a plugged resident is
+/// [`Attribution::PluggedMove`] (DPRC-I3); else the [`ContainerStep::MoveResidentOut`].
 pub fn plan_move_out(state: ContainerState, resident: &Resident, id: ResidentId) -> PlanOutcome {
-    if state == ContainerState::Locked {
-        return PlanOutcome::Refused(Attribution::LockGate);
+    match state {
+        ContainerState::Locked => return PlanOutcome::Refused(Attribution::LockGate),
+        ContainerState::Created | ContainerState::Populated => {}
+        ContainerState::Plugged(_)
+        | ContainerState::Declared
+        | ContainerState::Emptied
+        | ContainerState::Destroyed => {
+            return PlanOutcome::Refused(Attribution::FaceNotAssignable);
+        }
     }
     if resident.plugged {
         return PlanOutcome::Refused(Attribution::PluggedMove);
@@ -449,13 +470,21 @@ pub fn plan_population(
 /// on all-residents-unplugged (F-ebusy): every plugged resident is unplugged first, then
 /// a single [`ContainerStep::Destroy`]. The [`ContainerPlan::predicted`] post-state is
 /// computed up front by [`predict_eviction`] — the reconciler predicts the outcome
-/// rather than discovering it, and re-observation (DPRC-I6) later confirms it.
+/// rather than discovering it, and re-observation (DPRC-I6) later confirms it. A
+/// [`ContainerState::Locked`] container yields an empty plan plus an
+/// [`Attribution::LockGate`] gap: the lock strips every teardown step (review M1).
 #[must_use]
 pub fn plan_teardown(observed: &ObservedContainer) -> ContainerPlan {
     let mut plan = ContainerPlan::new();
-    for (id, resident) in &observed.residents {
+    // A locked container has no enabled teardown step: record the gap, emit nothing (review M1; PASS2-F3; `docs/baseline/dprc.md` DPRC-I11 lock face).
+    if observed.state == ContainerState::Locked {
+        plan.gaps.push(Attribution::LockGate);
+        return plan;
+    }
+    for (object, resident) in &observed.residents {
         if resident.plugged {
-            plan.steps.push(ContainerStep::UnplugResident { id: *id });
+            plan.steps
+                .push(ContainerStep::UnplugResident { object: *object });
         }
     }
     plan.steps.push(ContainerStep::Destroy);
@@ -478,8 +507,11 @@ pub struct ObservedContainer {
     pub label: ConstructName,
     /// Where the container was observed to live.
     pub placement: Placement,
-    /// The residents observed in the container, keyed by id.
-    pub residents: BTreeMap<ResidentId, Resident>,
+    /// The residents observed in the container, keyed by family-qualified [`ObjectRef`]
+    /// so two same-ordinal residents of different families (e.g. `dpbp.0` and `dpmcp.0`)
+    /// both count — the [`crate::dprc::Container`] model twin keeps its [`ResidentId`] key
+    /// untouched (review M1; PASS3-F14; ADR-0014).
+    pub residents: BTreeMap<ObjectRef, Resident>,
 }
 
 /// One way an observed container diverges from its declared intent (the reasons a
@@ -892,6 +924,11 @@ mod tests {
         Resident { kind, plugged }
     }
 
+    /// A family-qualified resident key for the observation type (review M1; PASS3-F14).
+    fn oref(ordinal: u32) -> ObjectRef {
+        ObjectRef::new(crate::family::Family::Dpbp, ordinal)
+    }
+
     fn consumer_dprc() -> PlannedObject {
         // A declared isolated consumer's child-DPRC PlannedObject (compiled::Tenant).
         Tenant {
@@ -1092,8 +1129,8 @@ mod tests {
         // "Non-empty scratch container teardown": created resident absent, assigned-in
         // present unplugged in the parent (ADR-0007 §3).
         let mut residents = BTreeMap::new();
-        residents.insert(ResidentId::new(1), res(ResidentKind::CreatedIn, false));
-        residents.insert(ResidentId::new(2), res(ResidentKind::AssignedIn, false));
+        residents.insert(oref(1), res(ResidentKind::CreatedIn, false));
+        residents.insert(oref(2), res(ResidentKind::AssignedIn, false));
         let observed = ObservedContainer {
             state: ContainerState::Populated,
             options: Options::DEFAULT,
@@ -1105,8 +1142,8 @@ mod tests {
         let predicted = plan.predicted.expect("a teardown predicts its post-state");
         assert_eq!(predicted.final_state, ContainerState::Destroyed);
         // Created (1) released with the container; assigned-in (2) re-parented unplugged.
-        assert!(!predicted.parent_gained.contains_key(&ResidentId::new(1)));
-        let evictee = &predicted.parent_gained[&ResidentId::new(2)];
+        assert!(!predicted.parent_gained.contains_key(&oref(1)));
+        let evictee = &predicted.parent_gained[&oref(2)];
         assert!(!evictee.plugged);
         assert!(predicted.container_residents.is_empty());
         assert_eq!(plan.steps, vec![ContainerStep::Destroy]);
@@ -1117,7 +1154,7 @@ mod tests {
         // F-ebusy: a plugged resident is unplugged first, then destroy — never a destroy
         // against a plugged resident (MC -EBUSY).
         let mut residents = BTreeMap::new();
-        residents.insert(ResidentId::new(1), res(ResidentKind::CreatedIn, true));
+        residents.insert(oref(1), res(ResidentKind::CreatedIn, true));
         let observed = ObservedContainer {
             state: ContainerState::Populated,
             options: Options::DEFAULT,
@@ -1129,11 +1166,64 @@ mod tests {
         assert_eq!(
             plan.steps,
             vec![
-                ContainerStep::UnplugResident {
-                    id: ResidentId::new(1)
-                },
+                ContainerStep::UnplugResident { object: oref(1) },
                 ContainerStep::Destroy,
             ]
+        );
+    }
+
+    #[test]
+    fn locked_teardown_emits_no_step_and_a_lock_gate_gap() {
+        // PASS2-F3 (review M1): a Locked container plans zero steps + a LockGate gap.
+        let observed = ObservedContainer {
+            state: ContainerState::Locked,
+            options: Options::DEFAULT,
+            label: "locked".into(),
+            placement: Placement::Root,
+            residents: BTreeMap::from([(oref(1), res(ResidentKind::CreatedIn, false))]),
+        };
+        let plan = plan_teardown(&observed);
+        assert!(plan.steps.is_empty(), "a locked teardown emits no step");
+        assert_eq!(plan.gaps, vec![Attribution::LockGate]);
+        assert!(plan.predicted.is_none());
+    }
+
+    #[test]
+    fn two_same_ordinal_residents_of_different_families_both_count() {
+        // PASS3-F14 (review M1): `dpbp.0` and `dpmcp.0` are distinct ObjectRef keys.
+        use crate::family::Family;
+        let dpbp0 = ObjectRef::new(Family::Dpbp, 0);
+        let dpmcp0 = ObjectRef::new(Family::Dpmcp, 0);
+        let observed = ObservedContainer {
+            state: ContainerState::Populated,
+            options: Options::DEFAULT,
+            label: "twin".into(),
+            placement: Placement::Root,
+            residents: BTreeMap::from([
+                (dpbp0, res(ResidentKind::CreatedIn, true)),
+                (dpmcp0, res(ResidentKind::CreatedIn, false)),
+            ]),
+        };
+        assert_eq!(
+            observed.residents.len(),
+            2,
+            "same-ordinal families both count"
+        );
+        let plan = plan_teardown(&observed);
+        assert!(
+            plan.steps
+                .contains(&ContainerStep::UnplugResident { object: dpbp0 }),
+            "the plugged same-ordinal resident is unplugged by its ObjectRef"
+        );
+    }
+
+    #[test]
+    fn move_out_of_a_torn_down_face_is_face_not_assignable() {
+        // PASS2-F4 (review M1): a non-active face refuses the move like its sibling planners.
+        let r = res(ResidentKind::AssignedIn, false);
+        assert_eq!(
+            plan_move_out(ContainerState::Destroyed, &r, ResidentId::new(1)),
+            PlanOutcome::Refused(Attribution::FaceNotAssignable)
         );
     }
 
@@ -1141,9 +1231,10 @@ mod tests {
     fn predict_eviction_matches_the_task_2_1_typestate() {
         // Parity: the plan-layer prediction equals what the 2.1 typestate's destroy does
         // (the canonical evict_into), binding the duplicated law to its owner (F-evict).
+        // The prediction keys by ObjectRef (review M1); the typestate twin by ResidentId — same ordinals bind them.
         let mut residents = BTreeMap::new();
-        residents.insert(ResidentId::new(1), res(ResidentKind::CreatedIn, false));
-        residents.insert(ResidentId::new(2), res(ResidentKind::AssignedIn, false));
+        residents.insert(oref(1), res(ResidentKind::CreatedIn, false));
+        residents.insert(oref(2), res(ResidentKind::AssignedIn, false));
         let predicted = predict_eviction(&residents, ContainerState::Destroyed);
 
         // Drive the same residents through the real typestate destroy.
@@ -1165,10 +1256,7 @@ mod tests {
         assert!(parent.get(ResidentId::new(1)).is_none());
         assert_eq!(
             parent.get(ResidentId::new(2)).map(|r| r.plugged),
-            predicted
-                .parent_gained
-                .get(&ResidentId::new(2))
-                .map(|r| r.plugged)
+            predicted.parent_gained.get(&oref(2)).map(|r| r.plugged)
         );
     }
 
@@ -1313,8 +1401,8 @@ mod tests {
     ) -> ObservedContainer {
         // Two residents (created + assigned-in) so a teardown predicts a real post-state.
         let mut residents = BTreeMap::new();
-        residents.insert(ResidentId::new(1), res(ResidentKind::CreatedIn, false));
-        residents.insert(ResidentId::new(2), res(ResidentKind::AssignedIn, false));
+        residents.insert(oref(1), res(ResidentKind::CreatedIn, false));
+        residents.insert(oref(2), res(ResidentKind::AssignedIn, false));
         ObservedContainer {
             state: ContainerState::Populated,
             options,
@@ -1374,8 +1462,8 @@ mod tests {
             .as_ref()
             .expect("a teardown predicts its post-state");
         assert_eq!(predicted.final_state, ContainerState::Destroyed);
-        assert!(!predicted.parent_gained.contains_key(&ResidentId::new(1)));
-        assert!(!predicted.parent_gained[&ResidentId::new(2)].plugged);
+        assert!(!predicted.parent_gained.contains_key(&oref(1)));
+        assert!(!predicted.parent_gained[&oref(2)].plugged);
     }
 
     #[test]
