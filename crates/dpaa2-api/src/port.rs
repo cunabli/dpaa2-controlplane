@@ -250,7 +250,8 @@ pub trait KernelControl {
     /// the propagation surface: a subsequently-added child of a bound container reads
     /// back the inherited override even before its own bind (`docs/baseline/dprc.md`
     /// "Kernel-defined semantics"; the board suite 5.2 settles whether container-only
-    /// population can exercise this).
+    /// population can exercise this). Visibility of that inherited override is deferred
+    /// to the next container scan, never trusted at create time (ADR-0017).
     ///
     /// # Errors
     /// Returns an error only if the kernel state cannot be read at all.
