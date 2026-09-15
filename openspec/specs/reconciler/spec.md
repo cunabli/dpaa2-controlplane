@@ -215,20 +215,39 @@ Planning and drift reporting SHALL distinguish the three board-verified
 option-bit refusal shapes — Configuration error (0x6, SPAWN absent), No
 resources (0x8, ALLOC absent), No privilege (0x4, topology/lock faces) — and
 SHALL NOT treat "No privilege" as the only shape of a permission refusal.
+The 0x4 face SHALL be discriminated further by the refused verb: `attribute_mc`
+SHALL take the refused verb, so a 0x4 on a create/destroy/assign verb under a
+lock is attributed to the lock (`Attribution::LockGate`), not to a topology
+permission gap, matching the model's per-action guards (review M7: PASS2-F2).
+Attribution lives in `dpaa2-api`, including the error-to-attribution map the
+shell previously carried (PASS3-F6).
 
 #### Scenario: ALLOC-less child create failure is reported as a permission gap, not exhaustion
 - **WHEN** a create inside a child fails with No resources and the child's options lack ALLOC_ALLOWED
 - **THEN** the report attributes the refusal to the option mask, not to pool exhaustion
 
+#### Scenario: Lock-strip create refusal names the lock
+- **WHEN** a create inside a locked child is refused No privilege under the child DEFAULT mask
+- **THEN** the report attributes the lock, not `PermissionGap{TopologyChanges}`
+
 ### Requirement: Destroy planning encodes the eviction law
 Teardown plans SHALL encode ADR-0007 §3: destroying a container destroys the
 residents it created and evicts assigned-in residents unplugged into the
 parent; a non-empty destroy is therefore plannable and its post-state is
-predicted, not discovered.
+predicted, not discovered. Prune classification and teardown planning SHALL
+consult the observed container state before emitting any step: a Locked
+candidate yields a typed permission gap (`Attribution::LockGate`) and an empty
+step list — a step the model refuses is never emitted (the module's own
+doomed-step doctrine) — and move-out planning refuses inactive faces exactly
+as its sibling planners do (review M1: PASS2-F3/F4).
 
 #### Scenario: Non-empty scratch container teardown
 - **WHEN** a plan destroys a container holding one created and one assigned-in resident
 - **THEN** the predicted post-state has the created resident absent and the assigned-in resident present, unplugged, in the parent — and re-observation confirms it
+
+#### Scenario: Locked orphan plans a gap, not a doomed destroy
+- **WHEN** `--prune` classifies a foreign-labelled container whose observed state is Locked
+- **THEN** the candidate carries a LockGate gap and no unplug/destroy steps; the render names the gap
 
 ### Requirement: Mutation visibility is established only by re-observation
 The reconciler SHALL NOT treat a bus rescan (`sync`) as establishing visibility
@@ -252,7 +271,12 @@ containers, with no new flag surface. Containers with an empty label or zero
 fingerprint overlap are report-only and SHALL never be touched (ADR-0001 §4).
 Every candidate is rendered in dry-run with its matched and unmatched
 fingerprint fields and the eviction-law predicted post-state (ADR-0007 §3),
-and prune success is judged by re-observation only (DPRC-I6).
+and prune success is judged by re-observation only (DPRC-I6). Prune dispatch
+SHALL record a typed outcome per candidate (`PruneOutcome::Refused{id,
+attribution}` on refusal, with MC status 0x10 mapped to the typed
+plugged-resident teardown refusal), SHALL NOT abort the pass on one
+candidate's refusal, and SHALL always run the re-observation naming survivors
+(review M1: PASS3-F4/F5).
 
 #### Scenario: Fully fingerprinted orphan is pruned under the double gate
 - **WHEN** the root holds a labeled container matching a derived fingerprint on all fields but no declared consumer, and the run passes `--prune --allow disruptive`
@@ -274,6 +298,10 @@ and prune success is judged by re-observation only (DPRC-I6).
 - **WHEN** a container the tool created has its label emptied out-of-band (set-label accepts the empty string even under lock, V-DPRC-3 — the accepted DPRC-I12 escape)
 - **THEN** it is reported as unmanaged and never pruned; re-labeling it re-enters the fingerprint buckets, and the next prune pass under the double gate handles it
 
+#### Scenario: One refusing candidate does not hide the others
+- **WHEN** candidate one destroys and candidate two is refused 0x10
+- **THEN** both outcomes are reported per id, the refusal is discriminated (not a fatal error), and the re-observation names the survivor
+
 ### Requirement: Consumer convergence is container-only in this change
 Converging a declared consumer SHALL produce the container itself — existence,
 options, label, placement, lock state, VFIO bindability — and SHALL NOT emit
@@ -282,4 +310,15 @@ companion-set sizing (tile #6) or dpni option surface (tile #5).
 #### Scenario: Consumer declared on an empty board
 - **WHEN** intent declares one consumer and the board lacks its container
 - **THEN** the plan creates exactly the child DPRC with derived options/label/placement and contains no companion-population steps
+
+### Requirement: The resident census is family-qualified
+Observed residents SHALL be keyed by family-qualified object reference,
+never by bare id — `dpbp.0` and `dpmcp.0` are distinct residents — so the
+predicted post-state and the unplug plan count every resident (review
+M1: PASS3-F14). The lifecycle typestate's `ResidentId` (the ADR-0014
+model twin) is unchanged.
+
+#### Scenario: Same-id residents of two families both survive the census
+- **WHEN** a child holds `dpbp.0` plugged and `dpmcp.0` unplugged
+- **THEN** the observation carries two residents and teardown plans an `UnplugResident` for the plugged one
 

@@ -1,6 +1,6 @@
 # formal-models delta: dprc-hardening
 
-## MODIFIED Requirements
+## ADDED Requirements
 
 ### Requirement: Every reachable guard arm has a witness
 The frozen-trace corpus SHALL witness the accepted `moveResidentOutAt`
