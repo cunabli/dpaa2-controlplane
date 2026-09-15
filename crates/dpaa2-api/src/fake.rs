@@ -349,8 +349,15 @@ impl McControl for FakeBackend {
         Ok(id)
     }
 
+    // A plugged resident bounces destroy `-EBUSY` (MC `0x10`); the eviction law unplugs first (ADR-0007 §3).
     fn dprc_destroy(&self, container: DprcId) -> Result<(), Error> {
-        self.state.borrow_mut().containers.remove(&container);
+        let mut st = self.state.borrow_mut();
+        if let Some(observed) = st.containers.get(&container)
+            && observed.residents.values().any(|r| r.plugged)
+        {
+            return Err(Error::McStatus { status: 0x10 });
+        }
+        st.containers.remove(&container);
         Ok(())
     }
 
