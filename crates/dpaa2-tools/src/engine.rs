@@ -6,10 +6,11 @@
 //! DPNI index for a freshly-created port from the id the MC assigned this pass, and
 //! for existing ports from the observed connection edge (design D1).
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
+use dpaa2_api::dprc::Options;
 use dpaa2_api::dprc_plan::{
     Attribution, ConsumerConvergence, ContainerPlan, ContainerStep, ContainerVerdict, PruneBucket,
     PruneItem, Verb, attribute_refusal, derive_consumer_containers, plan_consumer_convergence,
@@ -125,6 +126,16 @@ pub enum PruneOutcome {
     Pruned {
         /// Every undeclared container, keyed by re-observation handle.
         items: BTreeMap<DprcId, PruneItem>,
+    },
+    /// Both gates held but a candidate could not be torn down: a locked container (its
+    /// destroy is lock-stripped) or a still-plugged resident (`-EBUSY`, MC `0x10`). The
+    /// refusal is typed, never a pass abort, and the survivor is named
+    /// (review M1; `docs/baseline/dprc.md` DPRC-I11 lock face / DPRC-I2).
+    Refused {
+        /// The container whose teardown was refused (it survives the prune).
+        id: DprcId,
+        /// The discriminated cause the reconciler reports.
+        attribution: Attribution,
     },
 }
 
@@ -279,31 +290,67 @@ pub fn prune_containers<M: McControl>(
         });
     }
 
-    // Dispatch each candidate's teardown against its container id (DPRC-I6 judges after).
+    // A per-candidate refusal is a typed outcome, never a pass abort: record the first survivor, dispatch the rest, re-observe below (review M1; PASS3-F4/F5; DPRC-I6).
+    let mut refused: Option<(DprcId, Attribution)> = None;
+    let mut dispatched: BTreeSet<DprcId> = BTreeSet::new();
     for (id, item) in &items {
-        if let Some(candidate) = &item.plan {
-            for step in &candidate.steps {
-                dispatch_teardown_step(step, *id, mc)?;
+        let Some(candidate) = &item.plan else {
+            continue;
+        };
+        // A locked candidate emitted only a LockGate gap and no step (`docs/baseline/dprc.md` DPRC-I11 lock face).
+        if let Some(gap) = candidate.gaps.first() {
+            refused.get_or_insert((*id, gap.clone()));
+            continue;
+        }
+        match dispatch_candidate_teardown(candidate, *id, mc)? {
+            Some(attribution) => {
+                refused.get_or_insert((*id, attribution));
+            }
+            None => {
+                dispatched.insert(*id);
             }
         }
     }
 
-    // Verdict by re-observation only (DPRC-I6): every pruned id must be gone.
+    // Verdict by re-observation only (DPRC-I6): a dispatched survivor is an error, a refused one is expected.
     let after = mc.observe_containers()?;
-    for (id, item) in &items {
-        if item.plan.is_some() && after.contains_key(id) {
+    for id in &dispatched {
+        if after.contains_key(id) {
             return Err(Error::Backend(format!(
                 "container {id} survived prune dispatch"
             )));
         }
     }
+    if let Some((id, attribution)) = refused {
+        return Ok(PruneOutcome::Refused { id, attribution });
+    }
     Ok(PruneOutcome::Pruned { items })
 }
 
+/// Dispatches every step of one candidate's teardown, returning the typed [`Attribution`]
+/// when a step is refused (MC `0x10` -EBUSY plugged resident, or a `0x4` lock strip)
+/// rather than aborting the whole prune pass (review M1; PASS3-F5). A non-attributable
+/// backend error still propagates.
+fn dispatch_candidate_teardown<M: McControl>(
+    candidate: &ContainerPlan,
+    id: DprcId,
+    mc: &M,
+) -> Result<Option<Attribution>, Error> {
+    for step in &candidate.steps {
+        if let Err(e) = dispatch_teardown_step(step, id, mc) {
+            return match attribute_refusal(&e, Options::DEFAULT, Verb::DestroyContainer) {
+                Some(attribution) => Ok(Some(attribution)),
+                None => Err(e),
+            };
+        }
+    }
+    Ok(None)
+}
+
 /// Dispatches one prune-teardown step against the target container `id`. A [`Destroy`]
-/// maps to `dprc_destroy(id)`; an [`UnplugResident`] is unreachable from observation
-/// today (restool resident read-back is deferred, dprc-encapsulation board task 5.3) and
-/// so returns a typed [`Error::Backend`] rather than inventing a resident-id bridge.
+/// maps to `dprc_destroy(id)`; an [`UnplugResident`] maps to `assign --plugged=0` on its
+/// family-qualified [`ObjectRef`] — the operand the observation now carries, so the F-ebusy
+/// unplug is dispatchable rather than a deferred read-back (review M1; PASS3-F3/F14).
 ///
 /// [`Destroy`]: ContainerStep::Destroy
 /// [`UnplugResident`]: ContainerStep::UnplugResident
@@ -318,10 +365,11 @@ fn dispatch_teardown_step<M: McControl>(
             tracing::info!(%id, "destroyed undeclared child dprc container");
             Ok(())
         }
-        ContainerStep::UnplugResident { .. } => Err(Error::Backend(format!(
-            "resident read-back is deferred (dprc-encapsulation board task 5.3); \
-             container {id} teardown cannot unplug an unobservable resident"
-        ))),
+        ContainerStep::UnplugResident { object } => {
+            mc.dprc_assign(id, *object, None, Some(false))?;
+            tracing::info!(%id, %object, "unplugged resident before teardown");
+            Ok(())
+        }
         other => Err(Error::Backend(format!(
             "prune teardown emits only Destroy/UnplugResident, not {other:?}"
         ))),

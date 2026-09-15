@@ -263,6 +263,11 @@ fn ensure(
             );
             return Ok(ExitCode::FAILURE);
         }
+        // A locked or still-plugged candidate could not be torn down; it survives (docs/baseline/dprc.md DPRC-I11 lock face / DPRC-I2).
+        PruneOutcome::Refused { id, attribution } => {
+            println!("refused: undeclared container {id} could not be pruned: {attribution:?}");
+            return Ok(ExitCode::FAILURE);
+        }
     }
 
     // Apply stable names *after* convergence: the matchable MAC lives on the DPNI,

@@ -9,7 +9,7 @@
 
 use std::collections::BTreeMap;
 
-use dpaa2_api::dprc::{ContainerState, Options, Resident, ResidentId, ResidentKind};
+use dpaa2_api::dprc::{ContainerState, Options, Resident, ResidentKind};
 use dpaa2_api::dprc_plan::{
     Attribution, ContainerVerdict, ObservedContainer, OptionBit, PruneBucket, plan_prune,
 };
@@ -17,7 +17,7 @@ use dpaa2_api::fake::FakeBackend;
 use dpaa2_api::{
     Availability, Ceiling, Class, Compiled, ConstructName, Container, Dataplane, DpmacId,
     DpmacLinkType, DpmacOffer, DprcId, Error, EthInterface, Family, Intent, Inventory, Isolation,
-    MacMode, McControl, Port, Tenant, TenantRef, compile,
+    MacMode, McControl, ObjectRef, Port, Tenant, TenantRef, compile,
 };
 use dpaa2_tools::engine::{self, ContainerOutcome, ConvergeConfig, PruneOutcome};
 use dpaa2_tools::render;
@@ -190,16 +190,17 @@ fn orphan_container(
     options: Options,
     placement: Container,
 ) -> ObservedContainer {
+    // Keyed by family-qualified ObjectRef: a created dpbp + an assigned-in dpmcp (review M1; PASS3-F14; ADR-0007 §3).
     let mut residents = BTreeMap::new();
     residents.insert(
-        ResidentId::new(1),
+        ObjectRef::new(Family::Dpbp, 1),
         Resident {
             kind: ResidentKind::CreatedIn,
             plugged: false,
         },
     );
     residents.insert(
-        ResidentId::new(2),
+        ObjectRef::new(Family::Dpmcp, 2),
         Resident {
             kind: ResidentKind::AssignedIn,
             plugged: false,
@@ -359,7 +360,7 @@ fn plugged_resident_orphan_prune_is_refused_not_aborted() {
     let mut orphan = orphan_container("plugged-orphan", Options::DEFAULT, Container::Root);
     orphan
         .residents
-        .get_mut(&ResidentId::new(1))
+        .get_mut(&ObjectRef::new(Family::Dpbp, 1))
         .expect("seed resident 1")
         .plugged = true;
     let backend = FakeBackend::new().with_container(DprcId::new(5), orphan);
