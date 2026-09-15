@@ -226,6 +226,16 @@ reader concludes is the measured drift.
   plus a CHANGELOG guard, a public-leak scan, and an offload tripwire); it
   deleted 5 stale keys; the full ledger is recorded on bead
   `dpaa2-controlplane-jbg`.
+- 2026-09-15 — the `dprc-encapsulation` epic-close review (dprc-hardening
+  PASS4-F1/M3) nominated one process-rule amendment: **a spec delta that
+  overrides a base-capability SHALL must carry a `## MODIFIED Requirements`
+  block.** Nothing in the review rules or delta-authoring checks caught the
+  SHALL/SHALL-NOT contradiction the undeclared-container prune delta
+  introduced until Pass 4.
+  Binned **(a) mechanically checkable** — a candidate lint over the change
+  deltas that fails an ADDED requirement colliding with a base SHALL that
+  carries no MODIFIED block. Recorded as a plan, not yet a protection; until
+  promoted it rides the reviewer's delta-authoring checklist.
 - At each phase close: the honesty check (per-gate catches, parcel
   economics, deviations flagged vs. discovered) is recorded on the epic.
 - The rule pile is re-triaged at each phase close, or immediately when

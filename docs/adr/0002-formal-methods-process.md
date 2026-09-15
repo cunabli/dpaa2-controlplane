@@ -220,6 +220,28 @@ the ordering observable. When it does, one directed sitting settles which
 side the firmware takes, and the loser (model or `dprc.rs:940` doc)
 amends under this note.
 
+## Note 2026-09-15 — a model↔code idempotent refinement that is deliberate (dprc-hardening, PASS2-F6)
+
+The same review found a second, benign model↔code guard mismatch on the
+VFIO face (PASS2-F6). The Rust `bind_vfio`/`unbind_vfio`
+(`crates/dpaa2-api/src/dprc.rs:910-923`) accept as a **no-op when the
+container is already in the target bind state** ("a no-op if already
+bound. Always accepted"), whereas the model's `bindVfio` is *disabled*
+unless the container is `Plugged(Unbound)` and `unbindVfio` disabled
+unless `Plugged(Bound)` (`models/families/dprc.qnt:426-431`): an accepted
+transition exists in Rust that has no enabled model counterpart.
+
+This is a **deliberate idempotent refinement**, not a conformance bug.
+Reconciliation is level-triggered (ADR-0001 decision 2): a re-issued bind
+against an already-bound container must be a safe no-op so a re-run
+converges rather than erroring, and the disabled model guard is the
+*minimal* lifecycle law — it names the state-changing transition and
+stays silent on the no-op self-loop the shell relies on. The refinement
+adds no new reachable state (the bind state is unchanged) and mints no
+status, so it cannot widen the twin's behavior. The ADR-0002
+same-guard-semantics law is satisfied by this note recording the
+one-directional relaxation.
+
 ## References
 
 - OpenSpec change `restool-baseline`, `design.md` D2–D3.

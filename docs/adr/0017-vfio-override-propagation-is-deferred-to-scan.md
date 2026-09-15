@@ -51,9 +51,14 @@ the scratch child while the child was bound to `vfio-fsl-mc`:
    re-observation after a scan — never by create acceptance, and never
    by `dprc sync`, which reaches root containers only.
 3. **Population order for the consumer typestates: populate, then
-   bind.** A consumer container is populated first and bound last; a
-   post-bind create is legal but buys a deferred visibility obligation
-   the plan must carry explicitly.
+   bind.** A consumer container is populated first and bound last. The
+   pure core makes the alternative *unrepresentable* today: the create
+   and assign faces exist only on the unplugged container typestate and
+   are absent once the container is `Plugged`, so a post-bind create
+   cannot be planned and buys no deferred-visibility obligation. Should
+   population-after-bind ever land (tile #6), that create must carry the
+   deferred-visibility obligation explicitly — the obligation is filed
+   there, not represented here (PASS4-F8).
 
 ## Consequences
 

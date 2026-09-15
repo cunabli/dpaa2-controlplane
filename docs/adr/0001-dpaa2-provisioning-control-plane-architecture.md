@@ -69,6 +69,17 @@ DPL-provisioned `dpni.0` on the management port `dpmac.17`) are never enumerated
 alone mutated. Create-time-immutable attribute mismatches are reported as **drift and
 refused** — the tool never destroy-and-recreates a live interface to "fix" them.
 
+**Amendment (2026-09-15, PASS4-F2):** for *containers*, ownership is now
+**explicit**, not implicit. The undeclared-container prune
+(2026-09-15-dprc-encapsulation design D8) labels every container the
+reconciler creates with a fingerprint and, under `--prune --allow disruptive`,
+enumerates the root's children and destroys the undeclared ones whose label
+fingerprint matches — so a foreign-but-fingerprinted container **is** mutated,
+not merely reported. The implicit-ownership fence above still governs ports,
+and a **fingerprint fence** still spares any container carrying an empty label
+or zero fingerprint overlap: those stay report-only and are never touched
+(DPRC-I12's report-only bucket).
+
 ### 5. Stable naming via runtime-generated `systemd.link`, applied after provisioning
 
 Interface names come from stock `systemd.link` `[Match] MACAddress=` → `[Link] Name=`
