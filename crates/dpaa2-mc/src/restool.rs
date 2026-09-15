@@ -80,19 +80,12 @@ fn render_options(options: dprc::Options) -> Option<String> {
     if options == dprc::Options::DEFAULT {
         return None;
     }
-    let mut bits = Vec::new();
-    if options.spawn {
-        bits.push("DPRC_CFG_OPT_SPAWN_ALLOWED");
-    }
-    if options.alloc {
-        bits.push("DPRC_CFG_OPT_ALLOC_ALLOWED");
-    }
-    if options.obj_create {
-        bits.push("DPRC_CFG_OPT_OBJ_CREATE_ALLOWED");
-    }
-    if options.topology_changes {
-        bits.push("DPRC_CFG_OPT_TOPOLOGY_CHANGES_ALLOWED");
-    }
+    // Same table the decoder reads (review M11; PASS3-F9): render the set bits' tokens.
+    let bits: Vec<&str> = parse::OPTION_BITS
+        .iter()
+        .filter(|b| (b.get)(options))
+        .map(|b| b.token)
+        .collect();
     Some(format!("--options={}", bits.join(",")))
 }
 
@@ -184,7 +177,7 @@ impl<R: Runner> RestoolMc<R> {
         create_args: &[&str],
         label: &ConstructName,
     ) -> Result<String, Error> {
-        let out = self.runner.run(create_args)?;
+        let out = self.run_verb(create_args)?;
         let obj = parse::parse_object_ref(&out)
             .ok_or_else(|| Error::Parse(format!("no object id in `{}`", out.trim())))?
             .to_owned();
@@ -205,7 +198,7 @@ impl<R: Runner> RestoolMc<R> {
 
     /// `restool dprc assign <container> --object=<obj> --plugged=1`.
     fn assign_plugged(&self, obj: &str) -> Result<(), Error> {
-        self.runner.run(&[
+        self.run_verb(&[
             "dprc",
             "assign",
             &self.container,
@@ -223,7 +216,7 @@ impl<R: Runner> RestoolMc<R> {
     /// every port (its name is in the declared set), so ownership recognition never
     /// depends on which port grew the pool (ADR-0010 §4 refined by ADR-0015).
     fn ensure_dpio(&self, label: &ConstructName) -> Result<(), Error> {
-        let show = self.runner.run(&["dprc", "show", &self.container])?;
+        let show = self.run_verb(&["dprc", "show", &self.container])?;
         let existing = parse::count_objects(&show, "dpio");
         let container = format!("--container={}", self.container);
         for _ in existing..self.cores {
@@ -328,7 +321,7 @@ impl<R: Runner> RestoolMc<R> {
     /// the original error is what the caller of [`Self::provision_chain`] needs.
     fn rollback_chain(&self, created: &[(&'static str, String)]) {
         for (kind, obj) in created.iter().rev() {
-            if let Err(e) = self.runner.run(&[kind, "destroy", obj]) {
+            if let Err(e) = self.run_verb(&[kind, "destroy", obj]) {
                 tracing::warn!(error = %e, %obj, "rollback: failed to destroy");
             }
         }
@@ -341,23 +334,38 @@ impl<R: Runner> RestoolMc<R> {
 
     /// Forces a bus rescan; issued after every mutation (design recipe).
     fn sync(&self) -> Result<(), Error> {
-        self.runner.run(&["dprc", "sync"])?;
+        self.run_verb(&["dprc", "sync"])?;
         Ok(())
     }
 
-    /// Issues one `dprc` MC command and classifies a refusal into a typed [`Error`]
-    /// (design D4). On a non-zero exit the shim reports the *shape* restool returned,
-    /// never a bare string: an MC firmware refusal carries a status token (`(0x…)`,
+    /// The single exit every [`McControl`] verb funnels through: it runs one restool
+    /// invocation and classifies a refusal into a typed [`Error`] (design D4, bead dpaa2-controlplane-cd3). This is
+    /// the ONLY place the shim reads the raw [`Runner`]; [`Runner::run`] stays raw
+    /// transport and no verb calls it directly, so a new verb author inherits one error
+    /// path, not a choice between two (review M10; PASS3-F7).
+    ///
+    /// On a non-zero exit the shim reports the *shape* restool returned, never a bare
+    /// string: an MC firmware refusal carries a status token (`(0x…)`,
     /// `docs/baseline/dprc.md` unknown-register #3) and surfaces as [`Error::McStatus`]
     /// with the raw byte for the core to judge; a restool client-side guard fires
     /// before any MC command and so carries no status, surfacing as
-    /// [`Error::RestoolGuard`] with the verbatim message (DPRC-I3). The adapter reports;
-    /// the classification of *which* refusal a status means lives core-side
+    /// [`Error::RestoolGuard`] with the verbatim message (DPRC-I3). Signal death
+    /// (`code: None`, [`RunOutcome`](crate::runner::RunOutcome)) is neither refusal — it
+    /// is a transport failure, reported [`Error::Backend`] (review M10; PASS3-F8). The
+    /// adapter reports; classifying *which* refusal a status means lives core-side
     /// (`dprc::Refusal`/`dprc_plan::attribute_mc`).
     fn run_verb(&self, args: &[&str]) -> Result<String, Error> {
         let out = self.runner.run_capture(args)?;
         if out.code == Some(0) {
             return Ok(out.stdout);
+        }
+        // No exit code means a signal killed restool: transport failure, not a refusal (review M10; PASS3-F8).
+        if out.code.is_none() {
+            return Err(Error::Backend(format!(
+                "restool {} died by signal: {}",
+                args.join(" "),
+                out.stderr.trim()
+            )));
         }
         // restool prints its diagnostic to stderr; fall back to stdout if empty.
         let diag = if out.stderr.trim().is_empty() {
@@ -378,7 +386,7 @@ impl<R: Runner> RestoolMc<R> {
 
 impl<R: Runner> McControl for RestoolMc<R> {
     fn observe(&self) -> Result<ObservedTopology, Error> {
-        let show = self.runner.run(&["dprc", "show", &self.container])?;
+        let show = self.run_verb(&["dprc", "show", &self.container])?;
         let (dpni_ids, dpmac_ids) = parse::parse_dprc_show(&show);
 
         // The label column is the identity seam the matcher leans on (ADR-0015
@@ -393,7 +401,7 @@ impl<R: Runner> McControl for RestoolMc<R> {
         let mut dpnis = Vec::with_capacity(dpni_ids.len());
         for id in dpni_ids {
             let obj = id.to_string();
-            let info = parse::parse_dpni_info(&self.runner.run(&["dpni", "info", &obj])?);
+            let info = parse::parse_dpni_info(&self.run_verb(&["dpni", "info", &obj])?);
             dpnis.push(ObservedDpni {
                 id,
                 label: labels.get(&id).cloned(),
@@ -408,7 +416,7 @@ impl<R: Runner> McControl for RestoolMc<R> {
         let mut dpmacs = Vec::with_capacity(dpmac_ids.len());
         for id in dpmac_ids {
             let obj = id.to_string();
-            let info = parse::parse_dpmac_info(&self.runner.run(&["dpmac", "info", &obj])?);
+            let info = parse::parse_dpmac_info(&self.run_verb(&["dpmac", "info", &obj])?);
             dpmacs.push(ObservedDpmac {
                 id,
                 link_type: info.link_type,
@@ -424,7 +432,7 @@ impl<R: Runner> McControl for RestoolMc<R> {
         // convergence verdict re-queries, it never trusts `sync`). Each `dprc.N` child
         // row carries its name-keyed label; the row is a child of the root, so its
         // placement is [`Container::Root`].
-        let show = self.runner.run(&["dprc", "show", &self.container])?;
+        let show = self.run_verb(&["dprc", "show", &self.container])?;
         let mut containers = BTreeMap::new();
         for row in parse::parse_dprc_rows(&show) {
             if row.family != Family::Dprc {
@@ -434,13 +442,13 @@ impl<R: Runner> McControl for RestoolMc<R> {
 
             // Options are read back from the child's own `dprc info`; a `None` parse
             // (no options line, a refused/malformed read) is an error, never the default.
-            let info = self.runner.run(&["dprc", "info", &obj])?;
+            let info = self.run_verb(&["dprc", "info", &obj])?;
             let options = parse::parse_dprc_info(&info)
                 .ok_or_else(|| Error::Parse(format!("no dprc options in `dprc info {obj}`")))?;
 
             // Residents are the child's own `dprc show` rows; a grandchild DPRC is a
             // container, not a resident, in the model's World, so it is skipped.
-            let child_show = self.runner.run(&["dprc", "show", &obj])?;
+            let child_show = self.run_verb(&["dprc", "show", &obj])?;
             let mut residents = BTreeMap::new();
             for r in parse::parse_dprc_rows(&child_show) {
                 if r.family == Family::Dprc {
@@ -476,7 +484,7 @@ impl<R: Runner> McControl for RestoolMc<R> {
     fn read_inventory(&self) -> Result<Inventory, Error> {
         // One `dprc show`, read as rows so the label column (ADR-0010 Consequences)
         // feeds both the label map and each dpmac's availability.
-        let show = self.runner.run(&["dprc", "show", &self.container])?;
+        let show = self.run_verb(&["dprc", "show", &self.container])?;
         let rows = parse::parse_dprc_rows(&show);
 
         // The backend reports, it never judges (ADR-0010 §4 as refined by ADR-0015):
@@ -501,7 +509,7 @@ impl<R: Runner> McControl for RestoolMc<R> {
             }
             let id = DpmacId::from(row.num);
             let raw =
-                parse::parse_dpmac_offer(&self.runner.run(&["dpmac", "info", &id.to_string()])?);
+                parse::parse_dpmac_offer(&self.run_verb(&["dpmac", "info", &id.to_string()])?);
             // DPMAC-I3: these attributes are immutable; a missing one is a parse
             // failure, not a default — an invented rate/media would misdescribe the
             // port to `compile`.
@@ -586,9 +594,7 @@ impl<R: Runner> McControl for RestoolMc<R> {
         self.ensure_dpio(label)?;
         self.provision_chain(&self.dpni_dep_steps(queues), label, |this| {
             let queues_arg = format!("--num-queues={queues}");
-            let out = this
-                .runner
-                .run(&["--script", "dpni", "create", &queues_arg])?;
+            let out = this.run_verb(&["--script", "dpni", "create", &queues_arg])?;
             let id = parse::parse_dpni_object_id(&out).ok_or_else(|| {
                 Error::Parse(format!("could not parse created dpni id from `{out}`"))
             })?;
@@ -608,7 +614,7 @@ impl<R: Runner> McControl for RestoolMc<R> {
         // always runs against an unplugged DPNI (design recipe: create -> [set-mac]
         // -> plug+connect -> sync).
         self.assign_plugged(&dpni.to_string())?;
-        self.runner.run(&[
+        self.run_verb(&[
             "dprc",
             "connect",
             &self.container,
@@ -623,7 +629,7 @@ impl<R: Runner> McControl for RestoolMc<R> {
         // defaults to assert mode, so this is reached only when a port opts into
         // actuate; it always runs before the DPNI is plugged, since plugging is now
         // deferred to `connect()`.
-        self.runner.run(&[
+        self.run_verb(&[
             "dpni",
             "update",
             &dpni.to_string(),
@@ -642,7 +648,7 @@ impl<R: Runner> McControl for RestoolMc<R> {
     }
 
     fn disconnect(&self, dpni: DpniId) -> Result<(), Error> {
-        self.runner.run(&[
+        self.run_verb(&[
             "dprc",
             "disconnect",
             &self.container,
@@ -652,7 +658,7 @@ impl<R: Runner> McControl for RestoolMc<R> {
     }
 
     fn destroy(&self, dpni: DpniId) -> Result<(), Error> {
-        self.runner.run(&["dpni", "destroy", &dpni.to_string()])?;
+        self.run_verb(&["dpni", "destroy", &dpni.to_string()])?;
         self.sync()
     }
 
@@ -791,6 +797,12 @@ mod tests {
         fn calls(&self) -> Vec<Vec<String>> {
             self.calls.borrow().clone()
         }
+
+        /// A read-only script: each command maps to a success `stdout`. Subsumes the old
+        /// `CannedRunner` — a `ScriptedRunner` whose every outcome is `ok()` (review M11; PASS3-F10).
+        fn canned(pairs: &[(&str, &str)]) -> Self {
+            Self::new(pairs.iter().map(|&(k, v)| (k, ok(v))).collect())
+        }
     }
 
     impl Runner for ScriptedRunner {
@@ -869,14 +881,14 @@ mod tests {
             "dprc.2          router          unplugged",
             "dpmac.7                         plugged",
         ]);
-        let info = dprc_info(&[
+        let info = parse::dprc_info(&[
             "DPRC_CFG_OPT_SPAWN_ALLOWED",
             "DPRC_CFG_OPT_ALLOC_ALLOWED",
             "DPRC_CFG_OPT_OBJ_CREATE_ALLOWED",
             "DPRC_CFG_OPT_IRQ_CFG_ALLOWED",
         ]);
         let child = dprc_show(&[]);
-        let runner = CannedRunner::new(&[
+        let runner = ScriptedRunner::canned(&[
             ("dprc show dprc.1", &root),
             ("dprc info dprc.2", &info),
             ("dprc show dprc.2", &child),
@@ -896,14 +908,14 @@ mod tests {
     #[test]
     fn observe_containers_reads_a_nondefault_mask() {
         let root = dprc_show(&["dprc.2          router          unplugged"]);
-        let info = dprc_info(&[
+        let info = parse::dprc_info(&[
             "DPRC_CFG_OPT_SPAWN_ALLOWED",
             "DPRC_CFG_OPT_ALLOC_ALLOWED",
             "DPRC_CFG_OPT_OBJ_CREATE_ALLOWED",
             "DPRC_CFG_OPT_TOPOLOGY_CHANGES_ALLOWED",
         ]);
         let child = dprc_show(&[]);
-        let runner = CannedRunner::new(&[
+        let runner = ScriptedRunner::canned(&[
             ("dprc show dprc.1", &root),
             ("dprc info dprc.2", &info),
             ("dprc show dprc.2", &child),
@@ -918,7 +930,7 @@ mod tests {
     #[test]
     fn observe_containers_populated_child_lists_its_residents() {
         let root = dprc_show(&["dprc.2          router          unplugged"]);
-        let info = dprc_info(&[
+        let info = parse::dprc_info(&[
             "DPRC_CFG_OPT_SPAWN_ALLOWED",
             "DPRC_CFG_OPT_ALLOC_ALLOWED",
             "DPRC_CFG_OPT_OBJ_CREATE_ALLOWED",
@@ -929,7 +941,7 @@ mod tests {
             "dpbp.0                          unplugged",
             "dprc.9          grandchild      unplugged",
         ]);
-        let runner = CannedRunner::new(&[
+        let runner = ScriptedRunner::canned(&[
             ("dprc show dprc.1", &root),
             ("dprc info dprc.2", &info),
             ("dprc show dprc.2", &child),
@@ -951,7 +963,7 @@ mod tests {
     fn observe_containers_same_ordinal_plugged_and_unplugged_both_plan_unplug() {
         // PASS3-F14 producer half (review M1/M2): same-ordinal residents of two families both count; the plugged one plans its unplug.
         let root = dprc_show(&["dprc.2          router          unplugged"]);
-        let info = dprc_info(&[
+        let info = parse::dprc_info(&[
             "DPRC_CFG_OPT_SPAWN_ALLOWED",
             "DPRC_CFG_OPT_ALLOC_ALLOWED",
             "DPRC_CFG_OPT_OBJ_CREATE_ALLOWED",
@@ -960,7 +972,7 @@ mod tests {
             "dpbp.0                          plugged",
             "dpmcp.0                         unplugged",
         ]);
-        let runner = CannedRunner::new(&[
+        let runner = ScriptedRunner::canned(&[
             ("dprc show dprc.1", &root),
             ("dprc info dprc.2", &info),
             ("dprc show dprc.2", &child),
@@ -982,7 +994,7 @@ mod tests {
     #[test]
     fn observe_containers_errors_on_a_refused_info_read() {
         let root = dprc_show(&["dprc.2          router          unplugged"]);
-        let runner = CannedRunner::new(&[
+        let runner = ScriptedRunner::canned(&[
             ("dprc show dprc.1", &root),
             ("dprc info dprc.2", "container id: 2\nicid: 27\n"),
         ]);
@@ -1155,27 +1167,23 @@ mod tests {
         ));
     }
 
-    /// A [`Runner`] that replays canned output keyed by the joined argument line.
-    struct CannedRunner(std::collections::HashMap<String, String>);
-
-    impl CannedRunner {
-        fn new(pairs: &[(&str, &str)]) -> Self {
-            Self(
-                pairs
-                    .iter()
-                    .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
-                    .collect(),
-            )
-        }
-    }
-
-    impl Runner for CannedRunner {
-        fn run(&self, args: &[&str]) -> Result<String, Error> {
-            self.0
-                .get(&args.join(" "))
-                .cloned()
-                .ok_or_else(|| Error::Backend(format!("no canned output for `{}`", args.join(" "))))
-        }
+    #[test]
+    fn signal_death_is_a_backend_error_not_a_client_guard() {
+        // A restool killed by a signal has no exit code; that is transport failure, not a
+        // client-side refusal, so it must not collapse to RestoolGuard (review M10; PASS3-F8).
+        let killed = RunOutcome {
+            stdout: String::new(),
+            stderr: String::new(),
+            code: None,
+        };
+        let mc = RestoolMc::with_runner(
+            ScriptedRunner::new(vec![("dprc destroy dprc.2", killed)]),
+            DEFAULT_CONTAINER,
+        );
+        assert!(matches!(
+            mc.dprc_destroy(DprcId::new(2)).expect_err("signal death"),
+            Error::Backend(_)
+        ));
     }
 
     // dpmac info bodies shaped after models/board/baselines/reference.json. `ep` is
@@ -1205,17 +1213,6 @@ mod tests {
         s
     }
 
-    // A `dprc info` body: the mask line then one tab-indented token per set bit.
-    fn dprc_info(tokens: &[&str]) -> String {
-        let mut s = "container id: 2\nicid: 27\nportal id: 3\ndprc options: 0x603\n".to_owned();
-        for t in tokens {
-            s.push('\t');
-            s.push_str(t);
-            s.push('\n');
-        }
-        s
-    }
-
     const RESOURCES: &str = "bp 63\nmcp 203\nswp 49\nfq 1981\n";
 
     #[test]
@@ -1232,7 +1229,7 @@ mod tests {
         let info3 = dpmac_info(25_000, "DPMAC_ETH_IF_CAUI");
         let info4 = dpmac_info(25_000, "DPMAC_ETH_IF_CAUI");
         let info17 = dpmac_info(1000, "DPMAC_ETH_IF_RGMII");
-        let runner = CannedRunner::new(&[
+        let runner = ScriptedRunner::canned(&[
             ("dprc show dprc.1", &show),
             ("dpmac info dpmac.3", &info3),
             ("dpmac info dpmac.4", &info4),
@@ -1284,7 +1281,7 @@ mod tests {
             "dpmac.7                         plugged",
         ]);
         let info7 = dpmac_info_ep(10_000, "DPMAC_ETH_IF_XFI", "dpni.0, link is up");
-        let runner = CannedRunner::new(&[
+        let runner = ScriptedRunner::canned(&[
             ("dprc show dprc.1", &show),
             ("dpmac info dpmac.7", &info7),
             ("dprc show mc.global --resources", RESOURCES),
@@ -1311,7 +1308,7 @@ mod tests {
             "dpmac.7                         plugged",
         ]);
         let info7 = dpmac_info_ep(10_000, "DPMAC_ETH_IF_XFI", "dpni.0, link is up");
-        let runner = CannedRunner::new(&[
+        let runner = ScriptedRunner::canned(&[
             ("dprc show dprc.1", &show),
             ("dpmac info dpmac.7", &info7),
             ("dprc show mc.global --resources", RESOURCES),
@@ -1336,7 +1333,7 @@ mod tests {
             "dpmac.17                        plugged",
         ]);
         let info17 = dpmac_info_ep(1000, "DPMAC_ETH_IF_RGMII", "dpni.0, link is up");
-        let runner = CannedRunner::new(&[
+        let runner = ScriptedRunner::canned(&[
             ("dprc show dprc.1", &show),
             ("dpmac info dpmac.17", &info17),
             ("dprc show mc.global --resources", RESOURCES),
@@ -1359,7 +1356,7 @@ mod tests {
             "dpmac.7                         plugged",
         ]);
         let info7 = dpmac_info_ep(10_000, "DPMAC_ETH_IF_XFI", "dpni.5, link is up");
-        let runner = CannedRunner::new(&[
+        let runner = ScriptedRunner::canned(&[
             ("dprc show dprc.1", &show),
             ("dpmac info dpmac.7", &info7),
             ("dprc show mc.global --resources", RESOURCES),

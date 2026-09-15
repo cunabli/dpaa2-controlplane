@@ -132,6 +132,43 @@ pub fn parse_dprc_rows(stdout: &str) -> Vec<DprcRow> {
     rows
 }
 
+/// One child-DPRC option bit: its `DPRC_CFG_OPT_*` spelling paired with the read and
+/// set of the [`dprc::Options`] field it maps. Single-sourced here so the write side
+/// (`render_options` in [`RestoolMc`](crate::RestoolMc)) and the read side
+/// ([`parse_dprc_info`]) can never spell the four bits differently (review M11; PASS3-F9).
+pub(crate) struct OptionBit {
+    /// The token restool prints and accepts for this bit.
+    pub token: &'static str,
+    /// Reads the bit from an [`dprc::Options`] value (drives render).
+    pub get: fn(dprc::Options) -> bool,
+    /// Sets the bit on an [`dprc::Options`] value (drives decode).
+    pub set: fn(&mut dprc::Options),
+}
+
+/// The four refusal-gating option bits [`dprc::Options`] carries, in render order.
+pub(crate) const OPTION_BITS: &[OptionBit] = &[
+    OptionBit {
+        token: "DPRC_CFG_OPT_SPAWN_ALLOWED",
+        get: |o| o.spawn,
+        set: |o| o.spawn = true,
+    },
+    OptionBit {
+        token: "DPRC_CFG_OPT_ALLOC_ALLOWED",
+        get: |o| o.alloc,
+        set: |o| o.alloc = true,
+    },
+    OptionBit {
+        token: "DPRC_CFG_OPT_OBJ_CREATE_ALLOWED",
+        get: |o| o.obj_create,
+        set: |o| o.obj_create = true,
+    },
+    OptionBit {
+        token: "DPRC_CFG_OPT_TOPOLOGY_CHANGES_ALLOWED",
+        get: |o| o.topology_changes,
+        set: |o| o.topology_changes = true,
+    },
+];
+
 /// Parses `restool dprc info dprc.N` into the lifecycle option mask (DPRC-I4;
 /// `docs/baseline/dprc.md` "create details"). restool prints a `dprc options: 0x…`
 /// line then one tab-indented `DPRC_CFG_OPT_*` token per set bit; this reads those
@@ -155,12 +192,9 @@ pub fn parse_dprc_info(stdout: &str) -> Option<dprc::Options> {
         topology_changes: false,
     };
     for line in stdout.lines() {
-        match line.trim() {
-            "DPRC_CFG_OPT_SPAWN_ALLOWED" => options.spawn = true,
-            "DPRC_CFG_OPT_ALLOC_ALLOWED" => options.alloc = true,
-            "DPRC_CFG_OPT_OBJ_CREATE_ALLOWED" => options.obj_create = true,
-            "DPRC_CFG_OPT_TOPOLOGY_CHANGES_ALLOWED" => options.topology_changes = true,
-            _ => {}
+        let tok = line.trim();
+        if let Some(bit) = OPTION_BITS.iter().find(|b| b.token == tok) {
+            (bit.set)(&mut options);
         }
     }
     Some(options)
@@ -354,6 +388,20 @@ pub fn parse_dpmac_info(stdout: &str) -> RawDpmacInfo {
     info
 }
 
+/// Builds a `restool dprc info dprc.N` body — the mask line then one tab-indented
+/// token per set bit — the single fixture builder the shim and parser transcript
+/// tests share (review M11; PASS3-F11).
+#[cfg(test)]
+pub(crate) fn dprc_info(tokens: &[&str]) -> String {
+    let mut s = "container id: 2\nicid: 27\nportal id: 3\ndprc options: 0x603\n".to_owned();
+    for t in tokens {
+        s.push('\t');
+        s.push_str(t);
+        s.push('\n');
+    }
+    s
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -502,17 +550,6 @@ dpni.7          wan0            plugged
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].family, Family::Dpni);
         assert_eq!(rows[0].num, 7);
-    }
-
-    // A `dprc info` body: the mask line then one tab-indented token per set bit.
-    fn dprc_info(tokens: &[&str]) -> String {
-        let mut s = "container id: 2\nicid: 27\nportal id: 3\ndprc options: 0x603\n".to_owned();
-        for t in tokens {
-            s.push('\t');
-            s.push_str(t);
-            s.push('\n');
-        }
-        s
     }
 
     #[test]
