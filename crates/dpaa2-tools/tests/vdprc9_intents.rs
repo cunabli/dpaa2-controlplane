@@ -11,47 +11,10 @@
 //! container-only, no residents, no dpnis; intent-b is declared-empty and
 //! derives nothing, the prune leg's operand.
 
-use std::collections::BTreeMap;
-
 use dpaa2_api::dprc::Options;
 use dpaa2_api::dprc_plan::{ContainerStep, derive_consumer_containers, plan_consumer_container};
-use dpaa2_api::{
-    Attributes, Availability, Ceiling, Container, DpmacId, DpmacLinkType, DpmacOffer, EthInterface,
-    Family, Inventory, compile,
-};
-
-/// The snapshot inventory the operands compile against, shaped like the
-/// `inventory()` helper in `dprc_convergence.rs`: one free 10G port and the
-/// board-verified pool ceilings. V-DPRC-9's tenants are portless, so the dpmac
-/// offer is never drawn — it is here only to keep the inventory well-formed.
-fn inventory() -> Inventory {
-    let dpmacs = BTreeMap::from([(
-        DpmacId::new(7),
-        DpmacOffer {
-            id: DpmacId::new(7),
-            max_rate: 10_000,
-            eth_if: EthInterface::Xfi,
-            link_type: DpmacLinkType::Phy,
-            avail: Availability::Free,
-        },
-    )]);
-    let ceilings = BTreeMap::from([
-        (Family::Dprc, Ceiling::Unknown),
-        (Family::Dpni, Ceiling::Counted(18)),
-        (Family::Dpbp, Ceiling::Counted(63)),
-        (Family::Dpio, Ceiling::Unknown),
-        (Family::Dpcon, Ceiling::Unknown),
-        (Family::Dpmcp, Ceiling::Counted(203)),
-        (Family::Dpseci, Ceiling::Unknown),
-        (Family::Dpsw, Ceiling::Unknown),
-    ]);
-    Inventory {
-        cpus: 16,
-        dpmacs,
-        labels: BTreeMap::new(),
-        ceilings,
-    }
-}
+use dpaa2_api::testkit::ref_inventory;
+use dpaa2_api::{Attributes, Container, Family, compile};
 
 /// Reads and compiles one committed operand from the suite directory.
 fn compile_operand(file: &str) -> dpaa2_api::Compiled {
@@ -61,7 +24,7 @@ fn compile_operand(file: &str) -> dpaa2_api::Compiled {
     ))
     .unwrap_or_else(|e| panic!("read {file}: {e}"));
     let intent = dpaa2_config::parse_str(&toml).unwrap_or_else(|e| panic!("{file}: parse: {e}"));
-    compile(&intent, &inventory()).unwrap_or_else(|e| panic!("{file}: compile: {e:?}"))
+    compile(&intent, &ref_inventory(16)).unwrap_or_else(|e| panic!("{file}: compile: {e:?}"))
 }
 
 #[test]

@@ -14,42 +14,13 @@ use dpaa2_api::dprc_plan::{
     Attribution, ContainerVerdict, ObservedContainer, OptionBit, PruneBucket, plan_prune,
 };
 use dpaa2_api::fake::FakeBackend;
+use dpaa2_api::testkit::ref_inventory;
 use dpaa2_api::{
-    Availability, Ceiling, Class, Compiled, ConstructName, Container, Dataplane, DpmacId,
-    DpmacLinkType, DpmacOffer, DprcId, Error, EthInterface, Family, Intent, Inventory, Isolation,
-    MacMode, McControl, ObjectRef, Port, Tenant, TenantRef, compile,
+    Class, Compiled, ConstructName, Container, Dataplane, DpmacId, DprcId, Error, Family, Intent,
+    Isolation, MacMode, McControl, ObjectRef, Port, Tenant, TenantRef, compile,
 };
 use dpaa2_tools::engine::{self, ContainerOutcome, ConvergeConfig, PruneOutcome};
 use dpaa2_tools::render;
-
-fn inventory() -> Inventory {
-    let dpmacs = BTreeMap::from([(
-        DpmacId::new(7),
-        DpmacOffer {
-            id: DpmacId::new(7),
-            max_rate: 10_000,
-            eth_if: EthInterface::Xfi,
-            link_type: DpmacLinkType::Phy,
-            avail: Availability::Free,
-        },
-    )]);
-    let ceilings = BTreeMap::from([
-        (Family::Dprc, Ceiling::Unknown),
-        (Family::Dpni, Ceiling::Counted(18)),
-        (Family::Dpbp, Ceiling::Counted(63)),
-        (Family::Dpio, Ceiling::Unknown),
-        (Family::Dpcon, Ceiling::Unknown),
-        (Family::Dpmcp, Ceiling::Counted(203)),
-        (Family::Dpseci, Ceiling::Unknown),
-        (Family::Dpsw, Ceiling::Unknown),
-    ]);
-    Inventory {
-        cpus: 16,
-        dpmacs,
-        labels: BTreeMap::new(),
-        ceilings,
-    }
-}
 
 /// A single isolated userspace-poll consumer ("router") on one 10G port — the smallest
 /// intent that derives exactly one consumer child DPRC.
@@ -73,7 +44,7 @@ fn compiled_router() -> Compiled {
         }],
         ..Intent::default()
     };
-    compile(&intent, &inventory()).expect("router intent must compile")
+    compile(&intent, &ref_inventory(16)).expect("router intent must compile")
 }
 
 fn disruptive_cfg() -> ConvergeConfig {
@@ -180,7 +151,7 @@ fn prune_disruptive_cfg() -> ConvergeConfig {
 
 /// An empty intent: no declared consumer, so every observed child container is undeclared.
 fn compiled_empty() -> Compiled {
-    compile(&Intent::default(), &inventory()).expect("empty intent must compile")
+    compile(&Intent::default(), &ref_inventory(16)).expect("empty intent must compile")
 }
 
 /// An orphan child container seeded with two residents (created + assigned-in) so a

@@ -15,7 +15,7 @@
 ## 4. Parcel B — southbound shim (dpaa2-mc)
 
 - [x] 4.1 The shim stops judging (M2): observation producer emits `ObjectRef`-keyed residents (a child listing `dpbp.0 plugged` + `dpmcp.0 unplugged` yields two residents and an `UnplugResident` step, PASS3-F14); state classification moves to core `ContainerState::classify` beside `VfioBind::classify` (PASS3-F1); resident origin reported `Option<ResidentKind>` with conservative core prediction + ADR note (PASS3-F2); the stale "read-back is deferred" comment in `engine.rs` replaced by the real ceiling reference (PASS3-F3) (bead dpaa2-controlplane-am0.6)
-- [ ] 4.2 Exit hygiene and folds (M10/M11): every `McControl` verb exits through the classifying path, `Runner::run` stays raw transport (PASS3-F7); `code: None` ⇒ `Error::Backend` (PASS3-F8); option-bit table single-sourced (PASS3-F9); `CannedRunner` folded into `ScriptedRunner::canned` (PASS3-F10); `dprc_info` helper single-sourced (PASS3-F11); test inventory folded to `testkit::ref_inventory(16)` only if both suites stay green under the `Observed{18}`/labels caveat (PASS3-F12) (bead dpaa2-controlplane-am0.7)
+- [x] 4.2 Exit hygiene and folds (M10/M11): every `McControl` verb exits through the classifying path, `Runner::run` stays raw transport (PASS3-F7); `code: None` ⇒ `Error::Backend` (PASS3-F8); option-bit table single-sourced (PASS3-F9); `CannedRunner` folded into `ScriptedRunner::canned` (PASS3-F10); `dprc_info` helper single-sourced (PASS3-F11); test inventory folded to `testkit::ref_inventory(16)` only if both suites stay green under the `Observed{18}`/labels caveat (PASS3-F12) (bead dpaa2-controlplane-am0.7)
 
 ## 5. Parcel C — model witnesses (models, dpaa2-verify)
 
