@@ -446,24 +446,18 @@ impl<R: Runner> McControl for RestoolMc<R> {
                 if r.family == Family::Dprc {
                     continue;
                 }
-                // Origin is unobservable; CreatedIn is the default (ADR-0007 §3, `dprc.md`).
-                // Keyed by family-qualified ObjectRef so `dpbp.0`/`dpmcp.0` never collide (review M1; PASS3-F14).
+                // Origin unobservable through restool: reported None, never invented; keyed by ObjectRef so families never collide (review M2/M1; PASS3-F2/F14).
                 residents.insert(
                     ObjectRef::new(r.family, r.num),
-                    dprc::Resident {
-                        kind: dprc::ResidentKind::CreatedIn,
+                    dprc::ObservedResident {
+                        origin: None,
                         plugged: r.plugged,
                     },
                 );
             }
 
-            // A DPRC never plugs (restool refuses; even the live DPL child lists
-            // unplugged), so state is Created when empty, Populated otherwise (`dprc.md`).
-            let state = if residents.is_empty() {
-                dprc::ContainerState::Created
-            } else {
-                dprc::ContainerState::Populated
-            };
+            // The core judges Created-vs-Populated from the residents the shim read (review M2; PASS3-F1).
+            let state = dprc::ContainerState::classify(&residents);
 
             containers.insert(
                 DprcId::from(row.num),
@@ -895,7 +889,7 @@ mod tests {
         assert_eq!(c.label, ConstructName::from("router"));
         assert_eq!(c.placement, Container::Root);
         assert_eq!(c.options, dprc::Options::DEFAULT);
-        assert_eq!(c.state, dprc::ContainerState::Created);
+        assert_eq!(c.state.name(), "Created");
         assert!(c.residents.is_empty());
     }
 
@@ -943,14 +937,46 @@ mod tests {
         let mc = RestoolMc::with_runner(runner, DEFAULT_CONTAINER);
 
         let c = mc.observe_containers().expect("observe")[&DprcId::new(2)].clone();
-        assert_eq!(c.state, dprc::ContainerState::Populated);
+        assert_eq!(c.state.name(), "Populated");
         // Only dpni.5 and dpbp.0 are residents (grandchild dprc.9 skipped), keyed by ObjectRef (review M1; PASS3-F14).
         assert_eq!(c.residents.len(), 2);
         assert!(!c.residents.contains_key(&ObjectRef::new(Family::Dprc, 9)));
         let dpni = &c.residents[&ObjectRef::new(Family::Dpni, 5)];
-        assert_eq!(dpni.kind, dprc::ResidentKind::CreatedIn);
+        assert_eq!(dpni.origin, None);
         assert!(dpni.plugged);
         assert!(!c.residents[&ObjectRef::new(Family::Dpbp, 0)].plugged);
+    }
+
+    #[test]
+    fn observe_containers_same_ordinal_plugged_and_unplugged_both_plan_unplug() {
+        // PASS3-F14 producer half (review M1/M2): same-ordinal residents of two families both count; the plugged one plans its unplug.
+        let root = dprc_show(&["dprc.2          router          unplugged"]);
+        let info = dprc_info(&[
+            "DPRC_CFG_OPT_SPAWN_ALLOWED",
+            "DPRC_CFG_OPT_ALLOC_ALLOWED",
+            "DPRC_CFG_OPT_OBJ_CREATE_ALLOWED",
+        ]);
+        let child = dprc_show(&[
+            "dpbp.0                          plugged",
+            "dpmcp.0                         unplugged",
+        ]);
+        let runner = CannedRunner::new(&[
+            ("dprc show dprc.1", &root),
+            ("dprc info dprc.2", &info),
+            ("dprc show dprc.2", &child),
+        ]);
+        let mc = RestoolMc::with_runner(runner, DEFAULT_CONTAINER);
+
+        let c = mc.observe_containers().expect("observe")[&DprcId::new(2)].clone();
+        assert_eq!(c.residents.len(), 2, "dpbp.0 and dpmcp.0 both count");
+        let dpbp0 = ObjectRef::new(Family::Dpbp, 0);
+        assert_eq!(c.residents[&dpbp0].origin, None);
+        let plan = dprc_plan::plan_teardown(&c);
+        assert!(
+            plan.steps
+                .contains(&dprc_plan::ContainerStep::UnplugResident { object: dpbp0 }),
+            "the plugged dpbp.0 is unplugged by its ObjectRef before destroy",
+        );
     }
 
     #[test]
