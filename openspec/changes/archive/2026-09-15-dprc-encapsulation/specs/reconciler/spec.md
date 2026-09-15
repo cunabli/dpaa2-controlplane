@@ -89,3 +89,32 @@ companion-set sizing (tile #6) or dpni option surface (tile #5).
 #### Scenario: Consumer declared on an empty board
 - **WHEN** intent declares one consumer and the board lacks its container
 - **THEN** the plan creates exactly the child DPRC with derived options/label/placement and contains no companion-population steps
+
+## MODIFIED Requirements
+
+### Requirement: Ownership is limited to the configured subgraph
+Reconciliation SHALL only plan changes to objects reachable from a DPMAC named in
+the desired topology. It SHALL NOT enumerate all MC objects and delete those absent
+from desired, EXCEPT for child DPRC containers, which this change makes prunable by
+their label-anchored ownership fingerprint (review PASS4-F1): an undeclared child
+container carrying a non-empty MC label plus a matching derived option mask and root
+placement is a prune candidate under the double gate (`--prune` AND
+`--allow disruptive`), per the ADDED "Undeclared consumer containers are pruned
+under the double gate" requirement. The fence survives unchanged for every
+non-container object, for containers with an empty label (bare restool creates), and
+for zero fingerprint overlap: objects outside the configured subgraph (e.g.
+DPL-provisioned or foreign objects) that are not label-anchored prunable containers
+SHALL be left untouched.
+
+#### Scenario: Foreign object preserved
+- **WHEN** the MC contains a DPNI connected to a DPMAC not present in desired
+- **THEN** the plan contains no operation affecting that object
+
+#### Scenario: Teardown is opt-in
+- **WHEN** a previously-configured port is removed from desired and prune is not
+  enabled
+- **THEN** the plan does not destroy the corresponding DPNI
+
+#### Scenario: Empty-label container survives the ownership fence
+- **WHEN** the root holds an unlabeled child container (bare restool create) absent from intent
+- **THEN** the ownership fence holds and no plan step targets it, regardless of flags

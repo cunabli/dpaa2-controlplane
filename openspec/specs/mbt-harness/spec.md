@@ -9,7 +9,6 @@ replays frozen ITF traces in `cargo test`, and enforces the port safety
 envelope at generation and execution — so every typestate contract is
 board-confirmed, on a recovery guarantee verified first, before any
 mutating suite runs.
-
 ## Requirements
 ### Requirement: One shared adapter binds model, restool, and observed state
 The `dpaa2-verify` crate SHALL provide a single adapter mapping each
@@ -105,4 +104,25 @@ core as part of `cargo test`, requiring no board.
 - **THEN** the amending change commits a frozen trace reproducing it,
   and the ITF replay rung fails thereafter if the Rust core stops
   conforming to the amended model
+
+### Requirement: Online discovery sessions target containment semantics
+The online driver SHALL run this change's discovery sessions — the roadmap's
+first online-MBT discovery target — against containment/pool semantics on
+scratch containers: the DPRC-I1 pool boundary, teardown liveness (DPRC-I9)
+under reconciler-generated plans, and the restool-reachable remainder of the
+lock face (DPRC-I11). Sessions run under the existing operator-supervised
+safety envelope; a model/board divergence amends the model and
+`docs/baseline/dprc.md` in the same change.
+
+#### Scenario: Pool boundary session
+- **WHEN** a session allocates from a container whose local pool is exhausted while a sibling has surplus
+- **THEN** the observed refusal is local (-ENXIO shape) and the trace confirms allocation never crossed the container boundary (DPRC-I1)
+
+#### Scenario: Divergence feeds back
+- **WHEN** an observed outcome contradicts the model's predicted transition
+- **THEN** the session halts that face, the model and baseline are amended, and the corrected prediction is re-verified before the invariant's disposition advances
+
+#### Scenario: Deferred faces are recorded, not probed
+- **WHEN** a session plan would require the child's own portal (I11 unlock face, OBJ_CREATE gate) or the unreachable DPRC-I8 batch-scan ordering
+- **THEN** the portal faces are emitted as deferral rows pointing at tile #10 and DPRC-I8 at `pool-objects` (#6) — earliest reachability wins (review PASS4-F4) — and no probe is attempted
 

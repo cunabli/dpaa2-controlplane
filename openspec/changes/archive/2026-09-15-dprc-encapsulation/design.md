@@ -34,8 +34,10 @@ population, board fully in scope with scratch-first suites.
   precursor was considered and explicitly dropped in scoping.
 - Companion population/sizing (tile #6), dpni option surface (tile #5),
   cross-DPRC links (tile #9), DPL pinning of icid/portal ids (tile #14).
-- Probing restool-unreachable faces: child-portal unlock (DPRC-I11),
-  OBJ_CREATE_ALLOWED gate, DPRC-I8 batch ordering — deferral rows to #10.
+- Probing restool-unreachable faces: child-portal unlock (DPRC-I11) and the
+  OBJ_CREATE_ALLOWED gate — deferral rows to #10; DPRC-I8 batch ordering — a
+  deferral row to `pool-objects` (#6), where a DPL-defined child first reaches
+  pool machinery (earliest reachability wins, review PASS4-F4).
 
 ## Decisions
 

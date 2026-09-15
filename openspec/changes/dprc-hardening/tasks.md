@@ -1,6 +1,6 @@
 ## 1. Archive gate (docs on the reviewed change)
 
-- [ ] 1.1 Amend dprc-encapsulation in place before its archive: reconciler delta gains a `## MODIFIED Requirements` block restating the ownership fence with the container carve-out (M3/PASS4-F1); formal-models delta states the Apalache-vs-simulate split (M4/PASS4-F3, tasks.md 1.2 wording included); all DPRC-I8 pointers repointed to `pool-objects` (#6) per design D2 (M5/PASS4-F4: proposal, design, tasks, specs/mbt-harness, specs/mc-backend); V-DPDBG-2 task row added to §6 per design D3 (PASS4-F6); reviewed-change proposal Impact corrected `dpaa2-config` → `dpaa2-api`, tools surface honest (PASS4-F7). Then `/opsx:archive dprc-encapsulation` runs clean, review directory included (bead dpaa2-controlplane-am0.1)
+- [x] 1.1 Amend dprc-encapsulation in place before its archive: reconciler delta gains a `## MODIFIED Requirements` block restating the ownership fence with the container carve-out (M3/PASS4-F1); formal-models delta states the Apalache-vs-simulate split (M4/PASS4-F3, tasks.md 1.2 wording included); all DPRC-I8 pointers repointed to `pool-objects` (#6) per design D2 (M5/PASS4-F4: proposal, design, tasks, specs/mbt-harness, specs/mc-backend); V-DPDBG-2 task row added to §6 per design D3 (PASS4-F6); reviewed-change proposal Impact corrected `dpaa2-config` → `dpaa2-api`, tools surface honest (PASS4-F7). Then `/opsx:archive dprc-encapsulation` runs clean, review directory included (bead dpaa2-controlplane-am0.1)
 
 ## 2. Board sitting (operator-launched, blocks nothing)
 

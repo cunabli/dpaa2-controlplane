@@ -9,8 +9,11 @@ as guarded transitions: the per-option-bit permission matrix with its three
 distinct refusal statuses, the eviction law (ADR-0007 §3), the visibility law
 (DPRC-I6), and the plugged-move precondition (DPRC-I3). Invariants DPRC-I1,
 I5, I7, I9, I10 and the remaining face of I11 SHALL have named, simulate-green
-properties, with Apalache marks per the DoD model gate, and COVERAGE.md
-dispositions updated.
+properties, and COVERAGE.md dispositions updated. Apalache marks cover only the
+state-expressible subset — DPRC-I10 and DPRC-I12, carried in the `stateInvariants`
+conjunction; DPRC-I1, I5, I7, I9 and the I11 remainder are action-guard, liveness
+or Breaking-absence properties carried as directed simulate-only runs (review
+PASS4-F3, matching the `dprc.qnt` header split and COVERAGE.md dispositions).
 
 #### Scenario: Model gate green before Rust
 - **WHEN** the model changes land

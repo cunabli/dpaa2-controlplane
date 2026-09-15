@@ -22,8 +22,9 @@ refusal shapes preserved) and surfacing restool's own client-side refusals
 child DPRC — `driver_override` write, bind, unbind — and SHALL expose the
 observed propagation of the override to subsequently-added children of a bound
 container. Restool-unreachable portal faces (child-portal unlock, the
-OBJ_CREATE_ALLOWED gate, DPRC-I8 batch ordering) are explicitly out of scope,
-deferred to tile #10.
+OBJ_CREATE_ALLOWED gate) are explicitly out of scope, deferred to tile #10;
+DPRC-I8 batch ordering defers to `pool-objects` (#6), where a DPL-defined child
+first reaches pool machinery — earliest reachability wins (review PASS4-F4).
 
 #### Scenario: Bind a scratch child to VFIO
 - **WHEN** KernelControl sets `driver_override` to vfio-fsl-mc on a plugged scratch child and binds it

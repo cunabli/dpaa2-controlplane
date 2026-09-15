@@ -1,7 +1,7 @@
 ## 1. Model gate (Quint first)
 
 - [x] 1.1 Extend `models/families/dprc.qnt` with the container lifecycle sum (Declared → Created/unplugged → Populated → Plugged|Locked → Emptied → Destroyed, VFIO bind state on the plugged face) and the guarded transitions: permission matrix with distinct refusal statuses (0x6/0x8/0x4), eviction law (ADR-0007 §3), visibility law (DPRC-I6), plugged-move precondition (DPRC-I3); typecheck + simulate green
-- [x] 1.2 Name and mark the invariants (DPRC-I1, I5, I7, I9, I10, restool-reachable remainder of I11) with Apalache marks; update `models/COVERAGE.md` dispositions; record deferral rows for the portal faces (I8, I11 unlock face, OBJ_CREATE gate → tile #10); resolve design open question on label-under-lock repairability in the model
+- [x] 1.2 Name and mark the invariants (DPRC-I1, I5, I7, I9, I10, restool-reachable remainder of I11) with Apalache marks; update `models/COVERAGE.md` dispositions; record deferral rows for the portal faces (I11 unlock face, OBJ_CREATE gate → tile #10; I8 batch-scan ordering → `pool-objects` (#6), earliest reachability, review PASS4-F4); resolve design open question on label-under-lock repairability in the model
 - [x] 1.3 Spec/design delta for undeclared-consumer prune: fingerprint ownership rule, full+partial prune under `--prune` + `--allow disruptive`, report-only fence, re-observation verdicts (bead dpaa2-controlplane-cd3.15; closes the task 2.2/4.2 dispatch seam found at 5.3 authoring)
 - [x] 1.4 Model: DPRC-I12 prune traceability — `createdByUs` ghost bit, bucket invariant, voiding-verb enumeration; escapes fold back into the 1.3 artifacts (bead dpaa2-controlplane-cd3.16)
 
@@ -32,4 +32,5 @@
 
 ## 6. Docs and close-out
 
-- [x] 6.1 Baseline amendments from 5.x outcomes; ADR for any decision that solidified or died on the board; roadmap row #4 status; deferral rows verified present and pointing at #10; CHANGELOG via cliff; full quality floor (`cargo build | fmt | clippy | clippy --tests | doc | test`) green
+- [x] 6.1 Baseline amendments from 5.x outcomes; ADR for any decision that solidified or died on the board; roadmap row #4 status; deferral rows verified present and pointing at their target tiles (I11 unlock face + OBJ_CREATE gate → #10, DPRC-I8 → `pool-objects` #6, review PASS4-F4); CHANGELOG via cliff; full quality floor (`cargo build | fmt | clippy | clippy --tests | doc | test`) green
+- [x] 6.2 V-DPDBG-2 dpdbg sysfs-face sitting (opportunistic ride-along on the 6.1 board window, bead dpaa2-controlplane-cd3.14, commits 1eefc75/1051e71): advances DPDBG-I4's sysfs face — bus node present at create via root autorescan, driver-less both unplugged and plugged, absent after destroy — recorded here so the `models/COVERAGE.md` DPDBG-I4 attribution to this change has a task anchor (review PASS4-F6)

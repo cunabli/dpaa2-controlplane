@@ -39,9 +39,11 @@ restool) stands on this one.
   containment/pool semantics (DPRC-I1 pool-boundary, lock-face completion of
   DPRC-I11, teardown liveness DPRC-I9 under the reconciler).
 - Everything stays behind the restool shim. The restool-unreachable faces —
-  child-portal unlock (DPRC-I11), the `OBJ_CREATE_ALLOWED` gate, batch
-  plug→probe ordering (DPRC-I8) — are recorded as explicit deferrals to tile
-  #10; no ioctl/portal work lands here. The sans-io split is deliberately
+  child-portal unlock (DPRC-I11) and the `OBJ_CREATE_ALLOWED` gate — are
+  recorded as explicit deferrals to tile #10, and batch plug→probe ordering
+  (DPRC-I8) to `pool-objects` (#6) — earliest reachability wins, a DPL-defined
+  child arrives with pool machinery there (review PASS4-F4); no ioctl/portal
+  work lands here. The sans-io split is deliberately
   emphasized so the pure reconcile core (ITF-replayable off-board) carries as
   much of the change as possible, pre-shaping tiles #5–8.
 
@@ -75,10 +77,12 @@ None — the change lands entirely as deltas to existing capabilities.
 
 ## Impact
 
-- Crates: `dpaa2-api` (typestates, pure reconcile, plan guards), `dpaa2-mc`
-  (restool dprc verbs, VFIO kernel control), `dpaa2-config` (consumer→container
-  derivation), `dpaa2-verify` (discovery sessions, frozen traces),
-  `dpaa2-tools` (convergence path exercised, minor surface).
+- Crates: `dpaa2-api` (typestates, pure reconcile, plan guards,
+  consumer→container derivation — `dpaa2-config` is untouched, review PASS4-F7),
+  `dpaa2-mc` (restool dprc verbs, VFIO kernel control), `dpaa2-verify`
+  (discovery sessions, frozen traces), `dpaa2-tools` (convergence path plus the
+  `--prune` container-teardown surface: prune report, dispatch pass, renderer,
+  and snapshots — not a minor surface).
 - Models: `models/families/dprc.qnt`, `models/COVERAGE.md`, board suite index.
 - Docs: `docs/baseline/dprc.md` amendments for anything the board settles or
   refutes; ADR for decisions that solidify (per DoD gate 5); roadmap row #4

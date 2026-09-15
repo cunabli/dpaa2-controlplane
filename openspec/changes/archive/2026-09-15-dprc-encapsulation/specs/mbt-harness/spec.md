@@ -20,5 +20,5 @@ safety envelope; a model/board divergence amends the model and
 - **THEN** the session halts that face, the model and baseline are amended, and the corrected prediction is re-verified before the invariant's disposition advances
 
 #### Scenario: Deferred faces are recorded, not probed
-- **WHEN** a session plan would require the child's own portal (I11 unlock face, OBJ_CREATE gate, DPRC-I8)
-- **THEN** the face is emitted as a deferral row pointing at tile #10 and no probe is attempted
+- **WHEN** a session plan would require the child's own portal (I11 unlock face, OBJ_CREATE gate) or the unreachable DPRC-I8 batch-scan ordering
+- **THEN** the portal faces are emitted as deferral rows pointing at tile #10 and DPRC-I8 at `pool-objects` (#6) — earliest reachability wins (review PASS4-F4) — and no probe is attempted
