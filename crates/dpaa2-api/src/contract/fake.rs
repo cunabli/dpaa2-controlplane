@@ -21,8 +21,8 @@ use crate::core::model::{
     DpmacId, DpniId, DprcId, LinkType, MacAddr, ObjectRef, ObservedDpmac, ObservedDpni,
     ObservedTopology,
 };
-use crate::dprc::ContainerState;
 use crate::dprc_plan::ObservedContainer;
+use crate::families::dprc::ContainerState;
 
 /// The netdev name the fake assigns a DPNI once its PHY-backed link is up.
 fn netdev_name(id: DpniId) -> String {
@@ -328,7 +328,7 @@ impl McControl for FakeBackend {
     fn dprc_create(
         &self,
         parent: DprcId,
-        options: crate::dprc::Options,
+        options: crate::families::dprc::Options,
         label: &crate::core::types::ConstructName,
     ) -> Result<DprcId, Error> {
         let mut st = self.state.borrow_mut();

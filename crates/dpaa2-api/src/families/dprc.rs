@@ -1,6 +1,9 @@
 //! The child-DPRC container lifecycle as compile-time typestates — the Rust twin
 //! of the Quint lifecycle sum (`models/families/dprc.qnt` module `dprc_lifecycle`).
 //!
+//! Filed under `families/` as the per-family vocabulary tile whose `families/dprc.rs`
+//! path mirrors that `models/families/dprc.qnt` quint twin one-to-one (ADR-0018).
+//!
 //! Authored model-first (quint-is-the-spec): the sums, payloads and phase set here
 //! are structurally isomorphic to the Quint sum, and the ADR-0002 §3 law binds them
 //! — same cases, same payloads, same guard semantics; names converge on readable
@@ -914,7 +917,7 @@ impl Container<Populated> {
     /// no assign-class method exists, so the following does not compile.
     ///
     /// ```compile_fail
-    /// use dpaa2_api::dprc::{Container, Options, ResidentId, ResidentStep};
+    /// use dpaa2_api::families::dprc::{Container, Options, ResidentId, ResidentStep};
     /// let created = Container::declare().create(Options::DEFAULT);
     /// let populated = match created.create_resident(ResidentId::new(1)) {
     ///     ResidentStep::Placed(c) => c,

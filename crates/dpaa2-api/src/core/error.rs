@@ -24,7 +24,7 @@ pub enum Error {
     /// An MC firmware command was refused with a non-OK status. Carries the raw MC
     /// status byte for the core to judge — the adapter reports it, it does not classify
     /// (design D4). The status→cause mapping lives once, core-side, in
-    /// [`dprc::Refusal::mc_status`](crate::dprc::Refusal::mc_status) and
+    /// [`dprc::Refusal::mc_status`](crate::families::dprc::Refusal::mc_status) and
     /// [`dprc_plan::attribute_mc`](crate::dprc_plan::attribute_mc).
     #[error("MC command refused with status {status:#04x}")]
     McStatus {

@@ -16,8 +16,8 @@ pub mod compiled;
 pub mod contract;
 pub mod core;
 mod derive;
-pub mod dprc;
 pub mod dprc_plan;
+pub mod families;
 pub mod intent;
 pub mod matcher;
 pub mod plan;
@@ -31,7 +31,7 @@ pub use compiled::{
     AttachPoint, Attributes, CompiledPlan, Container, Edge, Interface, Measurement, ObjectKey,
     PlannedObject, ProvenanceKey, ProvenanceNode,
 };
-// The child-DPRC lifecycle keeps its own module namespace (`dpaa2_api::dprc::*`): its
+// The child-DPRC lifecycle keeps its own module namespace (`dpaa2_api::families::dprc::*`): its
 // containment `Refusal` is a distinct vocabulary from the intent-compile
 // [`refuse::Refusal`] (design D4), so the two are deliberately not flattened into one
 // crate-root namespace where they would collide.
@@ -49,3 +49,6 @@ pub use reconcile::{ReconcileOptions, reconcile, reconcile_with};
 pub use refuse::{
     Compiled, REFUSAL_VARIANTS, Referrer, Refusal, WARNING_VARIANTS, Warning, compile,
 };
+
+/// Temporary flat alias; retires when the yfg.3 importer commits land (ADR-0018).
+pub use self::families::dprc;

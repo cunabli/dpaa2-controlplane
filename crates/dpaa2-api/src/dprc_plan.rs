@@ -1,7 +1,7 @@
 //! Plan semantics for the child-DPRC lifecycle — the pure functions that PREDICT
 //! containment outcomes rather than discover them (design D2/D4; ADR-0007 §3; DPRC-I6).
 //!
-//! This layers on the [`crate::dprc`] typestates (task 2.1): the phase sum and its
+//! This layers on the [`crate::families::dprc`] typestates (2026-09-15-dprc-encapsulation task 2.1): the phase sum and its
 //! guards decide what a plan may emit, and the eviction law computes a teardown's
 //! post-state before any MC command runs. It reuses the port reconciler's disruption
 //! [`Class`] and mirrors the [`crate::plan::Plan`] idioms (`is_converged`, `headline`),
@@ -16,7 +16,7 @@
 //!   plugged or locked face, and [`plan_population`] orders every resident step before
 //!   [`ContainerStep::PlugContainer`]. The type-level witness that plug-then-assign
 //!   cannot even be written is the `compile_fail` doctest on
-//!   [`crate::dprc::Container::plug`] (task 2.1); this module carries the runtime plan
+//!   [`crate::families::dprc::Container::plug`] (2026-09-15-dprc-encapsulation task 2.1); this module carries the runtime plan
 //!   half (F3/F4: a plugged face is *absent* at the type level and *not emitted* at the
 //!   plan level; a locked face is *enabled-but-refusing* at the type level and likewise
 //!   *not emitted* at the plan level).
@@ -27,7 +27,7 @@
 //!   MC destroy on all-residents-unplugged (F-ebusy) and predicts the post-state —
 //!   created residents released, assigned-in residents evicted unplugged into the
 //!   parent — via [`predict_eviction`], the twin of `dprc.qnt` `evictInto` /
-//!   [`crate::dprc`]'s private `evict_into`.
+//!   [`crate::families::dprc`]'s private `evict_into`.
 //! - **Convergence by re-observation only** (DPRC-I6; `docs/baseline/dprc.md`
 //!   "Silent-failure notes": a `sync` after mutating a child refreshes nothing):
 //!   [`verdict`] judges an [`ObservedContainer`] freshly re-queried from the MC, never a
@@ -46,7 +46,7 @@ use crate::core::error::Error;
 use crate::core::family::Permission;
 use crate::core::model::{DprcId, ObjectRef};
 use crate::core::types::{ConstructName, TenantName};
-use crate::dprc::{
+use crate::families::dprc::{
     ContainerState, ObservedResident, Options, Refusal, Resident, ResidentId, ResidentKind,
 };
 use crate::plan::Class;
@@ -56,7 +56,7 @@ use crate::plan::Class;
 ///
 /// Bridges the two twin representations of the same mask: the derivation carries a
 /// [`BTreeSet<Permission>`] (`{Spawn, Alloc, ObjCreate, IrqCfg}` by default), while the
-/// lifecycle model ([`crate::dprc::Options`], `dprc.qnt` `type Options`) tracks the four
+/// lifecycle model ([`crate::families::dprc::Options`], `dprc.qnt` `type Options`) tracks the four
 /// *refusal-gating* bits `{spawn, alloc, obj_create, topology_changes}`. `IrqCfg` gates
 /// no containment refusal and has no lifecycle field, so it is dropped; `TopologyChanges`
 /// is absent from the child default (DPRC-I4), leaving [`Options::DEFAULT`].
@@ -178,7 +178,7 @@ pub enum Attribution {
     /// (F4), so the plan declines to emit it — no MC command is issued.
     FaceNotAssignable,
     /// A destroy bounced `-EBUSY` (MC `0x10`) because a resident is still plugged — the
-    /// plan-layer twin of the typestate [`crate::dprc::Teardown::ResidentPlugged`],
+    /// plan-layer twin of the typestate [`crate::families::dprc::Teardown::ResidentPlugged`],
     /// outside the 0x4/0x6/0x8 matrix (review M1; `docs/baseline/dprc.md` DPRC-I2).
     ResidentPlugged,
     /// restool rejected the operation with its own client-side guard, before the MC
@@ -263,7 +263,7 @@ pub struct PredictedPostState {
 }
 
 /// Predicts the eviction law over `residents` for a teardown reaching `final_state`
-/// (ADR-0007 §3; `dprc.qnt` `evictInto`, the twin of [`crate::dprc`]'s private
+/// (ADR-0007 §3; `dprc.qnt` `evictInto`, the twin of [`crate::families::dprc`]'s private
 /// `evict_into`, F-evict): [`ResidentKind::CreatedIn`] residents are released with the
 /// container (absent afterwards), [`ResidentKind::AssignedIn`] residents move one hop up
 /// into the parent, **unplugged** — the plug bit cleared so the parent never tracks a
@@ -421,7 +421,7 @@ impl ContainerPlan {
 /// (`dprc.qnt`: `plugContainer` needs the [`ContainerState::Populated`] face). The
 /// assign-before-plug ordering is by construction — no resident step follows the plug —
 /// which is the plan half of "plug-then-assign is unrepresentable"; the type half is the
-/// `compile_fail` witness on [`crate::dprc::Container::plug`].
+/// `compile_fail` witness on [`crate::families::dprc::Container::plug`].
 ///
 /// A [`ResidentKind::CreatedIn`] resident under a mask lacking `ALLOC_ALLOWED` is
 /// recorded as a predicted [`Attribution::PermissionGap`] gap and its step skipped
@@ -515,7 +515,7 @@ pub struct ObservedContainer {
     pub placement: Placement,
     /// The residents observed in the container, keyed by family-qualified [`ObjectRef`]
     /// so two same-ordinal residents of different families (e.g. `dpbp.0` and `dpmcp.0`)
-    /// both count — the [`crate::dprc::Container`] model twin keeps its [`ResidentId`] key
+    /// both count — the [`crate::families::dprc::Container`] model twin keeps its [`ResidentId`] key
     /// untouched (review M1; PASS3-F14; ADR-0014). Each carries [`ObservedResident`], whose
     /// origin is `None` when unobservable (review M2, PASS3-F2).
     pub residents: BTreeMap<ObjectRef, ObservedResident>,
@@ -924,7 +924,7 @@ mod tests {
     //! tests, plus the parity of [`predict_eviction`] with the task-2.1 typestate.
 
     use super::*;
-    use crate::dprc::{Container, Parent, Teardown, VfioBind};
+    use crate::families::dprc::{Container, Parent, Teardown, VfioBind};
     use crate::intent::{Dataplane, Isolation, Tenant};
 
     /// An observed resident with a known origin — the observation type the census and
@@ -1130,12 +1130,15 @@ mod tests {
             Refusal::AllocViolation,
             Refusal::TopologyLockGate,
         ];
-        for (refusal, name) in vocabulary.iter().zip(crate::dprc::REFUSAL_VARIANTS) {
+        for (refusal, name) in vocabulary
+            .iter()
+            .zip(crate::families::dprc::REFUSAL_VARIANTS)
+        {
             assert_eq!(refusal.name(), name);
             let _: Attribution = attribute_mc(*refusal, Options::DEFAULT, Verb::Connect);
         }
         assert_eq!(
-            crate::dprc::REFUSAL_VARIANTS,
+            crate::families::dprc::REFUSAL_VARIANTS,
             ["SpawnViolation", "AllocViolation", "TopologyLockGate"]
         );
     }
@@ -1257,10 +1260,11 @@ mod tests {
 
         // Drive the same residents through the real typestate destroy.
         let c = Container::declare().create(Options::DEFAULT);
-        let crate::dprc::ResidentStep::Placed(c) = c.create_resident(ResidentId::new(1)) else {
+        let crate::families::dprc::ResidentStep::Placed(c) = c.create_resident(ResidentId::new(1))
+        else {
             panic!("resident 1 placed");
         };
-        let crate::dprc::ResidentStep::Placed(c) = c.assign_in(ResidentId::new(2)) else {
+        let crate::families::dprc::ResidentStep::Placed(c) = c.assign_in(ResidentId::new(2)) else {
             panic!("resident 2 assigned in");
         };
         let mut parent = Parent::new();

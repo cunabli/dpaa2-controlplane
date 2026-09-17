@@ -25,15 +25,15 @@ pub trait KernelControl {
     // "Kernel-defined semantics"; design D3/D6). The driver has no match table, so
     // binding is `driver_override` write + `bind`; unbind + a cleared override restore
     // `fsl_mc_dprc` eligibility. This face OBSERVES and ACTUATES the kernel bus; it
-    // never advances the [`dprc::Container`](crate::dprc::Container) lifecycle phase — a
+    // never advances the [`dprc::Container`](crate::families::dprc::Container) lifecycle phase — a
     // Linux bus event maps to no MC transition (DPRC-I7), and the plugged-face
     // [`dprc::VfioBind`] the model carries is derived from these observations by the
     // core, not written by the adapter (adapters report, never judge — design D4/D5).
     // The observation verbs report raw sysfs facts (bound-driver name, override value,
-    // IOMMU-group id); [`dprc::VfioBind::classify`](crate::dprc::VfioBind::classify)
+    // IOMMU-group id); [`dprc::VfioBind::classify`](crate::families::dprc::VfioBind::classify)
     // does the judging.
 
-    /// Writes [`dprc::VFIO_FSL_MC_DRIVER`](crate::dprc::VFIO_FSL_MC_DRIVER) to the child
+    /// Writes [`dprc::VFIO_FSL_MC_DRIVER`](crate::families::dprc::VFIO_FSL_MC_DRIVER) to the child
     /// DPRC's `driver_override` — the first half of the bind (no match table, so the
     /// override is the only path). Idempotent: rewriting the same value is a no-op at
     /// the kernel.
@@ -52,7 +52,7 @@ pub trait KernelControl {
     fn vfio_bind(&self, dprc: DprcId) -> Result<(), Error>;
 
     /// Unbinds the child DPRC from `vfio-fsl-mc` and clears its `driver_override`,
-    /// restoring eligibility for [`dprc::FSL_MC_DPRC_DRIVER`](crate::dprc::FSL_MC_DPRC_DRIVER)
+    /// restoring eligibility for [`dprc::FSL_MC_DPRC_DRIVER`](crate::families::dprc::FSL_MC_DPRC_DRIVER)
     /// — the unbind scenario's whole contract (the cleared override is what re-opens the
     /// default driver). The MC object and its residents survive untouched (DPRC-I7).
     ///
@@ -62,7 +62,7 @@ pub trait KernelControl {
 
     /// Observes the child DPRC's bound driver name — what the sysfs `driver` link
     /// reports, or `None` when it has no driver. A raw report: the caller maps it to a
-    /// bind state with [`dprc::VfioBind::classify`](crate::dprc::VfioBind::classify)
+    /// bind state with [`dprc::VfioBind::classify`](crate::families::dprc::VfioBind::classify)
     /// (adapters report, never judge — design D5).
     ///
     /// # Errors
