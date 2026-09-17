@@ -49,6 +49,3 @@ pub use reconcile::{ReconcileOptions, reconcile, reconcile_with};
 pub use refuse::{
     Compiled, REFUSAL_VARIANTS, Referrer, Refusal, WARNING_VARIANTS, Warning, compile,
 };
-
-/// Temporary flat alias; retires when the yfg.3 importer commits land (ADR-0018).
-pub use self::families::dprc;
