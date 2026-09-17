@@ -17,7 +17,8 @@ use dpaa2_api::core::model::{
     DpmacId, DpniId, DprcId, ObjectRef, ObservedDpmac, ObservedDpni, ObservedTopology,
 };
 use dpaa2_api::core::types::ConstructName;
-use dpaa2_api::{Container, dprc, dprc_plan};
+use dpaa2_api::families::dprc;
+use dpaa2_api::{Container, dprc_plan};
 
 use crate::parse;
 use crate::runner::{RestoolRunner, Runner};

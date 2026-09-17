@@ -9,7 +9,7 @@ use std::collections::BTreeMap;
 use dpaa2_api::core::family::{ALL_FAMILIES, Family};
 use dpaa2_api::core::inventory::{DpmacLinkType, EthInterface};
 use dpaa2_api::core::model::{DpmacId, DpniId, DprcId, LinkType, MacAddr};
-use dpaa2_api::dprc;
+use dpaa2_api::families::dprc;
 
 /// Strips `prefix` from `tok` and parses the remainder as the numeric index behind
 /// an id type, e.g. `parse_indexed::<DpmacId>("dpmac.7", "dpmac.")`.

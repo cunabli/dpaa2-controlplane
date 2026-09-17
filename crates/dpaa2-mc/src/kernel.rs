@@ -12,7 +12,7 @@ use std::path::PathBuf;
 use dpaa2_api::contract::KernelControl;
 use dpaa2_api::core::error::Error;
 use dpaa2_api::core::model::{DpniId, DprcId};
-use dpaa2_api::dprc;
+use dpaa2_api::families::dprc;
 use dpaa2_hal::FslMcSysfs;
 
 /// Reads DPAA2 netdev state from sysfs under a given root container.
@@ -116,7 +116,7 @@ impl KernelControl for SysfsKernel {
 
 #[cfg(test)]
 mod tests {
-    use dpaa2_api::dprc::{VFIO_FSL_MC_DRIVER, VfioBind};
+    use dpaa2_api::families::dprc::{VFIO_FSL_MC_DRIVER, VfioBind};
 
     use super::*;
 
