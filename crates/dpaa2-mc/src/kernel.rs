@@ -9,7 +9,10 @@
 
 use std::path::PathBuf;
 
-use dpaa2_api::{DpniId, DprcId, Error, KernelControl, dprc};
+use dpaa2_api::contract::KernelControl;
+use dpaa2_api::core::error::Error;
+use dpaa2_api::core::model::{DpniId, DprcId};
+use dpaa2_api::dprc;
 use dpaa2_hal::FslMcSysfs;
 
 /// Reads DPAA2 netdev state from sysfs under a given root container.

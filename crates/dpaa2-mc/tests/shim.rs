@@ -5,7 +5,9 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 
-use dpaa2_api::{ConstructName, DpmacId, DpniId, LinkType, MacAddr, McControl};
+use dpaa2_api::contract::McControl;
+use dpaa2_api::core::model::{DpmacId, DpniId, LinkType, MacAddr};
+use dpaa2_api::core::types::ConstructName;
 use dpaa2_mc::RestoolMc;
 use dpaa2_mc::parse::{parse_dpmac_info, parse_dpni_info, parse_dpni_object_id, parse_dprc_show};
 use dpaa2_mc::runner::Runner;
@@ -82,7 +84,7 @@ impl RecordingRunner {
 }
 
 impl Runner for RecordingRunner {
-    fn run(&self, args: &[&str]) -> Result<String, dpaa2_api::Error> {
+    fn run(&self, args: &[&str]) -> Result<String, dpaa2_api::core::error::Error> {
         self.calls
             .borrow_mut()
             .push(args.iter().map(|s| (*s).to_owned()).collect());
@@ -183,7 +185,7 @@ fn create_rolls_back_deps_when_dpni_create_fails() {
     let err = mc
         .create_dpni(&ConstructName::from("wan0"), 0)
         .expect_err("dpni create fails");
-    assert!(matches!(err, dpaa2_api::Error::Backend(_)));
+    assert!(matches!(err, dpaa2_api::core::error::Error::Backend(_)));
 
     let calls = mc.runner_calls();
     // The failed attempt's private deps are torn down, in reverse creation order,
@@ -314,12 +316,14 @@ impl FailingRunner {
 }
 
 impl Runner for FailingRunner {
-    fn run(&self, args: &[&str]) -> Result<String, dpaa2_api::Error> {
+    fn run(&self, args: &[&str]) -> Result<String, dpaa2_api::core::error::Error> {
         let out = self.inner.run(args)?;
         if args.first().copied() == Some(self.fail_on.0)
             && args.get(1).copied() == Some(self.fail_on.1)
         {
-            return Err(dpaa2_api::Error::Backend("injected failure".to_owned()));
+            return Err(dpaa2_api::core::error::Error::Backend(
+                "injected failure".to_owned(),
+            ));
         }
         Ok(out)
     }

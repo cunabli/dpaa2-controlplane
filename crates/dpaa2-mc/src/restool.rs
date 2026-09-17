@@ -9,11 +9,15 @@
 
 use std::collections::BTreeMap;
 
-use dpaa2_api::{
-    Availability, Ceiling, ConstructName, Container, DERIVED_FAMILIES, DpmacId, DpmacOffer, DpniId,
-    DprcId, Error, Family, Inventory, McControl, ObjectRef, ObservedDpmac, ObservedDpni,
-    ObservedTopology, dprc, dprc_plan,
+use dpaa2_api::contract::McControl;
+use dpaa2_api::core::error::Error;
+use dpaa2_api::core::family::{DERIVED_FAMILIES, Family};
+use dpaa2_api::core::inventory::{Availability, Ceiling, DpmacOffer, Inventory};
+use dpaa2_api::core::model::{
+    DpmacId, DpniId, DprcId, ObjectRef, ObservedDpmac, ObservedDpni, ObservedTopology,
 };
+use dpaa2_api::core::types::ConstructName;
+use dpaa2_api::{Container, dprc, dprc_plan};
 
 use crate::parse;
 use crate::runner::{RestoolRunner, Runner};
@@ -624,7 +628,7 @@ impl<R: Runner> McControl for RestoolMc<R> {
         self.sync()
     }
 
-    fn set_mac(&self, dpni: DpniId, mac: dpaa2_api::MacAddr) -> Result<(), Error> {
+    fn set_mac(&self, dpni: DpniId, mac: dpaa2_api::core::model::MacAddr) -> Result<(), Error> {
         // MAC actuation uses `dpni update --mac-addr` (as `ls-addni` does). Phase 1
         // defaults to assert mode, so this is reached only when a port opts into
         // actuate; it always runs before the DPNI is plugged, since plugging is now

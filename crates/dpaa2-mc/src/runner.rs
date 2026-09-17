@@ -7,7 +7,7 @@
 
 use std::process::Command;
 
-use dpaa2_api::Error;
+use dpaa2_api::core::error::Error;
 
 /// The full captured result of one `restool` invocation — stdout, stderr, and the
 /// process exit code (`None` when the process was killed by a signal). The refusal
