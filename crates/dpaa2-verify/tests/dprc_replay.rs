@@ -7,7 +7,7 @@
 //! Each trace is a directed run of `models/families/dprc.qnt` `dprc_lifecycle`; the ITF
 //! carries the `world` states but not the action taken between them, so the replayer
 //! infers the transition from the state delta (mirroring the model's action set) and
-//! drives the real [`dpaa2_api::dprc`] typestate through it, asserting the Rust world
+//! drives the real [`dpaa2_api::families::dprc`] typestate through it, asserting the Rust world
 //! equals the frozen next world at every step. A dynamic [`AnyContainer`] wrapper lets
 //! the statically-typed container thread through the trace; every transition is a real
 //! typestate call, so the wrapper weakens no compile-time guarantee — it lives here in
@@ -27,13 +27,13 @@
 
 use std::collections::BTreeSet;
 
-use dpaa2_api::dprc::{
+use dpaa2_api::dprc_plan::{
+    Attribution, OptionBit, PlanOutcome, Verb, attribute_mc, plan_move_out,
+};
+use dpaa2_api::families::dprc::{
     Container, ContainerState, Created, Declared, Destroyed, Emptied, Locked, Options, Outcome,
     Parent, Plugged, Populated, Refusal, ResidentId, ResidentKind, ResidentOp, ResidentStep,
     Teardown, Unlocked, VfioBind,
-};
-use dpaa2_api::dprc_plan::{
-    Attribution, OptionBit, PlanOutcome, Verb, attribute_mc, plan_move_out,
 };
 use dpaa2_verify::intent::dprc_itf::{WorldView, parse_dprc_trace};
 

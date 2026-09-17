@@ -5,7 +5,7 @@
 //! Unlike the intent trace (one state feeding the pure `compile`, `intent_itf.rs`), a
 //! dprc trace is a *stepped machine* run: the `world` var walks a directed sequence of
 //! container states. This reader reduces each frozen state to a `WorldView` built
-//! from the real [`dpaa2_api::dprc`] value types, so `tests/dprc_replay.rs` can drive
+//! from the real [`dpaa2_api::families::dprc`] value types, so `tests/dprc_replay.rs` can drive
 //! the task-2.1 typestate core through the same transitions and assert the Rust world
 //! equals the frozen world at every step. The transition between two states is not
 //! named in the ITF; the replayer infers it from the state delta, mirroring
@@ -15,7 +15,7 @@
 //! Rust variant name verbatim (the ADR-0014 lint-bijection makes them identical
 //! spellings), so the decode is a direct tag match:
 //! - `ContainerState` incl. `Plugged(VfioBind)`, `Outcome`/`Refusal`, `ResidentKind`,
-//!   `VfioBind` ⇒ the [`dpaa2_api::dprc`] enums of the same name;
+//!   `VfioBind` ⇒ the [`dpaa2_api::families::dprc`] enums of the same name;
 //! - `Resident { id, kind, plugged }` ⇒ a `ResidentId`-keyed `Resident` entry;
 //! - `#bigint` strings ⇒ `u32` (`itf::num`).
 
@@ -24,7 +24,7 @@ use std::collections::BTreeMap;
 use serde_json::Value;
 
 use dpaa2_api::core::types::ConstructName;
-use dpaa2_api::dprc::{
+use dpaa2_api::families::dprc::{
     ContainerState, Identity, Options, Outcome, Refusal, Resident, ResidentId, ResidentKind,
     VfioBind,
 };
@@ -33,7 +33,7 @@ use crate::itf::{field, num, set_items, tag, text};
 
 /// The comparable projection of one frozen `world` state (`dprc.qnt` `type World`):
 /// the child container plus the parent's residents and the recorded outcome. Built
-/// from the real [`dpaa2_api::dprc`] types so the replay's `==` against a Rust-driven
+/// from the real [`dpaa2_api::families::dprc`] types so the replay's `==` against a Rust-driven
 /// container is the whole conformance check.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct WorldView {
