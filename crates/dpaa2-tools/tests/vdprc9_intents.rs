@@ -11,10 +11,11 @@
 //! container-only, no residents, no dpnis; intent-b is declared-empty and
 //! derives nothing, the prune leg's operand.
 
+use dpaa2_api::core::family::Family;
 use dpaa2_api::dprc::Options;
 use dpaa2_api::dprc_plan::{ContainerStep, derive_consumer_containers, plan_consumer_container};
 use dpaa2_api::testkit::ref_inventory;
-use dpaa2_api::{Attributes, Container, Family, compile};
+use dpaa2_api::{Attributes, Container, compile};
 
 /// Reads and compiles one committed operand from the suite directory.
 fn compile_operand(file: &str) -> dpaa2_api::Compiled {

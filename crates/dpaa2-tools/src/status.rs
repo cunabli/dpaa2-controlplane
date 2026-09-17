@@ -6,9 +6,9 @@
 
 use core::fmt;
 
-use dpaa2_api::{
-    ConstructName, DesiredTopology, DpmacId, Lifecycle, ObservedTopology, Plan, reconcile,
-};
+use dpaa2_api::core::model::{DesiredTopology, DpmacId, Lifecycle, ObservedTopology};
+use dpaa2_api::core::types::ConstructName;
+use dpaa2_api::{Plan, reconcile};
 
 /// The status of one managed port.
 #[derive(Clone, Debug)]
@@ -45,8 +45,10 @@ impl StatusReport {
                 PortStatus {
                     dpmac: p.dpmac,
                     name: p.name.clone(),
-                    lifecycle: matched
-                        .map_or(Lifecycle::Absent, dpaa2_api::ObservedDpni::lifecycle),
+                    lifecycle: matched.map_or(
+                        Lifecycle::Absent,
+                        dpaa2_api::core::model::ObservedDpni::lifecycle,
+                    ),
                     netdev: matched.and_then(|d| d.netdev.clone()),
                 }
             })

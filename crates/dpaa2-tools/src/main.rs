@@ -9,9 +9,10 @@ use std::process::ExitCode;
 use std::time::Duration;
 
 use clap::{Parser, Subcommand, ValueEnum};
+use dpaa2_api::contract::McControl;
+use dpaa2_api::core::error::Error;
 use dpaa2_api::{
-    Class, Compiled, Error, Intent, McControl, ReconcileOptions, compile, kernel_tenant,
-    reconcile_with,
+    Class, Compiled, Intent, ReconcileOptions, compile, kernel_tenant, reconcile_with,
 };
 use dpaa2_mc::{RestoolMc, SysfsKernel};
 use dpaa2_tools::engine::{self, ContainerOutcome, ConvergeConfig, Outcome, PruneOutcome};
@@ -301,7 +302,7 @@ fn ensure(
 /// On refusal it prints every rule with its offending construct and returns `Ok(None)`
 /// so the caller exits non-zero having changed nothing — no reconcile, no link files
 /// (design D9/D10). On success it returns the completed intent beside its [`Compiled`]
-/// plan, from which the caller projects the [`dpaa2_api::DesiredTopology`] the
+/// plan, from which the caller projects the [`dpaa2_api::core::model::DesiredTopology`] the
 /// reconciler drives. Every intent now goes through `compile`; a kernel-owned,
 /// port-only file behaves as before by construction (design D10).
 ///
@@ -348,7 +349,8 @@ fn init_logging() {
 
 #[cfg(test)]
 mod tests {
-    use dpaa2_api::{DpmacId, Intent, MacMode, Port, TenantRef, kernel_tenant};
+    use dpaa2_api::core::model::{DpmacId, MacMode};
+    use dpaa2_api::{Intent, Port, TenantRef, kernel_tenant};
 
     use super::complete_kernel;
 

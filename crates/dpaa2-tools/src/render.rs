@@ -10,10 +10,12 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
 
+use dpaa2_api::core::family::Family;
+use dpaa2_api::core::model::DprcId;
 use dpaa2_api::dprc_plan::{ConsumerConvergence, ContainerVerdict, FingerprintField, PruneItem};
 use dpaa2_api::{
-    AttachPoint, Attributes, CompiledPlan, Container, DprcId, Family, Measurement, ObjectKey, Plan,
-    PlannedObject, ProvenanceKey, Refusal, Warning,
+    AttachPoint, Attributes, CompiledPlan, Container, Measurement, ObjectKey, Plan, PlannedObject,
+    ProvenanceKey, Refusal, Warning,
 };
 
 /// Renders the whole dry-run text: the compiled objects with their provenance trees

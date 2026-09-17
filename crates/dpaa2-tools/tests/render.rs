@@ -4,10 +4,14 @@
 
 use std::collections::BTreeMap;
 
+use dpaa2_api::core::family::Family;
+use dpaa2_api::core::inventory::{
+    Availability, Ceiling, DpmacLinkType, DpmacOffer, EthInterface, Inventory,
+};
+use dpaa2_api::core::model::{DpmacId, MacMode};
 use dpaa2_api::{
-    Availability, Ceiling, Crypto, Dataplane, DpmacId, DpmacLinkType, DpmacOffer, EthInterface,
-    Extra, Family, Intent, Inventory, Isolation, MacMode, Port, ReconcileOptions, Tenant,
-    TenantRef, compile, kernel_tenant, reconcile_with,
+    Crypto, Dataplane, Extra, Intent, Isolation, Port, ReconcileOptions, Tenant, TenantRef,
+    compile, kernel_tenant, reconcile_with,
 };
 use dpaa2_tools::render::{render_dry_run, render_refusals};
 
@@ -111,7 +115,7 @@ fn dry_run_reference() {
     let compiled = compile(&intent, &inventory()).expect("intent must compile");
     let desired = compiled.desired_topology(&intent);
     // Empty board: the dry-run prints the transitions that would build the ports.
-    let observed = dpaa2_api::ObservedTopology {
+    let observed = dpaa2_api::core::model::ObservedTopology {
         dpnis: vec![],
         dpmacs: vec![],
     };
@@ -137,7 +141,7 @@ fn dry_run_crypto_and_warning() {
     };
     let compiled = compile(&intent, &inventory()).expect("intent must compile");
     let desired = compiled.desired_topology(&intent);
-    let observed = dpaa2_api::ObservedTopology {
+    let observed = dpaa2_api::core::model::ObservedTopology {
         dpnis: vec![],
         dpmacs: vec![],
     };

@@ -1,7 +1,7 @@
 //! Tests for `systemd.link` generation (design D3/D4, add-dpaa2-provisioning tasks 6.3/6.4). Files are
 //! written into a scratch dir, not `/run`, so no privileges are needed.
 
-use dpaa2_api::{
+use dpaa2_api::core::model::{
     DesiredPort, DesiredTopology, DpmacId, DpniId, LinkType, MacAddr, ObservedDpmac, ObservedDpni,
     ObservedTopology,
 };

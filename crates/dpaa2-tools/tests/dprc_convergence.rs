@@ -9,15 +9,19 @@
 
 use std::collections::BTreeMap;
 
+use dpaa2_api::contract::McControl;
+use dpaa2_api::contract::fake::FakeBackend;
+use dpaa2_api::core::error::Error;
+use dpaa2_api::core::family::Family;
+use dpaa2_api::core::model::{DpmacId, DprcId, MacMode, ObjectRef};
+use dpaa2_api::core::types::ConstructName;
 use dpaa2_api::dprc::{ContainerState, ObservedResident, Options, ResidentKind};
 use dpaa2_api::dprc_plan::{
     Attribution, ContainerVerdict, ObservedContainer, OptionBit, PruneBucket, plan_prune,
 };
-use dpaa2_api::fake::FakeBackend;
 use dpaa2_api::testkit::ref_inventory;
 use dpaa2_api::{
-    Class, Compiled, ConstructName, Container, Dataplane, DpmacId, DprcId, Error, Family, Intent,
-    Isolation, MacMode, McControl, ObjectRef, Port, Tenant, TenantRef, compile,
+    Class, Compiled, Container, Dataplane, Intent, Isolation, Port, Tenant, TenantRef, compile,
 };
 use dpaa2_tools::engine::{self, ContainerOutcome, ConvergeConfig, PruneOutcome};
 use dpaa2_tools::render;

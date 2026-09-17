@@ -10,8 +10,9 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use dpaa2_api::{
-    DesiredPort, DesiredTopology, Error, LinkType, MacAddr, ObservedTopology, Presence,
+use dpaa2_api::core::error::Error;
+use dpaa2_api::core::model::{
+    DesiredPort, DesiredTopology, LinkType, MacAddr, ObservedTopology, Presence,
 };
 
 /// The default volatile directory `systemd-udevd` reads link config from.

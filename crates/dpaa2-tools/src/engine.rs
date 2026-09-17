@@ -10,6 +10,10 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
+use dpaa2_api::contract::{KernelControl, McControl};
+use dpaa2_api::core::error::Error;
+use dpaa2_api::core::model::{DesiredTopology, DpmacId, DpniId, DprcId, ObservedTopology};
+use dpaa2_api::core::types::ConstructName;
 use dpaa2_api::dprc::Options;
 use dpaa2_api::dprc_plan::{
     Attribution, ConsumerConvergence, ContainerPlan, ContainerStep, ContainerVerdict, PruneBucket,
@@ -17,8 +21,7 @@ use dpaa2_api::dprc_plan::{
     plan_prune,
 };
 use dpaa2_api::{
-    Class, CompiledPlan, ConstructName, Container, DesiredTopology, DpmacId, DpniId, DprcId, Error,
-    KernelControl, McControl, ObservedTopology, Plan, ReconcileOptions, Transition, reconcile_with,
+    Class, CompiledPlan, Container, Plan, ReconcileOptions, Transition, reconcile_with,
 };
 
 /// Policy for a convergence run.
