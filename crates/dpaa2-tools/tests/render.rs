@@ -9,9 +9,9 @@ use dpaa2_api::core::inventory::{
     Availability, Ceiling, DpmacLinkType, DpmacOffer, EthInterface, Inventory,
 };
 use dpaa2_api::core::model::{DpmacId, MacMode};
+use dpaa2_api::plan::reconcile::{ReconcileOptions, reconcile_with};
 use dpaa2_api::{
-    Crypto, Dataplane, Extra, Intent, Isolation, Port, ReconcileOptions, Tenant, TenantRef,
-    compile, kernel_tenant, reconcile_with,
+    Crypto, Dataplane, Extra, Intent, Isolation, Port, Tenant, TenantRef, compile, kernel_tenant,
 };
 use dpaa2_tools::render::{render_dry_run, render_refusals};
 

@@ -8,7 +8,8 @@ use core::fmt;
 
 use dpaa2_api::core::model::{DesiredTopology, DpmacId, Lifecycle, ObservedTopology};
 use dpaa2_api::core::types::ConstructName;
-use dpaa2_api::{Plan, reconcile};
+use dpaa2_api::plan::Plan;
+use dpaa2_api::plan::reconcile::reconcile;
 
 /// The status of one managed port.
 #[derive(Clone, Debug)]

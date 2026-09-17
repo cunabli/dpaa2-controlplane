@@ -11,9 +11,9 @@ use std::time::Duration;
 use clap::{Parser, Subcommand, ValueEnum};
 use dpaa2_api::contract::McControl;
 use dpaa2_api::core::error::Error;
-use dpaa2_api::{
-    Class, Compiled, Intent, ReconcileOptions, compile, kernel_tenant, reconcile_with,
-};
+use dpaa2_api::plan::Class;
+use dpaa2_api::plan::reconcile::{ReconcileOptions, reconcile_with};
+use dpaa2_api::{Compiled, Intent, compile, kernel_tenant};
 use dpaa2_mc::{RestoolMc, SysfsKernel};
 use dpaa2_tools::engine::{self, ContainerOutcome, ConvergeConfig, Outcome, PruneOutcome};
 use dpaa2_tools::{StatusReport, link, render};

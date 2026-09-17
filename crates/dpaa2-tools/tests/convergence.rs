@@ -3,9 +3,9 @@
 
 use std::time::Duration;
 
-use dpaa2_api::Class;
 use dpaa2_api::contract::fake::FakeBackend;
 use dpaa2_api::core::model::{DesiredPort, DesiredTopology, DpmacId, LinkType, MacAddr};
+use dpaa2_api::plan::Class;
 use dpaa2_tools::StatusReport;
 use dpaa2_tools::engine::{self, ConvergeConfig, Outcome};
 

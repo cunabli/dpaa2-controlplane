@@ -15,13 +15,14 @@ use dpaa2_api::core::error::Error;
 use dpaa2_api::core::family::Family;
 use dpaa2_api::core::model::{DpmacId, DprcId, MacMode, ObjectRef};
 use dpaa2_api::core::types::ConstructName;
-use dpaa2_api::dprc_plan::{
+use dpaa2_api::families::dprc::{ContainerState, ObservedResident, Options, ResidentKind};
+use dpaa2_api::plan::Class;
+use dpaa2_api::plan::dprc::{
     Attribution, ContainerVerdict, ObservedContainer, OptionBit, PruneBucket, plan_prune,
 };
-use dpaa2_api::families::dprc::{ContainerState, ObservedResident, Options, ResidentKind};
 use dpaa2_api::testkit::ref_inventory;
 use dpaa2_api::{
-    Class, Compiled, Container, Dataplane, Intent, Isolation, Port, Tenant, TenantRef, compile,
+    Compiled, Container, Dataplane, Intent, Isolation, Port, Tenant, TenantRef, compile,
 };
 use dpaa2_tools::engine::{self, ContainerOutcome, ConvergeConfig, PruneOutcome};
 use dpaa2_tools::render;
@@ -74,7 +75,7 @@ fn consumer_on_empty_board_converges_to_only_the_container_and_reruns_clean() {
     assert_eq!(router.plan.steps.len(), 1, "one create, no companion steps");
     assert_eq!(
         router.verdict,
-        ContainerVerdict::Diverged(vec![dpaa2_api::dprc_plan::Divergence::Missing])
+        ContainerVerdict::Diverged(vec![dpaa2_api::plan::dprc::Divergence::Missing])
     );
 
     // First run: converges the container.

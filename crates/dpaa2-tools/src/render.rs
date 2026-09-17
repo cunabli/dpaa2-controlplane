@@ -12,9 +12,10 @@ use std::fmt::Write as _;
 
 use dpaa2_api::core::family::Family;
 use dpaa2_api::core::model::DprcId;
-use dpaa2_api::dprc_plan::{ConsumerConvergence, ContainerVerdict, FingerprintField, PruneItem};
+use dpaa2_api::plan::Plan;
+use dpaa2_api::plan::dprc::{ConsumerConvergence, ContainerVerdict, FingerprintField, PruneItem};
 use dpaa2_api::{
-    AttachPoint, Attributes, CompiledPlan, Container, Measurement, ObjectKey, Plan, PlannedObject,
+    AttachPoint, Attributes, CompiledPlan, Container, Measurement, ObjectKey, PlannedObject,
     ProvenanceKey, Refusal, Warning,
 };
 
@@ -222,7 +223,7 @@ fn render_verdict(verdict: &ContainerVerdict) -> String {
 /// and `--allow disruptive`, which the header states, so the same text serves the dry-run
 /// (which never dispatches) and the `ensure` report.
 ///
-/// [`PruneBucket`]: dpaa2_api::dprc_plan::PruneBucket
+/// [`PruneBucket`]: dpaa2_api::plan::dprc::PruneBucket
 #[must_use]
 pub fn render_prune(items: &BTreeMap<DprcId, PruneItem>) -> String {
     let candidates = items.values().filter(|i| i.plan.is_some()).count();

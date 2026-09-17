@@ -12,8 +12,8 @@
 //! derives nothing, the prune leg's operand.
 
 use dpaa2_api::core::family::Family;
-use dpaa2_api::dprc_plan::{ContainerStep, derive_consumer_containers, plan_consumer_container};
 use dpaa2_api::families::dprc::Options;
+use dpaa2_api::plan::dprc::{ContainerStep, derive_consumer_containers, plan_consumer_container};
 use dpaa2_api::testkit::ref_inventory;
 use dpaa2_api::{Attributes, Container, compile};
 
