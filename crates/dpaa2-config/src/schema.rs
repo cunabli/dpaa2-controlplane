@@ -1,7 +1,7 @@
 //! The on-disk TOML schema (the intent construct vocabulary, ADR-0013 §2).
 //!
 //! These types exist only to deserialize `topology.toml`; [`crate::parse`] validates
-//! them and converts them into the neutral [`dpaa2_api::Intent`], so no `serde` derive
+//! them and converts them into the neutral [`dpaa2_api::intent::Intent`], so no `serde` derive
 //! ever leaks into the core (topology-config spec; design D10). Every table is
 //! `deny_unknown_fields`, so a mistyped or retired key is rejected by name rather than
 //! silently ignored. Ports are keyed by their stable DPMAC anchor and never by a DPNI

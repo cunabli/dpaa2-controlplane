@@ -1,9 +1,9 @@
 //! TOML parsing, validation, and conversion into the neutral [`Intent`].
 //!
 //! Parses `topology.toml`, validates it, and converts it into the backend-neutral
-//! [`dpaa2_api::Intent`] — the vocabulary an operator states, never a count (design
+//! [`dpaa2_api::intent::Intent`] — the vocabulary an operator states, never a count (design
 //! D1/D10). The frontend validates *intent* only; turning intent plus an inventory
-//! into the object plan is [`dpaa2_api::compile`]'s, not the frontend's. Ports are
+//! into the object plan is [`dpaa2_api::intent::refuse::compile`]'s, not the frontend's. Ports are
 //! keyed by stable DPMAC anchors and a DPNI index is refused, its identity being
 //! derived from the DPMAC edge.
 //!
@@ -20,7 +20,7 @@ use dpaa2_api::core::error::Error;
 use dpaa2_api::core::family::{ALL_FAMILIES, Family};
 use dpaa2_api::core::model::{DpmacId, MacAddr, MacMode};
 use dpaa2_api::core::types::{ConstructName, TenantName};
-use dpaa2_api::{
+use dpaa2_api::intent::{
     Crypto, Dataplane, Extra, Fabric, Intent, Isolation, KERNEL, Link, Member, Port, Switching,
     Tenant, TenantRef,
 };
@@ -674,12 +674,12 @@ mod tests {
     use dpaa2_api::core::family::Family;
     use dpaa2_api::core::model::{DpmacId, MacAddr, MacMode};
     use dpaa2_api::core::types::ConstructName;
-    use dpaa2_api::{Dataplane, Extra, Isolation, Member, Switching};
+    use dpaa2_api::intent::{Dataplane, Extra, Isolation, Member, Switching};
 
     /// The mandatory `[intent]` header, prepended to the construct-only fixtures.
     const HEADER: &str = "[intent]\nschema = 1\n";
 
-    fn parse(body: &str) -> dpaa2_api::Intent {
+    fn parse(body: &str) -> dpaa2_api::intent::Intent {
         parse_str(&format!("{HEADER}{body}")).expect("intent parses")
     }
     fn parse_err(body: &str) -> String {
@@ -1339,7 +1339,7 @@ mod tests {
     #[test]
     fn header_only_document_is_valid_and_empty() {
         let intent = parse_str(HEADER).expect("just the header parses");
-        assert_eq!(intent, dpaa2_api::Intent::default());
+        assert_eq!(intent, dpaa2_api::intent::Intent::default());
     }
 
     #[test]
