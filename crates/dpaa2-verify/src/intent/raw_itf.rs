@@ -41,7 +41,8 @@ use std::fmt::Write as _;
 use serde_json::Value;
 
 use dpaa2_api::core::types::{ConstructName, TenantName};
-use dpaa2_api::{Intent, Referrer};
+use dpaa2_api::intent::Intent;
+use dpaa2_api::intent::refuse::Referrer;
 
 use crate::intent::intent_itf::{cname, intent, list_items, map_items, referrer, tname};
 use crate::itf::{field, int64, set_items, tag, text};

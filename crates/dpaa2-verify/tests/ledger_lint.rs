@@ -147,9 +147,9 @@ fn the_intent_copies_agree() {
         &adr,
         &qnt_stems,
         &toml_stems,
-        &dpaa2_api::REFUSAL_VARIANTS,
+        &dpaa2_api::intent::refuse::REFUSAL_VARIANTS,
         &rust_families,
-        &dpaa2_api::WARNING_VARIANTS,
+        &dpaa2_api::intent::refuse::WARNING_VARIANTS,
         &rust_family_strs,
     );
     assert!(

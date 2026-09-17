@@ -31,9 +31,9 @@
 use std::collections::BTreeSet;
 use std::fmt::Write as _;
 
-use dpaa2_api::Intent;
 use dpaa2_api::core::family::Family;
 use dpaa2_api::core::types::ConstructName;
+use dpaa2_api::intent::Intent;
 use dpaa2_api::plan::matcher::{
     BoardObject, ConfigFacet, MatchObject, MatchVerdict, converge as converge_match, match_board,
 };

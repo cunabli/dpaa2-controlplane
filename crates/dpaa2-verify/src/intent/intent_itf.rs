@@ -46,10 +46,13 @@ use dpaa2_api::core::inventory::{
 };
 use dpaa2_api::core::model::{DpmacId, MacMode};
 use dpaa2_api::core::types::{ConstructName, TenantName};
-use dpaa2_api::{
-    AttachPoint, Attributes, Compiled, Container, Crypto, Dataplane, Extra, Fabric, Intent,
-    Isolation, Link, Measurement, Member, ObjectKey, Port, ProvenanceKey, ProvenanceNode, Referrer,
-    Refusal, Switching, Tenant, TenantRef, Warning, compile,
+use dpaa2_api::intent::compiled::{
+    AttachPoint, Attributes, Container, Measurement, ObjectKey, ProvenanceKey, ProvenanceNode,
+};
+use dpaa2_api::intent::refuse::{Compiled, Referrer, Refusal, Warning, compile};
+use dpaa2_api::intent::{
+    Crypto, Dataplane, Extra, Fabric, Intent, Isolation, Link, Member, Port, Switching, Tenant,
+    TenantRef,
 };
 
 use crate::itf::{family_of_tag, field, int64, num, set_items, tag, text};

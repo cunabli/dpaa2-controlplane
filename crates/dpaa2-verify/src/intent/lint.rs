@@ -439,7 +439,7 @@ fn r13_scenarios(qnt_stems: &[String], toml_stems: &[String], adr_md: &str, out:
 
 /// R14: the Rust domain copies agree with the model. `refuse.qnt`'s
 /// `type Refusal =` and `types.qnt`'s `type Family =` are the truth; the
-/// `dpaa2_api::Refusal` variant list ([`dpaa2_api::REFUSAL_VARIANTS`]) and the
+/// `dpaa2_api::Refusal` variant list ([`dpaa2_api::intent::refuse::REFUSAL_VARIANTS`]) and the
 /// `dpaa2_api::core::family::Family` variant set (from [`dpaa2_api::core::family::Family::variant_name`] over
 /// [`dpaa2_api::core::family::ALL_FAMILIES`]) are the copies (ADR-0014: a Rust enum that
 /// restates the model is a linted copy, tied back here). Refusal names apply the
@@ -449,7 +449,7 @@ fn r13_scenarios(qnt_stems: &[String], toml_stems: &[String], adr_md: &str, out:
 /// (`Refusal::name`, `Family::variant_name`) that will not compile until the
 /// list moves with the enum.
 ///
-/// The warning list ([`dpaa2_api::WARNING_VARIANTS`], tied to the enum by
+/// The warning list ([`dpaa2_api::intent::refuse::WARNING_VARIANTS`], tied to the enum by
 /// `Warning::name`) is checked the same way against `refuse.qnt`'s
 /// `type Warning =`, and the lowercase restool family names (`Family::as_str`
 /// over `ALL_FAMILIES`) against `intent_raw.qnt`'s `FAMILY_NAMES` mapping —
@@ -1059,9 +1059,9 @@ module core_types {
             &refuse,
             &types,
             RAW_QNT,
-            &dpaa2_api::REFUSAL_VARIANTS,
+            &dpaa2_api::intent::refuse::REFUSAL_VARIANTS,
             &families,
-            &dpaa2_api::WARNING_VARIANTS,
+            &dpaa2_api::intent::refuse::WARNING_VARIANTS,
             &family_strs,
             &mut out,
         );
