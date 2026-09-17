@@ -2,7 +2,7 @@
 //!
 //! This crate is the hexagon's centre (design D0): it defines the neutral topology
 //! model, the southbound/northbound trait seams, and the pure
-//! [`reconcile`](reconcile::reconcile) engine. It depends on neither a concrete MC
+//! [`reconcile`](plan::reconcile::reconcile) engine. It depends on neither a concrete MC
 //! backend nor a concrete config format, so the reconciler can be exhaustively
 //! tested against the in-memory `fake` backend with no hardware.
 //!
@@ -39,14 +39,3 @@ pub use intent::{
 pub use refuse::{
     Compiled, REFUSAL_VARIANTS, Referrer, Refusal, WARNING_VARIANTS, Warning, compile,
 };
-
-/// Temporary flat aliases; retire when the yfg.4 importer commits land (ADR-0018).
-pub use self::plan::dprc as dprc_plan;
-pub use self::plan::matcher::{
-    Ambiguity, BoardObject, ConfigFacet, Handle, MatchObject, MatchPair, MatchPlan, MatchVerdict,
-    apply as apply_match, converge as converge_match, converge_class as converge_match_class,
-    match_board, pair_class,
-};
-pub use self::plan::reconcile::{ReconcileOptions, reconcile, reconcile_with};
-pub use self::plan::{AssertMismatch, Class, DriftReport, Plan, Transition};
-pub use self::plan::{matcher, reconcile};
