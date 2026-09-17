@@ -12,10 +12,10 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use dpaa2_verify::adapter::{CreateArgs, parse_mbt_trace};
-use dpaa2_verify::generate::{RecoveryGuarantee, SuiteKind, SuiteSpec, generate};
-use dpaa2_verify::ioctlpolicy::{Whitelist, parse_outside, parse_verbs};
-use dpaa2_verify::safety::{RunClass, TrafficClass};
+use dpaa2_verify::board::adapter::{CreateArgs, parse_mbt_trace};
+use dpaa2_verify::board::generate::{RecoveryGuarantee, SuiteKind, SuiteSpec, generate};
+use dpaa2_verify::board::ioctlpolicy::{Whitelist, parse_outside, parse_verbs};
+use dpaa2_verify::board::safety::{RunClass, TrafficClass};
 
 fn policy_md() -> String {
     let path = format!(
@@ -96,7 +96,7 @@ fn outside_the_whitelist_probes_are_refused() {
     for (cmd, id) in probes {
         assert_eq!(
             wl.check(id),
-            dpaa2_verify::ioctlpolicy::Verdict::Refused,
+            dpaa2_verify::board::ioctlpolicy::Verdict::Refused,
             "{cmd:?} (cmdid {id:#06x}) is on the whitelist, so §3 mislabels it"
         );
     }

@@ -21,7 +21,7 @@
 //!   they are optional, and `parse.rs` defaults them exactly as the accepted-arm
 //!   model `Intent` does.
 //! - the verdict: `ParseOk(Intent)` ⇒ the model `Intent` (parsed with the
-//!   `crate::intent_itf` machinery), `ParseRefused(Set[RawRefusal])` ⇒ the model
+//!   `crate::intent::intent_itf` machinery), `ParseRefused(Set[RawRefusal])` ⇒ the model
 //!   refusal set. `parse.rs` short-circuits with ONE error while the model carries
 //!   the whole set (the `intent_raw.qnt` DEVIATION), so on the refused arm the
 //!   harness asserts the Rust error corresponds to *at least one* refusal in the
@@ -42,10 +42,8 @@ use serde_json::Value;
 
 use dpaa2_api::{ConstructName, Intent, Referrer, TenantName};
 
-use crate::intent_itf::{
-    cname, field, intent, list_items, map_items, referrer, set_items, text, tname,
-};
-use crate::itf::{int64, tag};
+use crate::intent::intent_itf::{cname, intent, list_items, map_items, referrer, tname};
+use crate::itf::{field, int64, set_items, tag, text};
 
 // ---- the raw surface mirror (schema.rs / intent_raw.qnt) ----
 

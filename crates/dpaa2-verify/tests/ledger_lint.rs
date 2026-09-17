@@ -9,11 +9,12 @@
 
 use std::path::{Path, PathBuf};
 
-use dpaa2_verify::ledger::{
-    Coverage, LintInput, intent_lint, lint, parse_baseline_table, parse_coverage, parse_register,
-    parse_roadmap, parse_scenario_ids, parse_suite_ledger,
+use dpaa2_verify::board::ledger::{
+    Coverage, LintInput, lint, parse_baseline_table, parse_coverage, parse_register, parse_roadmap,
+    parse_scenario_ids, parse_suite_ledger,
 };
-use dpaa2_verify::verdict::{Index, parse_index};
+use dpaa2_verify::board::verdict::{Index, parse_index};
+use dpaa2_verify::intent::lint::intent_lint;
 
 /// The repository root, two levels above this crate's manifest.
 fn repo_root() -> PathBuf {

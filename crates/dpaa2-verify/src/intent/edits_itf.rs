@@ -34,8 +34,8 @@ use dpaa2_api::{
     TenantName,
 };
 
-use crate::intent_itf::{cname, field, opt_name, set_items, text};
-use crate::itf::{family_of_tag, int64, num, tag};
+use crate::intent::intent_itf::{cname, opt_name};
+use crate::itf::{family_of_tag, field, int64, num, set_items, tag, text};
 
 /// Which phase a frozen state sits in (`edits.qnt` `phase`): a synced `Perturb` state
 /// (the four laws hold) or a `Converge` state (whose transition to the next `Perturb`

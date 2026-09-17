@@ -20,11 +20,11 @@
 //! confirmation flow, and the transcript are testable with no board; the
 //! CLI wires the real restool/sysfs/stdin implementations.
 
-use crate::adapter::{
+use crate::board::adapter::{
     Binding, Cmd, Drive, ExitEvidence, Expected, Family, MbtTrace, Observed, Probe, StepVerdict,
     drive, expect, readback,
 };
-use crate::safety::{self, RunClass, TrafficClass};
+use crate::board::safety::{self, RunClass, TrafficClass};
 
 /// The operator's answer to a confirmation prompt. Pause is not a
 /// decision — the prompt simply waits until the operator answers.
@@ -209,7 +209,7 @@ pub fn drive_trace(
             return Ok(Outcome::Aborted(i));
         }
 
-        let created = crate::adapter::created_object(&pre, &step.post);
+        let created = crate::board::adapter::created_object(&pre, &step.post);
         let mut exit_ok = true;
         match drive(&step.action, &pre, &names).map_err(|e| format!("step {i}: {e}"))? {
             Drive::Await(why) => {
@@ -220,7 +220,7 @@ pub fn drive_trace(
                 // `per_step` says — the instruction is the step, not a
                 // confirmation of it. Kernel-internal awaits only settle.
                 if let Some(text) =
-                    crate::generate::operator_instruction(&step.action, &step.post, &names)
+                    crate::board::generate::operator_instruction(&step.action, &step.post, &names)
                         .map_err(|e| format!("step {i}: {e}"))?
                 {
                     record.instruction = Some(text.clone());
@@ -278,9 +278,9 @@ pub fn drive_trace(
             let object_name = names
                 .name(e.object)
                 .map_or_else(|_| e.object.to_string(), ToOwned::to_owned);
-            let observed = crate::adapter::observe(&probes, &outputs, &object_name)?;
+            let observed = crate::board::adapter::observe(&probes, &outputs, &object_name)?;
             let verdict =
-                crate::adapter::judge(e, &observed, &names, ExitEvidence { ok: exit_ok })?;
+                crate::board::adapter::judge(e, &observed, &names, ExitEvidence { ok: exit_ok })?;
             diverged = !verdict.pass;
             record.observed = Some(observed);
             record.verdict = Some(verdict);
@@ -357,7 +357,7 @@ impl Presence {
 
 /// A probe step's read-back: whether `object` shows up in `container`
 /// once the command has run. Same `dprc show` observation the trace path
-/// judges presence by ([`crate::adapter::observe`]).
+/// judges presence by ([`crate::board::adapter::observe`]).
 #[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ReadbackSpec {
@@ -392,7 +392,7 @@ pub struct ProbeStep {
     /// The MC status name the command must be refused with (e.g. `No
     /// privilege`). A refusal is nonzero by construction, so it may not
     /// sit beside `exit: zero`, and an instruction step runs no command
-    /// to refuse. Validated against [`crate::mcstatus`] by the parser.
+    /// to refuse. Validated against [`crate::board::mcstatus`] by the parser.
     #[serde(default)]
     pub refusal: Option<String>,
 }
@@ -518,7 +518,7 @@ pub fn parse_probe_plan(json: &str) -> Result<ProbePlan, String> {
             _ => {}
         }
         if let Some(name) = &step.refusal {
-            if crate::mcstatus::by_name(name).is_none() {
+            if crate::board::mcstatus::by_name(name).is_none() {
                 return Err(format!("{at}: refusal {name:?} is not an MC status name"));
             }
             if step.exit == Some(ExitShape::Zero) {
@@ -591,7 +591,7 @@ fn judge_presence(rb: &ReadbackSpec, observed: Option<bool>) -> ProbeVerdict {
 /// step declared. The captured message is the finding, so the detail
 /// quotes both the expected name and what was found.
 fn judge_refusal(expected: &str, output: &str) -> ProbeVerdict {
-    match crate::verdict::mc_status(output) {
+    match crate::board::verdict::mc_status(output) {
         Some(status) => {
             let name = status_name(&status);
             ProbeVerdict {
@@ -724,7 +724,7 @@ pub fn drive_probes(
             if let Some(rb) = &step.readback {
                 let probes = [Probe::Restool(show_argv(&rb.container))];
                 let outputs = [io.restool(&show_argv(&rb.container)).stdout];
-                let observed = crate::adapter::observe(&probes, &outputs, &rb.object)?;
+                let observed = crate::board::adapter::observe(&probes, &outputs, &rb.object)?;
                 let verdict = judge_presence(rb, observed.present);
                 prompt.note(&verdict.detail);
                 diverged |= !verdict.pass;
@@ -749,8 +749,10 @@ pub fn drive_probes(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::adapter::{BindView, MachineView, MbtStep, ModelAction, ObjRef, ObjView, ROOT_DPRC};
-    use crate::safety::TrafficClass;
+    use crate::board::adapter::{
+        BindView, MachineView, MbtStep, ModelAction, ObjRef, ObjView, ROOT_DPRC,
+    };
+    use crate::board::safety::TrafficClass;
 
     const LIFECYCLE: DriveConfig = DriveConfig {
         run: RunClass {
@@ -908,7 +910,7 @@ mod tests {
         MbtTrace {
             init,
             steps: vec![MbtStep {
-                action: crate::adapter::ModelAction::CreateContainer { parent: dprc(1) },
+                action: crate::board::adapter::ModelAction::CreateContainer { parent: dprc(1) },
                 post,
             }],
         }
@@ -1072,7 +1074,7 @@ mod tests {
         let trace = MbtTrace {
             init,
             steps: vec![MbtStep {
-                action: crate::adapter::ModelAction::Unplug { obj: rtc },
+                action: crate::board::adapter::ModelAction::Unplug { obj: rtc },
                 post,
             }],
         };

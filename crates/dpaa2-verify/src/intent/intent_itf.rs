@@ -48,7 +48,7 @@ use dpaa2_api::{
     Warning, compile,
 };
 
-use crate::itf::{family_of_tag, int64, num, tag};
+use crate::itf::{family_of_tag, field, int64, num, set_items, tag, text};
 
 // ---- the comparable projection ----
 
@@ -132,21 +132,7 @@ fn project(r: &Result<Compiled, BTreeSet<Refusal>>) -> Outcome {
     }
 }
 
-// ---- generic ITF shape helpers (atop itf.rs's num/int64/tag) ----
-
-pub(crate) fn field<'a>(v: &'a Value, name: &str) -> Result<&'a Value, String> {
-    let f = &v[name];
-    if f.is_null() {
-        return Err(format!("missing field `{name}` in {v}"));
-    }
-    Ok(f)
-}
-
-pub(crate) fn text(v: &Value) -> Result<String, String> {
-    v.as_str()
-        .ok_or_else(|| format!("not a string: {v}"))
-        .map(str::to_owned)
-}
+// ---- intent-alphabet shape helpers (atop itf.rs's field/text/set_items) ----
 
 /// A JSON string as a [`TenantName`] — the boundary conversion for a name slot the
 /// model spells as a bare `str` but the Rust intent types distinguish.
@@ -185,13 +171,6 @@ fn rename<T: From<String>>(v: &Value) -> Result<Option<T>, String> {
         "RenamedFrom" => Ok(Some(text(&v["value"])?.into())),
         t => Err(format!("unknown rename `{t}`")),
     }
-}
-
-/// The elements of an ITF `#set`.
-pub(crate) fn set_items(v: &Value) -> Result<&Vec<Value>, String> {
-    v["#set"]
-        .as_array()
-        .ok_or_else(|| format!("not a #set: {v}"))
 }
 
 /// The `[key, value]` pairs of an ITF `#map`.

@@ -9,7 +9,7 @@
 //!   each object's sysfs driver link, records the three reference versions
 //!   and the `generate-dpl` topology. It carries the same independent
 //!   total-deny self-check and reference-pair assertion every generated
-//!   suite does (shared with [`crate::generate`]), and names no object
+//!   suite does (shared with [`crate::board::generate`]), and names no object
 //!   literally — every name comes from a loop over the live tree, so the
 //!   script can never reference a total-deny object.
 //! - [`parse`] folds one capture directory into a [`Snapshot`].
@@ -30,7 +30,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::generate::{REF_PAIR_ASSERT, TOTAL_DENY_GREP};
+use crate::board::generate::{REF_PAIR_ASSERT, TOTAL_DENY_GREP};
 
 /// The three stamped reference versions of a capture.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -652,7 +652,7 @@ mod tests {
     fn rendered_script_parses_and_names_no_total_deny_object() {
         let s = render();
         sh_parses(&s);
-        crate::safety::scan_text(&s).expect("the script names no total-deny object");
+        crate::board::safety::scan_text(&s).expect("the script names no total-deny object");
         // The reference-pair assertion comes before any capture.
         let fw = s.find("10.39.0").unwrap();
         let first_query = s.find("restool dprc").unwrap();

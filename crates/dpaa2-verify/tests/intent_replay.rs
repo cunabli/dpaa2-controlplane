@@ -7,7 +7,7 @@
 //! Coverage: one Ok per scenario family and every refused twin, so both arms of
 //! `compile` replay (models/intent/replay.qnt).
 
-use dpaa2_verify::intent_itf::parse_case;
+use dpaa2_verify::intent::intent_itf::parse_case;
 
 /// Every committed trace under `models/intent/traces/`, with the arm it exercises.
 const TRACES: &[(&str, Arm)] = &[

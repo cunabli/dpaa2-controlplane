@@ -18,12 +18,12 @@
 
 use std::sync::OnceLock;
 
-use crate::adapter::{Family, ModelAction};
+use crate::board::adapter::{Family, ModelAction};
 
 /// The generated policy table, embedded so the resolution below needs no
 /// working directory (the tests re-read it from the repo root to prove
 /// the on-disk file still parses).
-const POLICY_MD: &str = include_str!("../../../docs/baseline/mc-ioctl-policy.md");
+const POLICY_MD: &str = include_str!("../../../../docs/baseline/mc-ioctl-policy.md");
 
 /// One kernel whitelist entry (`fsl_mc_accepted_cmds[]`, §1).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -232,7 +232,7 @@ fn hex_ids(cell: &str) -> Vec<u16> {
 
 // --- verb catalogues ------------------------------------------------
 
-/// The `<fam> <verb>` keys the model driver's [`crate::adapter::drive_with`]
+/// The `<fam> <verb>` keys the model driver's [`crate::board::adapter::drive_with`]
 /// renders for `action`; empty for the actions the board takes on its own
 /// (they issue no restool command).
 #[must_use]

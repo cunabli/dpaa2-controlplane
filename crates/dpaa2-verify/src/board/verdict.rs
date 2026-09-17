@@ -9,17 +9,17 @@
 //!
 //! Everything here is pure over its inputs; the only filesystem contact
 //! is through the `read`/`list` closures the caller injects, exactly like
-//! [`crate::ledger`] and [`crate::snapshot`].
+//! [`crate::board::ledger`] and [`crate::board::snapshot`].
 
 use std::borrow::Cow;
 use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::adapter::Observed;
-use crate::driver::{ExitShape, ProbeRecord, StepRecord};
-use crate::fitcheck::{FitPlan, FitReport};
-use crate::generate::{StepReport, SuitePlan};
+use crate::board::adapter::Observed;
+use crate::board::driver::{ExitShape, ProbeRecord, StepRecord};
+use crate::board::fitcheck::{FitPlan, FitReport};
+use crate::board::generate::{StepReport, SuitePlan};
 
 /// The pinned reference pair every verdict is a fact about
 /// (`docs/baseline/reference-environment.md`).
@@ -260,7 +260,7 @@ fn is_hook_scannable(name: &str) -> bool {
 /// underscore form scripts record (`dpni_0`) — or `<fam>.<n>`, the dotted
 /// form the older recovery-suite emitter wrote to `created.txt`
 /// (`dprc.2`). Both are on disk, so `parse_created` accepts either and
-/// returns the id exactly as written; [`crate::generate::diff`]'s
+/// returns the id exactly as written; [`crate::board::generate::diff`]'s
 /// `replacen('_', ".", 1)` then normalises the separator before binding.
 fn is_model_id(s: &str) -> bool {
     is_fam_sep(s, '_') || is_fam_sep(s, '.')
@@ -317,8 +317,8 @@ pub fn parse_created(text: &str) -> Vec<(String, String)> {
 #[must_use]
 pub fn pool_moves_between(prior: &str, current: &str) -> Vec<String> {
     let (a, b) = (
-        crate::snapshot::parse_resources(prior),
-        crate::snapshot::parse_resources(current),
+        crate::board::snapshot::parse_resources(prior),
+        crate::board::snapshot::parse_resources(current),
     );
     let mut names: Vec<&String> = a.keys().chain(b.keys()).collect();
     names.sort();
@@ -441,7 +441,7 @@ pub fn from_batch(
 /// result directory — the same shape as [`from_batch`] — so it is
 /// [`Kind::Batch`]; it creates nothing, so there is no `created.txt` and
 /// no hook. Each step is judged on its captured exit against the declared
-/// shape ([`crate::fitcheck::fit_diff`]); an `any` step (the `status`
+/// shape ([`crate::board::fitcheck::fit_diff`]); an `any` step (the `status`
 /// drift report) judges nothing — its nonzero exit is evidence for
 /// dispositioning, never a failure — so it stays `conform: None`.
 pub fn from_fit(
@@ -638,7 +638,7 @@ pub fn summary(v: &Verdict, archive: Option<String>) -> Summary {
         .steps
         .iter()
         .filter_map(|s| s.refusal.as_deref())
-        .map(|r| crate::driver::status_name(r).to_owned())
+        .map(|r| crate::board::driver::status_name(r).to_owned())
         .collect();
     refusals.sort();
     refusals.dedup();
@@ -686,7 +686,7 @@ pub fn render_index(index: &Index) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::adapter::{ExitEvidence, StepVerdict};
+    use crate::board::adapter::{ExitEvidence, StepVerdict};
 
     #[test]
     fn fnv1a64_matches_known_vectors() {
@@ -753,7 +753,7 @@ mod tests {
             trace_file: "t.itf.json".to_owned(),
             steps: vec![],
             hook: None,
-            create_args: crate::adapter::CreateArgs::default(),
+            create_args: crate::board::adapter::CreateArgs::default(),
             pool_record: false,
         }
     }
@@ -828,8 +828,8 @@ mod tests {
             {"label":"drift","expect":"nonzero is evidence","cmd":["dpaa2ctl","status"],"exit":"any"}
           ]
         }"#;
-        let plan = crate::fitcheck::generate_fit(
-            &crate::driver::parse_probe_plan(probes).unwrap(),
+        let plan = crate::board::fitcheck::generate_fit(
+            &crate::board::driver::parse_probe_plan(probes).unwrap(),
             "p.json",
         )
         .unwrap()
@@ -842,7 +842,7 @@ mod tests {
             "step-1-exit.txt" => Some("1\n".to_owned()),
             _ => None,
         };
-        let reports = crate::fitcheck::fit_diff(&plan, read);
+        let reports = crate::board::fitcheck::fit_diff(&plan, read);
         let v = from_fit(
             &plan,
             "plan text",
@@ -867,7 +867,7 @@ mod tests {
 
         // A failed census (nonzero where zero was required) fails the run.
         let read = |name: &str| (name == "step-0-exit.txt").then(|| "3\n".to_owned());
-        let reports = crate::fitcheck::fit_diff(&plan, read);
+        let reports = crate::board::fitcheck::fit_diff(&plan, read);
         let v = from_fit(
             &plan,
             "plan text",

@@ -8,9 +8,9 @@ use std::process::ExitCode;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use clap::{Parser, Subcommand, ValueEnum};
-use dpaa2_verify::generate::{self, Hook, RecoveryGuarantee, SuiteKind, SuiteSpec};
-use dpaa2_verify::safety::{RunClass, TrafficClass};
-use dpaa2_verify::verdict::{self, Verdict};
+use dpaa2_verify::board::generate::{self, Hook, RecoveryGuarantee, SuiteKind, SuiteSpec};
+use dpaa2_verify::board::safety::{RunClass, TrafficClass};
+use dpaa2_verify::board::verdict::{self, Verdict};
 
 /// Model-based-testing harness for the DPAA2 control plane.
 #[derive(Parser)]
@@ -213,8 +213,12 @@ enum SnapshotCmd {
 /// abort, and on probe steps `s` = skip.
 struct StdinPrompt;
 
-impl dpaa2_verify::driver::Prompt for StdinPrompt {
-    fn confirm(&mut self, question: &str, skippable: bool) -> dpaa2_verify::driver::Decision {
+impl dpaa2_verify::board::driver::Prompt for StdinPrompt {
+    fn confirm(
+        &mut self,
+        question: &str,
+        skippable: bool,
+    ) -> dpaa2_verify::board::driver::Decision {
         let keys = if skippable {
             "[enter=step, s=skip, p=pause, a=abort]"
         } else {
@@ -224,17 +228,17 @@ impl dpaa2_verify::driver::Prompt for StdinPrompt {
             eprint!("{question}  {keys} ");
             let mut line = String::new();
             if std::io::stdin().read_line(&mut line).is_err() {
-                return dpaa2_verify::driver::Decision::Abort;
+                return dpaa2_verify::board::driver::Decision::Abort;
             }
             match line.trim() {
-                "a" => return dpaa2_verify::driver::Decision::Abort,
-                "s" if skippable => return dpaa2_verify::driver::Decision::Skip,
+                "a" => return dpaa2_verify::board::driver::Decision::Abort,
+                "s" if skippable => return dpaa2_verify::board::driver::Decision::Skip,
                 "p" => {
                     eprintln!("paused — press enter to be asked again");
                     let mut resume = String::new();
                     let _ = std::io::stdin().read_line(&mut resume);
                 }
-                _ => return dpaa2_verify::driver::Decision::Step,
+                _ => return dpaa2_verify::board::driver::Decision::Step,
             }
         }
     }
@@ -250,21 +254,21 @@ impl dpaa2_verify::driver::Prompt for StdinPrompt {
 /// stderr is where a refusal's MC status text lands.
 struct LiveBoard;
 
-impl dpaa2_verify::driver::BoardIo for LiveBoard {
-    fn restool(&mut self, argv: &[String]) -> dpaa2_verify::driver::RestoolRun {
+impl dpaa2_verify::board::driver::BoardIo for LiveBoard {
+    fn restool(&mut self, argv: &[String]) -> dpaa2_verify::board::driver::RestoolRun {
         match std::process::Command::new("restool").args(argv).output() {
             Ok(out) => {
                 let ok = out.status.success();
                 if !ok {
                     eprintln!("  (exit nonzero, auxiliary: {})", out.status);
                 }
-                dpaa2_verify::driver::RestoolRun {
+                dpaa2_verify::board::driver::RestoolRun {
                     ok,
                     stdout: String::from_utf8_lossy(&out.stdout).into_owned(),
                     stderr: String::from_utf8_lossy(&out.stderr).into_owned(),
                 }
             }
-            Err(e) => dpaa2_verify::driver::RestoolRun {
+            Err(e) => dpaa2_verify::board::driver::RestoolRun {
                 ok: false,
                 stdout: String::new(),
                 stderr: format!("failed to spawn restool: {e}"),
@@ -368,7 +372,7 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
             let id = id.ok_or("--id is required with --trace")?;
             let json = std::fs::read_to_string(&trace)
                 .map_err(|e| format!("reading {}: {e}", trace.display()))?;
-            let parsed = dpaa2_verify::adapter::parse_mbt_trace(&json)?;
+            let parsed = dpaa2_verify::board::adapter::parse_mbt_trace(&json)?;
             // The hook's text is read here, not on the board: the
             // envelope screens it before the suite can source it.
             let hook = hook
@@ -398,7 +402,7 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
                 hook,
                 create_args: create_args
                     .iter()
-                    .map(|f| dpaa2_verify::adapter::CreateArgs::parse_flag(f))
+                    .map(|f| dpaa2_verify::board::adapter::CreateArgs::parse_flag(f))
                     .collect::<Result<_, String>>()?,
                 expected_refusals: expect_refusal
                     .iter()
@@ -476,7 +480,7 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
             promoted,
             transcript,
         } => {
-            let cfg = dpaa2_verify::driver::DriveConfig {
+            let cfg = dpaa2_verify::board::driver::DriveConfig {
                 run: RunClass {
                     class: class.into(),
                     flagged,
@@ -496,8 +500,8 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
             let outcome = if let Some(probes) = probes {
                 let json = std::fs::read_to_string(&probes)
                     .map_err(|e| format!("reading {}: {e}", probes.display()))?;
-                let plan = dpaa2_verify::driver::parse_probe_plan(&json)?;
-                dpaa2_verify::driver::drive_probes(
+                let plan = dpaa2_verify::board::driver::parse_probe_plan(&json)?;
+                dpaa2_verify::board::driver::drive_probes(
                     &plan,
                     cfg,
                     &mut board,
@@ -509,8 +513,8 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
                 let trace = trace.ok_or("--trace or --probes is required")?;
                 let json = std::fs::read_to_string(&trace)
                     .map_err(|e| format!("reading {}: {e}", trace.display()))?;
-                let parsed = dpaa2_verify::adapter::parse_mbt_trace(&json)?;
-                dpaa2_verify::driver::drive_trace(
+                let parsed = dpaa2_verify::board::adapter::parse_mbt_trace(&json)?;
+                dpaa2_verify::board::driver::drive_trace(
                     &parsed,
                     cfg,
                     &mut board,
@@ -537,7 +541,7 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
                 verdict_path.display()
             );
             Ok(match outcome {
-                dpaa2_verify::driver::Outcome::Completed => ExitCode::SUCCESS,
+                dpaa2_verify::board::driver::Outcome::Completed => ExitCode::SUCCESS,
                 _ => ExitCode::FAILURE,
             })
         }
@@ -553,8 +557,8 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
 fn generate_fit_sitting(probes: &Path, out: &Path) -> Result<ExitCode, String> {
     let json = std::fs::read_to_string(probes)
         .map_err(|e| format!("reading {}: {e}", probes.display()))?;
-    let plan = dpaa2_verify::driver::parse_probe_plan(&json)?;
-    let suite = dpaa2_verify::fitcheck::generate_fit(&plan, &probes.display().to_string())?;
+    let plan = dpaa2_verify::board::driver::parse_probe_plan(&json)?;
+    let suite = dpaa2_verify::board::fitcheck::generate_fit(&plan, &probes.display().to_string())?;
 
     std::fs::create_dir_all(out).map_err(|e| e.to_string())?;
     let script_path = out.join(format!("{}.sh", suite.plan.id));
@@ -800,7 +804,7 @@ fn run_diff_plan(plan_path: &Path, args: &DiffArgs) -> Result<ExitCode, String> 
 /// unjudged — its nonzero exit is evidence for dispositioning, not a
 /// failure.
 fn run_diff_fit(plan_text: &str, results: &Path, args: &DiffArgs) -> Result<ExitCode, String> {
-    use dpaa2_verify::fitcheck::{self, FitPlan};
+    use dpaa2_verify::board::fitcheck::{self, FitPlan};
 
     let plan: FitPlan = serde_json::from_str(plan_text).map_err(|e| e.to_string())?;
     let reports = fitcheck::fit_diff(&plan, |name| {
@@ -809,7 +813,7 @@ fn run_diff_fit(plan_text: &str, results: &Path, args: &DiffArgs) -> Result<Exit
 
     let mut failed = 0usize;
     for (step, r) in plan.steps.iter().zip(&reports) {
-        if step.exit == dpaa2_verify::driver::ExitShape::Any {
+        if step.exit == dpaa2_verify::board::driver::ExitShape::Any {
             println!("step {:>3}  -     {} (exit is evidence)", r.index, r.label);
         } else if r.verdict.pass {
             println!("step {:>3}  pass  {}", r.index, r.label);
@@ -923,7 +927,7 @@ fn write_transcript_verdict(
 
 /// Runs one snapshot subcommand.
 fn run_snapshot(what: SnapshotCmd) -> Result<ExitCode, String> {
-    use dpaa2_verify::snapshot;
+    use dpaa2_verify::board::snapshot;
     match what {
         SnapshotCmd::Render { out } => {
             let script = snapshot::render();

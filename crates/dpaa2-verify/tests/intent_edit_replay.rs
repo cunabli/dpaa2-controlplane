@@ -35,7 +35,7 @@ use dpaa2_api::{
     BoardObject, ConfigFacet, ConstructName, Family, Intent, MatchObject, MatchVerdict,
     converge_match, match_board,
 };
-use dpaa2_verify::edits_itf::{EditState, Phase, parse_edits_trace};
+use dpaa2_verify::intent::edits_itf::{EditState, Phase, parse_edits_trace};
 
 /// Every committed edit-alphabet trace under `models/intent/traces/`.
 const TRACES: &[&str] = &["editsSweep1", "editsSweep2", "editsSweep3"];

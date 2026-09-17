@@ -7,10 +7,10 @@
 
 use std::path::PathBuf;
 
-use dpaa2_verify::adapter::{CreateArgs, parse_mbt_trace};
-use dpaa2_verify::driver::{check_plan, parse_probe_plan};
-use dpaa2_verify::generate::{RecoveryGuarantee, SuiteKind, SuiteSpec, generate};
-use dpaa2_verify::safety::{RunClass, TrafficClass};
+use dpaa2_verify::board::adapter::{CreateArgs, parse_mbt_trace};
+use dpaa2_verify::board::driver::{check_plan, parse_probe_plan};
+use dpaa2_verify::board::generate::{RecoveryGuarantee, SuiteKind, SuiteSpec, generate};
+use dpaa2_verify::board::safety::{RunClass, TrafficClass};
 
 /// Every committed artifact whose name ends in `suffix`, one per
 /// scenario directory (`models/board/<id>/`).
@@ -173,8 +173,8 @@ fn committed_plan_trace_files_resolve() {
 /// edit to either the script or the emitter breaks this.
 #[test]
 fn the_committed_fit_check_regenerates_byte_for_byte() {
-    use dpaa2_verify::driver::parse_probe_plan;
-    use dpaa2_verify::fitcheck::generate_fit;
+    use dpaa2_verify::board::driver::parse_probe_plan;
+    use dpaa2_verify::board::fitcheck::generate_fit;
 
     let root = format!("{}/../../", env!("CARGO_MANIFEST_DIR"));
     let probes_file = "models/board/V-FIT-1/probes.json";

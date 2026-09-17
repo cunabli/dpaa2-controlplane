@@ -14,7 +14,9 @@
 use std::collections::BTreeSet;
 
 use dpaa2_config::parse_str;
-use dpaa2_verify::raw_itf::{Kind, ModelVerdict, kinds, normalize, parse_raw_case, to_toml};
+use dpaa2_verify::intent::raw_itf::{
+    Kind, ModelVerdict, kinds, normalize, parse_raw_case, to_toml,
+};
 
 /// Every committed raw trace under `models/intent/traces/` (freeze names, sans suffix).
 const TRACES: &[&str] = &[

@@ -234,7 +234,7 @@ pub enum ModelAction {
 impl ModelAction {
     /// Every object the action references through its parameters — the
     /// surface the safety envelope screens at generation time
-    /// ([`crate::safety::check_trace`]). Objects the action *creates*
+    /// ([`crate::board::safety::check_trace`]). Objects the action *creates*
     /// have no id yet and are covered by the execution-side scan once
     /// the board names them.
     #[must_use]

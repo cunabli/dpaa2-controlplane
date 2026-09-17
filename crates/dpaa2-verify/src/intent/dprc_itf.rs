@@ -29,8 +29,7 @@ use dpaa2_api::dprc::{
     VfioBind,
 };
 
-use crate::intent_itf::{field, set_items, text};
-use crate::itf::{num, tag};
+use crate::itf::{field, num, set_items, tag, text};
 
 /// The comparable projection of one frozen `world` state (`dprc.qnt` `type World`):
 /// the child container plus the parent's residents and the recorded outcome. Built

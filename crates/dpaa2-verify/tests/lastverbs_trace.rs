@@ -11,8 +11,8 @@
 
 use std::collections::BTreeSet;
 
-use dpaa2_verify::adapter::{ModelAction, parse_mbt_trace};
-use dpaa2_verify::ioctlpolicy::verbs_of;
+use dpaa2_verify::board::adapter::{ModelAction, parse_mbt_trace};
+use dpaa2_verify::board::ioctlpolicy::verbs_of;
 use serde_json::Value;
 
 fn repo_root() -> std::path::PathBuf {

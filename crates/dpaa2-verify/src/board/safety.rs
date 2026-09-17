@@ -18,7 +18,7 @@
 
 use std::fmt;
 
-use crate::adapter::{Cmd, MbtTrace, ObjRef};
+use crate::board::adapter::{Cmd, MbtTrace, ObjRef};
 
 /// ADR-0003 §5: every scenario declares exactly one traffic class.
 ///
@@ -236,7 +236,7 @@ pub fn check_trace(run: RunClass, trace: &MbtTrace) -> Result<(), Violation> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::adapter::{EndpointRef, Family, MachineView, MbtStep, ModelAction};
+    use crate::board::adapter::{EndpointRef, Family, MachineView, MbtStep, ModelAction};
 
     const LIFECYCLE: RunClass = RunClass {
         class: TrafficClass::ObjectLifecycleOnly,
@@ -267,11 +267,11 @@ mod tests {
         for o in boot {
             init.objs.insert(
                 o,
-                crate::adapter::ObjView {
+                crate::board::adapter::ObjView {
                     parent: None,
                     plugged: true,
                     bus_visible: true,
-                    bind: crate::adapter::BindView::Unbound,
+                    bind: crate::board::adapter::BindView::Unbound,
                     link_up: false,
                 },
             );

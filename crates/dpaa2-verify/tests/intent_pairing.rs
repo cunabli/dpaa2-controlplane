@@ -19,7 +19,7 @@
 use std::collections::BTreeSet;
 
 use dpaa2_api::kernel_tenant;
-use dpaa2_verify::intent_itf::{ReplayCase, parse_case};
+use dpaa2_verify::intent::intent_itf::{ReplayCase, parse_case};
 
 /// The scenario corpus directory, resolved off the crate manifest like the trace
 /// directory in `intent_replay.rs`.

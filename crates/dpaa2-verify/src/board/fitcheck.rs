@@ -7,9 +7,9 @@
 //! intent, and captures everything for offline diffing. No object is
 //! created, moved, destroyed or labelled.
 //!
-//! Unlike the batch generator ([`crate::generate`]), whose input is a
+//! Unlike the batch generator ([`crate::board::generate`]), whose input is a
 //! model trace, this emitter's input is a hand-declared ordered list of
-//! observation steps in the probe-plan shape ([`crate::driver::ProbePlan`]).
+//! observation steps in the probe-plan shape ([`crate::board::driver::ProbePlan`]).
 //! That keeps the "generated — do not edit; regenerate instead"
 //! invariant and the safety-envelope screening while letting a human
 //! author read-only questions no trace can ask.
@@ -17,13 +17,13 @@
 //! Two guards run before anything is emitted: the input is refused unless
 //! every step is read-only (no mutating restool verb, no sysfs write, no
 //! operator instruction), and the rendered script is screened by the
-//! safety envelope ([`crate::safety`]) exactly as the trace path is.
+//! safety envelope ([`crate::board::safety`]) exactly as the trace path is.
 
 use std::fmt::Write as _;
 
-use crate::driver::{ExitShape, ProbePlan, ProbeStep, ProbeVerdict, judge_exit};
-use crate::generate::{REF_PAIR_ASSERT, TOTAL_DENY_GREP};
-use crate::safety::{self, RunClass, TrafficClass};
+use crate::board::driver::{ExitShape, ProbePlan, ProbeStep, ProbeVerdict, judge_exit};
+use crate::board::generate::{REF_PAIR_ASSERT, TOTAL_DENY_GREP};
+use crate::board::safety::{self, RunClass, TrafficClass};
 
 /// Restool verbs that change board state. A fit check reads only, so a
 /// step naming any of these refuses the whole emission (design D12: "no
@@ -65,7 +65,7 @@ pub struct FitStep {
 
 /// The offline-judgeable fit-check plan. A fit check is judged on the
 /// captured exit against the declared [`ExitShape`], so it carries a
-/// different shape from a trace's [`crate::generate::SuitePlan`] (which
+/// different shape from a trace's [`crate::board::generate::SuitePlan`] (which
 /// judges model post-states by read-back). `probes_file` records the
 /// source the way a suite plan records its `trace_file`, so the
 /// `committed_plan_trace_files_resolve` lint keeps the artifact honest.
@@ -323,7 +323,7 @@ pub fn fit_diff(plan: &FitPlan, read: impl Fn(&str) -> Option<String>) -> Vec<Fi
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::driver::parse_probe_plan;
+    use crate::board::driver::parse_probe_plan;
 
     const READONLY_PLAN: &str = r#"{
       "suite": "V-FIT-TEST",

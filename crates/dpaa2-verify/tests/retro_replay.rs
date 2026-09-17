@@ -6,8 +6,8 @@
 //! shape fails here loudly — update both together.
 
 use dpaa2_api::{Presence, ReconcileOptions};
+use dpaa2_verify::board::replay::{RetroTrace, replay};
 use dpaa2_verify::itf::{ModelView, parse_trace};
-use dpaa2_verify::replay::{RetroTrace, replay};
 
 const TRACES: &[RetroTrace] = &[
     RetroTrace {

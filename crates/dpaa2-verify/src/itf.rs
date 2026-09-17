@@ -63,7 +63,7 @@ pub fn parse_trace(json: &str) -> Result<Vec<ModelView>, String> {
 }
 
 /// The `#bigint`-encoded integer of an ITF value, as a `u32` (object numbers,
-/// ordinals, ports). Shared with the intent replayer ([`crate::intent_itf`]).
+/// ordinals, ports). Shared with the intent replayer ([`crate::intent::intent_itf`]).
 pub(crate) fn num(v: &Value) -> Result<u32, String> {
     v["#bigint"]
         .as_str()
@@ -83,11 +83,35 @@ pub(crate) fn int64(v: &Value) -> Result<i64, String> {
 }
 
 /// The constructor tag of an ITF sum-type value (e.g. `Dpni`, `Unbound`).
-/// Shared with the intent replayer ([`crate::intent_itf`]).
+/// Shared with the intent replayer ([`crate::intent::intent_itf`]).
 pub(crate) fn tag(v: &Value) -> Result<&str, String> {
     v["tag"]
         .as_str()
         .ok_or_else(|| format!("not a variant: {v}"))
+}
+
+/// A required object field, erroring when the key is absent (JSON `null`). The
+/// generic record-field reader shared across the ITF alphabets.
+pub(crate) fn field<'a>(v: &'a Value, name: &str) -> Result<&'a Value, String> {
+    let f = &v[name];
+    if f.is_null() {
+        return Err(format!("missing field `{name}` in {v}"));
+    }
+    Ok(f)
+}
+
+/// An ITF value as an owned `String`.
+pub(crate) fn text(v: &Value) -> Result<String, String> {
+    v.as_str()
+        .ok_or_else(|| format!("not a string: {v}"))
+        .map(str::to_owned)
+}
+
+/// The elements of an ITF `#set`.
+pub(crate) fn set_items(v: &Value) -> Result<&Vec<Value>, String> {
+    v["#set"]
+        .as_array()
+        .ok_or_else(|| format!("not a #set: {v}"))
 }
 
 /// The [`Family`] whose `variant_name` is `tag` — the ITF constructor tag (`"Dpni"`,

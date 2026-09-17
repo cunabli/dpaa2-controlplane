@@ -35,7 +35,7 @@ use dpaa2_api::dprc::{
 use dpaa2_api::dprc_plan::{
     Attribution, OptionBit, PlanOutcome, Verb, attribute_mc, plan_move_out,
 };
-use dpaa2_verify::dprc_itf::{WorldView, parse_dprc_trace};
+use dpaa2_verify::intent::dprc_itf::{WorldView, parse_dprc_trace};
 
 /// Every committed trace under `models/families/traces/`, with the model face it pins
 /// (the acceptance-criterion coverage list).

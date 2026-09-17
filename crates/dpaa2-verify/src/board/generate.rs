@@ -14,7 +14,7 @@
 //!
 //! Two gates run before anything is emitted. The safety envelope screens
 //! the trace and the rendered script independently
-//! ([`crate::safety`]). And the recovery guarantee (ADR-0003 §7) gates
+//! ([`crate::board::safety`]). And the recovery guarantee (ADR-0003 §7) gates
 //! mutating suites: while unverified, only the recovery-verification
 //! suite itself may be emitted, and that suite is validated to mutate
 //! nothing but objects it creates — the scratch set the reboot must
@@ -23,11 +23,11 @@
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
 
-use crate::adapter::{
+use crate::board::adapter::{
     Binding, Cmd, CreateArgs, Drive, Expected, MachineView, MbtTrace, ModelAction, ObjRef, Probe,
     drive, drive_with, expect, readback,
 };
-use crate::safety::{self, RunClass};
+use crate::board::safety::{self, RunClass};
 
 /// The recovery guarantee's verification state (ADR-0003 §7): an
 /// assumption until the 5.1 suite has passed on the board.
@@ -94,7 +94,7 @@ pub struct SuiteSpec {
     /// step index → MC status name (e.g. `No privilege`). Such a step
     /// keeps its probes as evidence but drops its expected post-state —
     /// once the action is refused the model's post-state is wrong by
-    /// construction. Validated against [`crate::mcstatus`].
+    /// construction. Validated against [`crate::board::mcstatus`].
     pub expected_refusals: BTreeMap<usize, String>,
     /// Whether the script captures `dprc show mc.global --resources` once
     /// before step 0 (`pool-baseline.txt`) and after every step
@@ -196,7 +196,7 @@ fn model_key(o: ObjRef) -> String {
     format!("{}_{}", o.fam.as_str(), o.num)
 }
 
-fn model_ep_key(e: crate::adapter::EndpointRef) -> String {
+fn model_ep_key(e: crate::board::adapter::EndpointRef) -> String {
     if e.port == 0 {
         model_key(e.obj)
     } else {
@@ -531,7 +531,7 @@ fn check_scratch_only(trace: &MbtTrace) -> Result<(), String> {
                         "step {i}: recovery verification creates an object in {container}, outside the scratch set"
                     ));
                 }
-                if let Some(c) = crate::adapter::created_object(&pre, &step.post) {
+                if let Some(c) = crate::board::adapter::created_object(&pre, &step.post) {
                     created.push(c);
                 }
             }
@@ -575,7 +575,7 @@ fn check_reboot_persistence(trace: &MbtTrace) -> Result<(), String> {
     for (i, step) in trace.steps.iter().enumerate() {
         match &step.action {
             ModelAction::CreateContainer { .. } | ModelAction::CreateObject { .. } => {
-                if let Some(c) = crate::adapter::created_object(&pre, &step.post) {
+                if let Some(c) = crate::board::adapter::created_object(&pre, &step.post) {
                     created.push(c);
                 }
             }
@@ -622,7 +622,7 @@ pub fn generate(
 ) -> Result<Suite, String> {
     safety::check_trace(spec.run, trace).map_err(|v| v.to_string())?;
     for (&idx, name) in &spec.expected_refusals {
-        if crate::mcstatus::by_name(name).is_none() {
+        if crate::board::mcstatus::by_name(name).is_none() {
             return Err(format!(
                 "expected refusal {name:?} is not an MC status name"
             ));
@@ -689,7 +689,10 @@ pub fn generate(
     let mut teardown: Vec<(ObjRef, String, Option<String>)> = Vec::new();
     // Boot edges the suite tears down: both ends were there at boot, so
     // nothing this run destroys will restore them and the trap must.
-    let mut severed: Vec<(crate::adapter::EndpointRef, crate::adapter::EndpointRef)> = Vec::new();
+    let mut severed: Vec<(
+        crate::board::adapter::EndpointRef,
+        crate::board::adapter::EndpointRef,
+    )> = Vec::new();
     let mut steps = Vec::new();
     // Steps issuing at least one MC command the kernel gates on
     // CAP_NET_ADMIN; drives the suite header's operator note.
@@ -707,14 +710,14 @@ pub fn generate(
             severed.push((*e, peer));
         }
 
-        let created = crate::adapter::created_object(&pre, &step.post);
+        let created = crate::board::adapter::created_object(&pre, &step.post);
         let d = drive_with(&step.action, &pre, &sym, &spec.create_args)
             .map_err(|e| format!("step {i}: {e}"))?;
         if let Drive::Cmds(cmds) = &d
             && cmds.iter().any(|c| {
                 matches!(c, Cmd::Restool(argv)
-                    if crate::ioctlpolicy::verb_key(argv)
-                        .is_some_and(|k| crate::ioctlpolicy::verb_needs_cap_net_admin(&k)))
+                    if crate::board::ioctlpolicy::verb_key(argv)
+                        .is_some_and(|k| crate::board::ioctlpolicy::verb_needs_cap_net_admin(&k)))
             })
         {
             cap_steps += 1;
@@ -842,7 +845,10 @@ pub fn generate(
         // exactly how a leaked object goes unnoticed, so it lands in a
         // log instead of /dev/null. stdout stays on the console.
         let log = "2>>\"$RESULTS/teardown.log\"";
-        let root = sym.name(crate::adapter::ROOT_DPRC).ok().map(str::to_owned);
+        let root = sym
+            .name(crate::board::adapter::ROOT_DPRC)
+            .ok()
+            .map(str::to_owned);
         let mut trap =
             String::from("\n# --- unconditional teardown (ADR-0003 §6) ---\nteardown() {\n");
         for (obj, var, parent) in teardown.iter().rev() {
@@ -851,7 +857,7 @@ pub fn generate(
             // objects are unplugged first, best-effort: a root-container
             // object still holding a kernel driver refuses destroy, and
             // the unplug is what triggers its unbind.
-            if obj.fam != crate::adapter::Family::Dprc
+            if obj.fam != crate::board::adapter::Family::Dprc
                 && let Some(parent) = parent
             {
                 // A root-container object may be driver-bound by teardown
@@ -869,14 +875,14 @@ pub fn generate(
                     // until a reboot. A disconnect while still bound runs
                     // the re-attach with the edge gone, and the standalone
                     // driver binds at once.
-                    let connected_bound_dpni = obj.fam == crate::adapter::Family::Dpni
+                    let connected_bound_dpni = obj.fam == crate::board::adapter::Family::Dpni
                         && pre
                             .objs
                             .get(obj)
-                            .is_some_and(|o| o.bind == crate::adapter::BindView::Kernel)
+                            .is_some_and(|o| o.bind == crate::board::adapter::BindView::Kernel)
                         && pre
                             .peer_of(*obj)
-                            .is_some_and(|p| p.obj.fam == crate::adapter::Family::Dpmac);
+                            .is_some_and(|p| p.obj.fam == crate::board::adapter::Family::Dpmac);
                     if connected_bound_dpni && let Some(root) = root.as_ref() {
                         let _ = writeln!(
                             trap,
@@ -899,7 +905,7 @@ pub fn generate(
             // too: `dpdbg destroy` names no object (restool destroys id
             // 0 by definition and rejects an argument). The guard still
             // keys off the create having happened.
-            let target = if obj.fam == crate::adapter::Family::Dpdbg {
+            let target = if obj.fam == crate::board::adapter::Family::Dpdbg {
                 String::new()
             } else {
                 format!(" \"${{{var}}}\"")
@@ -980,11 +986,11 @@ pub struct StepReport {
     /// Human-readable action description.
     pub title: String,
     /// The judgement, or `None` for steps with nothing to observe.
-    pub verdict: Option<crate::adapter::StepVerdict>,
+    pub verdict: Option<crate::board::adapter::StepVerdict>,
     /// What the read-back probes observed, when the step had an
     /// expectation to observe against (task 6.2's verdict builder reads
-    /// it from here rather than re-running [`crate::adapter::observe`]).
-    pub observed: Option<crate::adapter::Observed>,
+    /// it from here rather than re-running [`crate::board::adapter::observe`]).
+    pub observed: Option<crate::board::adapter::Observed>,
 }
 
 /// Judges a refusal step from its result files: it passes iff every
@@ -1007,8 +1013,8 @@ fn refusal_report(
         .lines()
         .all(|l| l.trim() == "0" || l.trim().is_empty());
     let err_text = read(&format!("step-{}-err.txt", step.index)).unwrap_or_default();
-    let status = crate::verdict::mc_status(&err_text);
-    let name_matches = status.as_deref().map(crate::driver::status_name) == Some(name);
+    let status = crate::board::verdict::mc_status(&err_text);
+    let name_matches = status.as_deref().map(crate::board::driver::status_name) == Some(name);
 
     let mut mismatches = Vec::new();
     if !all_nonzero {
@@ -1023,10 +1029,10 @@ fn refusal_report(
     StepReport {
         index: step.index,
         title: step.title.clone(),
-        verdict: Some(crate::adapter::StepVerdict {
+        verdict: Some(crate::board::adapter::StepVerdict {
             pass: mismatches.is_empty(),
             mismatches,
-            exit: crate::adapter::ExitEvidence { ok: exit_ok },
+            exit: crate::board::adapter::ExitEvidence { ok: exit_ok },
         }),
         observed: None,
     }
@@ -1038,7 +1044,7 @@ fn refusal_report(
 ///
 /// A `created.txt` line that is not a binding (a refused create's refusal
 /// text) records no binding; the step's own read-back judges it
-/// ([`crate::verdict::parse_created`]).
+/// ([`crate::board::verdict::parse_created`]).
 ///
 /// # Errors
 ///
@@ -1051,7 +1057,7 @@ pub fn diff(
     // Board names of created objects, recorded by the run.
     let mut names = Binding::default();
     if let Some(created) = read("created.txt") {
-        for (model, board) in crate::verdict::parse_created(&created) {
+        for (model, board) in crate::board::verdict::parse_created(&created) {
             // Model ids appear in scripts in their model-space spelling
             // (`dpni_0`, [`model_key`]); family names carry no underscore,
             // so the first one is the separator. `parse_created` already
@@ -1092,16 +1098,16 @@ pub fn diff(
         let outputs: Vec<String> = (0..step.probes.len())
             .map(|m| read(&format!("step-{}-probe-{m}.txt", step.index)).unwrap_or_default())
             .collect();
-        let observed = crate::adapter::observe(&step.probes, &outputs, &object_name)?;
+        let observed = crate::board::adapter::observe(&step.probes, &outputs, &object_name)?;
         // Exit codes are auxiliary; a step that recorded none (awaited)
         // reports ok.
         let exit_ok = read(&format!("step-{}-exit.txt", step.index))
             .is_none_or(|s| s.lines().all(|l| l.trim() == "0" || l.trim().is_empty()));
-        let verdict = crate::adapter::judge(
+        let verdict = crate::board::adapter::judge(
             expected,
             &observed,
             &names,
-            crate::adapter::ExitEvidence { ok: exit_ok },
+            crate::board::adapter::ExitEvidence { ok: exit_ok },
         )?;
         reports.push(StepReport {
             index: step.index,
@@ -1116,8 +1122,8 @@ pub fn diff(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::adapter::{BindView, Family, MbtStep, ObjView};
-    use crate::safety::TrafficClass;
+    use crate::board::adapter::{BindView, Family, MbtStep, ObjView};
+    use crate::board::safety::TrafficClass;
 
     const LIFECYCLE: RunClass = RunClass {
         class: TrafficClass::ObjectLifecycleOnly,
@@ -1376,7 +1382,7 @@ mod tests {
             fam: Family::Dpmac,
             num: 5,
         };
-        let ep = |o| crate::adapter::EndpointRef { obj: o, port: 0 };
+        let ep = |o| crate::board::adapter::EndpointRef { obj: o, port: 0 };
 
         let mut init = MachineView::default();
         init.objs.insert(dprc(1), obj(None, true));
@@ -1506,7 +1512,7 @@ mod tests {
             fam: Family::Dpmac,
             num: 7,
         };
-        let ep = |o| crate::adapter::EndpointRef { obj: o, port: 0 };
+        let ep = |o| crate::board::adapter::EndpointRef { obj: o, port: 0 };
 
         let mut init = MachineView::default();
         init.objs.insert(dprc(1), obj(None, true));
@@ -1727,7 +1733,7 @@ mod tests {
             fam: Family::Dpmac,
             num: 7,
         };
-        let ep = |o| crate::adapter::EndpointRef { obj: o, port: 0 };
+        let ep = |o| crate::board::adapter::EndpointRef { obj: o, port: 0 };
 
         let mut init = MachineView::default();
         init.objs.insert(dprc(1), obj(None, true));
