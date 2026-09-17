@@ -15,10 +15,10 @@ use dpaa2_api::core::error::Error;
 use dpaa2_api::core::family::Family;
 use dpaa2_api::core::model::{DpmacId, DprcId, MacMode, ObjectRef};
 use dpaa2_api::core::types::ConstructName;
-use dpaa2_api::dprc::{ContainerState, ObservedResident, Options, ResidentKind};
 use dpaa2_api::dprc_plan::{
     Attribution, ContainerVerdict, ObservedContainer, OptionBit, PruneBucket, plan_prune,
 };
+use dpaa2_api::families::dprc::{ContainerState, ObservedResident, Options, ResidentKind};
 use dpaa2_api::testkit::ref_inventory;
 use dpaa2_api::{
     Class, Compiled, Container, Dataplane, Intent, Isolation, Port, Tenant, TenantRef, compile,
