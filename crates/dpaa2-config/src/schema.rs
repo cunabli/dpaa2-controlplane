@@ -20,7 +20,7 @@
 
 use std::collections::BTreeMap;
 
-use dpaa2_api::{ConstructName, TenantName};
+use dpaa2_api::core::types::{ConstructName, TenantName};
 use serde::{Deserialize, Deserializer};
 
 /// Deserializes a name slot straight into its dpaa2-api newtype (types.rs), through the

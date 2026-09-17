@@ -15,10 +15,14 @@
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
+use dpaa2_api::contract::ConfigSource;
+use dpaa2_api::core::error::Error;
+use dpaa2_api::core::family::{ALL_FAMILIES, Family};
+use dpaa2_api::core::model::{DpmacId, MacAddr, MacMode};
+use dpaa2_api::core::types::{ConstructName, TenantName};
 use dpaa2_api::{
-    ALL_FAMILIES, ConfigSource, ConstructName, Crypto, Dataplane, DpmacId, Error, Extra, Fabric,
-    Family, Intent, Isolation, KERNEL, Link, MacAddr, MacMode, Member, Port, Switching, Tenant,
-    TenantName, TenantRef,
+    Crypto, Dataplane, Extra, Fabric, Intent, Isolation, KERNEL, Link, Member, Port, Switching,
+    Tenant, TenantRef,
 };
 
 use crate::schema::{
@@ -667,10 +671,10 @@ mod tests {
     //! per-field rejections (topology-config spec).
 
     use super::{parse_schema, parse_str};
-    use dpaa2_api::{
-        ConstructName, Dataplane, DpmacId, Extra, Family, Isolation, MacAddr, MacMode, Member,
-        Switching,
-    };
+    use dpaa2_api::core::family::Family;
+    use dpaa2_api::core::model::{DpmacId, MacAddr, MacMode};
+    use dpaa2_api::core::types::ConstructName;
+    use dpaa2_api::{Dataplane, Extra, Isolation, Member, Switching};
 
     /// The mandatory `[intent]` header, prepended to the construct-only fixtures.
     const HEADER: &str = "[intent]\nschema = 1\n";
