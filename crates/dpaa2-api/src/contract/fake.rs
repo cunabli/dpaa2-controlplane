@@ -21,8 +21,8 @@ use crate::core::model::{
     DpmacId, DpniId, DprcId, LinkType, MacAddr, ObjectRef, ObservedDpmac, ObservedDpni,
     ObservedTopology,
 };
-use crate::dprc_plan::ObservedContainer;
 use crate::families::dprc::ContainerState;
+use crate::plan::dprc::ObservedContainer;
 
 /// The netdev name the fake assigns a DPNI once its PHY-backed link is up.
 fn netdev_name(id: DpniId) -> String {

@@ -18,8 +18,8 @@ if [ -n "${STRING_SLOTS_ALLOW:-}" ]; then
 else
   allow=$(cat <<'ALLOW'
 crates/dpaa2-api/src/core/inventory.rs:fn judge_label(label: &str, declared: &BTreeSet<ConstructName>) -> Availability {
-crates/dpaa2-api/src/matcher.rs:fn tenant_compiled(name_: &str, config: ConfigFacet) -> MatchObject {
-crates/dpaa2-api/src/matcher.rs:name_: &str,
+crates/dpaa2-api/src/plan/matcher.rs:fn tenant_compiled(name_: &str, config: ConfigFacet) -> MatchObject {
+crates/dpaa2-api/src/plan/matcher.rs:name_: &str,
 crates/dpaa2-api/src/refuse.rs:fn knl(name: &str) -> Tenant {
 crates/dpaa2-api/src/refuse.rs:fn link(name: &str, a: &str, b: &str) -> Link {
 crates/dpaa2-api/src/refuse.rs:fn poll(name: &str) -> Tenant {

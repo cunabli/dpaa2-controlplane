@@ -4,8 +4,8 @@ use crate::core::error::Error;
 use crate::core::inventory::Inventory;
 use crate::core::model::{DpmacId, DpniId, DprcId, MacAddr, ObjectRef, ObservedTopology};
 use crate::core::types::ConstructName;
-use crate::dprc_plan::ObservedContainer;
 use crate::families::dprc;
+use crate::plan::dprc::ObservedContainer;
 
 /// Southbound MC-portal control at MC-command granularity.
 ///

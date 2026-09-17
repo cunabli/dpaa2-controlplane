@@ -507,7 +507,7 @@ pub struct ObservedDpni {
     /// The set-label seam read back from the MC (ADR-0015 decisions 9-10, 13): the
     /// construct name the object carries, or `None` when the label column is empty —
     /// drift, never-written, or wiped by a firmware reset. This is the facet the
-    /// identity matcher's [`crate::matcher::BoardObject`] leans on for unanchored
+    /// identity matcher's [`crate::plan::matcher::BoardObject`] leans on for unanchored
     /// constructs; anchored ports re-associate by their dpmac edge, never the label.
     pub label: Option<ConstructName>,
     /// The DPMAC this DPNI is connected to, if any.

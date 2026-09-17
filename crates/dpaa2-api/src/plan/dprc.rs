@@ -1,6 +1,9 @@
 //! Plan semantics for the child-DPRC lifecycle — the pure functions that PREDICT
 //! containment outcomes rather than discover them (design D2/D4; ADR-0007 §3; DPRC-I6).
 //!
+//! Filed under `plan/` as `plan/dprc.rs`, the first family-specific planner and the
+//! pattern the rest follow (ADR-0018).
+//!
 //! This layers on the [`crate::families::dprc`] typestates (2026-09-15-dprc-encapsulation task 2.1): the phase sum and its
 //! guards decide what a plan may emit, and the eviction law computes a teardown's
 //! post-state before any MC command runs. It reuses the port reconciler's disruption

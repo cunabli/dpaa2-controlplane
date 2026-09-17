@@ -27,7 +27,7 @@
 //!    oscillate forever.
 //! 3. **Label pass 2** (decision 10, the rename widening). Every still-free unanchored
 //!    [`MatchObject`] carrying `renamed.from` binds the unused object labelled by its
-//!    `from`; these are the rename set (each lowers to a [`crate::Transition::SetLabel`]).
+//!    `from`; these are the rename set (each lowers to a [`crate::plan::Transition::SetLabel`]).
 //! 4. **Leftover rung** (decision 11, indiscernibility). Among the unanchored leftovers
 //!    a family still has: two or more board objects with a compiled object wanting one
 //!    and configs not all interchangeable REFUSES [`Ambiguity`] — a guess could rewire
@@ -35,12 +35,12 @@
 //!    create/remove.
 //!
 //! The verdict is `{ pairs, renamed, created, removed }` in the construct-name world.
-//! Lowering a pair into actuation — a relabel to [`crate::Transition::SetLabel`] —
+//! Lowering a pair into actuation — a relabel to [`crate::plan::Transition::SetLabel`] —
 //! happens at the plan seam, not here (the parcel review's ratified decision 4); the
 //! disruption class of every relabel and of the plan as a whole is
 //! [`MatchPlan::headline`], transcribed from the model's `planClass`/`pairClass`. The
 //! class vocabulary itself is [`crate::plan::Class`], shared with the reconciler's
-//! [`crate::Transition`] classing so one `--allow` gate covers the merged headline.
+//! [`crate::plan::Transition`] classing so one `--allow` gate covers the merged headline.
 
 use std::collections::BTreeSet;
 
@@ -206,7 +206,7 @@ impl MatchPlan {
     /// dry-run reports. Every create and every remove is [`Class::Disruptive`]; each
     /// matched pair contributes its [`pair_class`], which needs the board object as it
     /// stood before the converge (`pre_board`) to read the prior label. Shares
-    /// [`Class`] with [`crate::Plan::headline`] so `--allow` gates the merged headline.
+    /// [`Class`] with [`crate::plan::Plan::headline`] so `--allow` gates the merged headline.
     ///
     /// # Panics
     /// Panics only on a corrupt plan — a pair whose handle names no object in

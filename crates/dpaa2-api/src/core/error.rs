@@ -25,7 +25,7 @@ pub enum Error {
     /// status byte for the core to judge — the adapter reports it, it does not classify
     /// (design D4). The status→cause mapping lives once, core-side, in
     /// [`dprc::Refusal::mc_status`](crate::families::dprc::Refusal::mc_status) and
-    /// [`dprc_plan::attribute_mc`](crate::dprc_plan::attribute_mc).
+    /// [`dprc_plan::attribute_mc`](crate::plan::dprc::attribute_mc).
     #[error("MC command refused with status {status:#04x}")]
     McStatus {
         /// The raw MC status byte restool surfaced (e.g. `0x4`/`0x6`/`0x8`).
@@ -35,7 +35,7 @@ pub enum Error {
     /// restool refused an operation with its own client-side guard, before issuing any
     /// MC command (e.g. the plugged-move guard, `docs/baseline/dprc.md` DPRC-I3).
     /// Kept distinct from [`Error::McStatus`] so the core can attribute it to
-    /// [`dprc_plan::Attribution::RestoolClientGuard`](crate::dprc_plan::Attribution::RestoolClientGuard)
+    /// [`dprc_plan::Attribution::RestoolClientGuard`](crate::plan::dprc::Attribution::RestoolClientGuard)
     /// (design D4).
     #[error("restool client-side refusal: {detail}")]
     RestoolGuard {

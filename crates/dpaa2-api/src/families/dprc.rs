@@ -196,7 +196,7 @@ impl Refusal {
     /// [`mc_status`](Self::mc_status), the single core-side sentinel decode (design D4).
     /// A southbound [`Error::McStatus`](crate::core::error::Error::McStatus) carries only the byte;
     /// this turns it back into the discriminated shape a reconciler attributes with
-    /// [`attribute_mc`](crate::dprc_plan::attribute_mc), keeping the classification
+    /// [`attribute_mc`](crate::plan::dprc::attribute_mc), keeping the classification
     /// core-side, never in the adapter. A status outside `0x4/0x6/0x8` is `None` — an
     /// unknown code is not silently collapsed into one of the three known shapes.
     #[must_use]

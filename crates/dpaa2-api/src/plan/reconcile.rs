@@ -189,7 +189,7 @@ mod tests {
         ObservedDpmac, ObservedDpni, ObservedTopology, Presence,
     };
     use crate::plan::Transition;
-    use crate::reconcile::{ReconcileOptions, reconcile, reconcile_with};
+    use crate::plan::reconcile::{ReconcileOptions, reconcile, reconcile_with};
 
     const MAC_3: MacAddr = MacAddr::new([0x02, 0, 0, 0, 0, 0x03]);
 
