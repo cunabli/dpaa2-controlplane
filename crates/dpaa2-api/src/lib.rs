@@ -25,17 +25,3 @@ pub mod testkit;
 // containment `Refusal` is a distinct vocabulary from the intent-compile
 // [`intent::refuse::Refusal`] (2026-08-22-restool-baseline design D4), so the two are deliberately not flattened into one
 // namespace where they would collide.
-/// Temporary flat aliases; retire when the yfg.5 importer commits land (ADR-0018).
-pub use self::intent::compiled;
-pub use self::intent::compiled::{
-    AttachPoint, Attributes, CompiledPlan, Container, Edge, Interface, Measurement, ObjectKey,
-    PlannedObject, ProvenanceKey, ProvenanceNode,
-};
-pub use self::intent::refuse;
-pub use self::intent::refuse::{
-    Compiled, REFUSAL_VARIANTS, Referrer, Refusal, WARNING_VARIANTS, Warning, compile,
-};
-pub use self::intent::{
-    Crypto, Dataplane, Extra, Fabric, Intent, Isolation, KERNEL, Link, Member, Port, Switching,
-    Tenant, TenantRef, kernel_tenant,
-};
