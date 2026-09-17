@@ -49,23 +49,3 @@ pub use reconcile::{ReconcileOptions, reconcile, reconcile_with};
 pub use refuse::{
     Compiled, REFUSAL_VARIANTS, Referrer, Refusal, WARNING_VARIANTS, Warning, compile,
 };
-
-// Temporary flat-path aliases: the importer crates migrate to the ADR-0018
-// namespaced paths one commit at a time; this block retires at the end of
-// the series (bead dpaa2-controlplane-yfg.2).
-pub use self::contract as port;
-#[cfg(any(test, feature = "testkit"))]
-pub use self::contract::fake;
-pub use self::contract::{ConfigSource, KernelControl, McControl};
-pub use self::core::error::Error;
-pub use self::core::family::{ALL_FAMILIES, DERIVED_FAMILIES, Family, Permission};
-pub use self::core::inventory::{
-    Availability, Ceiling, DpmacLinkType, DpmacOffer, EthInterface, Inventory,
-};
-pub use self::core::model::{
-    DesiredPort, DesiredTopology, DpmacId, DpniId, DprcId, FacetMismatch, Lifecycle, LinkType,
-    MacAddr, MacMode, MacParseError, ObjectRef, ObservedDpmac, ObservedDpni, ObservedTopology,
-    Presence,
-};
-pub use self::core::types::{ConstructName, RuleName, TenantName};
-pub use self::core::{error, family, inventory, model, types};
