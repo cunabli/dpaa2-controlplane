@@ -125,13 +125,16 @@ fn the_intent_copies_agree() {
     }
 
     // The Rust domain copies: the `dpaa2_api::Refusal` name list, the
-    // `dpaa2_api::Family` variant set, the `dpaa2_api::Warning` name list, and
+    // `dpaa2_api::core::family::Family` variant set, the `dpaa2_api::Warning` name list, and
     // the lowercase `Family::as_str` family names (ADR-0014 R14).
-    let rust_families: Vec<&str> = dpaa2_api::ALL_FAMILIES
+    let rust_families: Vec<&str> = dpaa2_api::core::family::ALL_FAMILIES
         .iter()
         .map(|f| f.variant_name())
         .collect();
-    let rust_family_strs: Vec<&str> = dpaa2_api::ALL_FAMILIES.iter().map(|f| f.as_str()).collect();
+    let rust_family_strs: Vec<&str> = dpaa2_api::core::family::ALL_FAMILIES
+        .iter()
+        .map(|f| f.as_str())
+        .collect();
 
     let findings = intent_lint(
         &refuse,

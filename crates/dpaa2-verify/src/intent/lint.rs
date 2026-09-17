@@ -16,7 +16,7 @@ use crate::board::ledger::split_row;
 // they "drift ... exactly this way" and belong under this lint. R11–R16
 // cross-check those copies against the model so a drift fails in CI, the same
 // design-D9 mechanism R1–R10 apply to the board ledgers. R14 extends the reach
-// to the Rust domain enums (`dpaa2_api::Refusal`, `dpaa2_api::Family`), which
+// to the Rust domain enums (`dpaa2_api::Refusal`, `dpaa2_api::core::family::Family`), which
 // restate `refuse.qnt`/`types.qnt` and so are linted copies too (ADR-0014); it
 // also ties `dpaa2_api::Warning` (WARNING_VARIANTS) to refuse.qnt's
 // `type Warning =` and the lowercase `Family::as_str` names to intent_raw.qnt's
@@ -135,7 +135,7 @@ fn parse_warning_variants(refuse_qnt: &str) -> Vec<String> {
 }
 
 /// The lowercase restool names of `intent_raw.qnt`'s `FAMILY_NAMES` mapping —
-/// the model's hand-maintained copy of [`dpaa2_api::Family::as_str`]'s
+/// the model's hand-maintained copy of [`dpaa2_api::core::family::Family::as_str`]'s
 /// vocabulary (parse.rs `parse_family`). Scans from the `pure val FAMILY_NAMES`
 /// line to the line closing the list (`]`) and returns every double-quoted
 /// string in order — the `("dprc", Dprc)`-style tuples' left elements.
@@ -440,8 +440,8 @@ fn r13_scenarios(qnt_stems: &[String], toml_stems: &[String], adr_md: &str, out:
 /// R14: the Rust domain copies agree with the model. `refuse.qnt`'s
 /// `type Refusal =` and `types.qnt`'s `type Family =` are the truth; the
 /// `dpaa2_api::Refusal` variant list ([`dpaa2_api::REFUSAL_VARIANTS`]) and the
-/// `dpaa2_api::Family` variant set (from [`dpaa2_api::Family::variant_name`] over
-/// [`dpaa2_api::ALL_FAMILIES`]) are the copies (ADR-0014: a Rust enum that
+/// `dpaa2_api::core::family::Family` variant set (from [`dpaa2_api::core::family::Family::variant_name`] over
+/// [`dpaa2_api::core::family::ALL_FAMILIES`]) are the copies (ADR-0014: a Rust enum that
 /// restates the model is a linted copy, tied back here). Refusal names apply the
 /// same `Reserved`/`Foreign` anchor alias as the ADR §5 copy (R11). Adding,
 /// removing, or renaming a variant on either side — model or Rust — breaks this
@@ -506,14 +506,14 @@ fn r14_rust_copies(
     for v in &model_families {
         if !rust_families.contains(&v.as_str()) {
             out.push(format!(
-                "R14 rust: types.qnt Family {v} has no dpaa2_api::Family counterpart"
+                "R14 rust: types.qnt Family {v} has no dpaa2_api::core::family::Family counterpart"
             ));
         }
     }
     for f in rust_families {
         if !model_families.iter().any(|v| v == f) {
             out.push(format!(
-                "R14 rust: dpaa2_api::Family {f} is absent from types.qnt"
+                "R14 rust: dpaa2_api::core::family::Family {f} is absent from types.qnt"
             ));
         }
     }
@@ -972,7 +972,10 @@ module core_types {
         let refusals = ["TenantAbsent", "Reserved", "Infeasible"];
         let families = ["Dprc", "Dpni", "Dpmac"];
         let warnings = ["UnknownCeiling"]; // REFUSE's lone Warning variant
-        let family_strs: Vec<&str> = dpaa2_api::ALL_FAMILIES.iter().map(|f| f.as_str()).collect();
+        let family_strs: Vec<&str> = dpaa2_api::core::family::ALL_FAMILIES
+            .iter()
+            .map(|f| f.as_str())
+            .collect();
         let mut out = Vec::new();
         r14_rust_copies(
             REFUSE,
@@ -995,7 +998,10 @@ module core_types {
         let refusals_bad = ["TenantAbsent", "Reserved"]; // Infeasible gone
         let families_bad = ["Dprc", "Dpni", "Dpmax"]; // renamed
         let warnings = ["UnknownCeiling"]; // matches REFUSE, no warning drift here
-        let family_strs: Vec<&str> = dpaa2_api::ALL_FAMILIES.iter().map(|f| f.as_str()).collect();
+        let family_strs: Vec<&str> = dpaa2_api::core::family::ALL_FAMILIES
+            .iter()
+            .map(|f| f.as_str())
+            .collect();
         let mut out = Vec::new();
         r14_rust_copies(
             REFUSE,
@@ -1016,14 +1022,16 @@ module core_types {
         );
         // Model has Dpmac, the Rust copy does not.
         assert!(
-            out.iter()
-                .any(|m| m.contains("types.qnt Family Dpmac has no dpaa2_api::Family")),
+            out.iter().any(
+                |m| m.contains("types.qnt Family Dpmac has no dpaa2_api::core::family::Family")
+            ),
             "{out:?}"
         );
         // The Rust copy's Dpmax has no model family.
         assert!(
             out.iter()
-                .any(|m| m.contains("dpaa2_api::Family Dpmax is absent from types.qnt")),
+                .any(|m| m
+                    .contains("dpaa2_api::core::family::Family Dpmax is absent from types.qnt")),
             "{out:?}"
         );
     }
@@ -1038,11 +1046,14 @@ module core_types {
             .expect("read refuse.qnt");
         let types = std::fs::read_to_string(format!("{root}/models/core/types.qnt"))
             .expect("read types.qnt");
-        let families: Vec<&str> = dpaa2_api::ALL_FAMILIES
+        let families: Vec<&str> = dpaa2_api::core::family::ALL_FAMILIES
             .iter()
             .map(|f| f.variant_name())
             .collect();
-        let family_strs: Vec<&str> = dpaa2_api::ALL_FAMILIES.iter().map(|f| f.as_str()).collect();
+        let family_strs: Vec<&str> = dpaa2_api::core::family::ALL_FAMILIES
+            .iter()
+            .map(|f| f.as_str())
+            .collect();
         let mut out = Vec::new();
         r14_rust_copies(
             &refuse,
@@ -1239,7 +1250,7 @@ The `intent-layer` change's config-surface laws.
         let refusals = ["TenantAbsent", "Reserved", "Infeasible"];
         let families = ["Dprc", "Dpni", "Dpmac"];
         let warnings = ["UnknownCeiling", "UnmeasuredCombination"]; // FutureWarning absent
-        let family_strs: Vec<&str> = dpaa2_api::ALL_FAMILIES
+        let family_strs: Vec<&str> = dpaa2_api::core::family::ALL_FAMILIES
             .iter()
             .map(|f| f.as_str())
             .filter(|s| *s != "dpdbg") // drop dpdbg

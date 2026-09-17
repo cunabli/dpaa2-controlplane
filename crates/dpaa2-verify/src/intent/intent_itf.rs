@@ -40,12 +40,16 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde_json::Value;
 
+use dpaa2_api::core::family::{Family, Permission};
+use dpaa2_api::core::inventory::{
+    Availability, Ceiling, DpmacLinkType, DpmacOffer, EthInterface, Inventory,
+};
+use dpaa2_api::core::model::{DpmacId, MacMode};
+use dpaa2_api::core::types::{ConstructName, TenantName};
 use dpaa2_api::{
-    AttachPoint, Attributes, Availability, Ceiling, Compiled, ConstructName, Container, Crypto,
-    Dataplane, DpmacId, DpmacLinkType, DpmacOffer, EthInterface, Extra, Fabric, Family, Intent,
-    Inventory, Isolation, Link, MacMode, Measurement, Member, ObjectKey, Permission, Port,
-    ProvenanceKey, ProvenanceNode, Referrer, Refusal, Switching, Tenant, TenantName, TenantRef,
-    Warning, compile,
+    AttachPoint, Attributes, Compiled, Container, Crypto, Dataplane, Extra, Fabric, Intent,
+    Isolation, Link, Measurement, Member, ObjectKey, Port, ProvenanceKey, ProvenanceNode, Referrer,
+    Refusal, Switching, Tenant, TenantRef, Warning, compile,
 };
 
 use crate::itf::{family_of_tag, field, int64, num, set_items, tag, text};

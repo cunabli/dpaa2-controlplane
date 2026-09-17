@@ -33,13 +33,13 @@ use serde_json::Value;
 
 /// The 16 MC object families (object-model.md §3).
 ///
-/// The domain type is [`dpaa2_api::Family`], not a sibling copy: one Rust
+/// The domain type is [`dpaa2_api::core::family::Family`], not a sibling copy: one Rust
 /// transcription of `models/core/types.qnt`, tied to the model by `intent_lint`
 /// R14 (ADR-0014; `models/intent/types.qnt` `Family`). This adapter keeps only the ITF/serde plumbing
 /// that stays local because `dpaa2-api` carries no serde (design D10): the
 /// variant-name serde (`family_serde`), the ITF-tag and restool-name parsers
 /// (`family_from_tag`, `family_from_str`).
-pub use dpaa2_api::Family;
+pub use dpaa2_api::core::family::Family;
 
 /// The family whose `variant_name` is `tag` — the ITF constructor tag
 /// (`"Dpni"`, `"Dprc"`, …), the same token the batch plan serialises.
@@ -57,7 +57,7 @@ fn family_from_tag(tag: &str) -> Result<Family, String> {
 /// flag parser ([`CreateArgs::parse_flag`]). Local because it inverts the
 /// restool projection, an adapter concern the domain type does not carry.
 fn family_from_str(s: &str) -> Result<Family, String> {
-    dpaa2_api::ALL_FAMILIES
+    dpaa2_api::core::family::ALL_FAMILIES
         .into_iter()
         .find(|f| f.as_str() == s)
         .ok_or_else(|| format!("unknown family `{s}`"))

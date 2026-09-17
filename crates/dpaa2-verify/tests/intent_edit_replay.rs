@@ -31,9 +31,10 @@
 use std::collections::BTreeSet;
 use std::fmt::Write as _;
 
+use dpaa2_api::core::family::Family;
+use dpaa2_api::core::types::ConstructName;
 use dpaa2_api::{
-    BoardObject, ConfigFacet, ConstructName, Family, Intent, MatchObject, MatchVerdict,
-    converge_match, match_board,
+    BoardObject, ConfigFacet, Intent, MatchObject, MatchVerdict, converge_match, match_board,
 };
 use dpaa2_verify::intent::edits_itf::{EditState, Phase, parse_edits_trace};
 

@@ -21,10 +21,12 @@
 
 use std::collections::BTreeMap;
 
-use dpaa2_api::{
-    ConstructName, DesiredPort, DesiredTopology, DpmacId, DpniId, LinkType, ObservedDpmac,
-    ObservedDpni, ObservedTopology, Plan, Presence, ReconcileOptions, Transition, reconcile_with,
+use dpaa2_api::core::model::{
+    DesiredPort, DesiredTopology, DpmacId, DpniId, LinkType, ObservedDpmac, ObservedDpni,
+    ObservedTopology, Presence,
 };
+use dpaa2_api::core::types::ConstructName;
+use dpaa2_api::{Plan, ReconcileOptions, Transition, reconcile_with};
 
 use crate::itf::ModelView;
 

@@ -13,7 +13,7 @@ use std::collections::BTreeMap;
 
 use serde_json::Value;
 
-use dpaa2_api::{ALL_FAMILIES, Family};
+use dpaa2_api::core::family::{ALL_FAMILIES, Family};
 
 /// What the model exposes of one DPNI to an observer.
 #[derive(Clone, PartialEq, Eq, Debug)]

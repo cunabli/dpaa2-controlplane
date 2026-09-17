@@ -23,7 +23,7 @@ use std::collections::BTreeMap;
 
 use serde_json::Value;
 
-use dpaa2_api::ConstructName;
+use dpaa2_api::core::types::ConstructName;
 use dpaa2_api::dprc::{
     ContainerState, Identity, Options, Outcome, Refusal, Resident, ResidentId, ResidentKind,
     VfioBind,

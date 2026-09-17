@@ -40,7 +40,8 @@ use std::fmt::Write as _;
 
 use serde_json::Value;
 
-use dpaa2_api::{ConstructName, Intent, Referrer, TenantName};
+use dpaa2_api::core::types::{ConstructName, TenantName};
+use dpaa2_api::{Intent, Referrer};
 
 use crate::intent::intent_itf::{cname, intent, list_items, map_items, referrer, tname};
 use crate::itf::{field, int64, set_items, tag, text};
@@ -241,7 +242,7 @@ impl RawRefusal {
         }
     }
 
-    /// Whether a `parse.rs` [`dpaa2_api::Error::Config`] message `e` corresponds to
+    /// Whether a `parse.rs` [`dpaa2_api::core::error::Error::Config`] message `e` corresponds to
     /// this model refusal. Each arm anchors on the distinctive substring of the
     /// exact `parse.rs` spelling (plus the payload name where it disambiguates), so
     /// the harness can assert the short-circuited Rust error is *one of* the model's

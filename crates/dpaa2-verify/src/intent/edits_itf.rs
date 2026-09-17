@@ -29,10 +29,10 @@ use std::collections::BTreeSet;
 
 use serde_json::Value;
 
-use dpaa2_api::{
-    BoardObject, ConfigFacet, ConstructName, DpmacId, Family, Handle, KERNEL, MatchObject,
-    TenantName,
-};
+use dpaa2_api::core::family::Family;
+use dpaa2_api::core::model::DpmacId;
+use dpaa2_api::core::types::{ConstructName, TenantName};
+use dpaa2_api::{BoardObject, ConfigFacet, Handle, KERNEL, MatchObject};
 
 use crate::intent::intent_itf::{cname, opt_name};
 use crate::itf::{family_of_tag, field, int64, num, set_items, tag, text};
