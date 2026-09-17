@@ -24,9 +24,11 @@ The goal is to replace the restool CLI interface (all scripts and entry points s
 This rust monorepo stores the following crates/:
 
 - dpaa2-api: the domain model of network objects, the trait seams, and the pure reconcile functions to solve and dispatch on using a sans-io and hexagonal architecture approach
-- dpaa2-mc: southbound adapter that drives the MC objects over the restool shim and the fsl-mc sysfs bus; a future ioctl portal drops in behind the same traits
+- dpaa2-mc: southbound adapter that drives the MC objects over the restool shim and dpaa2-hal's kernel primitives, owning all policy (retry, tolerance, error mapping); a future ioctl portal drops in behind the same traits
+- dpaa2-hal: typed, policy-free primitives for the kernel interfaces DPAA2 hardware is reached through (fsl-mc sysfs today; VFIO, netlink, and the MC-portal ioctl transport join with the change that consumes them)
 - dpaa2-config: northbound adapter that parses the declarative topology intent into the backend-neutral model
 - dpaa2-tools: customer frontend and imperative shell that drives convergence via CLI, TUI, etc.
+- dpaa2-verify: model-based-test harness — board/ renders operator batch suites and online drivers inside the safety envelope, intent/ holds the pure offline trace oracles
 
 The repository also contains:
 - docs/adr/: numbered decision records that track the current agreement as to what the library and crates target, what do not target, and its parts to do so

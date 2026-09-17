@@ -84,9 +84,11 @@ vocabulary, its derived quantities, and its refusals are
 | Crate | Role |
 |-------|------|
 | `dpaa2-api` | Neutral topology model, trait seams, and the pure reconciler (the hexagon's core). |
-| `dpaa2-mc` | Southbound adapter over `restool` and the fsl-mc sysfs bus. |
+| `dpaa2-mc` | Southbound adapter over `restool` and the kernel primitives; owns all policy. |
+| `dpaa2-hal` | Typed, policy-free primitives for the kernel interfaces (fsl-mc sysfs today; VFIO, netlink, ioctl portal as they are consumed). |
 | `dpaa2-config` | Northbound `topology.toml` frontend. |
 | `dpaa2-tools` | The `dpaa2ctl` binary: the imperative shell and stable-naming stage. |
+| `dpaa2-verify` | Model-based-test harness: board suites (`board/`) and offline trace oracles (`intent/`). |
 
 ## Documentation
 
