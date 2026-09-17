@@ -15,6 +15,7 @@ use dpaa2_api::core::error::Error;
 use dpaa2_api::core::model::{DesiredTopology, DpmacId, DpniId, DprcId, ObservedTopology};
 use dpaa2_api::core::types::ConstructName;
 use dpaa2_api::families::dprc::Options;
+use dpaa2_api::intent::compiled::{CompiledPlan, Container};
 use dpaa2_api::plan::dprc::{
     Attribution, ConsumerConvergence, ContainerPlan, ContainerStep, ContainerVerdict, PruneBucket,
     PruneItem, Verb, attribute_refusal, derive_consumer_containers, plan_consumer_convergence,
@@ -22,7 +23,6 @@ use dpaa2_api::plan::dprc::{
 };
 use dpaa2_api::plan::reconcile::{ReconcileOptions, reconcile_with};
 use dpaa2_api::plan::{Class, Plan, Transition};
-use dpaa2_api::{CompiledPlan, Container};
 
 /// Policy for a convergence run.
 #[derive(Clone, Copy, Debug)]

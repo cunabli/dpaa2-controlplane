@@ -11,9 +11,10 @@ use std::time::Duration;
 use clap::{Parser, Subcommand, ValueEnum};
 use dpaa2_api::contract::McControl;
 use dpaa2_api::core::error::Error;
+use dpaa2_api::intent::refuse::{Compiled, compile};
+use dpaa2_api::intent::{Intent, kernel_tenant};
 use dpaa2_api::plan::Class;
 use dpaa2_api::plan::reconcile::{ReconcileOptions, reconcile_with};
-use dpaa2_api::{Compiled, Intent, compile, kernel_tenant};
 use dpaa2_mc::{RestoolMc, SysfsKernel};
 use dpaa2_tools::engine::{self, ContainerOutcome, ConvergeConfig, Outcome, PruneOutcome};
 use dpaa2_tools::{StatusReport, link, render};
@@ -327,7 +328,7 @@ fn compile_intent(
 }
 
 /// Reserved-kernel completion (design D1): the config parser never creates a kernel
-/// [`dpaa2_api::Tenant`] — a port with no tenant defaults to the reserved name — so the
+/// [`dpaa2_api::intent::Tenant`] — a port with no tenant defaults to the reserved name — so the
 /// frontend injects `kernel_tenant(cpus)` at index 0 when a port terminates the kernel
 /// and no kernel tenant is declared. A link naming the kernel is materialised inside
 /// `compile`'s `effective_tenants`, so this completes the port case only (the
@@ -350,7 +351,7 @@ fn init_logging() {
 #[cfg(test)]
 mod tests {
     use dpaa2_api::core::model::{DpmacId, MacMode};
-    use dpaa2_api::{Intent, Port, TenantRef, kernel_tenant};
+    use dpaa2_api::intent::{Intent, Port, TenantRef, kernel_tenant};
 
     use super::complete_kernel;
 

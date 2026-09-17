@@ -13,12 +13,13 @@
 
 use dpaa2_api::core::family::Family;
 use dpaa2_api::families::dprc::Options;
+use dpaa2_api::intent::compiled::{Attributes, Container};
+use dpaa2_api::intent::refuse::compile;
 use dpaa2_api::plan::dprc::{ContainerStep, derive_consumer_containers, plan_consumer_container};
 use dpaa2_api::testkit::ref_inventory;
-use dpaa2_api::{Attributes, Container, compile};
 
 /// Reads and compiles one committed operand from the suite directory.
-fn compile_operand(file: &str) -> dpaa2_api::Compiled {
+fn compile_operand(file: &str) -> dpaa2_api::intent::refuse::Compiled {
     let toml = std::fs::read_to_string(format!(
         "{}/../../models/board/V-DPRC-9/{file}",
         env!("CARGO_MANIFEST_DIR")

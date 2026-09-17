@@ -9,10 +9,11 @@ use dpaa2_api::core::inventory::{
     Availability, Ceiling, DpmacLinkType, DpmacOffer, EthInterface, Inventory,
 };
 use dpaa2_api::core::model::{DpmacId, MacMode};
-use dpaa2_api::plan::reconcile::{ReconcileOptions, reconcile_with};
-use dpaa2_api::{
-    Crypto, Dataplane, Extra, Intent, Isolation, Port, Tenant, TenantRef, compile, kernel_tenant,
+use dpaa2_api::intent::refuse::compile;
+use dpaa2_api::intent::{
+    Crypto, Dataplane, Extra, Intent, Isolation, Port, Tenant, TenantRef, kernel_tenant,
 };
+use dpaa2_api::plan::reconcile::{ReconcileOptions, reconcile_with};
 use dpaa2_tools::render::{render_dry_run, render_refusals};
 
 const RESERVED_3: &str = "ADR-0003 §3: total-deny";

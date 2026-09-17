@@ -5,19 +5,20 @@
 //! set as *data* — no `Display` impls (design D11) — and these pure functions turn
 //! them into the operator-facing strings `main` prints. Every function is a pure map
 //! from borrowed plan data to a [`String`], so the dry-run output is snapshot-tested
-//! with `insta` against a hand-built [`dpaa2_api::compile`] result, board-free.
+//! with `insta` against a hand-built [`dpaa2_api::intent::refuse::compile`] result, board-free.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
 
 use dpaa2_api::core::family::Family;
 use dpaa2_api::core::model::DprcId;
+use dpaa2_api::intent::compiled::{
+    AttachPoint, Attributes, CompiledPlan, Container, Measurement, ObjectKey, PlannedObject,
+    ProvenanceKey,
+};
+use dpaa2_api::intent::refuse::{Refusal, Warning};
 use dpaa2_api::plan::Plan;
 use dpaa2_api::plan::dprc::{ConsumerConvergence, ContainerVerdict, FingerprintField, PruneItem};
-use dpaa2_api::{
-    AttachPoint, Attributes, CompiledPlan, Container, Measurement, ObjectKey, PlannedObject,
-    ProvenanceKey, Refusal, Warning,
-};
 
 /// Renders the whole dry-run text: the compiled objects with their provenance trees
 /// and edges, the transitions `reconcile` would execute, the plan-only report, and
