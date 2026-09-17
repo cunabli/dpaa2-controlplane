@@ -13,7 +13,6 @@ use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::collections::HashMap;
 
-use crate::compiled::Container;
 use crate::contract::{KernelControl, McControl};
 use crate::core::error::Error;
 use crate::core::inventory::Inventory;
@@ -22,6 +21,7 @@ use crate::core::model::{
     ObservedTopology,
 };
 use crate::families::dprc::ContainerState;
+use crate::intent::compiled::Container;
 use crate::plan::dprc::ObservedContainer;
 
 /// The netdev name the fake assigns a DPNI once its PHY-backed link is up.

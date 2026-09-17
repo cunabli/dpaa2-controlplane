@@ -12,30 +12,30 @@
 
 #![warn(clippy::wildcard_imports)]
 
-pub mod compiled;
 pub mod contract;
 pub mod core;
-mod derive;
 pub mod families;
 pub mod intent;
 pub mod plan;
-pub mod refuse;
 
 #[cfg(any(test, feature = "testkit"))]
 pub mod testkit;
 
-pub use compiled::{
+// The child-DPRC lifecycle keeps its own module namespace (`dpaa2_api::families::dprc::*`): its
+// containment `Refusal` is a distinct vocabulary from the intent-compile
+// [`intent::refuse::Refusal`] (2026-08-22-restool-baseline design D4), so the two are deliberately not flattened into one
+// namespace where they would collide.
+/// Temporary flat aliases; retire when the yfg.5 importer commits land (ADR-0018).
+pub use self::intent::compiled;
+pub use self::intent::compiled::{
     AttachPoint, Attributes, CompiledPlan, Container, Edge, Interface, Measurement, ObjectKey,
     PlannedObject, ProvenanceKey, ProvenanceNode,
 };
-// The child-DPRC lifecycle keeps its own module namespace (`dpaa2_api::families::dprc::*`): its
-// containment `Refusal` is a distinct vocabulary from the intent-compile
-// [`refuse::Refusal`] (design D4), so the two are deliberately not flattened into one
-// crate-root namespace where they would collide.
-pub use intent::{
+pub use self::intent::refuse;
+pub use self::intent::refuse::{
+    Compiled, REFUSAL_VARIANTS, Referrer, Refusal, WARNING_VARIANTS, Warning, compile,
+};
+pub use self::intent::{
     Crypto, Dataplane, Extra, Fabric, Intent, Isolation, KERNEL, Link, Member, Port, Switching,
     Tenant, TenantRef, kernel_tenant,
-};
-pub use refuse::{
-    Compiled, REFUSAL_VARIANTS, Referrer, Refusal, WARNING_VARIANTS, Warning, compile,
 };

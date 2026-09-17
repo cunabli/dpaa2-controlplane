@@ -15,9 +15,9 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use thiserror::Error;
 
-use crate::compiled::CompiledPlan;
 use crate::core::family::Family;
 use crate::core::types::ConstructName;
+use crate::intent::compiled::CompiledPlan;
 use crate::intent::kernel_tenant;
 
 /// A 48-bit Ethernet MAC address.
@@ -202,7 +202,7 @@ pub struct DprcId(u32);
 
 impl DprcId {
     /// The fsl-mc root container, `dprc.1` — the parent a consumer's child DPRC is
-    /// created under ([`Container::Root`](crate::Container); `docs/baseline/dprc.md`
+    /// created under ([`Container::Root`](crate::intent::compiled::Container); `docs/baseline/dprc.md`
     /// "Intent mapping"). The one placement the container-only convergence path targets.
     pub const ROOT: Self = Self(1);
 

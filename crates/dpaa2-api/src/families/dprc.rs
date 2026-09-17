@@ -142,7 +142,7 @@ impl ResidentKind {
 ///
 /// A reconciler must read three distinct MC statuses and never collapse them to one
 /// denial (design D4): the status carries which option bit refused. This is a
-/// *distinct* vocabulary from [`crate::refuse::Refusal`] (the intent-compile refusal
+/// *distinct* vocabulary from [`crate::intent::refuse::Refusal`] (the intent-compile refusal
 /// set) — the containment matrix and the intent compiler judge different things, so
 /// they do not share a type (adapters report, never judge: the classification and its
 /// [`Refusal::mc_status`] sentinels live once, here, core-side).

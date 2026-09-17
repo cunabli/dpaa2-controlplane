@@ -7,14 +7,15 @@
 //! a [`DesiredTopology`] assembled from a hand-built plan reconciles exactly as a
 //! port-only one does.
 
-use dpaa2_api::compiled::{AttachPoint, Container};
 use dpaa2_api::core::family::Family;
 use dpaa2_api::core::model::{
     DesiredPort, DesiredTopology, DpmacId, LinkType, MacAddr, ObservedDpmac, ObservedTopology,
 };
+use dpaa2_api::intent::compiled::CompiledPlan;
+use dpaa2_api::intent::compiled::{AttachPoint, Container};
+use dpaa2_api::intent::{Dataplane, Isolation, Link, Tenant, TenantRef, kernel_tenant};
 use dpaa2_api::plan::Transition;
 use dpaa2_api::plan::reconcile::reconcile;
-use dpaa2_api::{CompiledPlan, Dataplane, Isolation, Link, Tenant, TenantRef, kernel_tenant};
 
 const MAC_7: MacAddr = MacAddr::new([0x02, 0, 0, 0, 0, 0x07]);
 

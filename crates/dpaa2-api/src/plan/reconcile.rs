@@ -302,7 +302,7 @@ mod tests {
         // A sized compiled plan (num_queues=5) is carried verbatim into the Create, so
         // `ensure` executes exactly what dry-run rendered (synthesis L2/B3) — unlike the
         // port-only projection above, whose Create is the unsized 0.
-        use crate::compiled::CompiledPlan;
+        use crate::intent::compiled::CompiledPlan;
         use crate::intent::kernel_tenant;
 
         let kernel = kernel_tenant(5);

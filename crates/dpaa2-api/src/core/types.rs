@@ -2,8 +2,8 @@
 //! customise string so names cannot be confused among one another; ADR-0013 §2).
 //!
 //! An intent and its derived plan carry three kinds of name string that keep
-//! company inside one struct — a [`ProvenanceKey`](crate::compiled::ProvenanceKey)
-//! is `{ tenant, rule, construct }`, a [`Refusal`](crate::refuse::Refusal) payload
+//! company inside one struct — a [`ProvenanceKey`](crate::intent::compiled::ProvenanceKey)
+//! is `{ tenant, rule, construct }`, a [`Refusal`](crate::intent::refuse::Refusal) payload
 //! sets a `tenant` beside a `construct` — and a bare `String` in each slot lets a
 //! tenant name be passed where a construct name is meant with no compiler word. The
 //! `resource_name!` macro mints a newtype per slot so the wrong name is a type error,
@@ -99,8 +99,8 @@ resource_name! {
     /// A tenant's name: the key namespace of every object a tenant draws, and the
     /// thing a port, link end, fabric owner, crypto block, extra or `pool` names
     /// when it refers to a tenant (design D1; `types.qnt` `Tenant`). Distinct from
-    /// [`ConstructName`] so the tenant slot of a [`ProvenanceKey`](crate::compiled::ProvenanceKey)
-    /// or a [`Refusal`](crate::refuse::Refusal) can never take a construct name by
+    /// [`ConstructName`] so the tenant slot of a [`ProvenanceKey`](crate::intent::compiled::ProvenanceKey)
+    /// or a [`Refusal`](crate::intent::refuse::Refusal) can never take a construct name by
     /// mistake.
     TenantName
 }
@@ -129,8 +129,8 @@ impl From<&TenantName> for ConstructName {
 }
 
 resource_name! {
-    /// A derivation rule's name: the token a [`ProvenanceNode`](crate::compiled::ProvenanceNode)
-    /// and its [`ProvenanceKey`](crate::compiled::ProvenanceKey) address it by
+    /// A derivation rule's name: the token a [`ProvenanceNode`](crate::intent::compiled::ProvenanceNode)
+    /// and its [`ProvenanceKey`](crate::intent::compiled::ProvenanceKey) address it by
     /// (`"dpio"`, `"T"`, `"port-edge"`, …; design D6). Distinct from the tenant and
     /// construct it sits beside in a key.
     RuleName

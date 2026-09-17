@@ -18,7 +18,7 @@ pub trait McControl {
     /// Returns an error if the backend cannot be queried.
     fn observe(&self) -> Result<ObservedTopology, Error>;
 
-    /// Reads the board's hardware offer — [`compile`](crate::compile)'s second
+    /// Reads the board's hardware offer — [`compile`](crate::intent::refuse::compile)'s second
     /// input, read never written (task 3.5, design D2; bead gqf.19).
     ///
     /// The dpmac attributes are immutable and come from `dpmac info` (DPMAC-I3);

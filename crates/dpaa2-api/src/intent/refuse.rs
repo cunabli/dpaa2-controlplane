@@ -15,12 +15,12 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::compiled::CompiledPlan;
 use crate::core::family::{DERIVED_FAMILIES, Family};
 use crate::core::inventory::{Availability, Ceiling, Inventory};
 use crate::core::model::{DesiredPort, DesiredTopology, DpmacId};
 use crate::core::types::{ConstructName, TenantName};
-use crate::derive::{
+use crate::intent::compiled::CompiledPlan;
+use crate::intent::derive::{
     derive, fabric_by_name, has_pricing, is_hw_switched_port, port_by_name, seeded_rate_classes,
     terminated_ports, thread_count,
 };
@@ -1137,10 +1137,10 @@ mod compile_tests {
     use std::collections::BTreeSet;
 
     use super::{Compiled, Referrer, Refusal, Warning, compile};
-    use crate::compiled::{Attributes, Container, ProvenanceNode};
     use crate::core::family::Family;
     use crate::core::inventory::{Availability, Ceiling, Inventory};
     use crate::core::model::DpmacId;
+    use crate::intent::compiled::{Attributes, Container, ProvenanceNode};
     use crate::intent::{
         Crypto, Dataplane, Extra, Fabric, Intent, Isolation, Link, Member, Port, Switching, Tenant,
         TenantRef, kernel_tenant,
@@ -1876,7 +1876,7 @@ mod compile_tests {
         // T = 1 + 2 + 2 = 5, visibly unmeasured.
         let t = provenance(&c, "router", "T", "");
         assert_eq!(t.value, 5);
-        assert_eq!(t.mark, crate::compiled::Measurement::Unmeasured);
+        assert_eq!(t.mark, crate::intent::compiled::Measurement::Unmeasured);
         assert_eq!(count_fam(&c, "router", Family::Dpni), 2);
         assert_eq!(
             attributes_of(&c, "router", Family::Dpni, 1),

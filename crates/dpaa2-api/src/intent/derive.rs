@@ -8,14 +8,14 @@
 //! ADRs, the family modules, and `companions.qnt`; they are read here by reference,
 //! never restated.
 //!
-//! The plan is built *through* the witness constructors of [`crate::compiled`]
+//! The plan is built *through* the witness constructors of [`crate::intent::compiled`]
 //! ([`Tenant::companion`], [`Tenant::dpni`], [`Tenant::dpseci`], [`Port::terminate`],
 //! [`Link::wire`], [`Fabric::dpsw`], [`Fabric::edge`], [`Fabric::wire`]), so the D6
 //! relationship locks hold on the compile path exactly as on a hand-built plan: a
 //! companion is drawn only through a tenant, a link end is a dpni never a dpmac, and
 //! a non-kernel tenant's object can never land in the root dprc.
 //!
-//! This module assumes an intent the refusals of [`crate::refuse`] have not rejected
+//! This module assumes an intent the refusals of [`crate::intent::refuse`] have not rejected
 //! (the total function's other half): a claimed dpmac is anchored and single-claimant, a
 //! hardware fabric is kernel-forwarded, a rate class is seeded. The derivation of a
 //! refused intent is *defined* (total, never a panic), not wrong — `refusals` runs
@@ -23,12 +23,12 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::compiled::{
-    AttachPoint, CompiledPlan, Measurement, ObjectKey, PlannedObject, ProvenanceKey, ProvenanceNode,
-};
 use crate::core::family::Family;
 use crate::core::inventory::Inventory;
 use crate::core::types::{ConstructName, TenantName};
+use crate::intent::compiled::{
+    AttachPoint, CompiledPlan, Measurement, ObjectKey, PlannedObject, ProvenanceKey, ProvenanceNode,
+};
 use crate::intent::{
     Crypto, Dataplane, Fabric, Intent, KERNEL, Link, Member, Port, Switching, Tenant, kernel_tenant,
 };
@@ -52,7 +52,7 @@ const DPSECI_DRAW_DPMCP: i64 = 1;
 /// `WORKER_TABLE`/`workersPerPort`): 10G ⇒ 2 (the seed, decomposed from the verified
 /// `T = 5 = 1 + 2·2` configuration), 25G ⇒ 5 (declared linear-in-rate, unmeasured,
 /// signed off at gate close). A rate class absent here has no worker count, so its
-/// tenant's `T` is undefined ([`thread_count`] returns `None`) and [`crate::refuse`]
+/// tenant's `T` is undefined ([`thread_count`] returns `None`) and [`crate::intent::refuse`]
 /// refuses it `UnknownRateClass`.
 #[must_use]
 pub(crate) fn workers_per_port(rate: i64) -> Option<i64> {
@@ -361,7 +361,7 @@ fn attach_point(intent: &Intent, tenant: &TenantName, fabric_name: &ConstructNam
 /// The ordered endpoints of a hardware fabric's dpsw interfaces (`derive.qnt`
 /// `hwFabricAttachPoints`): members in list order — a member port's dpmac, a member tenant's
 /// or member software-fabric-forwarder's attach dpni, hardware-in-hardware skipped
-/// (refused at [`crate::refuse`]); then one interface per software fabric listing `f`
+/// (refused at [`crate::intent::refuse`]); then one interface per software fabric listing `f`
 /// whose forwarder is not already attached through `f`'s own members.
 fn hw_fabric_attach_points(intent: &Intent, f: &Fabric) -> Vec<AttachPoint> {
     let mut ends = Vec::new();
@@ -451,7 +451,7 @@ fn effective(intent: &Intent, name: &TenantName, fam: Family, request: i64) -> E
 }
 
 /// ADR-0012 prices only `KernelNetlink` and `UserspacePoll`; a `UserspaceEvent` tenant
-/// has no companion draw, so the derivation never sizes it — [`crate::refuse`] refuses it
+/// has no companion draw, so the derivation never sizes it — [`crate::intent::refuse`] refuses it
 /// `UnpricedDataplane` (`derive.qnt` `hasPricing`).
 #[must_use]
 pub(crate) fn has_pricing(c: &Tenant) -> bool {
@@ -1004,7 +1004,7 @@ fn build_edges(
     intent: &Intent,
     ets: &[Tenant],
     sizing: &BTreeMap<TenantName, Sizing>,
-    edges: &mut BTreeSet<crate::compiled::Edge>,
+    edges: &mut BTreeSet<crate::intent::compiled::Edge>,
 ) {
     // Port (6a): the tenant's dpni for the port <-> its dpmac.
     for c in &intent.tenants {
@@ -1088,7 +1088,7 @@ fn build_edges(
 
 /// The pure derivation (design D3/D4/D6; `derive.qnt` `derive`): intent plus the
 /// observed offer become the complete [`CompiledPlan`]. Total by construction — safe
-/// to run on any intent, since [`crate::refuse`] runs it for its feasibility count
+/// to run on any intent, since [`crate::intent::refuse`] runs it for its feasibility count
 /// before the refusal set is known.
 #[must_use]
 pub(crate) fn derive(intent: &Intent, inv: &Inventory) -> CompiledPlan {

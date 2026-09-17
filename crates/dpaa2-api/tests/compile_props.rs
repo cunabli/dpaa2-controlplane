@@ -34,19 +34,20 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use proptest::prelude::*;
 
-use dpaa2_api::compiled::{
-    AttachPoint, Attributes, CompiledPlan, Container, Edge, Measurement, ObjectKey, ProvenanceKey,
-};
 use dpaa2_api::core::family::Family;
 use dpaa2_api::core::inventory::Ceiling;
 use dpaa2_api::core::inventory::Inventory;
 use dpaa2_api::core::model::{DpmacId, MacMode};
 use dpaa2_api::core::types::TenantName;
-use dpaa2_api::testkit::ref_inventory;
-use dpaa2_api::{
-    Compiled, Crypto, Dataplane, Extra, Fabric, Intent, Isolation, KERNEL, Link, Member, Port,
-    Switching, Tenant, TenantRef, compile, kernel_tenant,
+use dpaa2_api::intent::compiled::{
+    AttachPoint, Attributes, CompiledPlan, Container, Edge, Measurement, ObjectKey, ProvenanceKey,
 };
+use dpaa2_api::intent::refuse::{Compiled, compile};
+use dpaa2_api::intent::{
+    Crypto, Dataplane, Extra, Fabric, Intent, Isolation, KERNEL, Link, Member, Port, Switching,
+    Tenant, TenantRef, kernel_tenant,
+};
+use dpaa2_api::testkit::ref_inventory;
 
 // ===========================================================================
 // helpers copied from models/intent/invariants.qnt
@@ -323,10 +324,12 @@ fn intent_i7_feasible_against_ceilings(c: &Compiled, inv: &Inventory) -> bool {
                 Some(Ceiling::Counted(n) | Ceiling::Observed { n, .. }) => count <= *n,
                 _ => {
                     count <= 0
-                        || c.warnings.contains(&dpaa2_api::Warning::UnknownCeiling {
-                            family: fam,
-                            needed: count,
-                        })
+                        || c.warnings.contains(
+                            &dpaa2_api::intent::refuse::Warning::UnknownCeiling {
+                                family: fam,
+                                needed: count,
+                            },
+                        )
                 }
             }
         })
@@ -697,7 +700,7 @@ fn build_witness_plan(
     let mut next_dpni: BTreeMap<TenantName, u32> = BTreeMap::new();
     let mut next_dpmac: u32 = 100;
 
-    let push = |plan: &mut CompiledPlan, obj: dpaa2_api::PlannedObject| {
+    let push = |plan: &mut CompiledPlan, obj: dpaa2_api::intent::compiled::PlannedObject| {
         plan.order.push(obj.key().clone());
         plan.objects.insert(obj);
     };
@@ -879,7 +882,7 @@ proptest! {
         let strip = |p: &CompiledPlan| -> BTreeSet<ObjectKey> {
             p.objects
                 .iter()
-                .map(dpaa2_api::PlannedObject::key)
+                .map(dpaa2_api::intent::compiled::PlannedObject::key)
                 .filter(|k| !(k.tenant.is_kernel() && k.family == Family::Dpbp))
                 .cloned()
                 .collect()

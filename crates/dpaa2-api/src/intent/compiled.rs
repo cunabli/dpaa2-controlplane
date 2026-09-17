@@ -85,7 +85,7 @@ impl fmt::Display for ObjectKey {
 /// unrepresentable:
 ///
 /// ```compile_fail
-/// use dpaa2_api::compiled::{Attributes, Container, ObjectKey, PlannedObject, ProvenanceKey};
+/// use dpaa2_api::intent::compiled::{Attributes, Container, ObjectKey, PlannedObject, ProvenanceKey};
 /// use dpaa2_api::core::family::Family;
 /// use dpaa2_api::core::types::ConstructName;
 /// // A tenant's dpni cannot be placed in root: `PlannedObject` has private fields, and
@@ -218,7 +218,7 @@ pub struct ProvenanceNode {
 /// and [`Fabric::dpsw`], so a companion cannot stand free of a tenant:
 ///
 /// ```compile_fail
-/// use dpaa2_api::compiled::{Attributes, Container, ObjectKey, PlannedObject, ProvenanceKey};
+/// use dpaa2_api::intent::compiled::{Attributes, Container, ObjectKey, PlannedObject, ProvenanceKey};
 /// use dpaa2_api::core::family::Family;
 /// use dpaa2_api::core::types::ConstructName;
 /// // A free-standing dpio: `PlannedObject` has no public constructor, so only
@@ -318,7 +318,7 @@ impl AttachPoint {
 /// interface cannot be connected twice:
 ///
 /// ```compile_fail
-/// use dpaa2_api::{Link, TenantRef, kernel_tenant};
+/// use dpaa2_api::intent::{Link, TenantRef, kernel_tenant};
 /// let k = kernel_tenant(1);
 /// let l = Link { name: "w".into(), interface_a: TenantRef::Kernel, interface_b: TenantRef::Kernel, renamed: None };
 /// let (_o1, ia) = k.dpni(1, 0, "w".into());
@@ -630,9 +630,9 @@ impl Link {
     /// [`Interface`]s, so a dpmac end is not a link end:
     ///
     /// ```compile_fail
-    /// use dpaa2_api::{Link, TenantRef, kernel_tenant};
+    /// use dpaa2_api::intent::{Link, TenantRef, kernel_tenant};
     /// use dpaa2_api::core::model::DpmacId;
-    /// use dpaa2_api::compiled::AttachPoint;
+    /// use dpaa2_api::intent::compiled::AttachPoint;
     /// let k = kernel_tenant(1);
     /// let l = Link { name: "w".into(), interface_a: TenantRef::Kernel, interface_b: TenantRef::Kernel, renamed: None };
     /// let (_o, ia) = k.dpni(1, 0, "w".into());

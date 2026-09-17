@@ -42,15 +42,15 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::compiled::{
-    Attributes, CompiledPlan, Container as Placement, PlannedObject, ProvenanceKey,
-};
 use crate::core::error::Error;
 use crate::core::family::Permission;
 use crate::core::model::{DprcId, ObjectRef};
 use crate::core::types::{ConstructName, TenantName};
 use crate::families::dprc::{
     ContainerState, ObservedResident, Options, Refusal, Resident, ResidentId, ResidentKind,
+};
+use crate::intent::compiled::{
+    Attributes, CompiledPlan, Container as Placement, PlannedObject, ProvenanceKey,
 };
 use crate::plan::Class;
 
@@ -831,7 +831,7 @@ pub fn classify_container(
     observed: &ObservedContainer,
     declared: &BTreeMap<TenantName, ConsumerContainer>,
 ) -> PruneClassification {
-    let default_mask = options_from_permissions(&crate::compiled::dprc_default_options());
+    let default_mask = options_from_permissions(&crate::intent::compiled::dprc_default_options());
 
     let label_ok = !observed.label.is_empty();
     let mask_ok = observed.options == default_mask;
@@ -1324,7 +1324,7 @@ mod tests {
         let desired = consumer_dprc();
         let fresh = ObservedContainer {
             state: ContainerState::Created,
-            options: options_from_permissions(&crate::compiled::dprc_default_options()),
+            options: options_from_permissions(&crate::intent::compiled::dprc_default_options()),
             label: desired.label().clone(),
             placement: desired.container().clone(),
             residents: BTreeMap::new(),
