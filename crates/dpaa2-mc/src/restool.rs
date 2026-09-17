@@ -9,6 +9,7 @@
 
 use std::collections::BTreeMap;
 
+use dpaa2_api::Container;
 use dpaa2_api::contract::McControl;
 use dpaa2_api::core::error::Error;
 use dpaa2_api::core::family::{DERIVED_FAMILIES, Family};
@@ -18,7 +19,7 @@ use dpaa2_api::core::model::{
 };
 use dpaa2_api::core::types::ConstructName;
 use dpaa2_api::families::dprc;
-use dpaa2_api::{Container, dprc_plan};
+use dpaa2_api::plan::dprc as dprc_plan;
 
 use crate::parse;
 use crate::runner::{RestoolRunner, Runner};
