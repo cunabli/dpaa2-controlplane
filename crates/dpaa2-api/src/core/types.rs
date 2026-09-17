@@ -203,11 +203,11 @@ fn validate_interface_name(s: &str) -> Result<(), NameError> {
 }
 
 /// The MC family token a name reserves by matching `<family>.<digits>` to end of
-/// string, or `None`. Reuses [`ALL_FAMILIES`](crate::family::ALL_FAMILIES) for the
+/// string, or `None`. Reuses [`ALL_FAMILIES`](crate::core::family::ALL_FAMILIES) for the
 /// token set (ADR-0014: one enumeration, not a second copy to keep in step). A simple
 /// prefix/suffix scan — no regex, no new dependency (design D10).
 fn reserved_family_token(s: &str) -> Option<&'static str> {
-    for family in crate::family::ALL_FAMILIES {
+    for family in crate::core::family::ALL_FAMILIES {
         let token = family.as_str();
         if let Some(digits) = s
             .strip_prefix(token)
@@ -227,7 +227,7 @@ mod tests {
     //! one type stands in for all three, the `validate` method being macro-shared.
 
     use super::{ConstructName, NameError};
-    use crate::family::ALL_FAMILIES;
+    use crate::core::family::ALL_FAMILIES;
 
     fn err(name: &str) -> NameError {
         ConstructName::from(name)

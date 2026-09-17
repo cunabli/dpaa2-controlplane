@@ -11,7 +11,7 @@
 //! matches. Ownership is implicit (design D7): the function only ever iterates the
 //! configured ports, so foreign objects are never enumerated, let alone deleted.
 
-use crate::model::{
+use crate::core::model::{
     DesiredPort, DesiredTopology, Lifecycle, LinkType, MacMode, ObservedTopology, Presence,
 };
 use crate::plan::{AssertMismatch, DriftReport, Plan, Transition};
@@ -182,13 +182,13 @@ mod tests {
 
     use std::collections::BTreeMap;
 
-    use crate::fake::FakeBackend;
-    use crate::model::{
+    use crate::contract::McControl;
+    use crate::contract::fake::FakeBackend;
+    use crate::core::model::{
         DesiredPort, DesiredTopology, DpmacId, DpniId, Lifecycle, LinkType, MacAddr, MacMode,
         ObservedDpmac, ObservedDpni, ObservedTopology, Presence,
     };
     use crate::plan::Transition;
-    use crate::port::McControl;
     use crate::reconcile::{ReconcileOptions, reconcile, reconcile_with};
 
     const MAC_3: MacAddr = MacAddr::new([0x02, 0, 0, 0, 0, 0x03]);

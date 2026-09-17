@@ -8,10 +8,13 @@
 //! port-only one does.
 
 use dpaa2_api::compiled::{AttachPoint, Container};
+use dpaa2_api::core::family::Family;
+use dpaa2_api::core::model::{
+    DesiredPort, DesiredTopology, DpmacId, LinkType, MacAddr, ObservedDpmac, ObservedTopology,
+};
 use dpaa2_api::{
-    CompiledPlan, Dataplane, DesiredPort, DesiredTopology, DpmacId, Family, Isolation, Link,
-    LinkType, MacAddr, ObservedDpmac, ObservedTopology, Tenant, TenantRef, Transition,
-    kernel_tenant, reconcile,
+    CompiledPlan, Dataplane, Isolation, Link, Tenant, TenantRef, Transition, kernel_tenant,
+    reconcile,
 };
 
 const MAC_7: MacAddr = MacAddr::new([0x02, 0, 0, 0, 0, 0x07]);

@@ -16,9 +16,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use thiserror::Error;
 
 use crate::compiled::CompiledPlan;
-use crate::family::Family;
+use crate::core::family::Family;
+use crate::core::types::ConstructName;
 use crate::intent::kernel_tenant;
-use crate::types::ConstructName;
 
 /// A 48-bit Ethernet MAC address.
 ///
@@ -392,7 +392,7 @@ impl DesiredPort {
 /// pairing whose plan port-edges and ports disagree ([`FacetMismatch`]).
 ///
 /// It carries no serialization derives (config spec); the northbound
-/// [`crate::ConfigSource`] parses into it. The plan's witness-taking constructors
+/// [`crate::contract::ConfigSource`] parses into it. The plan's witness-taking constructors
 /// are public, so a library user builds one programmatically without an
 /// [`crate::intent::Intent`] and reconciles it (design D11).
 #[derive(Clone, PartialEq, Eq, Debug, Default)]

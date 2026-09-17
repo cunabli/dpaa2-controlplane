@@ -8,14 +8,14 @@
 //! tenant forwards, a [`Crypto`] block sized by its own flows — and no field for a
 //! dpio, dpbp, dpcon, dpmcp, queue or worker count. Every such number is the
 //! derivation's (`compile`, task 3.2). These types carry no `serde`: the northbound
-//! [`crate::ConfigSource`] parses TOML into them (design D10), and nothing below the
+//! [`crate::contract::ConfigSource`] parses TOML into them (2026-08-22-restool-baseline design D10), and nothing below the
 //! compiler depends on them (design D11).
 
 use std::collections::BTreeSet;
 
-use crate::family::Family;
-use crate::model::{DpmacId, MacAddr, MacMode};
-use crate::types::{ConstructName, TenantName};
+use crate::core::family::Family;
+use crate::core::model::{DpmacId, MacAddr, MacMode};
+use crate::core::types::{ConstructName, TenantName};
 
 /// The reserved kernel tenant (design D1; `types.qnt` `KERNEL`): the kernel's own
 /// network driver in dprc.1. A port that names no tenant is the kernel's port, and
@@ -71,7 +71,8 @@ impl TenantRef {
     /// empty string the API should never see. An empty name stays [`TenantRef::Named`]:
     ///
     /// ```
-    /// use dpaa2_api::{TenantRef, TenantName, KERNEL};
+    /// use dpaa2_api::{KERNEL, TenantRef};
+    /// use dpaa2_api::core::types::TenantName;
     /// // "" is a name here, never "the kernel": the raw Option already carried absence.
     /// assert_eq!(TenantRef::from_name(TenantName::from("")), TenantRef::Named("".into()));
     /// assert_eq!(TenantRef::from_name(TenantName::from(KERNEL)), TenantRef::Kernel);
@@ -221,7 +222,7 @@ pub struct Port {
     /// The port's known/declared MAC, if any — an actuation-only fact the
     /// derivation never reads (design D9). It rides on the port so
     /// [`compile`](crate::compile)'s
-    /// [`DesiredPort`](crate::model::DesiredPort) projection keeps the operator's
+    /// [`DesiredPort`](crate::core::model::DesiredPort) projection keeps the operator's
     /// MAC intent, but the sizing rules ignore it; the Quint model omits it
     /// deliberately, which is why the model-copy lint does not bind it (ADR-0013 §11).
     pub mac: Option<MacAddr>,

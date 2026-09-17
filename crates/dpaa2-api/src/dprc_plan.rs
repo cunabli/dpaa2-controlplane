@@ -42,14 +42,14 @@ use std::collections::{BTreeMap, BTreeSet};
 use crate::compiled::{
     Attributes, CompiledPlan, Container as Placement, PlannedObject, ProvenanceKey,
 };
+use crate::core::error::Error;
+use crate::core::family::Permission;
+use crate::core::model::{DprcId, ObjectRef};
+use crate::core::types::{ConstructName, TenantName};
 use crate::dprc::{
     ContainerState, ObservedResident, Options, Refusal, Resident, ResidentId, ResidentKind,
 };
-use crate::error::Error;
-use crate::family::Permission;
-use crate::model::{DprcId, ObjectRef};
 use crate::plan::Class;
-use crate::types::{ConstructName, TenantName};
 
 /// The child-DPRC option mask derived from a [`PlannedObject`]'s
 /// [`Attributes::Dprc`] permission set (`compiled::dprc_default_options`).
@@ -944,7 +944,7 @@ mod tests {
 
     /// A family-qualified resident key for the observation type (review M1; PASS3-F14).
     fn oref(ordinal: u32) -> ObjectRef {
-        ObjectRef::new(crate::family::Family::Dpbp, ordinal)
+        ObjectRef::new(crate::core::family::Family::Dpbp, ordinal)
     }
 
     fn consumer_dprc() -> PlannedObject {
@@ -1209,7 +1209,7 @@ mod tests {
     #[test]
     fn two_same_ordinal_residents_of_different_families_both_count() {
         // PASS3-F14 (review M1): `dpbp.0` and `dpmcp.0` are distinct ObjectRef keys.
-        use crate::family::Family;
+        use crate::core::family::Family;
         let dpbp0 = ObjectRef::new(Family::Dpbp, 0);
         let dpmcp0 = ObjectRef::new(Family::Dpmcp, 0);
         let observed = ObservedContainer {

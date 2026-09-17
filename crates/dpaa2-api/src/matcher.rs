@@ -44,11 +44,11 @@
 
 use std::collections::BTreeSet;
 
-use crate::family::Family;
+use crate::core::family::Family;
+use crate::core::model::DpmacId;
+use crate::core::types::{ConstructName, TenantName};
 use crate::intent::{Dataplane, Isolation};
-use crate::model::DpmacId;
 use crate::plan::Class;
-use crate::types::{ConstructName, TenantName};
 
 /// The opaque MC handle addressing one board object — `family.N` (ADR-0010),
 /// abstracted from any one family so a dpsw or dprc board object bolts on later

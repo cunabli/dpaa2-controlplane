@@ -11,13 +11,13 @@
 use std::collections::BTreeMap;
 
 use dpaa2_api::compiled::Container as Placement;
+use dpaa2_api::core::family::Family;
+use dpaa2_api::core::model::{DpmacId, MacMode};
+use dpaa2_api::core::types::TenantName;
 use dpaa2_api::dprc::{Container, Options};
 use dpaa2_api::dprc_plan::{ConsumerContainer, derive_consumer_containers};
 use dpaa2_api::testkit::ref_inventory;
-use dpaa2_api::{
-    Compiled, Dataplane, DpmacId, Family, Intent, Isolation, Link, MacMode, Port, Tenant,
-    TenantName, TenantRef, compile,
-};
+use dpaa2_api::{Compiled, Dataplane, Intent, Isolation, Link, Port, Tenant, TenantRef, compile};
 
 // ---- fixtures (mirroring the `refuse.rs` unit-test helpers) ----
 

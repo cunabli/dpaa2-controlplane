@@ -8,7 +8,7 @@
 //!
 //! Naming: the model spells the two anchor refusals `ReservedAnchor` /
 //! `ForeignAnchor` only because Quint constructor names collide with the
-//! [`crate::inventory::Availability`] constructors of the same name (refuse.qnt
+//! [`crate::core::inventory::Availability`] constructors of the same name (refuse.qnt
 //! DEVIATION). Rust enum variants are namespaced by their type, so this transcribes
 //! them under the accepted ADR-0013 §5 spelling [`Refusal::Reserved`] /
 //! [`Refusal::Foreign`].
@@ -16,17 +16,17 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::compiled::CompiledPlan;
+use crate::core::family::{DERIVED_FAMILIES, Family};
+use crate::core::inventory::{Availability, Ceiling, Inventory};
+use crate::core::model::{DesiredPort, DesiredTopology, DpmacId};
+use crate::core::types::{ConstructName, TenantName};
 use crate::derive::{
     derive, fabric_by_name, has_pricing, is_hw_switched_port, port_by_name, seeded_rate_classes,
     terminated_ports, thread_count,
 };
-use crate::family::{DERIVED_FAMILIES, Family};
 use crate::intent::{
     Dataplane, Fabric, Intent, Member, Switching, Tenant, TenantRef, kernel_tenant,
 };
-use crate::inventory::{Availability, Ceiling, Inventory};
-use crate::model::{DesiredPort, DesiredTopology, DpmacId};
-use crate::types::{ConstructName, TenantName};
 
 /// The queue-pair ceiling of one dpseci device (`models/families/dpseci.qnt`
 /// `DPSECI_MAX_QUEUE_NUM`; verified `.build/src/linux/drivers/crypto/caam/dpseci.h:25`
@@ -307,7 +307,7 @@ pub enum Refusal {
 /// (ADR-0014: an enumeration that restates the model is a linted copy, tied back
 /// to it by `intent_lint` R14; `Reserved`/`Foreign` carry the accepted ADR-0013
 /// §5 spelling, aliased to the model's anchor names in the lint). `Refusal` is
-/// payload-carrying, so it cannot be iterated like [`crate::ALL_FAMILIES`]; this
+/// payload-carrying, so it cannot be iterated like [`crate::core::family::ALL_FAMILIES`]; this
 /// list stands in, kept honest by the exhaustive `match` in [`Refusal::name`].
 pub const REFUSAL_VARIANTS: [&str; 25] = [
     "TenantAbsent",
@@ -381,7 +381,7 @@ impl Refusal {
 /// unmeasured evidence, never silently.
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub enum Warning {
-    /// A derived family's ceiling is [`crate::inventory::Ceiling::Unknown`], so
+    /// A derived family's ceiling is [`crate::core::inventory::Ceiling::Unknown`], so
     /// feasibility could not check it — accepted, never invented (ADR-0011).
     UnknownCeiling {
         /// The family.
@@ -443,7 +443,7 @@ impl Compiled {
     ///
     /// # Panics
     ///
-    /// Panics on a [`crate::FacetMismatch`] — a compiled plan whose port-edges disagree
+    /// Panics on a [`crate::core::model::FacetMismatch`] — a compiled plan whose port-edges disagree
     /// with its own terminated ports is a compiler bug, never operator input (design
     /// D11: a compile-produced pairing failing the facet check cannot happen).
     #[must_use]
@@ -1138,13 +1138,13 @@ mod compile_tests {
 
     use super::{Compiled, Referrer, Refusal, Warning, compile};
     use crate::compiled::{Attributes, Container, ProvenanceNode};
-    use crate::family::Family;
+    use crate::core::family::Family;
+    use crate::core::inventory::{Availability, Ceiling, Inventory};
+    use crate::core::model::DpmacId;
     use crate::intent::{
         Crypto, Dataplane, Extra, Fabric, Intent, Isolation, Link, Member, Port, Switching, Tenant,
         TenantRef, kernel_tenant,
     };
-    use crate::inventory::{Availability, Ceiling, Inventory};
-    use crate::model::DpmacId;
     // The reference-board inventory is single-sourced in the testkit seam
     // (`crate::testkit`); both this unit-test suite and the `compile_props`
     // integration suite build it from there (ADR-0013 §7).
@@ -1186,7 +1186,7 @@ mod compile_tests {
             rate,
             tenant: TenantRef::from_name(tenant.into()),
             mac: None,
-            mac_mode: crate::model::MacMode::Assert,
+            mac_mode: crate::core::model::MacMode::Assert,
             renamed: None,
         }
     }
@@ -1815,7 +1815,7 @@ mod compile_tests {
             rate: 10_000,
             tenant: TenantRef::from_name("router".into()),
             mac: None,
-            mac_mode: crate::model::MacMode::Assert,
+            mac_mode: crate::core::model::MacMode::Assert,
             renamed: from.map(Into::into),
         };
         let intent = Intent {
@@ -2062,12 +2062,12 @@ mod compile_tests {
     fn desired_topology_keeps_the_operators_mac_intent() {
         // The port's MAC and mode are actuation-only facts the derivation never
         // reads, but the projection must carry them (design D9).
-        let mac = crate::model::MacAddr::new([0x02, 0, 0, 0, 0, 0x07]);
+        let mac = crate::core::model::MacAddr::new([0x02, 0, 0, 0, 0, 0x07]);
         let intent = Intent {
             tenants: vec![kernel_tenant(16)],
             ports: vec![Port {
                 mac: Some(mac),
-                mac_mode: crate::model::MacMode::Actuate,
+                mac_mode: crate::core::model::MacMode::Actuate,
                 ..port("wan0", 7, 10_000, "kernel")
             }],
             ..Intent::default()
@@ -2076,7 +2076,7 @@ mod compile_tests {
         let topology = c.desired_topology(&intent);
         let projected = &topology.ports()[0];
         assert_eq!(projected.mac, Some(mac));
-        assert_eq!(projected.mac_mode, crate::model::MacMode::Actuate);
+        assert_eq!(projected.mac_mode, crate::core::model::MacMode::Actuate);
     }
 
     #[test]

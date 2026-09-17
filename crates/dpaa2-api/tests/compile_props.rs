@@ -37,12 +37,15 @@ use proptest::prelude::*;
 use dpaa2_api::compiled::{
     AttachPoint, Attributes, CompiledPlan, Container, Edge, Measurement, ObjectKey, ProvenanceKey,
 };
-use dpaa2_api::inventory::Ceiling;
+use dpaa2_api::core::family::Family;
+use dpaa2_api::core::inventory::Ceiling;
+use dpaa2_api::core::inventory::Inventory;
+use dpaa2_api::core::model::{DpmacId, MacMode};
+use dpaa2_api::core::types::TenantName;
 use dpaa2_api::testkit::ref_inventory;
 use dpaa2_api::{
-    Compiled, Crypto, Dataplane, DpmacId, Extra, Fabric, Family, Intent, Inventory, Isolation,
-    KERNEL, Link, MacMode, Member, Port, Switching, Tenant, TenantName, TenantRef, compile,
-    kernel_tenant,
+    Compiled, Crypto, Dataplane, Extra, Fabric, Intent, Isolation, KERNEL, Link, Member, Port,
+    Switching, Tenant, TenantRef, compile, kernel_tenant,
 };
 
 // ===========================================================================
@@ -305,26 +308,28 @@ fn intent_i6_provenance_closed(p: &CompiledPlan) -> bool {
 /// ceiling, warning on Unknown (`invariants.qnt` `feasibleAgainstCeilings`;
 /// ADR-0011). The refusal-non-empty half is the totality property; here on Ok only.
 fn intent_i7_feasible_against_ceilings(c: &Compiled, inv: &Inventory) -> bool {
-    dpaa2_api::DERIVED_FAMILIES.into_iter().all(|fam| {
-        let count = i64::try_from(
-            c.plan
-                .objects
-                .iter()
-                .filter(|o| o.key().family == fam)
-                .count(),
-        )
-        .unwrap_or(i64::MAX);
-        match inv.ceilings.get(&fam) {
-            Some(Ceiling::Counted(n) | Ceiling::Observed { n, .. }) => count <= *n,
-            _ => {
-                count <= 0
-                    || c.warnings.contains(&dpaa2_api::Warning::UnknownCeiling {
-                        family: fam,
-                        needed: count,
-                    })
+    dpaa2_api::core::family::DERIVED_FAMILIES
+        .into_iter()
+        .all(|fam| {
+            let count = i64::try_from(
+                c.plan
+                    .objects
+                    .iter()
+                    .filter(|o| o.key().family == fam)
+                    .count(),
+            )
+            .unwrap_or(i64::MAX);
+            match inv.ceilings.get(&fam) {
+                Some(Ceiling::Counted(n) | Ceiling::Observed { n, .. }) => count <= *n,
+                _ => {
+                    count <= 0
+                        || c.warnings.contains(&dpaa2_api::Warning::UnknownCeiling {
+                            family: fam,
+                            needed: count,
+                        })
+                }
             }
-        }
-    })
+        })
 }
 
 /// The additive extra declared for `(tenant, family)`, 0 when none (`derive.qnt`

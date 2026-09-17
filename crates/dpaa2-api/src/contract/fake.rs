@@ -14,15 +14,15 @@ use std::collections::BTreeMap;
 use std::collections::HashMap;
 
 use crate::compiled::Container;
-use crate::dprc::ContainerState;
-use crate::dprc_plan::ObservedContainer;
-use crate::error::Error;
-use crate::inventory::Inventory;
-use crate::model::{
+use crate::contract::{KernelControl, McControl};
+use crate::core::error::Error;
+use crate::core::inventory::Inventory;
+use crate::core::model::{
     DpmacId, DpniId, DprcId, LinkType, MacAddr, ObjectRef, ObservedDpmac, ObservedDpni,
     ObservedTopology,
 };
-use crate::port::{KernelControl, McControl};
+use crate::dprc::ContainerState;
+use crate::dprc_plan::ObservedContainer;
 
 /// The netdev name the fake assigns a DPNI once its PHY-backed link is up.
 fn netdev_name(id: DpniId) -> String {
@@ -233,7 +233,7 @@ impl McControl for FakeBackend {
 
     fn create_dpni(
         &self,
-        label: &crate::types::ConstructName,
+        label: &crate::core::types::ConstructName,
         _num_queues: u32,
     ) -> Result<DpniId, Error> {
         let mut st = self.state.borrow_mut();
@@ -282,7 +282,11 @@ impl McControl for FakeBackend {
         Ok(())
     }
 
-    fn set_label(&self, dpni: DpniId, label: &crate::types::ConstructName) -> Result<(), Error> {
+    fn set_label(
+        &self,
+        dpni: DpniId,
+        label: &crate::core::types::ConstructName,
+    ) -> Result<(), Error> {
         let mut st = self.state.borrow_mut();
         let obj = st
             .dpnis
@@ -325,7 +329,7 @@ impl McControl for FakeBackend {
         &self,
         parent: DprcId,
         options: crate::dprc::Options,
-        label: &crate::types::ConstructName,
+        label: &crate::core::types::ConstructName,
     ) -> Result<DprcId, Error> {
         let mut st = self.state.borrow_mut();
         if let Some(error) = st.refuse_dprc_create.take() {
@@ -383,7 +387,7 @@ impl McControl for FakeBackend {
     fn dprc_set_label(
         &self,
         _container: DprcId,
-        _label: &crate::types::ConstructName,
+        _label: &crate::core::types::ConstructName,
     ) -> Result<(), Error> {
         Ok(())
     }

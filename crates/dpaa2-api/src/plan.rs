@@ -9,9 +9,9 @@
 use core::fmt;
 use std::collections::BTreeMap;
 
-use crate::family::Family;
-use crate::model::{DpmacId, DpniId, MacAddr};
-use crate::types::ConstructName;
+use crate::core::family::Family;
+use crate::core::model::{DpmacId, DpniId, MacAddr};
+use crate::core::types::ConstructName;
 
 /// The disruption class of a plan or one of its transitions (ADR-0015 decision 12).
 ///
@@ -78,7 +78,7 @@ pub enum Transition {
         /// The anchor whose DPNI should become bound.
         port: DpmacId,
     },
-    /// Set the primary MAC of the port's DPNI (only in [`crate::MacMode::Actuate`]).
+    /// Set the primary MAC of the port's DPNI (only in [`crate::core::model::MacMode::Actuate`]).
     SetMac {
         /// The anchor whose DPNI MAC is being written.
         port: DpmacId,

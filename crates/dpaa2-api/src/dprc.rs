@@ -44,8 +44,8 @@
 
 use std::collections::BTreeMap;
 
-use crate::model::ObjectRef;
-use crate::types::ConstructName;
+use crate::core::model::ObjectRef;
+use crate::core::types::ConstructName;
 
 // ---- the four (plus [`Outcome`]) model sums, each lint-bijected to `dprc.qnt` ----
 
@@ -73,7 +73,7 @@ pub const VFIO_BIND_VARIANTS: [&str; 2] = ["Unbound", "BoundVfioFslMc"];
 /// `driver_override` and the driver it binds to (`docs/baseline/dprc.md`
 /// "Kernel-defined semantics": `vfio-fsl-mc` has no match table, so `driver_override`
 /// is the only bind path). The single core-side sentinel; the southbound
-/// [`KernelControl`](crate::KernelControl) reads it, never spelling its own copy
+/// [`KernelControl`](crate::contract::KernelControl) reads it, never spelling its own copy
 /// (adapters report, never judge — the classification rule and its sentinel live once,
 /// here).
 pub const VFIO_FSL_MC_DRIVER: &str = "vfio-fsl-mc";
@@ -191,7 +191,7 @@ impl Refusal {
 
     /// Recovers the refusal a raw MC status byte carries — the inverse of
     /// [`mc_status`](Self::mc_status), the single core-side sentinel decode (design D4).
-    /// A southbound [`Error::McStatus`](crate::Error::McStatus) carries only the byte;
+    /// A southbound [`Error::McStatus`](crate::core::error::Error::McStatus) carries only the byte;
     /// this turns it back into the discriminated shape a reconciler attributes with
     /// [`attribute_mc`](crate::dprc_plan::attribute_mc), keeping the classification
     /// core-side, never in the adapter. A status outside `0x4/0x6/0x8` is `None` — an
@@ -1137,7 +1137,7 @@ mod tests {
             None,
         ] {
             let populated = BTreeMap::from([(
-                ObjectRef::new(crate::family::Family::Dpbp, 0),
+                ObjectRef::new(crate::core::family::Family::Dpbp, 0),
                 ObservedResident {
                     origin,
                     plugged: false,

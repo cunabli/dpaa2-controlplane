@@ -26,12 +26,12 @@ use std::collections::{BTreeMap, BTreeSet};
 use crate::compiled::{
     AttachPoint, CompiledPlan, Measurement, ObjectKey, PlannedObject, ProvenanceKey, ProvenanceNode,
 };
-use crate::family::Family;
+use crate::core::family::Family;
+use crate::core::inventory::Inventory;
+use crate::core::types::{ConstructName, TenantName};
 use crate::intent::{
     Crypto, Dataplane, Fabric, Intent, KERNEL, Link, Member, Port, Switching, Tenant, kernel_tenant,
 };
-use crate::inventory::Inventory;
-use crate::types::{ConstructName, TenantName};
 
 // ---- knobs the gate resolved (design open questions) ----
 

@@ -10,109 +10,22 @@
 //! (northbound), and `dpaa2-tools` (the imperative shell) all depend on it, while it
 //! depends on none of them.
 
+#![warn(clippy::wildcard_imports)]
+
 pub mod compiled;
+pub mod contract;
+pub mod core;
 mod derive;
 pub mod dprc;
 pub mod dprc_plan;
-pub mod error;
-pub mod family;
 pub mod intent;
-pub mod inventory;
 pub mod matcher;
-pub mod model;
 pub mod plan;
-pub mod port;
 pub mod reconcile;
 pub mod refuse;
-pub mod types;
 
 #[cfg(any(test, feature = "testkit"))]
-pub mod fake;
-
-/// Shared test fixtures (behind the `testkit` feature): the reference-board
-/// inventory both the crate's unit tests and its `compile` integration tests
-/// assert against, single-sourced here (`models/intent/inventory.qnt`
-/// `REF_INVENTORY`; ADR-0013 §7) so the two suites cannot drift.
-#[cfg(any(test, feature = "testkit"))]
-pub mod testkit {
-    use std::collections::BTreeMap;
-
-    use crate::family::Family;
-    use crate::inventory::{
-        Availability, Ceiling, DpmacLinkType, DpmacOffer, EthInterface, Inventory,
-    };
-    use crate::model::DpmacId;
-
-    /// The ADR-0003 §3 total-deny reservation reason carried by dpmac.3.
-    pub const RESERVED_3: &str =
-        "ADR-0003 §3: wired to a peer that must never see traffic (total-deny)";
-
-    /// One `(DpmacId, DpmacOffer)` entry of the reference inventory's dpmac map.
-    #[must_use]
-    pub fn offer(id: u32, rate: i64, avail: Availability) -> (DpmacId, DpmacOffer) {
-        let d = DpmacId::new(id);
-        (
-            d,
-            DpmacOffer {
-                id: d,
-                max_rate: rate,
-                eth_if: EthInterface::Xfi,
-                link_type: DpmacLinkType::Phy,
-                avail,
-            },
-        )
-    }
-
-    /// The reference board inventory (`models/intent/inventory.qnt` `REF_INVENTORY`)
-    /// with a variable online-CPU count — the one axis the alphabet's `REF_INVENTORY`
-    /// fixes, varied by callers to exercise the kernel per-CPU draw.
-    #[must_use]
-    pub fn ref_inventory(cpus: u32) -> Inventory {
-        let dpmacs = BTreeMap::from([
-            offer(3, 25_000, Availability::Reserved(RESERVED_3.to_owned())),
-            offer(4, 25_000, Availability::Free),
-            offer(5, 25_000, Availability::Free),
-            offer(6, 25_000, Availability::Free),
-            offer(7, 10_000, Availability::Free),
-            offer(8, 10_000, Availability::Free),
-            offer(9, 10_000, Availability::Free),
-            offer(10, 10_000, Availability::Free),
-            offer(
-                17,
-                1_000,
-                Availability::Reserved("ADR-0003 §3: management plane (dpni.0)".to_owned()),
-            ),
-        ]);
-        let ceilings = BTreeMap::from([
-            (Family::Dprc, Ceiling::Unknown),
-            (
-                Family::Dpni,
-                Ceiling::Observed {
-                    n: 18,
-                    provenance: "ADR-0011 decision 2".to_owned(),
-                },
-            ),
-            (Family::Dpbp, Ceiling::Counted(63)),
-            (Family::Dpio, Ceiling::Unknown),
-            (Family::Dpcon, Ceiling::Unknown),
-            (
-                Family::Dpmcp,
-                Ceiling::Observed {
-                    n: 203,
-                    provenance: "ADR-0011 decision 3".to_owned(),
-                },
-            ),
-            (Family::Dpseci, Ceiling::Unknown),
-            (Family::Dpsw, Ceiling::Unknown),
-        ]);
-        Inventory {
-            cpus,
-            dpmacs,
-            labels: BTreeMap::from([((Family::Dpni, 0), String::new())]),
-            ceilings,
-        }
-    }
-}
+pub mod testkit;
 
 pub use compiled::{
     AttachPoint, Attributes, CompiledPlan, Container, Edge, Interface, Measurement, ObjectKey,
@@ -122,27 +35,37 @@ pub use compiled::{
 // containment `Refusal` is a distinct vocabulary from the intent-compile
 // [`refuse::Refusal`] (design D4), so the two are deliberately not flattened into one
 // crate-root namespace where they would collide.
-pub use error::Error;
-pub use family::{ALL_FAMILIES, DERIVED_FAMILIES, Family, Permission};
 pub use intent::{
     Crypto, Dataplane, Extra, Fabric, Intent, Isolation, KERNEL, Link, Member, Port, Switching,
     Tenant, TenantRef, kernel_tenant,
 };
-pub use inventory::{Availability, Ceiling, DpmacLinkType, DpmacOffer, EthInterface, Inventory};
 pub use matcher::{
     Ambiguity, BoardObject, ConfigFacet, Handle, MatchObject, MatchPair, MatchPlan, MatchVerdict,
     apply as apply_match, converge as converge_match, converge_class as converge_match_class,
     match_board, pair_class,
 };
-pub use model::{
-    DesiredPort, DesiredTopology, DpmacId, DpniId, DprcId, FacetMismatch, Lifecycle, LinkType,
-    MacAddr, MacMode, MacParseError, ObjectRef, ObservedDpmac, ObservedDpni, ObservedTopology,
-    Presence,
-};
 pub use plan::{AssertMismatch, Class, DriftReport, Plan, Transition};
-pub use port::{ConfigSource, KernelControl, McControl};
 pub use reconcile::{ReconcileOptions, reconcile, reconcile_with};
 pub use refuse::{
     Compiled, REFUSAL_VARIANTS, Referrer, Refusal, WARNING_VARIANTS, Warning, compile,
 };
-pub use types::{ConstructName, RuleName, TenantName};
+
+// Temporary flat-path aliases: the importer crates migrate to the ADR-0018
+// namespaced paths one commit at a time; this block retires at the end of
+// the series (bead dpaa2-controlplane-yfg.2).
+pub use self::contract as port;
+#[cfg(any(test, feature = "testkit"))]
+pub use self::contract::fake;
+pub use self::contract::{ConfigSource, KernelControl, McControl};
+pub use self::core::error::Error;
+pub use self::core::family::{ALL_FAMILIES, DERIVED_FAMILIES, Family, Permission};
+pub use self::core::inventory::{
+    Availability, Ceiling, DpmacLinkType, DpmacOffer, EthInterface, Inventory,
+};
+pub use self::core::model::{
+    DesiredPort, DesiredTopology, DpmacId, DpniId, DprcId, FacetMismatch, Lifecycle, LinkType,
+    MacAddr, MacMode, MacParseError, ObjectRef, ObservedDpmac, ObservedDpni, ObservedTopology,
+    Presence,
+};
+pub use self::core::types::{ConstructName, RuleName, TenantName};
+pub use self::core::{error, family, inventory, model, types};

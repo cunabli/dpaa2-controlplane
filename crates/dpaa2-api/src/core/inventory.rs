@@ -10,9 +10,9 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::family::Family;
-use crate::model::DpmacId;
-use crate::types::ConstructName;
+use crate::core::family::Family;
+use crate::core::model::DpmacId;
+use crate::core::types::ConstructName;
 
 /// A dpmac's physical media type, immutable for the object's life (DPMAC-I3,
 /// `dpmac.md`; `types.qnt` `EthInterface`). Only the reference board's values are
@@ -30,7 +30,7 @@ pub enum EthInterface {
 /// A dpmac's link type, as `dpmac info` reports it (DPMAC-I3; `types.qnt`
 /// `LinkType`).
 ///
-/// Distinct from [`crate::LinkType`], the reconciler's two-valued Phy/Fixed
+/// Distinct from [`crate::core::model::LinkType`], the reconciler's two-valued Phy/Fixed
 /// abstraction (design E1): this is the four-valued *inventory attribute* the
 /// board reports, kept separate so neither shadows the other.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
@@ -111,7 +111,7 @@ pub struct Inventory {
     /// it never judges. Ownership is decided against the declared-name set, not a
     /// fixed tag (ADR-0010 §4 as refined by ADR-0015): see [`Self::availability_of`].
     pub labels: BTreeMap<(Family, u32), String>,
-    /// One ceiling per derived family ([`crate::DERIVED_FAMILIES`] is the domain).
+    /// One ceiling per derived family ([`crate::core::family::DERIVED_FAMILIES`] is the domain).
     pub ceilings: BTreeMap<Family, Ceiling>,
 }
 
