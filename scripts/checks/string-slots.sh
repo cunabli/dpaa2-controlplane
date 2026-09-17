@@ -20,12 +20,12 @@ else
 crates/dpaa2-api/src/core/inventory.rs:fn judge_label(label: &str, declared: &BTreeSet<ConstructName>) -> Availability {
 crates/dpaa2-api/src/plan/matcher.rs:fn tenant_compiled(name_: &str, config: ConfigFacet) -> MatchObject {
 crates/dpaa2-api/src/plan/matcher.rs:name_: &str,
-crates/dpaa2-api/src/intent/refuse.rs:fn knl(name: &str) -> Tenant {
-crates/dpaa2-api/src/intent/refuse.rs:fn link(name: &str, a: &str, b: &str) -> Link {
-crates/dpaa2-api/src/intent/refuse.rs:fn poll(name: &str) -> Tenant {
-crates/dpaa2-api/src/intent/refuse.rs:fn port(name: &str, dpmac: u32, rate: i64, tenant: &str) -> Port {
-crates/dpaa2-api/src/intent/refuse.rs:fn tenant(name: &str, dp: Dataplane, cores: i64, iso: Isolation) -> Tenant {
-crates/dpaa2-api/src/intent/refuse.rs:let mk = |name: &str, dpmac: u32, from: Option<&str>| Port {
+crates/dpaa2-api/src/intent/refuse/compile_tests.rs:fn knl(name: &str) -> Tenant {
+crates/dpaa2-api/src/intent/refuse/compile_tests.rs:fn link(name: &str, a: &str, b: &str) -> Link {
+crates/dpaa2-api/src/intent/refuse/compile_tests.rs:fn poll(name: &str) -> Tenant {
+crates/dpaa2-api/src/intent/refuse/compile_tests.rs:fn port(name: &str, dpmac: u32, rate: i64, tenant: &str) -> Port {
+crates/dpaa2-api/src/intent/refuse/compile_tests.rs:fn tenant(name: &str, dp: Dataplane, cores: i64, iso: Isolation) -> Tenant {
+crates/dpaa2-api/src/intent/refuse/compile_tests.rs:let mk = |name: &str, dpmac: u32, from: Option<&str>| Port {
 crates/dpaa2-api/src/core/types.rs:fn err(name: &str) -> NameError {
 crates/dpaa2-config/src/parse.rs:fn parse_family(tenant: &TenantName, name: &str) -> Result<Family, Error> {
 crates/dpaa2-mc/src/parse.rs:label: String::new(),
