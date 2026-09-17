@@ -5,8 +5,8 @@
 //! `models/retro/reconciler.qnt`; a regenerated trace with a different
 //! shape fails here loudly — update both together.
 
-use dpaa2_api::ReconcileOptions;
 use dpaa2_api::core::model::Presence;
+use dpaa2_api::plan::reconcile::ReconcileOptions;
 use dpaa2_verify::board::replay::{RetroTrace, replay};
 use dpaa2_verify::itf::{ModelView, parse_trace};
 

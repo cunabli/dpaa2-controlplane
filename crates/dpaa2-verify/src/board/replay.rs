@@ -26,7 +26,8 @@ use dpaa2_api::core::model::{
     ObservedTopology, Presence,
 };
 use dpaa2_api::core::types::ConstructName;
-use dpaa2_api::{Plan, ReconcileOptions, Transition, reconcile_with};
+use dpaa2_api::plan::reconcile::{ReconcileOptions, reconcile_with};
+use dpaa2_api::plan::{Plan, Transition};
 
 use crate::itf::ModelView;
 

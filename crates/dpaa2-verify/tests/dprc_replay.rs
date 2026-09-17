@@ -14,7 +14,7 @@
 //! the replay, not in the core.
 //!
 //! Refusal steps (world unchanged but for `lastOutcome = Refused(r)`) are consumed via
-//! [`dpaa2_api::dprc_plan::attribute_mc`] (the parcel's "attribution where the step is a
+//! [`dpaa2_api::plan::dprc::attribute_mc`] (the parcel's "attribution where the step is a
 //! refusal") plus a context-driven typestate drive; the specific refused verb is not
 //! recoverable from an unchanged-world delta, so the conformance is the refusal
 //! vocabulary, its MC status, and world-invariance — exactly what the model records.
@@ -27,13 +27,13 @@
 
 use std::collections::BTreeSet;
 
-use dpaa2_api::dprc_plan::{
-    Attribution, OptionBit, PlanOutcome, Verb, attribute_mc, plan_move_out,
-};
 use dpaa2_api::families::dprc::{
     Container, ContainerState, Created, Declared, Destroyed, Emptied, Locked, Options, Outcome,
     Parent, Plugged, Populated, Refusal, ResidentId, ResidentKind, ResidentOp, ResidentStep,
     Teardown, Unlocked, VfioBind,
+};
+use dpaa2_api::plan::dprc::{
+    Attribution, OptionBit, PlanOutcome, Verb, attribute_mc, plan_move_out,
 };
 use dpaa2_verify::intent::dprc_itf::{WorldView, parse_dprc_trace};
 

@@ -10,7 +10,7 @@ is D6 of that change's `design.md`.
 
 The **ITF trace replayer** (phase 3): frozen model traces in
 `models/traces/*.itf.json` replay against the pure reconciler
-(`dpaa2_api::reconcile`) on every `cargo test`, no board attached.
+(`dpaa2_api::plan::reconcile`) on every `cargo test`, no board attached.
 This is rung 3 of the model validation (`pnpm model:replay`); the
 full run is `pnpm model:validation` — see `models/README.md` for the
 other rungs.

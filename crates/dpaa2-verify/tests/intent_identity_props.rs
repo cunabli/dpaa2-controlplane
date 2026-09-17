@@ -16,9 +16,10 @@ use std::collections::BTreeSet;
 use dpaa2_api::core::family::Family;
 use dpaa2_api::core::model::DpmacId;
 use dpaa2_api::core::types::{ConstructName, TenantName};
-use dpaa2_api::{
-    BoardObject, Class, ConfigFacet, MatchObject, MatchVerdict, converge_match,
-    converge_match_class, match_board,
+use dpaa2_api::plan::Class;
+use dpaa2_api::plan::matcher::{
+    BoardObject, ConfigFacet, MatchObject, MatchVerdict, converge as converge_match,
+    converge_class as converge_match_class, match_board,
 };
 use proptest::prelude::*;
 
