@@ -6,6 +6,8 @@
 //! The `dpaa2_api::testkit` path is unchanged by the ADR-0018 module-tree move;
 //! its final namespace home is deferred to a later step (bead
 //! dpaa2-controlplane-yfg.6).
+//!
+//! It sits outside the five ADR-0018 namespaces (core, intent, plan, contract, families) as cfg-gated test scaffolding, not part of the crate's public domain surface.
 
 use std::collections::BTreeMap;
 

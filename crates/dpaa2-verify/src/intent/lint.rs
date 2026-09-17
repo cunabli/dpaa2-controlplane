@@ -16,9 +16,9 @@ use crate::board::ledger::split_row;
 // they "drift ... exactly this way" and belong under this lint. R11–R16
 // cross-check those copies against the model so a drift fails in CI, the same
 // design-D9 mechanism R1–R10 apply to the board ledgers. R14 extends the reach
-// to the Rust domain enums (`dpaa2_api::Refusal`, `dpaa2_api::core::family::Family`), which
+// to the Rust domain enums (`dpaa2_api::intent::refuse::Refusal`, `dpaa2_api::core::family::Family`), which
 // restate `refuse.qnt`/`types.qnt` and so are linted copies too (ADR-0014); it
-// also ties `dpaa2_api::Warning` (WARNING_VARIANTS) to refuse.qnt's
+// also ties `dpaa2_api::intent::refuse::Warning` (WARNING_VARIANTS) to refuse.qnt's
 // `type Warning =` and the lowercase `Family::as_str` names to intent_raw.qnt's
 // FAMILY_NAMES mapping. R15 ties `match.qnt`'s four identity-across-time laws to
 // the COVERAGE identity-laws table (task 6.4), so a renamed or dropped law fails
@@ -439,7 +439,7 @@ fn r13_scenarios(qnt_stems: &[String], toml_stems: &[String], adr_md: &str, out:
 
 /// R14: the Rust domain copies agree with the model. `refuse.qnt`'s
 /// `type Refusal =` and `types.qnt`'s `type Family =` are the truth; the
-/// `dpaa2_api::Refusal` variant list ([`dpaa2_api::intent::refuse::REFUSAL_VARIANTS`]) and the
+/// `dpaa2_api::intent::refuse::Refusal` variant list ([`dpaa2_api::intent::refuse::REFUSAL_VARIANTS`]) and the
 /// `dpaa2_api::core::family::Family` variant set (from [`dpaa2_api::core::family::Family::variant_name`] over
 /// [`dpaa2_api::core::family::ALL_FAMILIES`]) are the copies (ADR-0014: a Rust enum that
 /// restates the model is a linted copy, tied back here). Refusal names apply the
