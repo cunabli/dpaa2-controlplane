@@ -57,7 +57,7 @@ impl TenantRef {
     /// use dpaa2_api::intent::{KERNEL, TenantRef};
     /// use dpaa2_api::core::types::TenantName;
     /// // "" is a name here, never "the kernel": the raw Option already carried absence.
-    /// assert_eq!(TenantRef::from_name(TenantName::from("")), TenantRef::Named("".into()));
+    /// assert_eq!(TenantRef::from_name(TenantName::empty()), TenantRef::Named("".into()));
     /// assert_eq!(TenantRef::from_name(TenantName::from(KERNEL)), TenantRef::Kernel);
     /// ```
     #[must_use]
@@ -124,7 +124,7 @@ pub enum Dataplane {
 /// (a) [`Default`] on `Isolation` (and on [`Intent`](crate::intent::Intent)) admits a zero-value intent that
 /// never routes a tenant reference through [`TenantRef::from_name`], so its `""`→name
 /// discipline can be skipped by constructing the value directly. (b) An empty
-/// [`TenantName`] is constructible (`TenantName::from("")`), so an empty pool holder or
+/// [`TenantName`] is constructible (`TenantName::empty()`), so an empty pool holder or
 /// tenant name is representable at the type level though no valid intent carries one.
 /// Both are recorded here for the future typestate change; no code change lands now.
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Default)]

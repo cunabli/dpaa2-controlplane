@@ -714,7 +714,7 @@ impl Container<Declared> {
                 portal_id: 0,
             },
             options: Options::DEFAULT,
-            label: ConstructName::from(""),
+            label: ConstructName::empty(),
             residents: BTreeMap::new(),
             state: Declared,
         }

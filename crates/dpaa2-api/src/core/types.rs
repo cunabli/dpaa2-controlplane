@@ -20,7 +20,8 @@
 /// PartialOrd, Ord, Hash` (so it stands in for a `String` key in the plan's ordered
 /// collections) plus, by hand, [`Display`](core::fmt::Display), [`AsRef<str>`],
 /// `From<&str>`/`From<String>`/`From<&Self>` (so `.into()` and `From<&str>` keep
-/// construction terse), and `as_str`/`is_empty` accessors. It deliberately omits
+/// construction terse), the `empty()` constructor for the absent-name sentinel, and
+/// `as_str`/`is_empty` accessors. It deliberately omits
 /// `Deref`, so a value of one name type never coerces into another or into a raw
 /// `&str` argument.
 macro_rules! resource_name {
@@ -44,6 +45,17 @@ macro_rules! resource_name {
             #[must_use]
             pub fn is_empty(&self) -> bool {
                 self.0.is_empty()
+            }
+
+            /// The empty/absent name — the sentinel an optional name slot carries: a
+            /// non-restricted tenant's `pool`, a tenant-level provenance `construct`, or
+            /// a voided label (the model reasons about it as a first-class value, e.g.
+            /// `dprc.qnt` `label == ""` -> `ReportOnly`). Deliberately NOT a valid
+            /// interface name, so [`validate`](Self::validate) rejects it; [`is_empty`](Self::is_empty)
+            /// is its predicate.
+            #[must_use]
+            pub const fn empty() -> Self {
+                Self(String::new())
             }
 
             /// Checks the name is a valid Linux interface name that cannot be mistaken
@@ -243,6 +255,12 @@ mod tests {
                 .validate()
                 .unwrap_or_else(|e| panic!("`{ok}` should be valid: {e}"));
         }
+    }
+
+    #[test]
+    fn empty_sentinel_is_empty_and_invalid() {
+        assert!(ConstructName::empty().is_empty());
+        assert!(ConstructName::empty().validate().is_err());
     }
 
     #[test]

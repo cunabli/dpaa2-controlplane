@@ -121,7 +121,7 @@ pub fn parse_dprc_rows(stdout: &str) -> Vec<DprcRow> {
         let label = if toks.len() >= 3 {
             ConstructName::from(toks[1])
         } else {
-            ConstructName::from("")
+            ConstructName::empty()
         };
         rows.push(DprcRow {
             family,
@@ -518,7 +518,7 @@ dpbp.0                          unplugged
                 DprcRow {
                     family: Family::Dpmac,
                     num: 17,
-                    label: ConstructName::from(""),
+                    label: ConstructName::empty(),
                     plugged: true,
                 },
                 DprcRow {
@@ -530,7 +530,7 @@ dpbp.0                          unplugged
                 DprcRow {
                     family: Family::Dpbp,
                     num: 0,
-                    label: ConstructName::from(""),
+                    label: ConstructName::empty(),
                     plugged: false,
                 },
             ]

@@ -228,7 +228,7 @@ pub struct ProvenanceNode {
 ///     container: Container::Root,
 ///     attributes: Attributes::Unsized,
 ///     provenance: ProvenanceKey::new("", "dpio", ""),
-///     label: ConstructName::from(""),
+///     label: ConstructName::empty(),
 /// };
 /// ```
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
