@@ -8,6 +8,8 @@
 //! errors. Policy — retry, tolerance, error mapping, trait seams — belongs to
 //! the adapters above (`dpaa2-mc`), never here.
 
+pub mod command;
 pub mod sysfs;
 
+pub use command::CommandName;
 pub use sysfs::FslMcSysfs;

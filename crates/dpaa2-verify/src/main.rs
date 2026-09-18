@@ -139,7 +139,7 @@ enum Command {
         /// Index run-label override; defaults to the results dir name
         /// (`--plan`) or `<dir>/<stem>` (`--transcript`).
         #[arg(long)]
-        label: Option<String>,
+        label: Option<RunLabel>,
         /// The per-suite verdict index to upsert.
         #[arg(long, default_value = "models/board/VERDICTS.json")]
         index: PathBuf,
@@ -596,6 +596,52 @@ fn parse_expect_refusal(spec: &str) -> Result<(usize, String), String> {
     Ok((idx, name.to_owned()))
 }
 
+/// A verdict-index run-label: the key `verdict::upsert` files a run under
+/// within its suite (`--label`, defaulting to the results dir / transcript
+/// stem). A newtype so the run-label slot is not a bare `String`; it is not an
+/// interface name, so it grants no `validate`.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+struct RunLabel(String);
+
+impl RunLabel {
+    /// The label as a string slice, for the `verdict::upsert(&str)` boundary.
+    fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::fmt::Display for RunLabel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl AsRef<str> for RunLabel {
+    fn as_ref(&self) -> &str {
+        &self.0
+    }
+}
+
+impl From<String> for RunLabel {
+    fn from(s: String) -> Self {
+        Self(s)
+    }
+}
+
+impl From<&str> for RunLabel {
+    fn from(s: &str) -> Self {
+        Self(s.to_owned())
+    }
+}
+
+impl std::str::FromStr for RunLabel {
+    type Err = std::convert::Infallible;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(Self::from(s))
+    }
+}
+
 /// The parsed `diff` arguments, shared by its plan and transcript arms.
 struct DiffArgs {
     plan: Option<PathBuf>,
@@ -605,7 +651,7 @@ struct DiffArgs {
     revision: Option<u32>,
     date: Option<String>,
     archive: Option<PathBuf>,
-    label: Option<String>,
+    label: Option<RunLabel>,
     index: PathBuf,
     no_index: bool,
 }
@@ -783,8 +829,11 @@ fn run_diff_plan(plan_path: &Path, args: &DiffArgs) -> Result<ExitCode, String> 
     }
     let verdict_path = results.join("verdict.json");
     write_verdict_file(&verdict_path, &v)?;
-    let label = args.label.clone().unwrap_or_else(|| base_name(results));
-    let idx_note = maybe_upsert(args, &v, &label)?;
+    let label = args
+        .label
+        .clone()
+        .unwrap_or_else(|| RunLabel::from(base_name(results)));
+    let idx_note = maybe_upsert(args, &v, label.as_str())?;
     print_verdict_line(&v, &verdict_path, &idx_note);
 
     // Exit follows the verdict's overall pass, so a hook FAIL (which the
@@ -842,8 +891,11 @@ fn run_diff_fit(plan_text: &str, results: &Path, args: &DiffArgs) -> Result<Exit
     );
     let verdict_path = results.join("verdict.json");
     write_verdict_file(&verdict_path, &v)?;
-    let label = args.label.clone().unwrap_or_else(|| base_name(results));
-    let idx_note = maybe_upsert(args, &v, &label)?;
+    let label = args
+        .label
+        .clone()
+        .unwrap_or_else(|| RunLabel::from(base_name(results)));
+    let idx_note = maybe_upsert(args, &v, label.as_str())?;
     print_verdict_line(&v, &verdict_path, &idx_note);
 
     Ok(if v.pass {
@@ -889,13 +941,13 @@ fn run_diff_transcript(transcript: &Path, args: &DiffArgs) -> Result<ExitCode, S
     write_verdict_file(&verdict_path, &v)?;
     let label = args.label.clone().unwrap_or_else(|| {
         let dir = transcript.parent().map(base_name).unwrap_or_default();
-        if dir.is_empty() {
+        RunLabel::from(if dir.is_empty() {
             stem.clone()
         } else {
             format!("{dir}/{stem}")
-        }
+        })
     });
-    let idx_note = maybe_upsert(args, &v, &label)?;
+    let idx_note = maybe_upsert(args, &v, label.as_str())?;
     print_verdict_line(&v, &verdict_path, &idx_note);
 
     Ok(if v.pass {

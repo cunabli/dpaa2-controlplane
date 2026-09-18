@@ -18,6 +18,8 @@
 
 use std::sync::OnceLock;
 
+use dpaa2_hal::CommandName;
+
 use crate::board::adapter::{Family, ModelAction};
 
 /// The generated policy table, embedded so the resolution below needs no
@@ -29,7 +31,7 @@ const POLICY_MD: &str = include_str!("../../../../docs/baseline/mc-ioctl-policy.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Whitelisted {
     /// The entry name (`DPRC_CREATE_CONT`, `OPEN`, …).
-    pub name: String,
+    pub name: CommandName,
     /// The value a masked command id must equal.
     pub value: u16,
     /// The mask applied before the equality test.
@@ -85,7 +87,7 @@ impl Whitelist {
                 continue;
             }
             entries.push(Whitelisted {
-                name: c[1].to_owned(),
+                name: CommandName::from(c[1]),
                 value: hex16(c[2]),
                 mask: hex16(c[3]),
                 cap_net_admin: c[6].contains("CAP_NET_ADMIN"),

@@ -9,6 +9,7 @@ use std::collections::BTreeMap;
 use dpaa2_api::core::family::{ALL_FAMILIES, Family};
 use dpaa2_api::core::inventory::{DpmacLinkType, EthInterface};
 use dpaa2_api::core::model::{DpmacId, DpniId, DprcId, LinkType, MacAddr};
+use dpaa2_api::core::types::ConstructName;
 use dpaa2_api::families::dprc;
 
 /// Strips `prefix` from `tok` and parses the remainder as the numeric index behind
@@ -90,7 +91,7 @@ pub struct DprcRow {
     /// The object ordinal `N`.
     pub num: u32,
     /// The label column, empty when the row set none.
-    pub label: String,
+    pub label: ConstructName,
     /// Whether the trailing state token was `plugged` (vs. `unplugged`).
     pub plugged: bool,
 }
@@ -118,9 +119,9 @@ pub fn parse_dprc_rows(stdout: &str) -> Vec<DprcRow> {
         };
         // Label sits between the name and the state; a two-token row has none.
         let label = if toks.len() >= 3 {
-            toks[1].to_owned()
+            ConstructName::from(toks[1])
         } else {
-            String::new()
+            ConstructName::from("")
         };
         rows.push(DprcRow {
             family,
@@ -517,19 +518,19 @@ dpbp.0                          unplugged
                 DprcRow {
                     family: Family::Dpmac,
                     num: 17,
-                    label: String::new(),
+                    label: ConstructName::from(""),
                     plugged: true,
                 },
                 DprcRow {
                     family: Family::Dpni,
                     num: 0,
-                    label: "eth0".to_owned(),
+                    label: ConstructName::from("eth0"),
                     plugged: true,
                 },
                 DprcRow {
                     family: Family::Dpbp,
                     num: 0,
-                    label: String::new(),
+                    label: ConstructName::from(""),
                     plugged: false,
                 },
             ]

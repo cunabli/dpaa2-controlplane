@@ -401,7 +401,7 @@ impl<R: Runner> McControl for RestoolMc<R> {
         let labels: BTreeMap<DpniId, ConstructName> = parse::parse_dprc_rows(&show)
             .into_iter()
             .filter(|r| r.family == Family::Dpni && !r.label.is_empty())
-            .map(|r| (DpniId::from(r.num), ConstructName::from(r.label)))
+            .map(|r| (DpniId::from(r.num), r.label))
             .collect();
 
         let mut dpnis = Vec::with_capacity(dpni_ids.len());
@@ -478,7 +478,7 @@ impl<R: Runner> McControl for RestoolMc<R> {
                 dprc_plan::ObservedContainer {
                     state,
                     options,
-                    label: ConstructName::from(row.label),
+                    label: row.label,
                     placement: Container::Root,
                     residents,
                 },
@@ -505,7 +505,9 @@ impl<R: Runner> McControl for RestoolMc<R> {
             if row.family == Family::Dpmac {
                 continue;
             }
-            labels.insert((row.family, row.num), row.label.clone());
+            // `Inventory.labels` (dpaa2-api) keys raw String labels; cross the
+            // ConstructName back to its string at this boundary.
+            labels.insert((row.family, row.num), row.label.as_str().to_owned());
         }
 
         let mut dpmacs = BTreeMap::new();
