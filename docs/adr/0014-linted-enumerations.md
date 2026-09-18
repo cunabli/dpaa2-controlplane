@@ -1,6 +1,6 @@
 # ADR-0014: Hand-maintained enumerations of a checkable program are linted copies, never siblings
 
-- **Status:** Accepted — 2026-09-02. Promotes design D9 of the archived
+- **Status:** Accepted — 2026-09-02. Promotes design D9 (ADR-0006) of the archived
   OpenSpec change `verify-foundation` (its only prior home) to a standing
   law that binds every change, not just the one that first needed it.
 - **Date:** 2026-09-02
@@ -31,7 +31,7 @@ Two proofs stand on record that the drift is real, not hypothetical.
   parses each into plain rows and applies cross-checks R1–R6 (id agreement
   both ways, tally recount, cited-suite directory, roadmap-row citation,
   owning-change on open cells, baseline-vs-ledger status agreement); a
-  disagreement fails in CI rather than in review. This is D9 working as
+  disagreement fails in CI rather than in review. This is D9 (ADR-0006) working as
   intended, and it is the model for every enumeration since.
 
 - **The intent-layer `COVERAGE.md` drift.** While the intent vocabulary was
@@ -42,7 +42,7 @@ Two proofs stand on record that the drift is real, not hypothetical.
   a reader who happened to notice. A gate that green-lights a drifted copy
   twice is not a gate; the miss is what this ADR exists to prevent.
 
-D9 named this mechanism but lived only inside a change that is now archived,
+D9 (ADR-0006) named this mechanism but lived only inside a change that is now archived,
 so nothing carried it forward. This record promotes it to standing law.
 
 ## Decision

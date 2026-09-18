@@ -7,7 +7,7 @@
 // ops), so computing feasibility on an otherwise-refused intent is safe; the
 // derivation of a refused intent is defined, not wrong (derive.qnt).
 //
-// Extras follow the request/extra idiom (design D5): a derived count is a
+// Extras follow the request/extra idiom (design D5; ADR-0003): a derived count is a
 // request, a per-(tenant, family) extra adds its count on top (raise-only); an
 // extra on a non-companion family, or one whose count is below 1, refuses.
 // Ceilings follow ADR-0011's three values (design D2): feasibility refuses
@@ -50,7 +50,7 @@ module intent_refuse {
     | RefPool(str)      // a Restricted drawer's pool holder is absent (payload: the drawing tenant)
 
   // The rule an intent broke, naming the offending construct. One variant per
-  // rule (design D5, spec.md "The compiler refuses by name"). The
+  // rule (design D5; ADR-0003, spec.md "The compiler refuses by name"). The
   // `PoolWithoutRestricted` / `RestrictedWithoutPool` shapes are now
   // unrepresentable (vocabulary-v2 D1, PASS5-F4): `Isolation` carries the pool in
   // its Restricted payload, so a pool on a non-Restricted tenant and a Restricted
@@ -68,11 +68,11 @@ module intent_refuse {
     | FabricNotKernelForwarded({ fabric: str, forwardedBy: str })       // Hardware fabric whose forwarding tenant != KERNEL (dpsw.md)
     | PortTenantMismatch({ fabric: str, port: str, tenant: str }) // member port whose tenant != the fabric's forwarding tenant (types.qnt Port comment)
     | UnsupportedEdge({ fabric: str, member: str })             // Hardware fabric listing a Hardware fabric (object-model.md §2; derive.qnt (d))
-    | UnknownRateClass({ tenant: str, rates: List[int] })     // userspace-poll tenant terminating a rate class with no seeded worker row (design D3; derive.qnt (b))
+    | UnknownRateClass({ tenant: str, rates: List[int] })     // userspace-poll tenant terminating a rate class with no seeded worker row (design D3; ADR-0002; derive.qnt (b))
     | CoreBudgetExceeded({ tenant: str, t: int, maxCores: int }) // userspace-poll T > maxCores (design D3; ADR-0012 never rations)
-    | ExtraNotCompanion({ tenant: str, family: Family })      // an extra on a family that is not one of the four companions (design D5)
-    | ExtraNotPositive({ tenant: str, family: Family, count: int }) // an extra whose count is below 1 (design D5)
-    | CryptoFlowsNotPositive({ tenant: str, ordinal: int, flows: int }) // a crypto block whose flows are below 1 (design D1; dpseci.md); ordinal = the block's 1-based declaration position (task 2.6e)
+    | ExtraNotCompanion({ tenant: str, family: Family })      // an extra on a family that is not one of the four companions (design D5; ADR-0003)
+    | ExtraNotPositive({ tenant: str, family: Family, count: int }) // an extra whose count is below 1 (design D5; ADR-0003)
+    | CryptoFlowsNotPositive({ tenant: str, ordinal: int, flows: int }) // a crypto block whose flows are below 1 (design D1; restool-baseline; dpseci.md); ordinal = the block's 1-based declaration position (task 2.6e)
     | CryptoFlowsOverDevice({ tenant: str, ordinal: int, flows: int, maxFlows: int }) // a crypto block whose flows exceed one dpseci's DPSECI_MAX_QUEUE_NUM queue pairs — one block is one device, so this cannot be realized; split into blocks (task 2.6e; dpseci.h)
     | Infeasible({ family: Family, needed: int, available: int }) // sum of derived objs of a family > a Counted/Observed ceiling (ADR-0011; design D2)
     | UnpricedDataplane({ tenant: str, dataplane: Dataplane }) // a tenant whose dataplane ADR-0012 does not price (today UserspaceEvent; design D3)
@@ -88,7 +88,7 @@ module intent_refuse {
   // feasibility could not check the family — warn, never invent a number
   // (ADR-0011; design D2). UnmeasuredCombination: a userspace-poll tenant
   // terminates more than one seeded rate class, so the worker formula prices
-  // its T over an unmeasured cross-class mix (design D3) — flagged, never
+  // its T over an unmeasured cross-class mix (design D3; ADR-0002) — flagged, never
   // silent, naming the tenant and the classes mixed.
   type Warning =
     | UnknownCeiling({ family: Family, needed: int })
@@ -105,7 +105,7 @@ module intent_refuse {
   pure def tenantByName(intent: Intent, n: str): Option[Tenant] =
     intent.tenants.foldl(None, (acc, c) => if (c.name == n) Some(c) else acc)
 
-  // ---- rule 1: a construct names an undeclared tenant (design D5) ----
+  // ---- rule 1: a construct names an undeclared tenant (design D5; ADR-0003) ----
   // Generalises DPDCEI-I1's tenant-absence rule to every construct that
   // names a tenant: port tenant (`p.tenant`), link ends, fabric forwarder
   // (`f.forwardedBy`), crypto tenant, extra tenant. The `referrer` sum names the
@@ -118,7 +118,7 @@ module intent_refuse {
   // case with an undeclared name. The fabric forwarder, crypto tenant, and extra
   // tenant are names: the guard exempts KERNEL, which resolves without being
   // declared, exactly as the parse boundary's resolution (rawResolves, intent_raw;
-  // design D1). Whether the kernel object then materialises for such a reference
+  // design D1; restool-baseline). Whether the kernel object then materialises for such a reference
   // is the business of the derivation (derive.qnt), not of resolution.
   pure def tenantAbsentRefusals(intent: Intent, inv: Inventory): Set[Refusal] =
     val names = tenantNames(intent)
@@ -198,7 +198,7 @@ module intent_refuse {
                   else acc
       })
 
-  // ---- rule 5: a dpmac or a port claimed twice (design D5) ----
+  // ---- rule 5: a dpmac or a port claimed twice (design D5; ADR-0003) ----
   pure def portsOnDpmac(intent: Intent, d: int): Set[str] =
     intent.ports.foldl(Set(), (acc, p) => if (p.dpmac == d) acc.union(Set(p.name)) else acc)
 
@@ -225,7 +225,7 @@ module intent_refuse {
       .map(pn => DoubleClaimed({ dpmac: dpmacOfPortName(intent, pn), constructs: fabricsNamingPort(intent, pn) }))
     byDpmac.union(byFabric)
 
-  // ---- rule 6: fabric forwarding, port tenancy, and unsupported edges (design D4/D5) ----
+  // ---- rule 6: fabric forwarding, port tenancy, and unsupported edges (design D4/D5; ADR-0003) ----
   // The two member checks hoisted out of their match arms (same
   // translator limit as selfViaChain above).
   pure def portOwnerMismatchOf(intent: Intent, f: Fabric, pn: str): Set[Refusal] =
@@ -279,7 +279,7 @@ module intent_refuse {
         }
       else acc)
 
-  // ---- rule 8: additive extras (design D5) ----
+  // ---- rule 8: additive extras (design D5; ADR-0003) ----
   // An extra on a non-companion family is never silently ignored; an extra
   // whose count is below 1 (a no-op or a lowering) refuses. Both checks are
   // independent — an extra can trip both. Extras are additive, matched by
@@ -295,7 +295,7 @@ module intent_refuse {
                         else Set()
       acc.union(notCompanion).union(notPositive))
 
-  // ---- rule 9: a crypto block's flows out of the one-device range (design D1; dpseci.md) ----
+  // ---- rule 9: a crypto block's flows out of the one-device range (design D1; restool-baseline; dpseci.md) ----
   // A [[crypto]] block sizes ONE dpseci to its flows, so its flows must land in
   // the device's realizable range 1..DPSECI_MAX_QUEUE_NUM: flows < 1 would size
   // a zero-queue accelerator (CryptoFlowsNotPositive); flows above the ceiling
@@ -380,7 +380,7 @@ module intent_refuse {
 
   // ---- rules 13-15: the three parity refusals (vocabulary-v2 D4) ----
   // Each mirrors a parse-side check verbatim (same predicate, refusal instead of
-  // Err), closing the design-D11 one-sided rows for a programmatic Intent.
+  // Err), closing the design-D11 (restool-baseline) one-sided rows for a programmatic Intent.
 
   // parse.rs convert_link twin: a link whose two ends resolve to the same tenant
   // (with TenantRef, two Kernel ends are the same tenant too — `==` on the sum).
@@ -466,7 +466,7 @@ module intent_refuse {
         | _ => acc
       })
     // one UnmeasuredCombination per userspace-poll tenant whose terminated
-    // ports span more than one seeded rate class (design D3): the formula
+    // ports span more than one seeded rate class (design D3; ADR-0002): the formula
     // prices the mix, but cross-class pricing is unmeasured — flag it, never
     // pass silently.
     intent.tenants.foldl(ceilingWarnings, (acc, c) =>

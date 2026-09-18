@@ -1,7 +1,7 @@
 //! Pure parsers for `restool` v2.4 output.
 //!
 //! Kept separate from the I/O so they can be exercised against recorded golden
-//! fixtures (design D10). Each function takes captured stdout and returns typed
+//! fixtures (design D10; restool-baseline). Each function takes captured stdout and returns typed
 //! data; none of them perform I/O.
 
 use std::collections::BTreeMap;
@@ -44,7 +44,7 @@ pub fn parse_dprc_id(stdout: &str) -> Option<DprcId> {
 /// when no such token is present — the signal the shim reads as a client-side guard,
 /// which fires before any MC command and so carries no MC status
 /// (`docs/baseline/dprc.md` DPRC-I3). The adapter only extracts the raw byte; the
-/// core judges its meaning (design D4).
+/// core judges its meaning (design D4; ADR-0003).
 #[must_use]
 pub fn parse_mc_status(output: &str) -> Option<u8> {
     let start = output.find("(0x")? + 3;
@@ -273,7 +273,7 @@ impl Default for RawDpmacInfo {
     }
 }
 
-/// The immutable dpmac attributes the inventory offer needs (task 3.5, design D2;
+/// The immutable dpmac attributes the inventory offer needs (task 3.5, design D2 (ADR-0002);
 /// DPMAC-I3: attributes are read once by `dpmac info`, never written). Every field
 /// is optional so an unparsable line leaves an honest gap rather than a guess — the
 /// assembling caller decides whether a missing field is fatal.
@@ -293,7 +293,7 @@ pub struct RawDpmacOffer {
     pub endpoint: Option<DpniId>,
 }
 
-/// Parses `restool dpmac info dpmac.N` for the inventory offer (task 3.5, design D2).
+/// Parses `restool dpmac info dpmac.N` for the inventory offer (task 3.5, design D2; ADR-0002).
 ///
 /// The field spellings mirror the captured baseline in
 /// `models/board/baselines/reference.json` (e.g. `DPMAC ethernet interface`,

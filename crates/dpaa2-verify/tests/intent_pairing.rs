@@ -1,4 +1,4 @@
-//! The scenario-pairing CI rung (task 3.4, design D8, bead gqf.18): every
+//! The scenario-pairing CI rung (task 3.4, design D8; restool-baseline, bead gqf.18): every
 //! `models/intent/scenarios/<name>.toml` is exactly what an operator would type
 //! for the model `<name>.qnt`, and it compiles to the plan the frozen trace
 //! holds. The test parses each `.toml` with the shipped `dpaa2-config` parser,
@@ -99,7 +99,7 @@ fn every_toml_compiles_to_its_frozen_plan() {
         let case = parse_case(&read(&accepted_trace(&stem)))
             .unwrap_or_else(|e| panic!("{stem}AcceptedTrace: {e}"));
 
-        // The reserved kernel completion (design D1): the config parser never
+        // The reserved kernel completion (design D1; restool-baseline): the config parser never
         // creates a kernel Tenant — a port with no owner defaults to the
         // reserved name, and the frontend (task 3.5) injects the tenant itself.
         // The frozen trace's intent is the oracle for which shape the scenario

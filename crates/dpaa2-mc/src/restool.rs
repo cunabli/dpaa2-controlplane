@@ -32,7 +32,7 @@ pub const DEFAULT_CONTAINER: &str = "dprc.1";
 const MC_GLOBAL: &str = "mc.global";
 
 /// The ADR-0003 §3 port safety matrix, transcribed once — the single Rust copy the
-/// southbound consults (task 3.5, design D2). A reserved dpmac may never anchor a
+/// southbound consults (task 3.5, design D2; ADR-0002). A reserved dpmac may never anchor a
 /// port; the reason string is the one `REF_INVENTORY` records
 /// (`models/intent/inventory.qnt`). Any dpmac not listed here is [`Availability::Free`]
 /// unless a DPL object holds it (which this adapter cannot yet observe — see
@@ -1100,7 +1100,7 @@ mod tests {
     #[test]
     fn mc_status_refusal_carries_the_raw_status() {
         // A no-privilege sibling move (0x4): the shim reports the raw status for the
-        // core to judge (design D4), never a scraped string.
+        // core to judge (design D4; ADR-0003), never a scraped string.
         let runner = ScriptedRunner::new(vec![(
             "dprc assign dprc.1 --object=dpbp.0 --child=dprc.2",
             refused("error: dprc_assign() failed: No privilege (0x4)"),

@@ -85,7 +85,7 @@ kernel="$(uname -r)"
 case "$kernel" in 6.6.52*) ;; *) echo "refusing: kernel is not 6.6.52: $kernel" >&2; exit 1 ;; esac
 
 # step 0: container census
-# expect: zero exit; the list of DPRC containers on the board (ADR-0003 §5 queries are object-lifecycle-only). Captured whole for 4.2 to diff the live census against the compiled plan (design D12)
+# expect: zero exit; the list of DPRC containers on the board (ADR-0003 §5 queries are object-lifecycle-only). Captured whole for 4.2 to diff the live census against the compiled plan (design D12; ADR-0003)
 run 0 restool dprc list
 expect_zero 0 "container census"
 
@@ -95,7 +95,7 @@ run 1 restool dprc show dprc.1
 expect_zero 1 "root container listing with the ownership label column"
 
 # step 2: pool ceilings on the MC's own container
-# expect: zero exit; the pooled-resource ceilings by type. Only dprc show (and its --resources variant) is legal against mc.global; this is the ceiling half of the fit check the compiled plan's feasibility sums are diffed against (design D12)
+# expect: zero exit; the pooled-resource ceilings by type. Only dprc show (and its --resources variant) is legal against mc.global; this is the ceiling half of the fit check the compiled plan's feasibility sums are diffed against (design D12; ADR-0003)
 run 2 restool dprc show mc.global --resources
 expect_zero 2 "pool ceilings on the MC's own container"
 
@@ -130,12 +130,12 @@ run 8 restool dpmac info dpmac.10
 expect_zero 8 "dpmac.10 info"
 
 # step 9: shipped compiler dry-run on the reference intent
-# expect: zero exit; the shipped read then compile then reconcile path over the reference intent (design D12 — the diff exercises the shipped code path). Capture the whole plan with its provenance trees and the plan-only report
+# expect: zero exit; the shipped read then compile then reconcile path over the reference intent (design D12; ADR-0003 — the diff exercises the shipped code path). Capture the whole plan with its provenance trees and the plan-only report
 run 9 "$DPAA2CTL" --config models/intent/scenarios/reference.toml dry-run
 expect_zero 9 "shipped compiler dry-run on the reference intent"
 
 # step 10: shipped compiler status on the reference intent
-# expect: exit any; the machine drift report. A nonzero exit means the board diverges from intent and is EVIDENCE for 4.2's dispositioning (design D12 open questions), never a script failure
+# expect: exit any; the machine drift report. A nonzero exit means the board diverges from intent and is EVIDENCE for 4.2's dispositioning (design D12; ADR-0003 open questions), never a script failure
 run 10 "$DPAA2CTL" --config models/intent/scenarios/reference.toml status
 expect_any 10 "shipped compiler status on the reference intent"
 

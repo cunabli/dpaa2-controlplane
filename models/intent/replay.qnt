@@ -1,12 +1,12 @@
 // The intent-replay trace source (openspec change `intent-layer`, task
-// 3.2, design D9): freezes one ITF trace per scenario/twin so dpaa2-verify
+// 3.2, design D9; ADR-0006): freezes one ITF trace per scenario/twin so dpaa2-verify
 // can replay it through the Rust `compile` and diff the outcome against the
 // model's. It mirrors the retro trace source (models/retro/reconciler.qnt):
 // named `run`s that `quint test --out-itf='{test}.itf.json'` writes one
 // frozen file per — here a single state whose three variables carry the two
 // `compile` inputs (`intent`, `inv`) and the model's own `outcome`, so the
 // replayer parses the inputs, re-derives with the Rust compiler, and asserts
-// it equals the frozen `outcome`. The model is the oracle (design D9): the
+// it equals the frozen `outcome`. The model is the oracle (design D9; ADR-0006): the
 // intents are not redeclared here but imported from the accepted scenarios,
 // so a scenario amendment reaches the frozen traces the moment they are
 // regenerated (`pnpm model:freeze-intent`), never drifting a second copy.

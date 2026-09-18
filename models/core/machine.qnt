@@ -1,4 +1,4 @@
-// The one generic object machine (design D2): the five views composed
+// The one generic object machine (design D2; ADR-0002): the five views composed
 // into guarded actions over the shared state. Family modules (tasks
 // 1.2/1.3) provide PARAMS; models/main.qnt instantiates and runs it.
 //
@@ -6,7 +6,7 @@
 // parameterized `<name>At(args)` action (used by directed runs and,
 // later, the ITF replayer) and a nondet wrapper for random simulation.
 //
-// Every transition carries its evidence status in EVIDENCE (design D2):
+// Every transition carries its evidence status in EVIDENCE (design D2; ADR-0002):
 // BoardExercised means prior work drove this transition class on the
 // board; Read means it stands on source/restool/manual reading and
 // awaits phase 5. A failed board step against a Read transition means
@@ -26,7 +26,7 @@ module machine {
   // limitation that keeps ALL_PARAMS in families/params.qnt.
   import ioctl_policy.* from "./ioctl_policy"
 
-  // Per-family parameters (design D2); values come from the family
+  // Per-family parameters (design D2; ADR-0002); values come from the family
   // modules when they instantiate this machine.
   const PARAMS: Family -> FamilyParams
 
@@ -573,7 +573,7 @@ module machine {
     linkChange, destroy,
   }
 
-  // Per-transition evidence (design D2). Anchors are the object-model.md
+  // Per-transition evidence (design D2; ADR-0002). Anchors are the object-model.md
   // claims each transition renders; [verified] means board-exercised by
   // prior work.
   pure val EVIDENCE: str -> Evidence = Map(

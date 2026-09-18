@@ -1,4 +1,4 @@
-//! Property tests for `compile` and the witness-built plan surface (design D9;
+//! Property tests for `compile` and the witness-built plan surface (design D9 (ADR-0006);
 //! task 3.2). Quint's random simulation over `models/intent/alphabet.qnt` is the
 //! oracle; three laws are cheap enough to restate in Rust so the transcription
 //! stays honest — `compile` is deterministic, an extra only ever raises a count,
@@ -12,7 +12,7 @@
 //!
 //! - **(a) over every `Ok(compile)` output** — the model's
 //!   `planInvariants` (I1–I6) plus `compileInvariants` (I7–I9).
-//! - **(b) over arbitrary WITNESS-BUILT plans** ([`witness_plan`]) — the D11
+//! - **(b) over arbitrary WITNESS-BUILT plans** ([`witness_plan`]) — the D11 (restool-baseline)
 //!   hand-built surface the ITF replay never sees, guarded by types alone today.
 //!   Only the *structural* invariants run here: `intent_i1_containment_by_tenant`,
 //!   `intent_i2_edges_typed_and_single`, `intent_i5_keys_are_identities`. The
@@ -197,7 +197,7 @@ fn intent_i1_containment_by_tenant(p: &CompiledPlan) -> bool {
 
 /// `INTENT_I2` edgesTypedAndSingle: typed connect ends, no double connect
 /// (`invariants.qnt` `edgesTypedAndSingle`; object-model.md §2). Structural — runs
-/// on rungs (a) and (b): this is the D6 lock the witness types enforce.
+/// on rungs (a) and (b): this is the D6 (ADR-0004) lock the witness types enforce.
 fn intent_i2_edges_typed_and_single(p: &CompiledPlan) -> bool {
     let single = attach_points_set(p)
         .iter()
@@ -287,7 +287,7 @@ fn intent_i5_keys_are_identities(p: &CompiledPlan) -> bool {
 
 /// `INTENT_I6` provenanceClosed: every provenance reference resolves, every node carries
 /// an anchor, only rule "T" is unmeasured (`invariants.qnt` `provenanceClosed`;
-/// design D6). Rung (a) ONLY: a hand-built plan does not populate the provenance
+/// design D6; ADR-0004). Rung (a) ONLY: a hand-built plan does not populate the provenance
 /// DAG the witnesses only point into.
 fn intent_i6_provenance_closed(p: &CompiledPlan) -> bool {
     let pk: BTreeSet<&ProvenanceKey> = p.provenance.keys().collect();
@@ -371,7 +371,7 @@ fn intent_i8_companion_counts_by_regime(c: &Compiled, intent: &Intent) -> bool {
         };
         let feeder_val = feeder_node.value;
 
-        // every companion count is exactly request + extra (raise-only, design D5)
+        // every companion count is exactly request + extra (raise-only, design D5; ADR-0003)
         let companions_ok = COMPANION_FAMS.into_iter().all(|fam| {
             let Some(node) =
                 p.provenance
@@ -635,7 +635,7 @@ fn intent_and_inventory() -> impl Strategy<Value = (Intent, Inventory)> {
 }
 
 // ===========================================================================
-// the witness-built plan strategy (design D11: the hand-built surface)
+// the witness-built plan strategy (design D11; restool-baseline: the hand-built surface)
 // ===========================================================================
 
 /// Per-tenant object counts a witness-built plan draws: companions (dpio, dpbp,
@@ -663,7 +663,7 @@ fn named_tenant() -> impl Strategy<Value = (bool, bool, Counts)> {
 
 /// Assembles a coherent witness-built [`CompiledPlan`] from public constructors only
 /// (`Tenant::child_dprc`/`companion`/`dpni`/`dpseci`, `Port::terminate`,
-/// `Link::wire`) — the design-D11 surface a library user drives without an `Intent`.
+/// `Link::wire`) — the design-D11 (restool-baseline) surface a library user drives without an `Intent`.
 /// It emits a child dprc for every non-kernel tenant, gives each dpni a single edge
 /// role (a port-edge to a unique dpmac, one wire end, or none) and each object a
 /// distinct key, so the structural invariants I1/I2/I5 are the type-level guarantees
@@ -790,11 +790,11 @@ fn witness_plan() -> impl Strategy<Value = CompiledPlan> {
 }
 
 // ===========================================================================
-// the properties (design D9)
+// the properties (design D9; ADR-0006)
 // ===========================================================================
 
 proptest! {
-    // D9 law 1 — `compile` is deterministic: the same inputs give the same output,
+    // D9 (ADR-0006) law 1 — `compile` is deterministic: the same inputs give the same output,
     // structurally. `extras` is a set, so it carries no order to be sensitive to;
     // crypto is the one Vec whose order is an ordinal source (ADR-0015 decision 4);
     // every other Vec's order is cosmetic (INTENT_I10, the position-independence
@@ -805,7 +805,7 @@ proptest! {
         prop_assert_eq!(compile(&intent, &inv), compile(&intent, &inv));
     }
 
-    // D9 law 4 — `compile` is total: for EVERY generated intent it returns Ok or a
+    // D9 (ADR-0006) law 4 — `compile` is total: for EVERY generated intent it returns Ok or a
     // NON-EMPTY refusal set, never a panic (proptest catches the panic). On Ok, the
     // INTENT_I* invariants hold (rung (a)).
     #[test]
@@ -821,7 +821,7 @@ proptest! {
         }
     }
 
-    // D9 law 3 — companion-before-tenant: in the emission order every companion of a
+    // D9 (ADR-0006) law 3 — companion-before-tenant: in the emission order every companion of a
     // tenant precedes that tenant's consumer objects (dpni/dpseci/dpsw). This is the
     // draw-ordering leg of I4, restated as its own law (object-model.md §5).
     #[test]
@@ -841,7 +841,7 @@ proptest! {
         }
     }
 
-    // D9 law 2 — an extra only ever raises a count: adding a legal `(kernel, Dpbp)`
+    // D9 (ADR-0006) law 2 — an extra only ever raises a count: adding a legal `(kernel, Dpbp)`
     // extra to a compiling intent yields the SAME plan except that one family's
     // count is raised by exactly `count`, its provenance value updated, and
     // everything else identical. Dpbp is a companion (a legal extra family) with a
@@ -926,7 +926,7 @@ proptest! {
     }
 
     // Rung (b) — the structural invariants over arbitrary WITNESS-BUILT plans (design
-    // D11), the hand-built surface the ITF replay never sees. I1/I2/I5 are the
+    // D11; restool-baseline), the hand-built surface the ITF replay never sees. I1/I2/I5 are the
     // type-level guarantees the witness constructors make; I3/I4/I6 are compile-only
     // (see their doc comments) and are not asserted here.
     #[test]

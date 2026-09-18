@@ -30,7 +30,7 @@ each escalation is recorded (in the model's header and the owning change)
 when taken, never presumed in advance.
 
 Alloy is the second escalation (amended 2026-08-30, change `intent-layer`
-design D7), for a different shape of property: a *relational* one — a
+design D7; ADR-0005), for a different shape of property: a *relational* one — a
 plan's containment, connect-edge and companion-coupling structure, the
 kind the intent compiler must hold over every derivable plan — that
 proves awkward to state or check in Quint's state-machine surface. It is

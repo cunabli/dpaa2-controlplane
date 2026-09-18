@@ -1,4 +1,4 @@
-//! An in-memory fake MC/kernel backend (design D10): the hardware-free test seam.
+//! An in-memory fake MC/kernel backend (design D10; restool-baseline): the hardware-free test seam.
 //!
 //! Because the southbound is a pair of traits, a test double that implements
 //! [`McControl`] and [`KernelControl`] over an in-memory [`ObservedTopology`] lets
@@ -46,7 +46,7 @@ struct FakeState {
     /// Per-DPNI tick at which its netdev becomes visible.
     ready_at: HashMap<DpniId, u64>,
     /// The hardware offer [`McControl::read_inventory`] returns; injected by tests
-    /// (design D2). Defaults empty — the board offers nothing until seeded.
+    /// (design D2; ADR-0002). Defaults empty — the board offers nothing until seeded.
     inventory: Inventory,
     /// Next child-DPRC id handed out by [`McControl::dprc_create`]; `dprc.1` is the
     /// root, so children start at `dprc.2`.
@@ -98,7 +98,7 @@ impl FakeBackend {
 
     /// Seeds the hardware offer [`McControl::read_inventory`] returns, so the
     /// compile path can be driven with a chosen board offer and no hardware
-    /// (design D2; bead gqf.19).
+    /// (design D2; ADR-0002; bead gqf.19).
     #[must_use]
     pub fn with_inventory(self, inventory: Inventory) -> Self {
         self.state.borrow_mut().inventory = inventory;
@@ -412,7 +412,7 @@ impl KernelControl for FakeBackend {
     }
 
     // The reconcile/convergence tests never bind VFIO (that face is board-only, design
-    // D6), so the fake reports an unbound, group-less, override-clear child and accepts
+    // D6; ADR-0004), so the fake reports an unbound, group-less, override-clear child and accepts
     // the actuations as no-ops.
     fn vfio_set_override(&self, _dprc: DprcId) -> Result<(), Error> {
         Ok(())

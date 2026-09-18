@@ -1,5 +1,5 @@
 //! A plan built by hand through the public witness constructors, then reconciled —
-//! no [`dpaa2_api::intent::Intent`] and no TOML in sight (design D11).
+//! no [`dpaa2_api::intent::Intent`] and no TOML in sight (design D11; restool-baseline).
 //!
 //! This proves two things the compiler (task 3.2) will lean on: the plan's
 //! witness-taking constructors are public and lock the relationships (companions

@@ -8,7 +8,7 @@
 //!
 //! Transitions that *create* an object reference the port's stable [`DpmacId`](crate::core::model::DpmacId)
 //! anchor rather than a DPNI index, because the index is not known until the MC
-//! assigns it at create time (design D1). Transitions that *tear down* an existing
+//! assigns it at create time (design D1; restool-baseline). Transitions that *tear down* an existing
 //! object reference the observed [`DpniId`](crate::core::model::DpniId).
 
 pub mod dprc;

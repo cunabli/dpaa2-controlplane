@@ -1,7 +1,7 @@
 use crate::core::family::Family;
 use crate::core::types::TenantName;
 
-/// An additive extra (design D5; `types.qnt` `Extra`): every derived count is a
+/// An additive extra (design D5; ADR-0003; `types.qnt` `Extra`): every derived count is a
 /// request, a per-`(tenant, family)` extra adds its `count` on top, so the
 /// effective count is `request + count` — raise-only by construction. Only the four
 /// companion families dpio/dpbp/dpmcp/dpcon accept an extra; any other family is

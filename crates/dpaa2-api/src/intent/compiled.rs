@@ -1,4 +1,4 @@
-//! The compiled object plan and its witness-taking constructors (design D6;
+//! The compiled object plan and its witness-taking constructors (design D6 (ADR-0004);
 //! ADR-0013 §6).
 //!
 //! Transcribed from `models/intent/derive.qnt`. The plan is data — every object
@@ -33,7 +33,7 @@ use crate::core::model::DpmacId;
 use crate::core::types::{ConstructName, RuleName, TenantName};
 use crate::intent::{Fabric, Link, Port, Tenant};
 
-/// A derived object's identity (design D6; `derive.qnt` `ObjectKey`). This is the plan
+/// A derived object's identity (design D6; ADR-0004; `derive.qnt` `ObjectKey`). This is the plan
 /// key, the thing every collection sorts and traces by. The MC label the object carries
 /// is *not* rendered from it: the label is the owning construct's name (ADR-0015
 /// decisions 9+13), stamped on the [`PlannedObject`]. Ordinals are 1-based positions.
@@ -77,7 +77,7 @@ impl fmt::Display for ObjectKey {
     }
 }
 
-/// Where an object lives (design D6; `derive.qnt` `Container`).
+/// Where an object lives (design D6; ADR-0004; `derive.qnt` `Container`).
 ///
 /// [`Container::Root`] is dprc.1 — the kernel's own container, never a tenant's.
 /// A non-kernel tenant's objects live in [`Container::Child`], its own child DPRC;
@@ -108,7 +108,7 @@ pub enum Container {
 }
 
 /// Whether a value stands on measured evidence or on the declared, visibly
-/// unmeasured rate-class table (design D3; `derive.qnt` `Measurement`).
+/// unmeasured rate-class table (design D3; ADR-0002; `derive.qnt` `Measurement`).
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub enum Measurement {
     /// Measured evidence (a baseline or ADR anchor).
@@ -118,7 +118,7 @@ pub enum Measurement {
     Unmeasured,
 }
 
-/// Per-family create-config the plan carries (design D6; `derive.qnt` `Attributes`).
+/// Per-family create-config the plan carries (design D6; ADR-0004; `derive.qnt` `Attributes`).
 /// Unsized families (dpio, dpbp, dpmcp, dpcon, dprtc) expose no sizing knob.
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub enum Attributes {
@@ -156,7 +156,7 @@ pub enum Attributes {
     },
 }
 
-/// A provenance node's address (design D6; `derive.qnt` `ProvenanceKey`): tenant-level
+/// A provenance node's address (design D6; ADR-0004; `derive.qnt` `ProvenanceKey`): tenant-level
 /// count rules use construct `""`; per-construct rules carry the construct name
 /// (the fabric for dpsw, the port for port-edge), so two constructs of one owner do
 /// not collide on a single node.
@@ -186,10 +186,10 @@ impl ProvenanceKey {
     }
 }
 
-/// A node of the provenance DAG (design D6; `derive.qnt` `ProvenanceNode`): `inputs` are
+/// A node of the provenance DAG (design D6; ADR-0004; `derive.qnt` `ProvenanceNode`): `inputs` are
 /// the [`ProvenanceKey`]s it consumed, `constructs` the declared names it bottoms out in,
 /// `anchor` the ADR/baseline section the rule cites. `value = request + extra` when
-/// an extra exists, else `request` (design D5).
+/// an extra exists, else `request` (design D5; ADR-0003).
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub struct ProvenanceNode {
     /// The rule name.
@@ -211,7 +211,7 @@ pub struct ProvenanceNode {
 }
 
 /// A planned object: its key, its container, its create-config, and the provenance
-/// node that emitted it (design D6; `derive.qnt` `PlannedObject`).
+/// node that emitted it (design D6; ADR-0004; `derive.qnt` `PlannedObject`).
 ///
 /// Fields are private: the only constructors are the witness methods
 /// [`Tenant::child_dprc`], [`Tenant::companion`], [`Tenant::dpni`], [`Port::terminate`]
@@ -280,7 +280,7 @@ impl PlannedObject {
     }
 }
 
-/// A connect endpoint (design D6; `derive.qnt` `AttachPoint`): an object's port surface, or
+/// A connect endpoint (design D6; ADR-0004; `derive.qnt` `AttachPoint`): an object's port surface, or
 /// a bare dpmac. A dpmac end is legal only where a witness places it — a port-edge
 /// ([`Port::terminate`]) or a fabric-edge ([`Fabric::edge`]) — never at a link end
 /// (see [`Interface`]).
@@ -312,7 +312,7 @@ impl AttachPoint {
 }
 
 /// A tenant interface handle: a dpni surface a witness yields, and the only value a
-/// [`Link`] or a port-edge may take as an end (design D6).
+/// [`Link`] or a port-edge may take as an end (design D6; ADR-0004).
 ///
 /// It is neither `Copy` nor `Clone` and is *consumed* when it is wired, so one
 /// interface cannot be connected twice:
@@ -353,7 +353,7 @@ impl Interface {
         }
     }
 
-    /// Consumes the interface into a port-edge to a dpmac (design D6; the
+    /// Consumes the interface into a port-edge to a dpmac (design D6 (ADR-0004); the
     /// dpni↔dpmac edge of `object-model.md` §2, figure 6a).
     #[must_use]
     pub fn into_port_edge(self, dpmac: DpmacId) -> Edge {
@@ -366,7 +366,7 @@ impl Interface {
 }
 
 /// A connection between two endpoints, with the provenance node that emitted it
-/// (design D6; `derive.qnt` `Edge`).
+/// (design D6; ADR-0004; `derive.qnt` `Edge`).
 ///
 /// Fields are private: the only constructors are the witness methods
 /// [`Interface::into_port_edge`], [`Link::wire`], [`Port::terminate`] and
@@ -399,7 +399,7 @@ impl Edge {
 
     /// The dpni key and dpmac a dpni↔dpmac port-edge connects, or `None` for any
     /// other edge — a dpni↔dpni link/fabric wire or a dpsw↔dpmac fabric-edge (design
-    /// D10). This is the one discriminator for the port facet: the objects the port
+    /// D10; restool-baseline). This is the one discriminator for the port facet: the objects the port
     /// reconciler actuates are exactly these dpni ends, so both
     /// [`DesiredTopology::from_parts`](crate::core::model::DesiredTopology::from_parts) (which
     /// pairs on the dpmac) and [`CompiledPlan::plan_only_by_family`] (which excludes
@@ -418,7 +418,7 @@ impl Edge {
     }
 }
 
-/// The compiled object plan (design D6; `derive.qnt` `Plan`): the objects, the
+/// The compiled object plan (design D6; ADR-0004; `derive.qnt` `Plan`): the objects, the
 /// edges, the emission order, and the provenance DAG.
 ///
 /// The collections are public, but they can only hold witness-built [`PlannedObject`]s
@@ -438,7 +438,7 @@ pub struct CompiledPlan {
 
 impl CompiledPlan {
     /// Counts the objects the port facet has no executor for, grouped by family
-    /// (design D10): every planned object except the dpni end of a dpni↔dpmac
+    /// (design D10; restool-baseline): every planned object except the dpni end of a dpni↔dpmac
     /// port-edge, which the port reconciler actuates. `reconcile` reports this so an
     /// operator sees every derived object the plan carries; it is never actuated and
     /// never drift. A port-only plan carries nothing but port-edge dpnis, so its
@@ -479,7 +479,7 @@ impl CompiledPlan {
 }
 
 /// The child-DPRC option mask restool creates by default, verified on the reference
-/// child (design D6; `dprc.md`; `derive.qnt` `DPRC_DEFAULT_OPTIONS`).
+/// child (design D6; ADR-0004; `dprc.md`; `derive.qnt` `DPRC_DEFAULT_OPTIONS`).
 #[must_use]
 pub fn dprc_default_options() -> BTreeSet<Permission> {
     BTreeSet::from([
@@ -490,7 +490,7 @@ pub fn dprc_default_options() -> BTreeSet<Permission> {
     ])
 }
 
-// ---- witness constructors (design D6) -------------------------------------
+// ---- witness constructors (design D6; ADR-0004) -------------------------------------
 //
 // The plan's relationships live here, on the intent constructs, so nothing else
 // can produce a companion, an interface, or an edge. The full sizing is the
@@ -498,7 +498,7 @@ pub fn dprc_default_options() -> BTreeSet<Permission> {
 // construct that owns it.
 
 impl Tenant {
-    /// Where this tenant's objects live (design D6; `derive.qnt` `containerOf`):
+    /// Where this tenant's objects live (design D6; ADR-0004; `derive.qnt` `containerOf`):
     /// the reserved kernel and a restricted drawer pooling the kernel land in
     /// [`Container::Root`]; a restricted drawer pooling a named holder lands in the
     /// holder's [`Container::Child`]; every other tenant keeps its own child DPRC.
@@ -517,7 +517,7 @@ impl Tenant {
         }
     }
 
-    /// The tenant's child-DPRC marker in [`Container::Root`] (design D6;
+    /// The tenant's child-DPRC marker in [`Container::Root`] (design D6 (ADR-0004);
     /// `derive.qnt` `dprcObjs`). Emitted only for a tenant that owns a container
     /// (an isolated tenant or a public holder); the reserved kernel and a
     /// restricted drawer own none.
@@ -534,7 +534,7 @@ impl Tenant {
         }
     }
 
-    /// One companion object (design D6; `derive.qnt` `sizedObjs`): a dpio, dpbp,
+    /// One companion object (design D6; ADR-0004; `derive.qnt` `sizedObjs`): a dpio, dpbp,
     /// dpmcp or dpcon in the tenant's own container. The sole constructor of a
     /// companion — nothing draws one without a tenant witness.
     #[must_use]
@@ -548,7 +548,7 @@ impl Tenant {
         }
     }
 
-    /// One dpni object and its interface handle (design D6; `derive.qnt` dpni
+    /// One dpni object and its interface handle (design D6 (ADR-0004); `derive.qnt` dpni
     /// origins). The [`Interface`] is the only value a [`Link`] or a port-edge accepts
     /// as an end. `label` is the construct the dpni serves — the port, link, or fabric
     /// name its origin resolves to — carried as the MC label (ADR-0015 decisions 9+13);
@@ -572,7 +572,7 @@ impl Tenant {
         (obj, Interface { key, port: 0 })
     }
 
-    /// One dpseci object for a crypto block (design D6; `derive.qnt` `dpseciObjs`):
+    /// One dpseci object for a crypto block (design D6; ADR-0004; `derive.qnt` `dpseciObjs`):
     /// sized by the block's own `flows` with the `DPSECI_OPT_HAS_CG` safety bit, in
     /// the tenant's own container. The sole constructor of a dpseci — like a
     /// companion, it cannot stand free of a tenant, so it can never land in
@@ -594,7 +594,7 @@ impl Tenant {
 }
 
 impl Port {
-    /// The port witness (design D6): the dpni the port terminates and its
+    /// The port witness (design D6; ADR-0004): the dpni the port terminates and its
     /// dpni↔dpmac edge (`object-model.md` §2, figure 6a). Placement comes from the
     /// terminating [`Tenant`] witness, so a tenant's dpni can never be asked to
     /// live in the root dprc; ordinal and queue count are the derivation's outputs.
@@ -625,7 +625,7 @@ impl Port {
 }
 
 impl Link {
-    /// The link witness (design D6): the dpni↔dpni pseudo-wire between two tenant
+    /// The link witness (design D6; ADR-0004): the dpni↔dpni pseudo-wire between two tenant
     /// interfaces (`object-model.md` §2, figure 6b, DPNI-I9). It takes two
     /// [`Interface`]s, so a dpmac end is not a link end:
     ///
@@ -657,7 +657,7 @@ impl Link {
 }
 
 impl Fabric {
-    /// The container the fabric's dpsw lives in — its forwarder's (design D6): the
+    /// The container the fabric's dpsw lives in — its forwarder's (design D6; ADR-0004): the
     /// kernel forwards a hardware fabric, so this is [`Container::Root`].
     fn forwarder_container(&self) -> Container {
         if self.forwarded_by.is_kernel() {
@@ -667,7 +667,7 @@ impl Fabric {
         }
     }
 
-    /// The fabric witness (design D6): the dpsw for a hardware fabric (`dpsw.md`
+    /// The fabric witness (design D6; ADR-0004): the dpsw for a hardware fabric (`dpsw.md`
     /// kernel-bindable predicate, read-not-verified), sized by its interface count.
     #[must_use]
     pub fn dpsw(&self, ordinal: u32, num_ifs: u32) -> PlannedObject {
@@ -688,7 +688,7 @@ impl Fabric {
         }
     }
 
-    /// A fabric-edge (design D6; `object-model.md` §2, figure 6c): the dpsw
+    /// A fabric-edge (design D6; ADR-0004; `object-model.md` §2, figure 6c): the dpsw
     /// interface `ifx` to one endpoint — a member port's dpmac or a member tenant's
     /// dpni. The one place besides a port-edge where a dpmac end is legal.
     #[must_use]
@@ -707,7 +707,7 @@ impl Fabric {
         }
     }
 
-    /// A software-fabric pseudo-wire (design D6; `object-model.md` §2, figure 6b;
+    /// A software-fabric pseudo-wire (design D6 (ADR-0004); `object-model.md` §2, figure 6b;
     /// `derive.qnt` `wireEdges`): the forwarding tenant's dpni ↔ a member tenant's
     /// dpni, the boundary connector a software switch bridges without a dpsw. Like
     /// [`Link::wire`] it consumes both [`Interface`]s (the double-connect lock); the

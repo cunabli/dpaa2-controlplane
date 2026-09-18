@@ -1,8 +1,8 @@
 //! Pure text rendering of a compiled plan, its refusals, and the reconcile plan for
-//! the `dpaa2ctl` `dry-run`/`ensure`/`status` surfaces (design D9/D10/D11).
+//! the `dpaa2ctl` `dry-run`/`ensure`/`status` surfaces (design D9/D10/D11; ADR-0006, restool-baseline).
 //!
 //! The frontend owns its text: `dpaa2-api` produces the object plan and the refusal
-//! set as *data* — no `Display` impls (design D11) — and these pure functions turn
+//! set as *data* — no `Display` impls (design D11; restool-baseline) — and these pure functions turn
 //! them into the operator-facing strings `main` prints. Every function is a pure map
 //! from borrowed plan data to a [`String`], so the dry-run output is snapshot-tested
 //! with `insta` against a hand-built [`dpaa2_api::intent::refuse::compile`] result, board-free.
@@ -22,7 +22,7 @@ use dpaa2_api::plan::dprc::{ConsumerConvergence, ContainerVerdict, FingerprintFi
 
 /// Renders the whole dry-run text: the compiled objects with their provenance trees
 /// and edges, the transitions `reconcile` would execute, the plan-only report, and
-/// any warnings (design D9/D10). This is the exact plan `ensure` executes, printed —
+/// any warnings (design D9/D10; ADR-0006, restool-baseline). This is the exact plan `ensure` executes, printed —
 /// including the compiled `num_queues` each Create carries; a Create showing
 /// `num_queues: 0` is the unsized port-only projection, which the backend sizes from the
 /// host at execute time (synthesis L2/B3).
@@ -41,7 +41,7 @@ pub fn render_dry_run(
 }
 
 /// Renders the compiled objects in emission order, each with its provenance tree,
-/// then the connection edges (design D6): part (a) and (b) of the dry-run.
+/// then the connection edges (design D6; ADR-0004): part (a) and (b) of the dry-run.
 #[must_use]
 pub fn render_plan(plan: &CompiledPlan) -> String {
     let by_key: BTreeMap<&ObjectKey, &PlannedObject> =
@@ -82,7 +82,7 @@ pub fn render_plan(plan: &CompiledPlan) -> String {
 }
 
 /// Walks the provenance DAG from `key` recursively through its `inputs`, indenting
-/// children (design D6). Each line names the rule, its construct (elided when empty),
+/// children (design D6; ADR-0004). Each line names the rule, its construct (elided when empty),
 /// the request, the extra (only when declared), the effective value, the
 /// [`Measurement`] mark, and the evidence anchor — the operator's trace path down to
 /// the declared construct and the ADR/baseline it cites.
@@ -125,7 +125,7 @@ fn render_prov_tree(
     path.remove(key);
 }
 
-/// Renders the transitions, drift, and assertions `reconcile` produced (design D0):
+/// Renders the transitions, drift, and assertions `reconcile` produced (design D0; add-dpaa2-provisioning):
 /// part (c) of the dry-run, the lines `dry-run` printed before this parcel. Each
 /// transition leads with its disruption class and the block leads with the plan's
 /// headline — the maximum class, the one converge gates on (ADR-0015 decision 12).
@@ -150,7 +150,7 @@ pub fn render_transitions(plan: &Plan) -> String {
     out
 }
 
-/// Renders the plan-only report (design D10): the families the reconciler does not
+/// Renders the plan-only report (design D10; restool-baseline): the families the reconciler does not
 /// execute, grouped and counted, presented as plan-only — never drift, never error.
 #[must_use]
 pub fn render_plan_only(summary: &BTreeMap<Family, usize>) -> String {
@@ -170,7 +170,7 @@ pub fn render_plan_only(summary: &BTreeMap<Family, usize>) -> String {
 }
 
 /// Renders the child-DPRC (consumer container) convergence the dry-run would drive
-/// (design D2/D6; reconciler delta): each declared consumer's container-only plan, its
+/// (design D2/D6; ADR-0002, ADR-0004; reconciler delta): each declared consumer's container-only plan, its
 /// re-observation verdict (DPRC-I6), and — the per-object provenance the operator
 /// traces — the derived container's provenance node resolved to its baseline anchor via
 /// the plan's DAG (the 4.1 `ConsumerContainer.provenance` key). A converged container
@@ -286,7 +286,7 @@ fn render_fields(fields: &BTreeSet<FingerprintField>) -> String {
     format!("[{}]", names.join(", "))
 }
 
-/// Renders every refusal with its named rule and offending construct (design D5/D10),
+/// Renders every refusal with its named rule and offending construct (design D5/D10; ADR-0003, restool-baseline),
 /// in the deterministic order the [`BTreeSet`] gives. The [`std::fmt::Debug`] form
 /// leads with the exact token [`Refusal::name`] returns, so the rule name leads and
 /// its fields — the construct/tenant/family and needed-vs-available amounts — follow.
@@ -304,7 +304,7 @@ pub fn render_refusals(refusals: &BTreeSet<Refusal>) -> String {
     out
 }
 
-/// Renders the non-fatal warnings an accepted compile carried (design D2/D3), or the
+/// Renders the non-fatal warnings an accepted compile carried (design D2/D3; ADR-0002), or the
 /// empty string when there are none.
 #[must_use]
 pub fn render_warnings(warnings: &BTreeSet<Warning>) -> String {

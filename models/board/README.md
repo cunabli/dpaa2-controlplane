@@ -94,7 +94,7 @@ diff` and read by the ledger lint, so a status cell here or a "verified
 | V-DPRC-13 | `V-DPRC-13.sh` (hand-authored) | **passed** 2026-09-15 (rev 1) (dprc-hardening task 2.1, bead dpaa2-controlplane-am0.2) — OI-3 / PASS3-F13-OQ, the prune-scan dpmcp-budget question. All five `mcp` censuses read **203**: baseline, after each of the three trivial read-only `restool dprc show` spawns, and post-settle — flat everywhere, including across the census spawns themselves (the stronger no-leak reading), dmesg quiet (start marker only). Verdict: **no per-boot budget draw** — a serial restool spawn returns its portal, so the observation seam's 1+2N spawns per `ensure` (review synthesis M12/OI-3) are latency, not resource exhaustion; the tile-#5 seam bead's leak contingency did not fire. Consistent with the recorded knowledge: `docs/baseline/dprc.md`'s opener-draw fact is scoped to *concurrent* openers, and V-DPDBG-2 already saw `mcp` flat 203 → 203 on a boot with no container cycle. The sitting created and destroyed nothing (no scratch child, no lock), so the ADR-0011 one-portal-per-container-cycle confound (mcp 203 → 202) had no trigger. Evidence in the operator archive (results dir `V-DPRC-13-rev1`, gitignored; board git-rev 959c634, MC 10.39.0, kernel 6.6.52). OI-1 (the duplicate-id-under-lock ordering, PASS2-F5) rode this task but was adjudicated **off-board**: a duplicate id is not constructible through restool — no create verb pins an object id and ids mint lowest-free in one global namespace per family (ADR-0010), so the MC's duplicate check is never reached — resolved by quint directed evidence plus a note on ADR-0002 (2026-09-15) rather than a sitting |
 
 V-LIFE-DPNI-1 carries the "per-family lifecycle scenarios" of design
-D7 step 2 for the dpni family: the §5 canonical order through the
+D7 (ADR-0005) step 2 for the dpni family: the §5 canonical order through the
 kernel's own probe, judged on the sysfs driver link. Its objects live
 in dprc.1 by necessity (kernel binds happen in the Linux root only,
 DPRC-I6); the teardown trap restores the container.
@@ -107,7 +107,7 @@ the adapter's observation surface today is present / plugged /
 endpoint / driver-bound — probes beyond it need the online driver
 (ADR-0002 §4) or an adapter extension taken when a scenario demands
 it. Dispositions for the §1 rows not yet generated (no silent drops,
-design D9):
+design D9; ADR-0006):
 
 | Scenario | Why deferred | Where it goes |
 |---|---|---|

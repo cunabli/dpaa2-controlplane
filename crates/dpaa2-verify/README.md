@@ -4,7 +4,7 @@ The model-based-testing harness of the control plane: the crate that
 binds the Quint model corpus under `models/` to the Rust code and (in
 later phases) to the board. Requirements live in
 `openspec/changes/verify-foundation` (`mbt-harness` spec); the design
-is D6 of that change's `design.md`.
+is D6 (ADR-0004) of that change's `design.md`.
 
 ## What it does today
 
@@ -187,7 +187,7 @@ committed clean-boot reference lives at
 ## Ledger lint
 
 `tests/ledger_lint.rs` fails a build when a hand-maintained document drifts
-from its source of truth (design D9). Beside the board-ledger cross-checks
+from its source of truth (design D9; ADR-0006). Beside the board-ledger cross-checks
 (R1–R10 over `COVERAGE.md`, the baseline tables, the suite ledger, the
 roadmap and `VERDICTS.json`), the intent rows (R11–R13, ADR-0014) hold
 ADR-0013's copies to the `models/intent/` model: R11 checks the refusal

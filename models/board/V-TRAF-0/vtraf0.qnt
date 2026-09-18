@@ -1,5 +1,5 @@
 // Scenario module for board suite V-TRAF-0 (task 5.5; traffic-inventory
-// §3): the traffic-bearing reachability pattern of design D7 step 5,
+// §3): the traffic-bearing reachability pattern of design D7 (ADR-0005) step 5,
 // instantiated on the smallest configured object group there is — one
 // kernel-bound dpni on the flagged dpmac.7 with its census companions.
 // The frames themselves are not model steps (reachability is a property

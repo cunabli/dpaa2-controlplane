@@ -1,5 +1,5 @@
 //! `dpaa2-verify` CLI: batch-suite generation and offline result diffing
-//! (design D6). The board never runs this tool's generation side; it runs
+//! (design D6; ADR-0004). The board never runs this tool's generation side; it runs
 //! the emitted, operator-reviewed scripts (ADR-0003 §1–2).
 
 use std::fmt::Write as _;
@@ -45,14 +45,14 @@ impl From<ClassArg> for TrafficClass {
 enum Command {
     /// Generate a reviewable batch suite from a `quint run --mbt` trace,
     /// or a read-only fit-check sitting from a hand-authored probe plan
-    /// (`--probes`, design D12). Exactly one source is required.
+    /// (`--probes`, design D12; ADR-0003). Exactly one source is required.
     #[command(group = clap::ArgGroup::new("gen_source").required(true).args(["trace", "probes"]))]
     Generate {
         /// The `--mbt` ITF trace to generate from.
         #[arg(long)]
         trace: Option<PathBuf>,
         /// A hand-authored read-only probe plan to render as a fit-check
-        /// sitting instead of a trace (design D12). Mutually exclusive
+        /// sitting instead of a trace (design D12; ADR-0003). Mutually exclusive
         /// with `--trace`; the trace-only options below are ignored.
         #[arg(long)]
         probes: Option<PathBuf>,
@@ -361,7 +361,7 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
             out,
         } => {
             // The fit-check arm: a read-only sitting from a probe plan
-            // (design D12). It shares the trace path's out-dir and 0o755
+            // (design D12; ADR-0003). It shares the trace path's out-dir and 0o755
             // handling but renders no postboot half and takes none of the
             // trace-only options.
             if let Some(probes) = probes {
@@ -549,7 +549,7 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
     }
 }
 
-/// Renders a read-only fit-check sitting from a probe plan (design D12):
+/// Renders a read-only fit-check sitting from a probe plan (design D12; ADR-0003):
 /// `<id>.sh` (executable) and `<id>.plan.json`, into `out`. The id is the
 /// plan's own suite name, and the recorded source is the probes path as
 /// the operator spells it from the repository root, so regeneration is
@@ -759,7 +759,7 @@ fn run_diff_plan(plan_path: &Path, args: &DiffArgs) -> Result<ExitCode, String> 
     let plan_text = std::fs::read_to_string(plan_path)
         .map_err(|e| format!("reading {}: {e}", plan_path.display()))?;
     // A read-only fit-check plan carries `probes_file` where a batch plan
-    // carries `trace_file`; route it to the fit judge (design D12) so the
+    // carries `trace_file`; route it to the fit judge (design D12; ADR-0003) so the
     // sitting's `diff --plan` header instruction actually works.
     let value: serde_json::Value = serde_json::from_str(&plan_text).map_err(|e| e.to_string())?;
     if value.get("probes_file").is_some() {
@@ -846,7 +846,7 @@ fn run_diff_plan(plan_path: &Path, args: &DiffArgs) -> Result<ExitCode, String> 
     })
 }
 
-/// The `diff --plan` arm for a read-only fit-check plan (design D12):
+/// The `diff --plan` arm for a read-only fit-check plan (design D12; ADR-0003):
 /// judge each step's captured exit against its declared shape, print the
 /// same per-step report the batch arm does, write `verdict.json` and
 /// upsert the index. An `any` step (the `status` drift report) prints as

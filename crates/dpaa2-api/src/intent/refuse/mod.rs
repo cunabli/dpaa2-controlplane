@@ -64,7 +64,7 @@ pub enum Referrer {
 /// The rule an intent broke, naming the offending construct (design D5; ADR-0013
 /// §5). The `refuse.qnt` refusal vocabulary (vocabulary-v2 D1 deleted the two
 /// pool-shape contradictions, now unrepresentable in [`crate::intent::Isolation`];
-/// D4 added the three parity twins [`Refusal::LinkSelfLoop`],
+/// D4 (ADR-0003) added the three parity twins [`Refusal::LinkSelfLoop`],
 /// [`Refusal::RenameDoubleClaim`], [`Refusal::KernelDeclared`]).
 ///
 /// `#[non_exhaustive]`: a `PoolShortfall` variant is reserved for `reconcile`
@@ -73,7 +73,7 @@ pub enum Referrer {
 ///
 /// `Ord` is derived so [`compile`] can return the *complete* refusal set as a
 /// deterministic [`std::collections::BTreeSet`] — the model's `Set[Refusal]` (design
-/// D5); the ordering is incidental (payload-lexicographic), never semantic.
+/// D5; ADR-0003); the ordering is incidental (payload-lexicographic), never semantic.
 ///
 /// Landing convention (ADR-0018, "Refusals split by construct, land by family"):
 /// the per-construct validators that fill this set live in construct-named
@@ -176,7 +176,7 @@ pub enum Refusal {
         member: ConstructName,
     },
     /// A userspace-poll tenant terminates a rate class with no seeded worker row
-    /// (design D3).
+    /// (design D3; ADR-0002).
     UnknownRateClass {
         /// The tenant.
         tenant: TenantName,
@@ -193,14 +193,14 @@ pub enum Refusal {
         /// The declared budget.
         max_cores: i64,
     },
-    /// An extra on a family that is not one of the four companions (design D5).
+    /// An extra on a family that is not one of the four companions (design D5; ADR-0003).
     ExtraNotCompanion {
         /// The tenant.
         tenant: TenantName,
         /// The non-companion family.
         family: Family,
     },
-    /// An extra whose count is below 1 (design D5).
+    /// An extra whose count is below 1 (design D5; ADR-0003).
     ExtraNotPositive {
         /// The tenant.
         tenant: TenantName,
@@ -209,7 +209,7 @@ pub enum Refusal {
         /// The non-positive count.
         count: i64,
     },
-    /// A crypto block whose flows are below 1 (design D1; `dpseci.md`). The
+    /// A crypto block whose flows are below 1 (design D1; restool-baseline; `dpseci.md`). The
     /// 1-based ordinal keeps two bad blocks of one tenant distinct (task 2.6e).
     CryptoFlowsNotPositive {
         /// The tenant.
@@ -243,7 +243,7 @@ pub enum Refusal {
         available: i64,
     },
     /// A tenant whose dataplane ADR-0012 does not price (today `UserspaceEvent`;
-    /// design D3).
+    /// design D3; ADR-0002).
     UnpricedDataplane {
         /// The tenant.
         tenant: TenantName,
@@ -278,7 +278,7 @@ pub enum Refusal {
     /// compile-side twin of the parse self-loop check
     /// (`crates/dpaa2-config/src/parse.rs` `convert_link`); with [`crate::intent::TenantRef`], two
     /// [`crate::intent::TenantRef::Kernel`] ends are the same tenant too. Deliberate duplication
-    /// across the config→api seam (design D11): the raw model twin is
+    /// across the config→api seam (design D11; restool-baseline): the raw model twin is
     /// `intent_raw.qnt` `RawLinkSelfLoop` (`crates/dpaa2-verify/src/raw_itf.rs`).
     LinkSelfLoop {
         /// The link naming one tenant at both ends.
@@ -288,7 +288,7 @@ pub enum Refusal {
     /// away (vocabulary-v2 D4): the target would be claimed twice. The compile-side
     /// twin of the parse check (`crates/dpaa2-config/src/parse.rs` `check_renames`),
     /// covering both the tenant and the port/link/fabric namespaces. Deliberate
-    /// duplication across the config→api seam (design D11): the raw model twin is
+    /// duplication across the config→api seam (design D11; restool-baseline): the raw model twin is
     /// `intent_raw.qnt` `RenamedFromDeclared` (`crates/dpaa2-verify/src/raw_itf.rs`).
     RenameDoubleClaim {
         /// The construct declaring the rename.
@@ -302,7 +302,7 @@ pub enum Refusal {
     /// the fact. The reserved [`crate::intent::kernel_tenant`] is materialised into the tenant list
     /// by the frontend and derive, so it is exempt — only a kernel-named tenant of a
     /// non-reserved shape is the programmatic declaration the TOML boundary refuses.
-    /// Deliberate duplication across the config→api seam (design D11): the raw model
+    /// Deliberate duplication across the config→api seam (design D11; restool-baseline): the raw model
     /// twin is `intent_raw.qnt` `ReservedKernel` (`crates/dpaa2-verify/src/raw_itf.rs`).
     KernelDeclared,
 }
@@ -395,7 +395,7 @@ pub enum Warning {
         needed: i64,
     },
     /// A userspace-poll tenant terminates more than one seeded rate class, so the
-    /// worker formula prices its T over an unmeasured cross-class mix (design D3).
+    /// worker formula prices its T over an unmeasured cross-class mix (design D3; ADR-0002).
     UnmeasuredCombination {
         /// The tenant.
         tenant: TenantName,
@@ -425,7 +425,7 @@ impl Warning {
     }
 }
 
-/// A successful compile: the object plan and its non-fatal [`Warning`]s (design D5;
+/// A successful compile: the object plan and its non-fatal [`Warning`]s (design D5 (ADR-0003);
 /// `refuse.qnt` `Compiled::Ok`). The failing half is the complete refusal set
 /// [`compile`] returns as its `Err`, so the model's `Compiled` sum maps onto Rust's
 /// [`Result`]: `Ok(Compiled)` ⇔ `Ok({plan, warnings})`, `Err(refusals)` ⇔
@@ -440,7 +440,7 @@ pub struct Compiled {
 
 impl Compiled {
     /// Pairs the compiled plan with its port-family actuation projection into the
-    /// [`DesiredTopology`] `reconcile` drives (design D10/D11).
+    /// [`DesiredTopology`] `reconcile` drives (design D10/D11; restool-baseline).
     ///
     /// The projection is the intent's terminated ports — the dpnis the plan carries a
     /// dpni↔dpmac port-edge for; a hardware-switched port yields a dpsw interface, not
@@ -450,7 +450,7 @@ impl Compiled {
     ///
     /// Panics on a [`crate::core::model::FacetMismatch`] — a compiled plan whose port-edges disagree
     /// with its own terminated ports is a compiler bug, never operator input (design
-    /// D11: a compile-produced pairing failing the facet check cannot happen).
+    /// D11; restool-baseline: a compile-produced pairing failing the facet check cannot happen).
     #[must_use]
     pub fn desired_topology(&self, intent: &Intent) -> DesiredTopology {
         let ports: Vec<DesiredPort> = intent
@@ -518,7 +518,7 @@ fn family_counts(plan: &CompiledPlan) -> BTreeMap<Family, i64> {
 /// compile-side twin of the parse check (`crates/dpaa2-config/src/parse.rs`
 /// `check_renames`), over the tenant namespace and the shared port/link/fabric
 /// namespace, matching the two-namespace split parse makes. Deliberate config→api
-/// duplication (design D11).
+/// duplication (design D11; restool-baseline).
 fn rename_double_claim_refusals(intent: &Intent, out: &mut BTreeSet<Refusal>) {
     let tenant_declared_unrenamed = |n: &TenantName| {
         intent
@@ -569,7 +569,7 @@ fn rename_double_claim_refusals(intent: &Intent, out: &mut BTreeSet<Refusal>) {
 }
 
 /// Every rule runs unconditionally; the refusal set is their union — the compiler
-/// idiom, never first-failure-only (design D5; `refuse.qnt` `refusals`). `counts`
+/// idiom, never first-failure-only (design D5; ADR-0003; `refuse.qnt` `refusals`). `counts`
 /// is the family tally of the shared, once-derived plan.
 #[must_use]
 fn refusals(intent: &Intent, inv: &Inventory, counts: &BTreeMap<Family, i64>) -> BTreeSet<Refusal> {
@@ -594,7 +594,7 @@ fn refusals(intent: &Intent, inv: &Inventory, counts: &BTreeMap<Family, i64>) ->
 
 /// A warning per derived family whose ceiling is Unknown and whose count is non-zero
 /// (ADR-0011), plus one per userspace-poll tenant mixing seeded rate classes (design
-/// D3; `refuse.qnt` `warnings`).
+/// D3; ADR-0002; `refuse.qnt` `warnings`).
 #[must_use]
 fn warnings(intent: &Intent, inv: &Inventory, counts: &BTreeMap<Family, i64>) -> BTreeSet<Warning> {
     let mut out = BTreeSet::new();
@@ -621,7 +621,7 @@ fn warnings(intent: &Intent, inv: &Inventory, counts: &BTreeMap<Family, i64>) ->
     out
 }
 
-/// The total function (design D5; `refuse.qnt` `compile`): an empty refusal set
+/// The total function (design D5; ADR-0003; `refuse.qnt` `compile`): an empty refusal set
 /// yields the plan and its warnings, else the *complete* refusal set. Pure and
 /// deterministic — the [`BTreeSet`] iteration order makes the output byte-stable.
 ///

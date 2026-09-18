@@ -1,4 +1,4 @@
-// Scenario module for board suite V-RECOVERY-1 (task 5.1; design D7
+// Scenario module for board suite V-RECOVERY-1 (task 5.1; design D7 (ADR-0005)
 // step 1; ADR-0003 §7): the smallest scratch-DPRC mutation set a reboot
 // must erase — one scratch container under the Linux root, one dpbp
 // created inside it, plugged. Nothing here touches a boot-born object.

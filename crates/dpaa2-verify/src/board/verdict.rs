@@ -437,7 +437,7 @@ pub fn from_batch(
 }
 
 /// Builds a verdict from a read-only fit check's plan and its result
-/// files (task 4.1, design D12). A fit check is a plan diffed against a
+/// files (task 4.1, design D12; ADR-0003). A fit check is a plan diffed against a
 /// result directory — the same shape as [`from_batch`] — so it is
 /// [`Kind::Batch`]; it creates nothing, so there is no `created.txt` and
 /// no hook. Each step is judged on its captured exit against the declared

@@ -1,4 +1,4 @@
-// Shared state of the core object machine (design D4: "the shared state").
+// Shared state of the core object machine (design D4; ADR-0003: "the shared state").
 // Executable rendering of docs/baseline/object-model.md §§1–5; each field
 // cites the view or law it carries. Pure types only — the machine that
 // animates them is machine.qnt.
@@ -89,7 +89,7 @@ module types {
   type Draw = { dpmcp: int, dpbp: int, dpcon: int }
 
   // The per-family parameters that instantiate the one generic machine
-  // (design D2). Family modules (tasks 1.2/1.3) provide the values.
+  // (design D2; ADR-0002). Family modules (tasks 1.2/1.3) provide the values.
   type FamilyParams = {
     // runtime-creatable here: dpaiop is platform-refused (DPAIOP-I1),
     // dpmac is DPC-born at boot (DPMAC-I1)
@@ -129,7 +129,7 @@ module types {
     nextHw: int,             // MC hardware-id space (§6.4)
   }
 
-  // Evidence status carried per transition (design D2): a failed board
+  // Evidence status carried per transition (design D2; ADR-0002): a failed board
   // step must distinguish "model wrong" from "claim never verified".
   type Evidence =
     | BoardExercised  // driven on the board by prior work (anchors in object-model.md)

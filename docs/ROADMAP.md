@@ -7,7 +7,7 @@ learned up to that moment. The roadmap is a living document: re-ordering or
 splitting tiles as understanding grows is a documented amendment, not a
 broken promise.
 
-Two operating modes frame the whole series (design D8):
+Two operating modes frame the whole series (design D8; restool-baseline):
 
 - **FPGA mode** — level-triggered runtime reconciliation, topology re-derived
   from intent every boot. The spine; always primary.
@@ -33,7 +33,7 @@ Two operating modes frame the whole series (design D8):
 | 13 | `tier-c-families` | dpaiop, dpci, dpdcei, dpdmai, dprtc, dpdbg — split into per-family changes as reached; each first answers board-exercisability from its baseline doc | 10 | — |
 | 14 | `dpl-tape-out` | Intent → DPL compilation via the build DTI (ASIC mode). Spec must solve the ownership inversion (DPL objects are foreign under current rules) and the return of persisted state | 3, 10 | — |
 
-Tiers (design D1): A = #4–8 datapath core; B = #11–12 switching; C = #13.
+Tiers (design D1; restool-baseline): A = #4–8 datapath core; B = #11–12 switching; C = #13.
 All 16 families are ported; tiers order the work, they do not cut it.
 
 ## Decision points
@@ -58,7 +58,7 @@ All 16 families are ported; tiers order the work, they do not cut it.
 - **Multi-MC-version support.** Non-goal; revisit trigger: a second board on
   different firmware (ADR-0004).
 
-## Standing rules for every change (the DoD, design D11)
+## Standing rules for every change (the DoD, design D11; restool-baseline)
 
 1. **Baseline anchor** — cite the `docs/baseline/` sections implemented;
    divergences amend the baseline in the same change.

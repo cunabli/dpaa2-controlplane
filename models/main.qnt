@@ -1,5 +1,5 @@
 // Top-level instantiation of the core machine with all 16 family
-// parameter modules (design D2/D4): the corpus-wide simulate target.
+// parameter modules (design D2/D4; ADR-0002, ADR-0003): the corpus-wide simulate target.
 //
 //   pnpm exec quint test models/main.qnt --main=main   # directed runs below
 //   pnpm exec quint run  models/main.qnt --main=main   # random exploration
@@ -9,7 +9,7 @@
 // order and teardown of object-model.md §5, and refusal of transitions
 // the baseline forbids.
 //
-// Phase 2 adds the invariant encodings (design D3). State invariants
+// Phase 2 adds the invariant encodings (design D3; ADR-0002). State invariants
 // live in core/invariants.qnt and are checked in random simulation via
 //
 //   pnpm exec quint run models/main.qnt --main=main \
@@ -67,7 +67,7 @@ module main {
   // (DPNI_I11ProbesOutsideTest); everything the machine drives can.
   val IOCTL_OK = lastVerbs.forall(v => VERB_OK.get(v))
 
-  // The simulator-rung conjunction (design D5): every state invariant
+  // The simulator-rung conjunction (design D5; ADR-0003): every state invariant
   // the machine must preserve, under their baseline ids.
   val stateInvariants: bool = and {
     LAW3_triState,
@@ -381,7 +381,7 @@ module main {
       not(accepted(PROBES.get("V-LINK-3"))),
     }))
 
-  // --- phase-2 directed encodings (design D3): action-guard and
+  // --- phase-2 directed encodings (design D3; ADR-0002): action-guard and
   // --- Breaking absence-of-assumption candidates, named by baseline id
 
   // DPRC-I6 (Breaking): sync is not visibility. A root rescan reaches

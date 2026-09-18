@@ -7,7 +7,7 @@
 // dpbp, dpcon, dpmcp, queue or worker count; every such number is the
 // derivation's (intent/derive.qnt). The dpaa2-api Rust types
 // transcribe this module once the vocabulary is accepted at the gate
-// (design D6, D7).
+// (design D6; ADR-0004, D7; ADR-0005).
 //
 // The inventory is what the hardware offers, observed and never
 // operator-written: each dpmac with the attributes `dpmac info` reports
@@ -21,7 +21,7 @@
 module intent_types {
   import types.* from "../core/types"           // Family, ObjId
 
-  // The reserved kernel tenant (design D1): the kernel's own network driver
+  // The reserved kernel tenant (design D1; restool-baseline): the kernel's own network driver
   // in dprc.1. A port that names no tenant is the kernel's port.
   pure val KERNEL: str = "kernel"
 
@@ -60,7 +60,7 @@ module intent_types {
   // An accepted `renamed = { from }` clause (ADR-0015 decision 10 / task 6.5):
   // NotRenamed — no clause; RenamedFrom(name) — the construct's declared prior name.
   // This is the two-case sum the Rust twin `renamed: Option<ConstructName>` already is
-  // (dpaa2-api intent.rs; design D2), replacing the retired `from: str` with `""` =
+  // (dpaa2-api intent.rs; design D2; ADR-0002), replacing the retired `from: str` with `""` =
   // absent. The clause widens the rename matcher's acceptance set, is inert after one
   // converge, and compile ignores it (intent/derive.qnt). The raw TOML string lowers
   // into this sum at the parse boundary via `renameOf`.
@@ -108,8 +108,8 @@ module intent_types {
   type Isolation = Public | Restricted(str) | Isolated
 
   // A tenant of hardware capacity. `maxCores` is the budget the derived
-  // thread count must fit under (design D3). Crypto demand is not a tenant
-  // field: each `Crypto` construct carries its own `flows` (design D1).
+  // thread count must fit under (design D3; ADR-0002). Crypto demand is not a tenant
+  // field: each `Crypto` construct carries its own `flows` (design D1; restool-baseline).
   // `isolation` places the tenant in the container tree (default Isolated) and,
   // for a Restricted tenant, names the public holder it draws inside as the
   // variant payload — there is no separate `pool` field and no "" sentinel
@@ -164,14 +164,14 @@ module intent_types {
 
   // An accelerator for one tenant; its dpseci queue count derives from this
   // construct's own `flows` — a tenant-visible demand, never an object count
-  // (design D1; dpseci.md, task 1.2). A tenant may declare several `Crypto`
+  // (design D1; restool-baseline; dpseci.md, task 1.2). A tenant may declare several `Crypto`
   // blocks: each is self-contained and sizes its own dpseci, and declaration
   // order numbers a tenant's dpseci ordinals (task 2.6e, the same positional
   // convention the fabric members and the other lists use). No max-fold ceiling
   // collapses a tenant's blocks any longer.
   type Crypto = { tenant: str, flows: int }
 
-  // An additive extra (design D5): every derived count is a request; a
+  // An additive extra (design D5; ADR-0003): every derived count is a request; a
   // per-(tenant, family) extra adds its `count` on top, so the effective
   // count is request + count — raise-only by construction. Only the four
   // companion families dpio/dpbp/dpmcp/dpcon accept an extra; any other
@@ -251,7 +251,7 @@ module intent_types {
   pure def sortByRank(xs: List[a], key: (a) => int): List[a] =
     xs.foldl([], (acc, x) => insertByRank(acc, x, key))
 
-  // ---- the inventory: the observed hardware offer (design D2) ----
+  // ---- the inventory: the observed hardware offer (design D2; ADR-0002) ----
 
   // dpmac attributes, immutable for the object's life (DPMAC-I3,
   // dpmac.md). Only the values the reference board reports are
@@ -292,7 +292,7 @@ module intent_types {
     ceilings: Family -> Ceiling,
   }
 
-  // The families the derivation emits (design D4): the ceilings map's
+  // The families the derivation emits (design D4; ADR-0003): the ceilings map's
   // domain and the request/extra families.
   pure val DERIVED_FAMILIES: Set[Family] =
     Set(Dprc, Dpni, Dpbp, Dpio, Dpcon, Dpmcp, Dpseci, Dpsw)

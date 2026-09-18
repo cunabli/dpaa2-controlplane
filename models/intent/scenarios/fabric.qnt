@@ -1,7 +1,7 @@
 // Scenario (1) of the intent gate (openspec change `intent-layer`, design
-// D8; task 2.1): a hardware-switched fabric over dpmac.7/8 at 10G,
+// D8; restool-baseline; task 2.1): a hardware-switched fabric over dpmac.7/8 at 10G,
 // kernel-forwarded, with a userspace-poll router joined as a tenant member and
-// terminating dpmac.9/10 at 2×10G — the seeded rate class (design D3), so
+// terminating dpmac.9/10 at 2×10G — the seeded rate class (design D3; ADR-0002), so
 // the router's T = 5 derives from the table and `max_cores` = 8 admits it.
 // fabric.toml beside this file is what the operator types for the same
 // intent; the pairing is enforced by dpaa2-verify's `tests/intent_pairing.rs` (task 3.4).
@@ -10,7 +10,7 @@
 // T = 5 and is refused as CoreBudgetExceeded naming the tenant, T, and
 // the budget. The kernel tenant's budget never binds under the online-CPU
 // reading of open question 2, so the poll-mode member is what makes the
-// refusal reachable (design D8) — pinned by kernelBudgetNeverBindsTest.
+// refusal reachable (design D8; restool-baseline) — pinned by kernelBudgetNeverBindsTest.
 //
 // Anchors: dpsw.md kernel-bindability predicate (read-not-verified);
 // ADR-0012 companion draws; DPAA2 User Manual §2.2.2 fig. 6c.
@@ -51,12 +51,12 @@ module fabric {
   pure val accepted: Intent = fabricIntent(8)  // fabric.toml's max_cores
   pure val twin: Intent = fabricIntent(4)      // below the derived T = 5
 
-  // The expected plan shape (design D4/D6): one kernel dpsw with num_ifs =
+  // The expected plan shape (design D4/D6; ADR-0003, ADR-0004): one kernel dpsw with num_ifs =
   // 3 (two member dpmacs, the router's attach dpni) under the
   // kernel-bindable predicate; the switched member ports yield no kernel
   // dpni and no port-edge; the router takes three dpnis (wan0, wan1, the
   // attach) at T = 5 queues with the ADR-0012 poll-mode draws, T visibly
-  // unmeasured (design D3).
+  // unmeasured (design D3; ADR-0002).
   run fabricPlanShapeTest =
     match compile(accepted, REF_INVENTORY) {
       | Ok(res) =>
@@ -108,7 +108,7 @@ module fabric {
   }
 
   // The twin: max_cores = 4 below T = 5 is refused as CoreBudgetExceeded
-  // and nothing else — the file's one error, named (design D3/D8).
+  // and nothing else — the file's one error, named (design D3/D8; ADR-0002, restool-baseline).
   run twinCoreBudgetTest =
     match compile(twin, REF_INVENTORY) {
       | Refused(rs) => rs == Set(CoreBudgetExceeded({ tenant: "router", t: 5, maxCores: 4 }))
@@ -118,7 +118,7 @@ module fabric {
   // Why the twin needs the poll-mode member: under the online-CPU reading
   // (open question 2, KERNEL_BUDGET_IS_DPIO_COUNT = false) the kernel
   // tenant's budget never binds — the same fabric with a starved kernel
-  // budget still compiles (design D8).
+  // budget still compiles (design D8; restool-baseline).
   run kernelBudgetNeverBindsTest =
     val lowKernel = accepted.with("tenants",
       [kernelTenant(1),

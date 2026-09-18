@@ -31,7 +31,7 @@
 //     whole attribute tuple; widen to a record only if a per-field law appears).
 //     Bead 093.7 (vocabulary-v2 4b.1): the Rust twin's concrete `ConfigFacet::Tenant`
 //     carries a FLAT `pool` field — a deliberate second reading of
-//     `Isolation::Restricted { pool }` (D1), since the matcher compares same-owner
+//     `Isolation::Restricted { pool }` (D1; restool-baseline), since the matcher compares same-owner
 //     tenants attribute-by-attribute. This abstract int has no `pool` to key
 //     differently, so the flattening is a Rust-only projection choice with no model
 //     twin to drift against; kept, not re-derived from the isolation variant.

@@ -1,4 +1,4 @@
-// Phase-2 invariant encodings (design D3): the baseline's invariant
+// Phase-2 invariant encodings (design D3; ADR-0002): the baseline's invariant
 // candidates as named predicates over CoreState, names = baseline ids
 // (traceability rule — the ledger, the docs, and the model never drift).
 //

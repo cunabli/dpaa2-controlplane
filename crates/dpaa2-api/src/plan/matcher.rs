@@ -8,7 +8,7 @@
 //! reconciler must *re-associate* each edited construct to the standing object that
 //! carries it, so a rename relabels rather than destroys and a rewire is not mistaken
 //! for a rename. [`match_board`] is that re-association as a pure, total verdict
-//! producer — no I/O, no serde (design D10) — running the same four-stage relation the
+//! producer — no I/O, no serde (design D10; restool-baseline) — running the same four-stage relation the
 //! model checks, on real [`ConstructName`]s and [`DpmacId`] anchor sets:
 //!
 //! 1. **Anchor rung** (decision 9, anchor-first). Every anchored [`MatchObject`] binds
@@ -114,7 +114,7 @@ pub enum ConfigFacet {
         /// The public holder a restricted tenant draws inside (empty when absent).
         ///
         /// Bead 093.7 (vocabulary-v2 4b.1): once [`Isolation::Restricted`] carries
-        /// its pool payload (D1), this flat `pool` is a *deliberate* second reading
+        /// its pool payload (D1; restool-baseline), this flat `pool` is a *deliberate* second reading
         /// of that payload — the matcher compares two same-owner tenants
         /// attribute-by-attribute, so it flattens the holder name into its own facet
         /// field rather than re-deriving it from the `isolation` variant. Kept, not

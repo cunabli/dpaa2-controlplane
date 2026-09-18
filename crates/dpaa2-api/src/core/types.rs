@@ -11,7 +11,7 @@
 //! keys the same `BTreeSet`/`BTreeMap` a `String` did) and the same string-facing
 //! conveniences (so call sites and tests stay terse). No `Deref<Target = str>`: a
 //! name is not a string, and hiding the distinction behind auto-deref is the very
-//! confusion this module removes. Stdlib only (design D10: `dpaa2-api` stays
+//! confusion this module removes. Stdlib only (design D10 (restool-baseline): `dpaa2-api` stays
 //! serde-free and dependency-light).
 
 /// Defines a string newtype for one name slot of the intent vocabulary.
@@ -110,7 +110,7 @@ macro_rules! resource_name {
 resource_name! {
     /// A tenant's name: the key namespace of every object a tenant draws, and the
     /// thing a port, link end, fabric owner, crypto block, extra or `pool` names
-    /// when it refers to a tenant (design D1; `types.qnt` `Tenant`). Distinct from
+    /// when it refers to a tenant (design D1; restool-baseline; `types.qnt` `Tenant`). Distinct from
     /// [`ConstructName`] so the tenant slot of a [`ProvenanceKey`](crate::intent::compiled::ProvenanceKey)
     /// or a [`Refusal`](crate::intent::refuse::Refusal) can never take a construct name by
     /// mistake.
@@ -121,7 +121,7 @@ resource_name! {
     /// A declared construct's name: a port, link or fabric identity, and the
     /// polymorphic `construct` a derived value bottoms out in — a tenant-level count
     /// carries the empty name, a per-construct rule the port/fabric/link name
-    /// (design D6; `derive.qnt` `ProvenanceKey`/`dpniConstructs`). One type spans
+    /// (design D6; ADR-0004; `derive.qnt` `ProvenanceKey`/`dpniConstructs`). One type spans
     /// all three construct kinds because they share a single declaration namespace
     /// and flow together through the provenance `constructs` set and the refusal
     /// payloads; the [`Member`](crate::intent::Member) enum and the struct field
@@ -143,7 +143,7 @@ impl From<&TenantName> for ConstructName {
 resource_name! {
     /// A derivation rule's name: the token a [`ProvenanceNode`](crate::intent::compiled::ProvenanceNode)
     /// and its [`ProvenanceKey`](crate::intent::compiled::ProvenanceKey) address it by
-    /// (`"dpio"`, `"T"`, `"port-edge"`, …; design D6). Distinct from the tenant and
+    /// (`"dpio"`, `"T"`, `"port-edge"`, …; design D6; ADR-0004). Distinct from the tenant and
     /// construct it sits beside in a key.
     RuleName
 }
@@ -217,7 +217,7 @@ fn validate_interface_name(s: &str) -> Result<(), NameError> {
 /// The MC family token a name reserves by matching `<family>.<digits>` to end of
 /// string, or `None`. Reuses [`ALL_FAMILIES`](crate::core::family::ALL_FAMILIES) for the
 /// token set (ADR-0014: one enumeration, not a second copy to keep in step). A simple
-/// prefix/suffix scan — no regex, no new dependency (design D10).
+/// prefix/suffix scan — no regex, no new dependency (design D10; restool-baseline).
 fn reserved_family_token(s: &str) -> Option<&'static str> {
     for family in crate::core::family::ALL_FAMILIES {
         let token = family.as_str();

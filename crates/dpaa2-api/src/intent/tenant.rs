@@ -1,6 +1,6 @@
 use crate::core::types::TenantName;
 
-/// The reserved kernel tenant (design D1; `types.qnt` `KERNEL`): the kernel's own
+/// The reserved kernel tenant (design D1; restool-baseline; `types.qnt` `KERNEL`): the kernel's own
 /// network driver in dprc.1. A port that names no tenant is the kernel's port, and
 /// a link end may name it without declaring it (design D6a).
 pub const KERNEL: &str = "kernel";
@@ -43,7 +43,7 @@ impl TenantRef {
     /// Classifies a resolved tenant name into the reference sum: the reserved
     /// [`KERNEL`] name yields [`TenantRef::Kernel`], any other name
     /// [`TenantRef::Named`]. This is the single normalisation the parser applies at
-    /// the TOML boundary (design D2) — the KERNEL sentinel classification lives here,
+    /// the TOML boundary (design D2; ADR-0002) — the KERNEL sentinel classification lives here,
     /// core-side, so an adapter reports a name and lets the vocabulary judge it.
     ///
     /// Domain split from the model twin `tenantRefOf` (`types.qnt`): the model folds
@@ -95,7 +95,7 @@ impl TenantRef {
 /// room for a future kernel dataplane (XDP/BPF) beside [`Dataplane::KernelNetlink`].
 /// `#[non_exhaustive]`: a VFIO passthrough value (a guest dataplane the host cannot
 /// see) is change #4's, and a priced replacement for `UserspaceEvent` is a later
-/// scenario's (design D5).
+/// scenario's (design D5; ADR-0003).
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 #[non_exhaustive]
 pub enum Dataplane {
@@ -144,9 +144,9 @@ pub enum Isolation {
     Isolated,
 }
 
-/// A tenant of hardware capacity (design D1; `types.qnt` `Tenant`).
+/// A tenant of hardware capacity (design D1; restool-baseline; `types.qnt` `Tenant`).
 ///
-/// `max_cores` is the budget the derived thread count must fit under (design D3).
+/// `max_cores` is the budget the derived thread count must fit under (design D3; ADR-0002).
 /// Crypto demand is not a tenant field — each [`Crypto`](crate::intent::Crypto) block carries its own
 /// flows. `isolation` places the tenant in the container tree (default
 /// [`Isolation::Isolated`]) and, for a restricted tenant, names the public holder
@@ -158,7 +158,7 @@ pub struct Tenant {
     pub name: TenantName,
     /// Where its dataplane runs.
     pub dataplane: Dataplane,
-    /// The core budget the derived thread count must fit under (design D3).
+    /// The core budget the derived thread count must fit under (design D3; ADR-0002).
     pub max_cores: i64,
     /// Its place in the container tree (default [`Isolation::Isolated`]); a
     /// restricted tenant carries its pool holder in the [`Isolation::Restricted`]

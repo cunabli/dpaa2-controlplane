@@ -1,9 +1,9 @@
 // Scenario (3) of the intent gate (openspec change `intent-layer`, design
-// D8; task 2.3): a userspace-poll router over N×10G + 1×25G with an
+// D8; restool-baseline; task 2.3): a userspace-poll router over N×10G + 1×25G with an
 // accelerator, terminating dpmac.9/10 at 2×10G (N = 2) and dpmac.4 at 25G.
 // flows = 2 ≤ N. It is the scenario that exercises the rate table
 // across two seeded classes: T = 1 + 2·workers(10G) + workers(25G) =
-// 1 + 2·2 + 5 = 10 (design D3), and the 10G+25G mix carries the
+// 1 + 2·2 + 5 = 10 (design D3; ADR-0002), and the 10G+25G mix carries the
 // UnmeasuredCombination warning — flagged, never silent. `max_cores` = 16 is
 // the reference board's online-CPU count (intent/inventory.qnt), comfortably
 // above the derived T = 10. router.toml beside this file is what the operator
@@ -13,10 +13,10 @@
 // router2 claims dpmac.9 with a port of its own — one dpmac claimed by two
 // tenants. router2 is otherwise a valid single-port shape, so the refusal set
 // is exactly DoubleClaimed naming the dpmac and the two claiming ports (design
-// D5), and nothing else.
+// D5; ADR-0003), and nothing else.
 //
 // Anchors: dpseci.md num_queues ≥ flows + DPSECI_OPT_HAS_CG; DPMAC-I3
-// the immutable 25G rate class read by `dpmac info`; design D3 worker table
+// the immutable 25G rate class read by `dpmac info`; design D3 (ADR-0002) worker table
 // (10G⇒2, 25G⇒5, unmeasured); ADR-0012 poll-mode companion draws; DPAA2 User
 // Manual §2.2.2 fig. 6a the dpni↔dpmac port.
 //
@@ -62,12 +62,12 @@ module router {
       .with("ports", accepted.ports.append(
         { name: "clash0", dpmac: 9, rate: 10000, tenant: Named("router2"), from: NotRenamed }))
 
-  // The expected plan shape (design D3/D4/D6): three dpnis (one per port) at
+  // The expected plan shape (design D3/D4/D6; ADR-0002, ADR-0003, ADR-0004): three dpnis (one per port) at
   // T = 10 transmit queues with the ADR-0012 poll-mode draws — dpio = 2·T =
   // 20, dpbp = 2, dpmcp = 1, dpcon = dpnis·T = 30 — one dpseci with
   // num_queues = flows = 2 and the DPSECI_OPT_HAS_CG bit, no dpsw, the
   // three port edges as the whole edge set, and T visibly unmeasured (design
-  // D3).
+  // D3; ADR-0002).
   run routerPlanShapeTest =
     match compile(accepted, REF_INVENTORY) {
       | Ok(res) =>
@@ -106,7 +106,7 @@ module router {
     }
 
   // The 10G+25G mix is the scenario that exercises the cross-class warning
-  // (design D3): the accepted compile carries UnmeasuredCombination naming the
+  // (design D3; ADR-0002): the accepted compile carries UnmeasuredCombination naming the
   // tenant and both seeded classes.
   run routerUnmeasuredMixTest =
     match compile(accepted, REF_INVENTORY) {
@@ -127,7 +127,7 @@ module router {
 
   // The twin: dpmac.9 is claimed by wan0 (router) and clash0 (router2) —
   // refused DoubleClaimed, named to the dpmac and both claiming ports, and
-  // nothing else (design D5).
+  // nothing else (design D5; ADR-0003).
   run twinDoubleClaimedTest =
     match compile(twin, REF_INVENTORY) {
       | Refused(rs) => rs == Set(DoubleClaimed({ dpmac: 9, constructs: Set("wan0", "clash0") }))

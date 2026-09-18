@@ -1,5 +1,5 @@
 // Scenario (4) of the intent gate (openspec change `intent-layer`, design
-// D1/D6a; task 2.6d): the kernel-namespace pseudo-wires. One intent exercises
+// D1; restool-baseline/D6a; task 2.6d): the kernel-namespace pseudo-wires. One intent exercises
 // all three link shapes a network namespace can take, and is the FIRST
 // scenario to witness the child-resident kernel draw — a declared kernel-
 // netlink namespace contributes ZERO dpio, because dpio services are one
@@ -30,7 +30,7 @@
 // drawer pooling it is a dataplane mismatch — refused with EXACTLY
 // { PoolDataplaneMismatch } naming vpp, its drawer dataplane and the holder's,
 // and nothing else: RestrictedWithoutPool/PoolWithoutRestricted unrepresentable
-// since D1, and the kernel branch never reaches HolderNotPublic/PoolChain.
+// since D1 (restool-baseline), and the kernel branch never reaches HolderNotPublic/PoolChain.
 //
 // Anchors: drivers/bus/fsl-mc/dprc-driver.c the nested child-dprc drive;
 // drivers/bus/fsl-mc/fsl-mc-allocator.c companions drawn from the consumer's

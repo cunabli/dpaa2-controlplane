@@ -3,7 +3,7 @@ use std::collections::BTreeSet;
 use crate::core::types::ConstructName;
 use crate::intent::{Crypto, Extra, Fabric, Link, Port, Tenant};
 
-/// The complete intent an operator states (design D1; `types.qnt` `Intent`).
+/// The complete intent an operator states (design D1; restool-baseline; `types.qnt` `Intent`).
 ///
 /// Names are identities (ADR-0015 decision 1): design D6 keys every derived object by
 /// `(tenant, family, ordinal)`, and as of task 3.3d the ordinal is minted by NAME

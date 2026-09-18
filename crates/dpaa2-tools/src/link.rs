@@ -1,4 +1,4 @@
-//! Runtime generation of `systemd.link` files for stable naming (design D3, D4).
+//! Runtime generation of `systemd.link` files for stable naming (design D3; ADR-0002, D4; ADR-0003).
 //!
 //! The reconciler owns naming: it derives `10-dpaa2-<name>.link` files from the
 //! topology and writes them into `/run/systemd/network/` (volatile, regenerated each

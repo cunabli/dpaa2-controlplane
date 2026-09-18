@@ -144,7 +144,7 @@ module intent_alphabet {
     [MPort("p3"), MTenant("kernel")],
     [])
 
-  // ---- init: the kernel tenant alone (design D1) ----
+  // ---- init: the kernel tenant alone (design D1; restool-baseline) ----
 
   action init = intent' = {
     tenants: [kernelTenant(16)], ports: [], links: [], fabrics: [],
@@ -213,7 +213,7 @@ module intent_alphabet {
 
   // One accelerator per tenant at most: a tenant already in crypto is a
   // no-op pick (the guard disables the action, stutter keeps step total). The
-  // flows demand is drawn here (design D1: crypto owns its flows). crypto is a
+  // flows demand is drawn here (design D1; restool-baseline: crypto owns its flows). crypto is a
   // List now (task 2.6e), so a block is appended; the alphabet never draws two
   // blocks for one tenant (the directed twoCryptoBlocksTest covers that shape).
   action addCrypto = {
@@ -270,7 +270,7 @@ module intent_alphabet {
   // One named predicate per coverage dimension, counted by `pnpm
   // model:coverage` (--witnesses): the seeded run reports for how many traces
   // each held. The outcome witnesses read `compile(intent, REF_INVENTORY)` by
-  // Refusal/Warning variant (design D5 refusals, design D2 warnings); the
+  // Refusal/Warning variant (design D5; ADR-0003 refusals, design D2; ADR-0002 warnings); the
   // structure witnesses read the alphabet's shape. A witness at 0 traces is a
   // recorded unknown, never a silent gap (module header, task 2.4).
 
@@ -286,7 +286,7 @@ module intent_alphabet {
       | Refused(_) => false
     }
 
-  // Outcome (design D5): accepted, refused, and one per Refusal variant.
+  // Outcome (design D5; ADR-0003): accepted, refused, and one per Refusal variant.
   val wAccepted = match compile(intent, REF_INVENTORY) { | Ok(_) => true | Refused(_) => false }
   val wRefused = hasRefusal(_ => true)
   val wTenantAbsent = hasRefusal(r => match r { | TenantAbsent(_) => true | _ => false })
@@ -320,7 +320,7 @@ module intent_alphabet {
   val wRenameDoubleClaim = hasRefusal(r => match r { | RenameDoubleClaim(_) => true | _ => false })
   val wKernelDeclared = hasRefusal(r => match r { | KernelDeclared => true | _ => false })
 
-  // Warnings (design D2 ceilings; design D3 cross-class mix).
+  // Warnings (design D2; ADR-0002 ceilings; design D3; ADR-0002 cross-class mix).
   val wUnknownCeiling = hasWarning(w => match w { | UnknownCeiling(_) => true | _ => false })
   val wUnmeasuredCombination = hasWarning(w => match w { | UnmeasuredCombination(_) => true | _ => false })
 
@@ -334,6 +334,6 @@ module intent_alphabet {
   val wRestrictedTenant = intent.tenants.select(c => match c.isolation { | Restricted(_) => true | _ => false }).length() > 0
   val wPublicTenant = intent.tenants.select(c => c.isolation == Public).length() > 0
   // A tenant terminating both seeded rate classes (10G and 25G): the
-  // cross-class mix the worker table prices but flags unmeasured (design D3).
+  // cross-class mix the worker table prices but flags unmeasured (design D3; ADR-0002).
   val wMixedRates = intent.tenants.select(c => seededRateClasses(intent, c.name).size() > 1).length() > 0
 }

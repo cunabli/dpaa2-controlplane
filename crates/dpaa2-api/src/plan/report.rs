@@ -6,7 +6,7 @@ use crate::plan::{Class, Transition};
 
 /// A refusal: an immutable, create-time-only attribute differs from desired.
 ///
-/// Reconciliation reports this and plans no destructive change (design D8).
+/// Reconciliation reports this and plans no destructive change (design D8; restool-baseline).
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct DriftReport {
     /// The observed DPNI whose immutable attribute drifted.
@@ -19,7 +19,7 @@ pub struct DriftReport {
 
 /// An assert-only field whose observed value does not match intent.
 ///
-/// Reported, never actuated (design D9).
+/// Reported, never actuated (design D9; ADR-0006).
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct AssertMismatch {
     /// The anchor whose port asserted a value that did not hold.
@@ -43,7 +43,7 @@ pub struct Plan {
     /// Assert-only mismatches that were reported but not actuated.
     pub assertions: Vec<AssertMismatch>,
     /// Derived objects the port facet has no executor for, counted by family
-    /// (design D10). Reported so an operator sees the whole plan; never actuated,
+    /// (design D10; restool-baseline). Reported so an operator sees the whole plan; never actuated,
     /// never drift, and — like drift and assertions — it does not affect convergence.
     pub plan_only: BTreeMap<Family, usize>,
 }
@@ -89,7 +89,7 @@ mod tests {
     #[test]
     fn plan_only_is_reported_but_never_drift_or_divergence() {
         // A plan whose sole content is a plan-only summary stays converged and
-        // divergence-free: plan-only objects are reported, never reconciled (D10).
+        // divergence-free: plan-only objects are reported, never reconciled (D10; restool-baseline).
         let mut plan = Plan::new();
         plan.plan_only.insert(Family::Dpio, 3);
         plan.plan_only.insert(Family::Dpbp, 1);

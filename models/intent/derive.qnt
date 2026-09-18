@@ -29,7 +29,7 @@
 //       threadCount returns None; 1.3 refuses it UnknownRateClass. 1.2 reads
 //       None as 0 and never reaches that intent. A mix of *seeded* classes
 //       does have a thread count (the per-port worker sum) and compiles with
-//       an unmeasured-combination warning (design D3).
+//       an unmeasured-combination warning (design D3; ADR-0002).
 //   (c) a portless poll-mode tenant takes T = 1 by the main-only rule
 //       below (main + workers, no port ⇒ no worker); 1.3 may narrow it.
 //   (d) Hardware-in-Hardware membership (a dpsw interface as another
@@ -46,7 +46,7 @@ module intent_derive {
   import dpseci.* from "../families/dpseci"      // dpseciParams.draw (kernel census row)
   import intent_types.* from "./types"           // Intent, Tenant, Port, …, KERNEL
 
-  // ---- the plan's shape (design D6) ----
+  // ---- the plan's shape (design D6; ADR-0004) ----
 
   // A derived object's identity is its key: the label the MC carries is a
   // projection of it (ADR-0010 §4). Ordinals are 1-based positions.
@@ -75,13 +75,13 @@ module intent_derive {
   type ProvenanceKey = { tenant: str, rule: str, construct: str }
 
   // Whether the value stands on measured evidence or on the declared,
-  // visibly unmeasured rate-class table (design D3).
+  // visibly unmeasured rate-class table (design D3; ADR-0002).
   type Measurement = Measured | Unmeasured
 
-  // A node of the provenance DAG (design D6): `inputs` are the ProvKeys it
+  // A node of the provenance DAG (design D6; ADR-0004): `inputs` are the ProvKeys it
   // consumed, `constructs` the declared construct names it bottoms out in,
   // `anchor` the ADR/baseline section the rule cites. The request/extra
-  // idiom (design D5): `value = request + extra` when an extra exists else
+  // idiom (design D5; ADR-0003): `value = request + extra` when an extra exists else
   // `request`; for a non-count node request = value and extra = None.
   type ProvenanceNode = {
     rule: str, anchor: str, mark: Measurement,
@@ -116,7 +116,7 @@ module intent_derive {
   // reference child (dprc.md ~line 58).
   pure val DPRC_DEFAULT_OPTIONS: Set[Permission] = Set(Spawn, Alloc, ObjCreate, IrqCfg)
 
-  // ---- the worker table (design D3) ----
+  // ---- the worker table (design D3; ADR-0002) ----
 
   // The per-rate-class worker count, seeded from the reference board and
   // visibly unmeasured on every T it prices (the T provenance node carries
@@ -130,13 +130,13 @@ module intent_derive {
   // it UnknownRateClass.
   pure val WORKER_TABLE: int -> int = Map(10000 -> 2, 25000 -> 5)
 
-  // Workers a single port of the given rate class draws (design D3), or None
+  // Workers a single port of the given rate class draws (design D3; ADR-0002), or None
   // for an unseeded class (e.g. a 40G port).
   pure def workersPerPort(rate: int): Option[int] =
     if (WORKER_TABLE.keys().contains(rate)) Some(WORKER_TABLE.get(rate)) else None
 
   // T = 1 main + Σ workers(rate) over the ports the tenant terminates (design
-  // D3, the explicit formula). A portless tenant is main-only ⇒ Some(1) (no
+  // D3; ADR-0002, the explicit formula). A portless tenant is main-only ⇒ Some(1) (no
   // port ⇒ no worker); a port whose rate class has no worker row makes the
   // whole sum undefined ⇒ None, and refuse.qnt turns that into
   // UnknownRateClass. Every derived T is visibly unmeasured.
@@ -149,7 +149,7 @@ module intent_derive {
 
   pure def imin(a: int, b: int): int = if (a < b) a else b
 
-  // ---- fabric member helpers (design D6; DPAA2 UM §2.2.2 fig. 6) ----
+  // ---- fabric member helpers (design D6; ADR-0004; DPAA2 UM §2.2.2 fig. 6) ----
 
   pure def fabricByName(intent: Intent, n: str): Option[Fabric] =
     intent.fabrics.foldl(None, (acc, f) => if (f.name == n) Some(f) else acc)
@@ -196,7 +196,7 @@ module intent_derive {
   // The distinct seeded rate classes a tenant's terminated ports span. A set
   // larger than one is a cross-class mix: the formula prices it (each port by
   // its own worker row) but it carries an unmeasured-combination warning
-  // (design D3; the warning is raised in intent/refuse.qnt). An unseeded class
+  // (design D3; ADR-0002; the warning is raised in intent/refuse.qnt). An unseeded class
   // is excluded here — it has no row and is refused UnknownRateClass instead.
   pure def seededRateClasses(intent: Intent, name: str): Set[int] =
     terminatedPorts(intent, name).foldl(Set(), (acc, p) =>
@@ -224,7 +224,7 @@ module intent_derive {
         g.members.select(m => memberIsFabric(m, f.name)).length() > 0).length() > 0
     viaMembers or viaSoftwareChain
 
-  // ---- dpni origins (design D6; object-model.md §2; UM §2.2.2 fig. 6) ----
+  // ---- dpni origins (design D6; ADR-0004; object-model.md §2; UM §2.2.2 fig. 6) ----
 
   // Each dpni a tenant terminates, in the concatenation order that fixes
   // its ordinal: an owned terminated port (6a), a link end (6b, a self-link
@@ -367,17 +367,17 @@ module intent_derive {
       g => nameRank(g.name))
     chained.foldl(fromMembers, (acc, g) => acc.append(attachPoint(intent, g.forwardedBy, f.name)))
 
-  // ---- per-tenant sizing (design D3/D4/D5) ----
+  // ---- per-tenant sizing (design D3/D4/D5; ADR-0002, ADR-0003) ----
 
   type EffectiveDemand = { request: int, extra: Option[int], value: int }
 
-  // The extra count declared for (tenant, family), 0 when none (design D5).
+  // The extra count declared for (tenant, family), 0 when none (design D5; ADR-0003).
   // Extras are matched by (tenant, family) and additive, so several extras on
   // one pair sum; a valid extra carries count >= 1 (1.3 refuses count < 1).
   pure def extraOf(intent: Intent, name: str, fam: Family): int =
     intent.extras.filter(e => e.tenant == name and e.family == fam).fold(0, (acc, e) => acc + e.count)
 
-  // The request/extra idiom (design D5): a matching per-(tenant, family) Extra
+  // The request/extra idiom (design D5; ADR-0003): a matching per-(tenant, family) Extra
   // adds its count to the request; else the request stands. Applies to the
   // four companion count families only.
   pure def effective(intent: Intent, name: str, fam: Family, request: int): EffectiveDemand =
@@ -490,7 +490,7 @@ module intent_derive {
   // the largest count the sizing can produce: the kernel dpcon draw
   // dpnis·cpus with the reference offer's 6 usable dpmacs and 16 CPUs
   // (intent/inventory.qnt). Poll-mode ties, never exceeds, that bound — three
-  // 25G ports give T = 16 = cpus (design D3 worker table), so a poll tenant's
+  // 25G ports give T = 16 = cpus (design D3; ADR-0002 worker table), so a poll tenant's
   // dpnis·T reaches the same 96. A count past it truncates the fold, which
   // companionsOnlyDerived and keysAreIdentities trip loudly — never a silent
   // pass.
@@ -584,7 +584,7 @@ module intent_derive {
   //
   // Bead 093.8 (vocabulary-v2 4b.2): the pure core materialises the kernel on the
   // LINK trigger only. A port-only kernel reference (a Kernel-case port with no
-  // kernel link and no declared kernel) is now accepted, not refused (D2 killed the
+  // kernel link and no declared kernel) is now accepted, not refused (D2 (ADR-0002) killed the
   // TenantAbsent{"kernel"} wrinkle), but its kernel is materialised by the tools
   // shell's `complete_kernel` (crates/dpaa2-tools/src/main.rs), NOT here — the shell
   // owns the port-only completion so the pure derivation stays link-triggered and

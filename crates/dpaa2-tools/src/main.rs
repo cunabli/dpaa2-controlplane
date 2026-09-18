@@ -164,7 +164,7 @@ fn run(cli: &Cli) -> Result<ExitCode, Error> {
                 render::render_dry_run(&compiled.plan, &compiled.warnings, &plan)
             );
             // The child-DPRC (consumer container) convergence the same run would drive,
-            // re-observed off the board (design D2; DPRC-I6): container-only steps and
+            // re-observed off the board (design D2; ADR-0002; DPRC-I6): container-only steps and
             // per-object provenance, alongside the port families above.
             let containers = engine::plan_containers(&compiled.plan, &mc)?;
             print!(
@@ -204,7 +204,7 @@ fn ensure(
         return Ok(ExitCode::FAILURE);
     };
     // Warnings are named on stderr so the executed plan on stdout stays clean; the
-    // dry-run text carries the same set inline (design D2/D3).
+    // dry-run text carries the same set inline (design D2/D3; ADR-0002).
     let warnings = render::render_warnings(&compiled.warnings);
     if !warnings.is_empty() {
         eprint!("{warnings}");
@@ -229,7 +229,7 @@ fn ensure(
         return Ok(ExitCode::FAILURE);
     }
 
-    // Converge the child-DPRC containers declared consumers own (design D2; reconciler
+    // Converge the child-DPRC containers declared consumers own (design D2 (ADR-0002); reconciler
     // delta). Container-only: this creates each consumer's DPRC, no companion/dpni
     // steps. A refusal exits non-zero with the discriminated cause, changing nothing.
     match engine::converge_containers(&compiled.plan, mc, cfg)? {
@@ -297,15 +297,15 @@ fn ensure(
 }
 
 /// The read → complete → compile pipeline `ensure`, `dry-run`, and `status` share
-/// (design D2/D10; bead gqf.19): loads the declared [`Intent`], reads the board's
+/// (design D2/D10; ADR-0002, restool-baseline; bead gqf.19): loads the declared [`Intent`], reads the board's
 /// hardware offer, completes the reserved kernel, then compiles.
 ///
 /// On refusal it prints every rule with its offending construct and returns `Ok(None)`
 /// so the caller exits non-zero having changed nothing — no reconcile, no link files
-/// (design D9/D10). On success it returns the completed intent beside its [`Compiled`]
+/// (design D9/D10; ADR-0006, restool-baseline). On success it returns the completed intent beside its [`Compiled`]
 /// plan, from which the caller projects the [`dpaa2_api::core::model::DesiredTopology`] the
 /// reconciler drives. Every intent now goes through `compile`; a kernel-owned,
-/// port-only file behaves as before by construction (design D10).
+/// port-only file behaves as before by construction (design D10; restool-baseline).
 ///
 /// # Errors
 ///
@@ -327,7 +327,7 @@ fn compile_intent(
     }
 }
 
-/// Reserved-kernel completion (design D1): the config parser never creates a kernel
+/// Reserved-kernel completion (design D1; restool-baseline): the config parser never creates a kernel
 /// [`dpaa2_api::intent::Tenant`] — a port with no tenant defaults to the reserved name — so the
 /// frontend injects `kernel_tenant(cpus)` at index 0 when a port terminates the kernel
 /// and no kernel tenant is declared. A link naming the kernel is materialised inside

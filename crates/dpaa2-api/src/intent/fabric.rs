@@ -1,6 +1,6 @@
 use crate::core::types::{ConstructName, TenantName};
 
-/// Who forwards between a fabric's members (design D1; `types.qnt` `Switching`).
+/// Who forwards between a fabric's members (design D1; restool-baseline; `types.qnt` `Switching`).
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub enum Switching {
     /// A DPSW (figure 6c), which only the kernel can drive (`dpsw.md`).
@@ -10,7 +10,7 @@ pub enum Switching {
     Software,
 }
 
-/// A fabric member: a declared port, tenant, or other fabric (design D1;
+/// A fabric member: a declared port, tenant, or other fabric (design D1 (restool-baseline);
 /// `types.qnt` `Member`), so a software switch can bridge a hardware-switched
 /// domain and a physical port (a chain of switches), stated, not implied.
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
@@ -23,7 +23,7 @@ pub enum Member {
     Fabric(ConstructName),
 }
 
-/// A fabric: one switched domain over its members (design D1; `types.qnt`
+/// A fabric: one switched domain over its members (design D1 (restool-baseline); `types.qnt`
 /// `Fabric`). `forwarded_by` names the tenant that runs its forwarding plane (a
 /// dpsw for [`Switching::Hardware`], its own bridging for [`Switching::Software`]).
 /// That a hardware fabric is kernel-forwarded is a rule (`FabricNotKernelForwarded`),

@@ -169,7 +169,7 @@ fn committed_plan_trace_files_resolve() {
 
 /// The do-not-edit invariant on the fit-check sitting: regenerating from
 /// the committed `models/board/V-FIT-1/probes.json` reproduces the
-/// committed `V-FIT-1.sh` byte-for-byte (task 4.1, design D12). A hand
+/// committed `V-FIT-1.sh` byte-for-byte (task 4.1, design D12; ADR-0003). A hand
 /// edit to either the script or the emitter breaks this.
 #[test]
 fn the_committed_fit_check_regenerates_byte_for_byte() {

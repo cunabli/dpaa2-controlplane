@@ -1,6 +1,6 @@
 // The config surface enters the model (openspec change `intent-layer`, task
 // 3.3e, bead gqf.48; ADR-0013 §2 the constructs, §5 the refusal vocabulary;
-// design D1/D5/D10). Until this module the model's state space began AFTER the
+// design D1/D5/D10; restool-baseline, ADR-0003). Until this module the model's state space began AFTER the
 // lossy parse: `Intent` is what `dpaa2-config` already validated, so a
 // duplicated block, a dangling reference, or the reserved `kernel` declared
 // were unrepresentable — the gqf.39/gqf.40 bug class was a question Quint could

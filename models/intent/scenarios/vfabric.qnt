@@ -1,5 +1,5 @@
 // Scenario (2) of the intent gate (openspec change `intent-layer`, design
-// D8; task 2.2): a virtual fabric — two userspace-poll tenants, routerA and
+// D8; restool-baseline; task 2.2): a virtual fabric — two userspace-poll tenants, routerA and
 // routerB, joined by a single link and no dpmac anywhere. No kernel
 // tenant either: the scenario proves child dprcs and the dpni↔dpni
 // pseudo-wire stand on their own, with no port and no hardware to lean on.
@@ -13,7 +13,7 @@
 // so three of them need 6; the twin's inventory lowers the dpbp ceiling to
 // Counted(5) and the plan is refused Infeasible naming the family and the
 // shortfall (ADR-0011, decision 1). The same twin against the reference
-// pool fits — the ceiling refuses, not the shape (design D8/D2).
+// pool fits — the ceiling refuses, not the shape (design D8/D2; restool-baseline, ADR-0002).
 //
 // Anchors: ADR-0011 the Counted dpbp ceiling (decision 1); ADR-0012 dpbp =
 // 2 per poll-mode child and T = main + workers, portless ⇒ 1; object-model.md
@@ -54,10 +54,10 @@ module vfabric {
   pure val twinInventory: Inventory =
     REF_INVENTORY.with("ceilings", REF_INVENTORY.ceilings.put(Dpbp, Counted(5)))
 
-  // The expected plan shape (design D6/D8): two child DPRCs, each tenant at
+  // The expected plan shape (design D6/D8; ADR-0004, restool-baseline): two child DPRCs, each tenant at
   // T = 1 (portless, main-only) with one dpni and the ADR-0012 poll-mode
   // draws, the pair joined by the single dpni↔dpni pseudo-wire; no dpsw and
-  // no dpseci anywhere; T visibly unmeasured (design D3).
+  // no dpseci anywhere; T visibly unmeasured (design D3; ADR-0002).
   run vfabricPlanShapeTest =
     match compile(accepted, REF_INVENTORY) {
       | Ok(res) =>
@@ -113,7 +113,7 @@ module vfabric {
     }
 
   // The same twin against the unmodified reference pool compiles — the
-  // ceiling is what refuses, not the shape (design D8).
+  // ceiling is what refuses, not the shape (design D8; restool-baseline).
   run twinFitsReferencePoolTest =
     match compile(twin, REF_INVENTORY) {
       | Ok(_) => true

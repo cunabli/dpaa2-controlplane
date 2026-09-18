@@ -15,7 +15,7 @@ use crate::board::ledger::split_row;
 // (scenarios) are exactly such copies, and its own Consequences note says
 // they "drift ... exactly this way" and belong under this lint. R11–R16
 // cross-check those copies against the model so a drift fails in CI, the same
-// design-D9 mechanism R1–R10 apply to the board ledgers. R14 extends the reach
+// design-D9 (ADR-0006) mechanism R1–R10 apply to the board ledgers. R14 extends the reach
 // to the Rust domain enums (`dpaa2_api::intent::refuse::Refusal`, `dpaa2_api::core::family::Family`), which
 // restate `refuse.qnt`/`types.qnt` and so are linted copies too (ADR-0014); it
 // also ties `dpaa2_api::intent::refuse::Warning` (WARNING_VARIANTS) to refuse.qnt's
@@ -581,7 +581,7 @@ fn parse_coverage_laws(section: &str) -> Vec<String> {
 /// R15: the four identity-across-time laws agree across `match.qnt` (truth) and
 /// its COVERAGE copy — the "Identity-across-time laws" table — by name, checked
 /// both ways. A law the model names and the table forgets, or a table name the
-/// model does not name, fails here; the same design-D9 mechanism R12 applies to
+/// model does not name, fails here; the same design-D9 (ADR-0006) mechanism R12 applies to
 /// the plan invariants (intent-layer task 6.4).
 fn r15_identity_laws(match_qnt: &str, coverage_md: &str, out: &mut Vec<String>) {
     let model = parse_match_laws(match_qnt);
@@ -649,7 +649,7 @@ fn parse_raw_laws(intent_raw_qnt: &str) -> Vec<String> {
 
 /// R16: the three raw-surface laws agree across `intent_raw.qnt` (truth) and its
 /// COVERAGE copy — the "Raw surface laws" table — by name, checked both ways,
-/// the same design-D9 mechanism R15 applies to the identity laws. The table's
+/// the same design-D9 (ADR-0006) mechanism R15 applies to the identity laws. The table's
 /// `raw_conformance` row names the Rust MBT harness, not a model law; its
 /// underscore keeps it outside [`parse_coverage_laws`]'s lowercase-led
 /// all-alphanumeric identifier filter, so it is deliberately outside this leg.

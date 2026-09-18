@@ -36,7 +36,7 @@
 //!   [`verdict`] judges an [`ObservedContainer`] freshly re-queried from the MC, never a
 //!   dispatched step's assumed success. There is no `sync`-trust path anywhere in this
 //!   module.
-//! - **Typed refusal attribution** (design D4): [`attribute_mc`] discriminates the three
+//! - **Typed refusal attribution** (design D4; ADR-0003): [`attribute_mc`] discriminates the three
 //!   MC statuses (0x6 spawn / 0x8 alloc / 0x4 topology-lock) and never collapses 0x8 to
 //!   pool exhaustion when the option mask is the cause.
 
@@ -157,7 +157,7 @@ pub enum OptionBit {
 }
 
 /// Why the planner refused to emit a step — the typed attribution the reconciler
-/// reports instead of collapsing every denial into one shape (design D4). Covers both
+/// reports instead of collapsing every denial into one shape (design D4; ADR-0003). Covers both
 /// MC-status-predicted causes and the plan-structural ones the typestate forbids.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum Attribution {
@@ -185,7 +185,7 @@ pub enum Attribution {
     /// outside the 0x4/0x6/0x8 matrix (review M1; `docs/baseline/dprc.md` DPRC-I2).
     ResidentPlugged,
     /// restool rejected the operation with its own client-side guard, before the MC
-    /// saw it (design D4). A distinct attribution: it is not one of the three MC
+    /// saw it (design D4; ADR-0003). A distinct attribution: it is not one of the three MC
     /// statuses. The southbound adapter assigns this (`dpaa2-mc`); the core carries it.
     RestoolClientGuard {
         /// The restool guard message, verbatim for the operator.
@@ -252,7 +252,7 @@ pub fn attribute_refusal(error: &Error, options: Options, verb: Verb) -> Option<
     }
 }
 
-/// The predicted post-state of a teardown, computed before any MC command (design D2;
+/// The predicted post-state of a teardown, computed before any MC command (design D2 (ADR-0002);
 /// the reconciler predicts, it does not discover).
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct PredictedPostState {
@@ -386,9 +386,9 @@ pub fn plan_move_out(state: ContainerState, resident: &Resident, id: ResidentId)
 pub struct ContainerPlan {
     /// Ordered MC steps to converge the container.
     pub steps: Vec<ContainerStep>,
-    /// Typed refusals the planner recorded instead of emitting a doomed step (design D4).
+    /// Typed refusals the planner recorded instead of emitting a doomed step (design D4; ADR-0003).
     pub gaps: Vec<Attribution>,
-    /// The teardown's predicted post-state, when this plan tears down (design D2).
+    /// The teardown's predicted post-state, when this plan tears down (design D2; ADR-0002).
     pub predicted: Option<PredictedPostState>,
 }
 
@@ -428,7 +428,7 @@ impl ContainerPlan {
 ///
 /// A [`ResidentKind::CreatedIn`] resident under a mask lacking `ALLOC_ALLOWED` is
 /// recorded as a predicted [`Attribution::PermissionGap`] gap and its step skipped
-/// (design D4); an assign-in draws no pool id and is always emitted on the unplugged
+/// (design D4; ADR-0003); an assign-in draws no pool id and is always emitted on the unplugged
 /// face.
 #[must_use]
 pub fn plan_population(
@@ -595,7 +595,7 @@ pub fn verdict(desired: &PlannedObject, observed: Option<&ObservedContainer>) ->
 /// is realized here — the sizing rules stay dormant until tiles #5/#6. The realization
 /// carries the derived object's provenance key ([`ProvenanceKey`]) so a caller resolves
 /// its rule node — the baseline anchor — in the same [`CompiledPlan`] provenance DAG the
-/// intent layer already populates (design D6).
+/// intent layer already populates (design D6; ADR-0004).
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct ConsumerContainer {
     /// The consumer runtime the container belongs to.
@@ -646,7 +646,7 @@ pub fn derive_consumer_containers(plan: &CompiledPlan) -> BTreeMap<TenantName, C
 }
 
 /// Plans convergence for a declared consumer's child container against a fresh
-/// observation (design D5: container-only — existence, options, label, placement; no
+/// observation (design D5 (ADR-0003): container-only — existence, options, label, placement; no
 /// companion sizing (tile #6) or dpni option surface (tile #5)).
 ///
 /// An absent container yields exactly one [`ContainerStep::CreateContainer`] with the
@@ -679,7 +679,7 @@ pub fn plan_consumer_container(
 
 /// One declared consumer's container-only convergence: its 4.1 realization paired with
 /// the plan to reach it from a fresh observation and the re-observation verdict
-/// (design D2/D5; DPRC-I6). Container-only by construction — the realization comes from
+/// (design D2/D5; ADR-0002, ADR-0003; DPRC-I6). Container-only by construction — the realization comes from
 /// [`derive_consumer_containers`], which projects the child DPRC alone, so no
 /// companion/dpni step can appear (reconciler delta "Consumer convergence is
 /// container-only"; carry-forward decision pinned on bead cd3.8).
@@ -695,7 +695,7 @@ pub struct ConsumerConvergence {
 }
 
 /// Plans container-only convergence for every declared consumer in `compiled` against a
-/// fresh observation `observed` keyed by re-observation handle (design D2/D5; DPRC-I6:
+/// fresh observation `observed` keyed by re-observation handle (design D2/D5 (ADR-0002, ADR-0003); DPRC-I6:
 /// the observation is re-queried, never a `sync`-assumed state).
 ///
 /// The single seam the imperative shell drives: it projects the consumers via
@@ -1047,7 +1047,7 @@ mod tests {
     #[test]
     fn scenario_alloc_refusal_is_a_permission_gap_not_exhaustion() {
         // REQUIRED: an ALLOC-refused create on a mask lacking the alloc bit is attributed
-        // to the option mask, never to pool exhaustion (design D4).
+        // to the option mask, never to pool exhaustion (design D4; ADR-0003).
         let no_alloc = Options {
             alloc: false,
             ..Options::DEFAULT
@@ -1085,7 +1085,7 @@ mod tests {
 
     #[test]
     fn the_three_statuses_map_to_distinct_attributions() {
-        // 0x6/0x8/0x4 are never collapsed to one shape (design D4).
+        // 0x6/0x8/0x4 are never collapsed to one shape (design D4; ADR-0003).
         let no_topo = Options::DEFAULT; // topology_changes is false by default (DPRC-I4)
         assert_eq!(
             attribute_mc(Refusal::SpawnViolation, Options::DEFAULT, Verb::SpawnChild),

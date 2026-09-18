@@ -2,7 +2,7 @@
 //!
 //! Parses `topology.toml`, validates it, and converts it into the backend-neutral
 //! [`dpaa2_api::intent::Intent`] — the vocabulary an operator states, never a count (design
-//! D1/D10). The frontend validates *intent* only; turning intent plus an inventory
+//! D1/D10; restool-baseline). The frontend validates *intent* only; turning intent plus an inventory
 //! into the object plan is [`dpaa2_api::intent::refuse::compile`]'s, not the frontend's. Ports are
 //! keyed by stable DPMAC anchors and a DPNI index is refused, its identity being
 //! derived from the DPMAC edge.
@@ -30,7 +30,7 @@ use crate::schema::{
     RawSwitching, RawTenant,
 };
 
-/// The one schema version this build accepts (design D1: the `apiVersion` hook).
+/// The one schema version this build accepts (design D1; restool-baseline: the `apiVersion` hook).
 const ACCEPTED_SCHEMA: i64 = 1;
 
 /// A [`ConfigSource`] backed by a `topology.toml` file on disk.
@@ -73,7 +73,7 @@ macro_rules! counts_of {
     };
 }
 
-/// Deserializes the document into the raw schema (design D10: serde stays here).
+/// Deserializes the document into the raw schema (design D10; restool-baseline: serde stays here).
 fn deserialize(text: &str) -> Result<RawIntent, Error> {
     toml::from_str(text).map_err(|e| cfg(e.message().to_owned()))
 }
@@ -176,7 +176,7 @@ fn convert(raw: &RawIntent) -> Result<Intent, Error> {
     for name in raw.tenant.keys() {
         // `compile` also refuses this (`Refusal::KernelDeclared`, `dpaa2-api`
         // `refuse.rs` `kernel_declared_refusals`); the config duplicates the check
-        // deliberately across the config→api seam (design D11) — a dedup would leave a
+        // deliberately across the config→api seam (design D11; restool-baseline) — a dedup would leave a
         // programmatic Intent unguarded and break raw-conformance.
         if name.is_kernel() {
             return Err(cfg(format!(
@@ -321,7 +321,7 @@ fn construct_is_declared_unrenamed(raw: &RawIntent, target: &ConstructName) -> b
 ///
 /// `compile` also refuses this (`Refusal::RenameDoubleClaim`, `dpaa2-api` `refuse.rs`
 /// `rename_double_claim_refusals`, both namespaces); the config duplicates the check
-/// deliberately across the config→api seam (design D11) — a dedup would leave a
+/// deliberately across the config→api seam (design D11; restool-baseline) — a dedup would leave a
 /// programmatic Intent unguarded and break raw-conformance.
 fn check_renames(raw: &RawIntent) -> Result<(), Error> {
     for (name, t) in &raw.tenant {
@@ -512,7 +512,7 @@ fn convert_link(
     }
     // `compile` also refuses this (`Refusal::LinkSelfLoop`, `dpaa2-api` `refuse.rs`
     // `link_self_loop_refusals`); the config duplicates the check deliberately across
-    // the config→api seam (design D11) — a dedup would leave a programmatic Intent
+    // the config→api seam (design D11; restool-baseline) — a dedup would leave a programmatic Intent
     // unguarded and break raw-conformance.
     if interface_a == interface_b {
         return Err(cfg(format!(
@@ -566,7 +566,7 @@ fn convert_fabric(
     })
 }
 
-/// Resolves a fabric member name to a declared port, tenant, or fabric (design D1;
+/// Resolves a fabric member name to a declared port, tenant, or fabric (design D1 (restool-baseline);
 /// the [`Member`] enum). A name matching none is refused. Ports are checked first, so
 /// a member is a port where one exists. `compile` also refuses an unresolved member
 /// (`MemberUnresolved`); this config check duplicates it deliberately — a dedup would

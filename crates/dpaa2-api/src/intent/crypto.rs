@@ -1,6 +1,6 @@
 use crate::core::types::TenantName;
 
-/// An accelerator for one tenant (design D1; `dpseci.md`; `types.qnt` `Crypto`).
+/// An accelerator for one tenant (design D1; restool-baseline; `dpseci.md`; `types.qnt` `Crypto`).
 ///
 /// Its dpseci `num_queues` derives from this block's own `flows` — a
 /// tenant-visible demand, never an object count. A tenant may declare several

@@ -1,10 +1,10 @@
-//! The imperative shell: observe → reconcile → act → wait → re-observe (design D0).
+//! The imperative shell: observe → reconcile → act → wait → re-observe (design D0; add-dpaa2-provisioning).
 //!
 //! This is the "imperative shell" wrapped around the pure core. It is generic over
 //! the [`McControl`]/[`KernelControl`] trait seams so the whole convergence loop runs
-//! against the in-memory fake with no board (design D10). Actuation resolves the
+//! against the in-memory fake with no board (design D10; restool-baseline). Actuation resolves the
 //! DPNI index for a freshly-created port from the id the MC assigned this pass, and
-//! for existing ports from the observed connection edge (design D1).
+//! for existing ports from the observed connection edge (design D1; restool-baseline).
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::thread::sleep;
@@ -73,8 +73,8 @@ pub enum Outcome {
 }
 
 /// The outcome of a child-DPRC (consumer container) convergence pass — the container
-/// analog of [`Outcome`] (design D2; reconciler delta). Kept distinct because a
-/// container refusal is a typed [`Attribution`] (design D4), not a DPMAC-anchored port
+/// analog of [`Outcome`] (design D2; ADR-0002; reconciler delta). Kept distinct because a
+/// container refusal is a typed [`Attribution`] (design D4; ADR-0003), not a DPMAC-anchored port
 /// deadline: the two families do not share a failure vocabulary.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ContainerOutcome {
@@ -89,7 +89,7 @@ pub enum ContainerOutcome {
         allowed: Class,
     },
     /// A dispatched container verb was refused; the typed cause is attributed
-    /// (design D4) and the refusal shapes (0x6/0x8/0x4, or a restool client guard) stay
+    /// (design D4; ADR-0003) and the refusal shapes (0x6/0x8/0x4, or a restool client guard) stay
     /// discriminated — never collapsed into one denial.
     Refused {
         /// The container whose create was refused.
@@ -145,7 +145,7 @@ pub enum PruneOutcome {
 }
 
 /// Reconciles every declared consumer's child container toward the compiled intent
-/// (design D2; reconciler delta "Consumer convergence is container-only").
+/// (design D2; ADR-0002; reconciler delta "Consumer convergence is container-only").
 ///
 /// The container half of the product pipeline: it re-observes the board's containers
 /// (DPRC-I6 — a fresh MC query, never `sync`), plans container-only via
@@ -188,7 +188,7 @@ pub fn converge_containers<M: McControl>(
     }
 
     // Dispatch: each container-only step maps one-to-one to a task-3.1 verb. A typed
-    // shim refusal is attributed (design D4) and surfaced discriminated.
+    // shim refusal is attributed (design D4; ADR-0003) and surfaced discriminated.
     for c in &convergences {
         for step in &c.plan.steps {
             if let Err(e) = dispatch_container_step(step, mc) {
@@ -217,7 +217,7 @@ pub fn converge_containers<M: McControl>(
 }
 
 /// Plans (without dispatching) container-only convergence for every declared consumer,
-/// re-observing the board — the read seam `dry-run` renders (design D2/D6). Each
+/// re-observing the board — the read seam `dry-run` renders (design D2/D6; ADR-0002, ADR-0004). Each
 /// [`ConsumerConvergence`] carries the derived container's provenance key, which the
 /// renderer resolves to the baseline anchor in the plan's DAG.
 ///
@@ -426,7 +426,7 @@ pub fn observe<M: McControl, K: KernelControl>(
 }
 
 /// Probes MC liveness by issuing an MC command and retrying until it responds or
-/// `timeout` elapses (design D5). Returns `true` once the MC answers.
+/// `timeout` elapses (design D5; ADR-0003). Returns `true` once the MC answers.
 ///
 /// The MC exposes no `firmware_version` sysfs attribute on the target, so readiness
 /// can only be detected by a command that round-trips through the firmware — here,

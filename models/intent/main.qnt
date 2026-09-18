@@ -58,7 +58,7 @@ module intent_main {
     { tenants: [router], ports: [wan0, wan1], links: [], fabrics: [], crypto: [], extras: Set() }
   // A poll-mode router terminating two 10G ports and one 25G: T = 1 + 2 + 2 +
   // 5 = 10, a cross-class mix the worker formula prices but flags unmeasured
-  // (design D3). max_cores raised to 16 so T = 10 fits under the budget.
+  // (design D3; ADR-0002). max_cores raised to 16 so T = 10 fits under the budget.
   pure val wan2: Port = { name: "wan2", dpmac: 4, rate: 25000, tenant: Named("router"), from: NotRenamed }
   pure val mixedClassIntent: Intent =
     { tenants: [router.with("maxCores", 16)], ports: [wan0, wan1, wan2],
@@ -68,7 +68,7 @@ module intent_main {
   // task-1.4 invariant runs can assert planInvariants/compileInvariants on the
   // same plans (the runs' own assertions are unchanged).
   // An extra dpio riding on the poll router's 2·T: T = 5 ⇒ request 10, extra
-  // 4 ⇒ effective 2·T + 4 = 14 (design D5, the additive channel).
+  // 4 ⇒ effective 2·T + 4 = 14 (design D5; ADR-0003, the additive channel).
   pure val extraIntent: Intent =
     { tenants: [router], ports: [wan0, wan1], links: [], fabrics: [], crypto: [],
       extras: Set({ tenant: "router", family: Dpio, count: 4 }) }
@@ -224,7 +224,7 @@ module intent_main {
       p.order.nth(0) == { tenant: KERNEL, family: Dprtc, ordinal: 1 },
     }
 
-  // A per-(tenant, family) extra adds to the request (design D5): request 10 +
+  // A per-(tenant, family) extra adds to the request (design D5; ADR-0003): request 10 +
   // extra 4 = 14 dpios (2·T + 4), provenance prints both request 10 and extra 4.
   run extraRaisesRequestTest =
     val p = derive(extraIntent, REF_INVENTORY)
@@ -382,7 +382,7 @@ module intent_main {
     threadCount([]) == Some(1),
   }
 
-  // The derivation is a pure function of its two inputs (design D5).
+  // The derivation is a pure function of its two inputs (design D5; ADR-0003).
   run deterministicTest = all {
     derive(routerIntent, REF_INVENTORY) == derive(routerIntent, REF_INVENTORY),
   }
@@ -404,7 +404,7 @@ module intent_main {
       | Refused(_) => false
     }
 
-  // T = 5 above max_cores = 4 refuses by name and nothing else (design D3).
+  // T = 5 above max_cores = 4 refuses by name and nothing else (design D3; ADR-0002).
   run coreBudgetExceededTest =
     refusalSet(compile(coreBudgetIntent, REF_INVENTORY)) ==
       Set(CoreBudgetExceeded({ tenant: "router", t: 5, maxCores: 4 }))
@@ -445,7 +445,7 @@ module intent_main {
     }
 
   // A hardware fabric a userspace-poll tenant forwards, and a kernel fabric
-  // that lists a router-terminated port (design D4/D5).
+  // that lists a router-terminated port (design D4/D5; ADR-0003).
   run fabricNotKernelForwardedTest =
     val tenantForwarded = { tenants: [router],
       ports: [wan0],
@@ -465,7 +465,7 @@ module intent_main {
     }
 
   // An extra on a non-companion family is never silently ignored, and an extra
-  // whose count is below 1 is refused (design D5): a Dpni extra trips
+  // whose count is below 1 is refused (design D5; ADR-0003): a Dpni extra trips
   // ExtraNotCompanion, a count-0 Dpio extra trips ExtraNotPositive.
   run extraRefusalsTest =
     val notCompanion = routerIntent.with("extras", Set({ tenant: "router", family: Dpni, count: 2 }))
@@ -478,7 +478,7 @@ module intent_main {
     }
 
   // A crypto block with no flows would size a zero-queue dpseci: refused by
-  // name (design D1; dpseci.md), never a silent empty accelerator.
+  // name (design D1; restool-baseline; dpseci.md), never a silent empty accelerator.
   run cryptoFlowsNotPositiveTest =
     val noFlows = routerIntent.with("crypto", [{ tenant: "router", flows: 0 }])
     refusedWith(compile(noFlows, REF_INVENTORY),
@@ -524,7 +524,7 @@ module intent_main {
     }
 
   // A 40G port is a rate class the seeded worker table does not know: refused
-  // rather than extrapolated (design D3; derive.qnt open item (b)). The anchor
+  // rather than extrapolated (design D3; ADR-0002; derive.qnt open item (b)). The anchor
   // is a 40G-capable dpmac so OverRate does not fire — UnknownRateClass is the
   // one refusal.
   run unknownRateClassRefusedTest =
@@ -537,7 +537,7 @@ module intent_main {
   // Two seeded rate classes on one poll-mode tenant compile: T sums the
   // per-port workers to 1 + 2 + 2 + 5 = 10 (dpio = 2·T = 20), and the accepted
   // compile carries an unmeasured-combination warning naming the tenant and
-  // the classes mixed (design D3) — the review's escape-hatch-warns rule.
+  // the classes mixed (design D3; ADR-0002) — the review's escape-hatch-warns rule.
   run mixedRateClassWarnsTest =
     match compile(mixedClassIntent, REF_INVENTORY) {
       | Ok(res) => all {
@@ -550,7 +550,7 @@ module intent_main {
     }
 
   // A single seeded class stays T = 5 and carries no mix warning — the flag
-  // fires only on a genuine cross-class combination (design D3).
+  // fires only on a genuine cross-class combination (design D3; ADR-0002).
   run singleClassNoMixWarnTest =
     match compile(routerIntent, REF_INVENTORY) {
       | Ok(res) => all {
@@ -561,7 +561,7 @@ module intent_main {
     }
 
   // An unanchored dpmac, a DPL-foreign anchor, and a rate above the anchor's
-  // maximum (design D2); each asserted by containment (refusedWith), since a
+  // maximum (design D2; ADR-0002); each asserted by containment (refusedWith), since a
   // rejected port may also perturb sizing.
   run unanchoredForeignTest =
     val unanchored = { tenants: [router],
@@ -592,7 +592,7 @@ module intent_main {
     refusedWith(compile(intent, REF_INVENTORY),
       r => r == UnsupportedEdge({ fabric: "hw2", member: "hw1" }))
 
-  // A construct naming a tenant that was never declared (design D5).
+  // A construct naming a tenant that was never declared (design D5; ADR-0003).
   run tenantAbsentTest =
     val intent = { tenants: [router],
       ports: [{ name: "wan0", dpmac: 7, rate: 10000, tenant: Named("ghost"), from: NotRenamed }],
@@ -709,7 +709,7 @@ module intent_main {
   // ---- plan relationships as named invariants (task 1.4) ----
 
   // planInvariants (INTENT_I1..I6) hold on every plan the derivation runs
-  // build: the relationships D6 locks by construction are true of each.
+  // build: the relationships D6 (ADR-0004) locks by construction are true of each.
   run planInvariantsHoldTest = all {
     planInvariants(derive(routerIntent, REF_INVENTORY)),
     planInvariants(derive(extraIntent, REF_INVENTORY)),

@@ -9,11 +9,11 @@
 //! — same cases, same payloads, same guard semantics; names converge on readable
 //! English on both surfaces. The state sum is the parity-tested artifact
 //! ([`ContainerState`]); the *transitions* are a refinement of the model's runtime
-//! guards (design D3): the two orderings the reconciler delta requires unrepresentable
+//! guards (design D3; ADR-0002): the two orderings the reconciler delta requires unrepresentable
 //! are enforced at the type level, while the guards the model expresses over runtime
 //! data stay runtime refusals recording an [`Outcome`].
 //!
-//! # Compile-time vs. runtime boundary (design D3, reconciler delta)
+//! # Compile-time vs. runtime boundary (design D3; ADR-0002, reconciler delta)
 //!
 //! *Unrepresentable at compile time* — the container-phase orderings:
 //! - **Populate only while unplugged / plug-then-assign**: [`Container::create_resident`]
@@ -98,7 +98,7 @@ impl VfioBind {
     }
 
     /// Judge a raw observed bound-driver name — what the sysfs `driver` link reports,
-    /// or `None` when the DPRC has no driver — into the bind state (design D4/D5: the
+    /// or `None` when the DPRC has no driver — into the bind state (design D4/D5 (ADR-0003): the
     /// adapter reports the raw name, the core judges it). Only [`VFIO_FSL_MC_DRIVER`]
     /// is [`Self::BoundVfioFslMc`]; every other driver (or none) reads [`Self::Unbound`],
     /// because this is the userspace-passthrough face, not a general "has a driver" test.
@@ -141,7 +141,7 @@ impl ResidentKind {
 /// `type Refusal`; `docs/baseline/dprc.md` unknown-register #3, V-DPRC-2/6).
 ///
 /// A reconciler must read three distinct MC statuses and never collapse them to one
-/// denial (design D4): the status carries which option bit refused. This is a
+/// denial (design D4; ADR-0003): the status carries which option bit refused. This is a
 /// *distinct* vocabulary from [`crate::intent::refuse::Refusal`] (the intent-compile refusal
 /// set) — the containment matrix and the intent compiler judge different things, so
 /// they do not share a type (adapters report, never judge: the classification and its
@@ -181,7 +181,7 @@ impl Refusal {
     }
 
     /// The MC status code this refusal reports — the single core-side sentinel
-    /// mapping (design D4; `dprc.qnt` `mcStatus`). A reconciler reads three distinct
+    /// mapping (design D4; ADR-0003; `dprc.qnt` `mcStatus`). A reconciler reads three distinct
     /// values, never one collapsed denial.
     #[must_use]
     pub const fn mc_status(self) -> u8 {
@@ -193,7 +193,7 @@ impl Refusal {
     }
 
     /// Recovers the refusal a raw MC status byte carries — the inverse of
-    /// [`mc_status`](Self::mc_status), the single core-side sentinel decode (design D4).
+    /// [`mc_status`](Self::mc_status), the single core-side sentinel decode (design D4; ADR-0003).
     /// A southbound [`Error::McStatus`](crate::core::error::Error::McStatus) carries only the byte;
     /// this turns it back into the discriminated shape a reconciler attributes with
     /// [`attribute_mc`](crate::plan::dprc::attribute_mc), keeping the classification
@@ -250,7 +250,7 @@ impl Outcome {
 }
 
 /// The container lifecycle phase as a runtime sum — the parity-tested twin of
-/// `dprc.qnt` `type ContainerState` (design D3): `Declared -> Created -> Populated
+/// `dprc.qnt` `type ContainerState` (design D3; ADR-0002): `Declared -> Created -> Populated
 /// -> Plugged | Locked -> Emptied -> Destroyed`, VFIO bind state carried only on the
 /// [`Plugged`] face. Observed via [`Container::phase`]; the typestate markers
 /// ([`Declared`] … [`Destroyed`]) each project to one of these cases.
@@ -778,7 +778,7 @@ impl<S: UnpluggedFace> Container<S> {
 
     /// Spawn a grandchild container (`dprc.qnt` `spawnGrandchild`). `SPAWN_ALLOWED`
     /// absent => [`Refusal::SpawnViolation`] (`0x6`); otherwise accepted. The
-    /// grandchild itself is elided (design D5), so an accept leaves the container
+    /// grandchild itself is elided (design D5; ADR-0003), so an accept leaves the container
     /// unchanged.
     pub fn spawn_grandchild(&self) -> Outcome {
         if self.options.spawn {
@@ -1109,7 +1109,7 @@ mod tests {
 
     #[test]
     fn classify_maps_observed_driver_to_bind_state() {
-        // design D4/D5: the core judges the raw observed driver. Only vfio-fsl-mc is
+        // design D4/D5 (ADR-0003): the core judges the raw observed driver. Only vfio-fsl-mc is
         // Bound; the default fsl_mc_dprc, a foreign driver, and no driver all read Unbound.
         assert_eq!(
             VfioBind::classify(Some(VFIO_FSL_MC_DRIVER)),
@@ -1181,7 +1181,7 @@ mod tests {
     #[test]
     fn from_status_is_the_inverse_of_mc_status() {
         // Each refusal round-trips through its byte; the three shapes stay distinct and
-        // an unknown status is not collapsed into one of them (design D4).
+        // an unknown status is not collapsed into one of them (design D4; ADR-0003).
         for r in [
             Refusal::SpawnViolation,
             Refusal::AllocViolation,

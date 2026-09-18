@@ -3,7 +3,7 @@
 //! `restool` cannot be cleanly mocked, so the shim never calls `std::process`
 //! directly: it goes through [`Runner`]. Production uses [`RestoolRunner`]; tests use
 //! a recorded-output double, keeping parsing verifiable against golden fixtures with
-//! no board (design D10).
+//! no board (design D10; restool-baseline).
 
 use std::process::Command;
 
@@ -12,7 +12,7 @@ use dpaa2_api::core::error::Error;
 /// The full captured result of one `restool` invocation — stdout, stderr, and the
 /// process exit code (`None` when the process was killed by a signal). The refusal
 /// classifier reads this to tell an MC-status refusal from a restool client-side guard
-/// (design D4): a non-zero exit whose output carries an MC status is the former, one
+/// (design D4; ADR-0003): a non-zero exit whose output carries an MC status is the former, one
 /// without is the latter.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RunOutcome {
@@ -34,7 +34,7 @@ pub trait Runner {
 
     /// Executes `restool` and captures the full [`RunOutcome`] — including a non-zero
     /// exit — so the shim can classify a refusal instead of collapsing it to a string
-    /// (design D4). The default adapts [`Runner::run`] for runners that do not model
+    /// (design D4; ADR-0003). The default adapts [`Runner::run`] for runners that do not model
     /// exit codes: a success yields `code: Some(0)`, and a failure propagates as the
     /// error `run` already built. Only [`RestoolRunner`] (and refusal-transcript test
     /// doubles) override this to carry the exit code and stderr of a refused command.

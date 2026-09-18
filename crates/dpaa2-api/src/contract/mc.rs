@@ -19,7 +19,7 @@ pub trait McControl {
     fn observe(&self) -> Result<ObservedTopology, Error>;
 
     /// Reads the board's hardware offer — [`compile`](crate::intent::refuse::compile)'s second
-    /// input, read never written (task 3.5, design D2; bead gqf.19).
+    /// input, read never written (task 3.5, design D2; ADR-0002; bead gqf.19).
     ///
     /// The dpmac attributes are immutable and come from `dpmac info` (DPMAC-I3);
     /// each dpmac's [`Availability`](crate::core::inventory::Availability) is the ADR-0003 §3
@@ -83,13 +83,13 @@ pub trait McControl {
     // future ioctl backend maps each one-to-one (mc-backend spec). Each surfaces a
     // refusal as a typed [`Error`]: an MC firmware status as [`Error::McStatus`] (raw,
     // core-judged via `dprc::Refusal`/`dprc_plan::attribute_mc`), a restool client-side
-    // guard as [`Error::RestoolGuard`] (design D4; `docs/baseline/dprc.md` DPRC-I3).
+    // guard as [`Error::RestoolGuard`] (design D4; ADR-0003; `docs/baseline/dprc.md` DPRC-I3).
     // The [`dprc`] containment vocabulary stays module-namespaced — imported from its
     // module path, never flat re-exported — because its `Options` is a distinct type
-    // from the intent-compile surface (design D4).
+    // from the intent-compile surface (design D4; ADR-0003).
 
     /// Re-observes every child container the root holds, keyed by its re-observation
-    /// handle [`DprcId`], as freshly-queried [`ObservedContainer`]s (design D2/D6;
+    /// handle [`DprcId`], as freshly-queried [`ObservedContainer`]s (design D2/D6 (ADR-0002, ADR-0004);
     /// reconciler delta "Mutation visibility is established only by re-observation",
     /// DPRC-I6). This is the read half of container convergence: a step's success verdict
     /// comes from re-querying the affected container here, never from a bus rescan

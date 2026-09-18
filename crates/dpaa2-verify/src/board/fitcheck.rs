@@ -1,6 +1,6 @@
 //! The read-only fit-check emitter (design D12; ADR-0003 §2, §4).
 //!
-//! The board milestone is one read-only sitting (design D12): it re-runs
+//! The board milestone is one read-only sitting (design D12; ADR-0003): it re-runs
 //! the fit check against a live census — the container listing, the pool
 //! ceilings, a DPL reconstruction, `dpmac info` on the lifecycle-safe
 //! ports — and the shipped `dpaa2ctl dry-run`/`status` on the reference
@@ -26,7 +26,7 @@ use crate::board::generate::{REF_PAIR_ASSERT, TOTAL_DENY_GREP};
 use crate::board::safety::{self, RunClass, TrafficClass};
 
 /// Restool verbs that change board state. A fit check reads only, so a
-/// step naming any of these refuses the whole emission (design D12: "no
+/// step naming any of these refuses the whole emission (design D12 (ADR-0003): "no
 /// object is created, moved or destroyed").
 const MUTATING_VERBS: [&str; 8] = [
     "create",
@@ -222,7 +222,7 @@ expect_any() {{ rc=$(cat "$RESULTS/step-$1-exit.txt"); echo "PASS step $1: $2 (e
 }
 
 /// Generates a read-only fit-check sitting from a hand-authored probe
-/// plan (design D12). Renders the reviewable script and the
+/// plan (design D12; ADR-0003). Renders the reviewable script and the
 /// offline-judgeable plan; `probes_file` is the source spelled as the
 /// operator runs it from the repository root.
 ///
@@ -242,7 +242,7 @@ pub fn generate_fit(plan: &ProbePlan, probes_file: &str) -> Result<FitSuite, Str
         let _ = write!(body, "\n# step {i}: {}\n", step.label);
         let _ = writeln!(body, "# expect: {}", step.expect);
         // A dpaa2ctl step runs the binary this checkout resolved into
-        // $DPAA2CTL (design D12); every other command (the system restool,
+        // $DPAA2CTL (design D12; ADR-0003); every other command (the system restool,
         // run as root) stays bare. The probe plan keeps the bare `dpaa2ctl`
         // declaration; the substitution lives only in the rendered script.
         let rendered = match argv.split_first() {
@@ -303,7 +303,7 @@ pub struct FitReport {
 /// captured exit against its declared shape (`judge_exit`). `read` maps
 /// a result file name (e.g. `step-3-exit.txt`) to its content, or `None`
 /// when the file does not exist. The captured stdout/stderr is the
-/// operator's to disposition (design D12); only the exit shape is machine
+/// operator's to disposition (design D12; ADR-0003); only the exit shape is machine
 /// judged here.
 pub fn fit_diff(plan: &FitPlan, read: impl Fn(&str) -> Option<String>) -> Vec<FitReport> {
     plan.steps
@@ -352,7 +352,7 @@ mod tests {
         assert!(s.contains("kernel is not 6.6.52"), "{s}");
         // The sitting cds to the repo root (three levels up) and refuses if
         // it is not one, so the relative reference-intent path resolves from
-        // any cwd (design D12).
+        // any cwd (design D12; ADR-0003).
         assert!(s.contains(r#"cd "$(dirname "$SELF")/../../..""#), "{s}");
         assert!(
             s.contains("models/intent/scenarios/reference.toml ] || ")
@@ -360,7 +360,7 @@ mod tests {
             "{s}"
         );
         // dpaa2ctl is resolved from this checkout's build output, refusing
-        // with the exact build command when nothing is built (design D12).
+        // with the exact build command when nothing is built (design D12; ADR-0003).
         assert!(s.contains("target/release/dpaa2ctl"), "{s}");
         assert!(s.contains("target/debug/dpaa2ctl"), "{s}");
         assert!(s.contains("cargo build -p dpaa2-tools"), "{s}");

@@ -1,14 +1,14 @@
-//! The pure reconciliation core (design D0).
+//! The pure reconciliation core (design D0; add-dpaa2-provisioning).
 //!
 //! [`reconcile`] is a total, deterministic function that performs no I/O: given the
 //! operator's [`DesiredTopology`] and one [`ObservedTopology`] snapshot, it computes
 //! an ordered [`Plan`] that moves observed toward desired. Because it is pure it is
-//! exhaustively unit-testable against the in-memory fake backend (design D10) with
+//! exhaustively unit-testable against the in-memory fake backend (design D10; restool-baseline) with
 //! zero hardware.
 //!
-//! Matching is **edge-based** (design D1): a managed DPNI is identified by its
+//! Matching is **edge-based** (design D1; restool-baseline): a managed DPNI is identified by its
 //! connection to a configured DPMAC, never by index, so a renumbered DPNI still
-//! matches. Ownership is implicit (design D7): the function only ever iterates the
+//! matches. Ownership is implicit (design D7; ADR-0005): the function only ever iterates the
 //! configured ports, so foreign objects are never enumerated, let alone deleted.
 
 use crate::core::model::{
@@ -20,7 +20,7 @@ use crate::plan::{AssertMismatch, DriftReport, Plan, Transition};
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub struct ReconcileOptions {
     /// When set, ports declared [`Presence::Absent`] are torn down. Default off:
-    /// a removed port is left in place (design D7).
+    /// a removed port is left in place (design D7; ADR-0005).
     pub prune: bool,
 }
 
@@ -41,7 +41,7 @@ pub fn reconcile_with(
     let mut plan = Plan::new();
 
     // Report every derived object the port facet has no executor for, by family
-    // (design D10): reconcile actuates the dpni↔dpmac port subset below and reports
+    // (design D10; restool-baseline): reconcile actuates the dpni↔dpmac port subset below and reports
     // the rest as plan-only, never as drift or error.
     plan.plan_only = desired.plan().plan_only_by_family();
 
@@ -94,7 +94,7 @@ fn plan_present(port: &DesiredPort, observed: &ObservedTopology, num_queues: u32
     };
 
     // A DPNI is already connected to this DPMAC. Refuse immutable drift before
-    // planning any further mutation of the live object (design D8).
+    // planning any further mutation of the live object (design D8; restool-baseline).
     let mut drifted = false;
     for (attr, want) in &port.immutable {
         let got = dpni.attributes.get(attr);
@@ -126,7 +126,7 @@ fn plan_present(port: &DesiredPort, observed: &ObservedTopology, num_queues: u32
         });
     }
 
-    // MAC: actuate on mismatch, or assert-and-report (design D9).
+    // MAC: actuate on mismatch, or assert-and-report (design D9; ADR-0006).
     if let Some(mac) = port.mac {
         match port.mac_mode {
             MacMode::Actuate if dpni.mac != Some(mac) => {
@@ -178,7 +178,7 @@ fn plan_absent(
 
 #[cfg(test)]
 mod tests {
-    //! Engine unit tests, run against the neutral model and the in-memory fake (D10).
+    //! Engine unit tests, run against the neutral model and the in-memory fake (D10; restool-baseline).
 
     use std::collections::BTreeMap;
 

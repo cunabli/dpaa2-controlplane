@@ -1,5 +1,5 @@
 // The fit check of the intent gate (openspec change `intent-layer`, design
-// D8/D12; task 2.5): the reference LX2160A board's deployed provisioning —
+// D8/D12; restool-baseline, ADR-0003; task 2.5): the reference LX2160A board's deployed provisioning —
 // the reserved kernel tenant plus ONE userspace-poll tenant (a child dprc)
 // terminating dpmac.7 and dpmac.9 at 10G — compiled and diffed object-for-
 // object against the recovered boot census in
@@ -10,7 +10,7 @@
 // The census is the BOOT state (root dprc.1 only, no child): the child dprc
 // is created post-boot, so the whole child side of the plan is absent from it
 // and is dispositioned deferred-to-live — the live sitting (tasks 4.1/4.2)
-// diffs the child against a live census (design D12). Re-running the snapshot
+// diffs the child against a live census (design D12; ADR-0003). Re-running the snapshot
 // recovery over the board reproduces reference.json byte-for-byte, so the
 // hand-encoded per-family census below is stable evidence, not a guess.
 //
@@ -36,7 +36,7 @@
 //     objects, so they are outside the object diff by construction.
 //   child side (poll tenant, absent at boot):
 //     - dprc/dpni/dpio/dpbp/dpcon — DeferredToLive: created post-boot, diffed
-//       at the 4.1/4.2 live sitting (design D12).
+//       at the 4.1/4.2 live sitting (design D12; ADR-0003).
 //     - dpmcp    derived 1, board 3 — DpmcpThreeVsOne, open question 1
 //       (design.md ~lines 361-371), DECIDED AT THE 2.6 GATE. The derivation
 //       gives one MC portal per process (companions.qnt; DPDK's fslmc bus
@@ -48,7 +48,7 @@
 //           over-provisioned residue the diff reports as explained divergence.
 //         extra — an operator could legitimately provision 3 for a
 //           secondary process; the intent vocabulary stays silent and the
-//           additive `[extra.<tenant>]` channel (design D5) would carry it —
+//           additive `[extra.<tenant>]` channel (design D5; ADR-0003) would carry it —
 //           `[extra.kernel]` with `dpmcp = 2` raises the derived 1 to 3.
 //
 // Anchors: ADR-0012 companion draws; ADR-0011 ceilings; ADR-0001 §4 DPL
@@ -74,7 +74,7 @@ module reference {
   pure def countFam(p: Plan, name: str, fam: Family): int =
     objsOfFam(p, name, fam).size()
 
-  // The board's deployed intent (design D1/D8): the reserved kernel tenant
+  // The board's deployed intent (design D1/D8; restool-baseline): the reserved kernel tenant
   // (its budget never binds under the online-CPU reading of open question 2)
   // and one userspace-poll tenant terminating the two cabled 10G ports. No
   // fabric, no link, no crypto, no extra — the historical userspace-poll

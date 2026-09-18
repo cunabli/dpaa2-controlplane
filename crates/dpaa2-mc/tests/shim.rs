@@ -1,5 +1,5 @@
 //! Golden-fixture parse tests and command-construction assertions for the restool
-//! shim (design D10, task 4.6). No board is touched: parsing runs over recorded
+//! shim (design D10; restool-baseline, task 4.6). No board is touched: parsing runs over recorded
 //! output, and command construction is asserted via a recording runner.
 
 use std::cell::RefCell;

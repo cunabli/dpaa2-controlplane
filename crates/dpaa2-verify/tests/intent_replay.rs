@@ -1,4 +1,4 @@
-//! The intent ITF-replay CI rung (task 3.2, design D9): every committed intent
+//! The intent ITF-replay CI rung (task 3.2, design D9; ADR-0006): every committed intent
 //! trace replays green against the Rust `compile`, board-free. The model is the
 //! oracle — a regenerated trace whose model outcome no longer equals what
 //! `compile` derives fails here loudly; regenerate with `pnpm model:freeze-intent`

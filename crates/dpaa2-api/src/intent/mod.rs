@@ -1,4 +1,4 @@
-//! The intent vocabulary: what an operator states, never a count (design D1;
+//! The intent vocabulary: what an operator states, never a count (design D1 (restool-baseline);
 //! ADR-0005 §1; ADR-0013 §2).
 //!
 //! Transcribed from `models/intent/types.qnt`, the accepted vocabulary of the
@@ -9,7 +9,7 @@
 //! dpio, dpbp, dpcon, dpmcp, queue or worker count. Every such number is the
 //! derivation's (`compile`, task 3.2). These types carry no `serde`: the northbound
 //! [`crate::contract::ConfigSource`] parses TOML into them (2026-08-22-restool-baseline design D10), and nothing below the
-//! compiler depends on them (design D11).
+//! compiler depends on them (design D11; restool-baseline).
 //!
 //! This module is also the root of the intent-compile pipeline namespace (ADR-0018):
 //! the vocabulary here, the pure derivation ([`derive`], private), the object plan it

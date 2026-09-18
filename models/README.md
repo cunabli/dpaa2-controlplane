@@ -5,7 +5,7 @@ truth lives in `docs/baseline/` (16 family documents distilled into
 `object-model.md`); this tree renders it as one state machine the
 simulator can drive, so a wrong belief about the Management Complex
 fails a check here before it becomes Rust. Process rules: ADR-0002
-(formal methods, CI validation), design decisions D2–D5 and D9 of
+(formal methods, CI validation), design decisions D2–D5 (ADR-0002, ADR-0003) and D9 (ADR-0006) of
 `openspec/changes/verify-foundation`.
 
 ## Quint in one minute
@@ -122,7 +122,7 @@ its evidence fails `cargo test`, not a re-read.
 
 ```
 models/
-├── core/                 one generic object machine (design D2/D4)
+├── core/                 one generic object machine (design D2/D4; ADR-0002, ADR-0003)
 │   ├── types.qnt         shared state: CoreState, ObjState, FamilyParams, Evidence
 │   ├── containment.qnt   view 1 — DPRC tree, lock stripping, move gates
 │   ├── connect.qnt       view 2 — edge legality table, cardinality one
@@ -145,11 +145,11 @@ models/
 │                         (both byte-identical on rerun); intent-pairing.py
 │                         fails the typecheck rung on an unpaired scenario
 ├── intent/               change #3: the intent compiler as a model
-│   ├── types.qnt         the intent vocabulary and the inventory as types (D1/D2)
+│   ├── types.qnt         the intent vocabulary and the inventory as types (D1/D2; restool-baseline, ADR-0002)
 │   ├── inventory.qnt     the reference offer, generated from the board snapshot
-│   ├── derive.qnt        the pure derivation intent+inventory -> plan (D3/D4/D6)
-│   ├── refuse.qnt        the refusal half, so compile() is total (D5)
-│   ├── invariants.qnt    named plan/compile invariants, ids INTENT_I* (D6)
+│   ├── derive.qnt        the pure derivation intent+inventory -> plan (D3/D4/D6; ADR-0002, ADR-0003, ADR-0004)
+│   ├── refuse.qnt        the refusal half, so compile() is total (D5; ADR-0003)
+│   ├── invariants.qnt    named plan/compile invariants, ids INTENT_I* (D6; ADR-0004)
 │   ├── alphabet.qnt      the finite intent alphabet as a machine — the
 │   │                     simulate/verify target (intentInvariants, compileLaws)
 │   ├── observed.qnt      identity-across-time value machinery (ADR-0015 §8–12):
@@ -177,7 +177,7 @@ models/
 │                         (board suite traces live beside their module)
 ├── main.qnt              instantiation of machine with all 16 families;
 │                         directed *Test runs
-├── COVERAGE.md           the invariant coverage ledger (design D9)
+├── COVERAGE.md           the invariant coverage ledger (design D9; ADR-0006)
 └── README.md             this file
 ```
 

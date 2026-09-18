@@ -1,7 +1,7 @@
 //! The MC object families and DPRC permission bits (object-model.md §3).
 //!
 //! Transcribed from `models/core/types.qnt` (`Family`, `Permission`): the derived
-//! object plan keys every object by `(tenant, family, ordinal)` (design D6), so
+//! object plan keys every object by `(tenant, family, ordinal)` (design D6; ADR-0004), so
 //! the family is part of an object's identity, and a child DPRC's create options
 //! are a set of these permission bits (`dprc.md`).
 
@@ -108,7 +108,7 @@ impl Family {
 }
 
 /// Every family, in `types.qnt` declaration order (`FAMILIES`). The full space
-/// an object key ranges over (design D6), so a caller with only a name — the
+/// an object key ranges over (design D6; ADR-0004), so a caller with only a name — the
 /// verify adapter deserialising `"fam": "Dprc"`, the model lint enumerating the
 /// Rust copy — recovers the value by scanning it. Length-pinned to 16: a
 /// seventeenth family cannot land here without the pin, [`Family::variant_name`],
@@ -138,7 +138,7 @@ impl fmt::Display for Family {
     }
 }
 
-/// The families the intent derivation emits (design D4; `types.qnt`
+/// The families the intent derivation emits (design D4 (ADR-0003); `types.qnt`
 /// `DERIVED_FAMILIES`): the ceilings map's domain and the request/extra
 /// families. `Dpmac`, `Dprtc`, `Dpdbg` are outside it — a dpmac is a port
 /// anchor, dprtc.0 is pinned rather than sized, dpdbg is never derived.

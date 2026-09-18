@@ -1,5 +1,5 @@
 //! Convergence-loop, idempotence, and exit-behaviour tests driven entirely against
-//! the in-memory fake backend (design D10, tasks 5.5/5.6). No board is touched.
+//! the in-memory fake backend (design D10; restool-baseline, tasks 5.5/5.6). No board is touched.
 
 use std::time::Duration;
 

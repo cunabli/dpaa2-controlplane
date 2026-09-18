@@ -22,7 +22,7 @@ An operator provisions the DPAA2 Management Complex (MC) on the reference
 LX2160A board by writing an intent, not by naming MC objects. This record is
 the reference for what they write and what the tool derives from it, written
 before any Rust exists — working backwards from the file the operator types
-(design D7). The Quint model is the source of truth: every construct, count,
+(design D7; ADR-0005). The Quint model is the source of truth: every construct, count,
 and refusal below is transcribed from `models/intent/` (`types.qnt`,
 `derive.qnt`, `refuse.qnt`, `invariants.qnt`) and cites the ADR or baseline
 that anchors it. Where this prose and the model could drift, the model wins.
@@ -31,7 +31,7 @@ The operator states *capacity at L1 and who consumes it* — a tenant's core
 budget, a port's rate, a crypto block's flow demand — and never an
 implementation count: no dpio, dpbp, dpcon, dpmcp, dpsw, queue, or worker
 number appears in an intent. `compile(intent, inventory)` is a pure, total
-function (design D5): given the same intent and inventory it returns either a
+function (design D5; ADR-0003): given the same intent and inventory it returns either a
 complete plan — every object keyed and every count carrying its provenance —
 or the *complete* list of refusals. It never returns the first error and
 stops, never emits a partial plan, and never reads the board.
@@ -42,7 +42,7 @@ stops, never emits a partial plan, and never reads the board.
 
 A TOML file opens with an `[intent]` table that anchors the document-level
 properties. `schema` is mandatory — the version hook the next breaking change
-needs (design D1) and where a future document-level property (a name, an
+needs (design D1; restool-baseline) and where a future document-level property (a name, an
 inventory pin) would sit:
 
 ```toml
@@ -81,9 +81,9 @@ XDP/BPF kernel dataplane beside it), `userspace-poll` (a poll-mode process —
 VPP, DPDK — priced by ADR-0012's poll draws), or `userspace-event`, which
 ADR-0012 does not price and the compiler refuses (`UnpricedDataplane`, §5)
 until a scenario prices its draws. `max_cores` is the budget the derived
-thread count T must fit under (design D3). `isolation` and `pool` place the
+thread count T must fit under (design D3; ADR-0002). `isolation` and `pool` place the
 tenant in the container tree (§4). The tenant name `kernel` is **reserved**
-(design D1): the kernel's own driver in the root container (dprc.1), never a
+(design D1; restool-baseline): the kernel's own driver in the root container (dprc.1), never a
 named tenant, implicitly `public`, and materialised only when a port omits a
 tenant or a link end names it — the operator never writes a
 `[tenant.kernel]` table.
@@ -157,7 +157,7 @@ tenant = "router"
 flows = 2
 ```
 
-**`[extra.<tenant>]`** — the additive raise-only override channel (design D5).
+**`[extra.<tenant>]`** — the additive raise-only override channel (design D5; ADR-0003).
 Each per-tenant table carries `family = count` pairs. Every derived count is a
 *request*; a per-(tenant, family) extra adds its `count` on top, so the
 effective count is request + count — raise-only by construction, no floor
@@ -189,7 +189,7 @@ other fails CI (task 3.3e).
 ### 3. The two inputs: intent and the observed inventory
 
 `compile` takes the intent above and the **inventory** — what the hardware
-offers, observed and never operator-written (design D2; the rejected
+offers, observed and never operator-written (design D2 (ADR-0002); the rejected
 alternative was an operator-written inventory the board would contradict).
 `ensure` reads it from the board; the model reads it from change-#2's
 reference snapshot (`models/board/baselines/reference.json`, regenerated into
@@ -214,11 +214,11 @@ reference snapshot (`models/board/baselines/reference.json`, regenerated into
 ### 4. The derived quantities and placement rules
 
 Every number carries provenance: its rule, the inputs it consumed, the
-construct it bottoms out in, and the ADR/baseline anchor (design D6),
+construct it bottoms out in, and the ADR/baseline anchor (design D6; ADR-0004),
 printable as a tree — `dpio ×10 ← 2·T ← T=5 ← 1+Σ workers ←
 workers-table(10G⇒2, unmeasured) ← ports wan0/wan1 rate=10G`.
 
-**The worker table and T (design D3).** The one derivation the corpus cannot
+**The worker table and T (design D3; ADR-0002).** The one derivation the corpus cannot
 anchor is capacity → thread count, so it is a declared, *visibly unmeasured*
 table (`derive.qnt` `WORKER_TABLE`):
 
@@ -316,15 +316,15 @@ the Rust enum spells the anchor pair `Reserved`/`Foreign` (see §11).
 
 *vocabulary-v2 revision.* Two illegal pool shapes left this vocabulary:
 `PoolWithoutRestricted` and `RestrictedWithoutPool` are gone because
-`Isolation::Restricted { pool }` (D1) makes a pool on a non-restricted tenant,
+`Isolation::Restricted { pool }` (D1; restool-baseline) makes a pool on a non-restricted tenant,
 and a restricted tenant with no pool, *unrepresentable* — a typestate the type
 enforces, not a refusal the compiler raises (the TOML boundary still names both
 as parse errors, since the raw surface keeps the two keys). Three compile-side
-twins entered to close the D11 defense-in-depth rows a programmatic `Intent`
+twins entered to close the D11 (restool-baseline) defense-in-depth rows a programmatic `Intent`
 used to slip through — `LinkSelfLoop`, `RenameDoubleClaim`, `KernelDeclared`
 (*Programmatic parity*, below). `TenantAbsent` now carries a typed `Referrer`
-(D3) instead of a construct-name string, and every tenant reference — a port
-owner and each link end — is the shared `TenantRef` sum (D2); both are detailed
+(D3; ADR-0002) instead of a construct-name string, and every tenant reference — a port
+owner and each link end — is the shared `TenantRef` sum (D2; ADR-0002); both are detailed
 at the `TenantAbsent` bullet.
 
 *vocabulary-v2-followups revision.* `compile`'s tenant-absence rule now treats the
@@ -341,13 +341,13 @@ materialises for such a reference stays owned by the split materialisation trigg
 
 *Undeclared references*
 - `TenantAbsent` — a construct names a tenant not declared → declare it or fix
-  the name. Its payload is a typed `Referrer` (D3), never a construct-name
+  the name. Its payload is a typed `Referrer` (D3; ADR-0002), never a construct-name
   string: a port, link end, or fabric by its own name; crypto, extra, and the
   restricted `pool` drawer — which carry no name of their own — by the
   referencing tenant. So no reserved token (`"crypto"`/`"extra"`/`"pool"`) can
   collide with a construct an operator legally named. A port owner and each link
   end is the shared `TenantRef` sum — the reserved kernel or a declared tenant
-  (D2) — carrying no `""` sentinel and no default: "an omitted port tenant means
+  (D2; ADR-0002) — carrying no `""` sentinel and no default: "an omitted port tenant means
   the kernel" is a rule the parser applies at the TOML boundary, so the kernel
   case never renders a `kernel` name the operator never typed.
 - `MemberUnresolved` — a fabric member names a port/tenant/fabric not declared
@@ -376,18 +376,18 @@ materialises for such a reference stays owned by the split materialisation trigg
 - `UnsupportedEdge` — a hardware fabric listing a hardware fabric →
   unsupported until dpsw↔dpsw is verified.
 
-*Sizing (design D3)*
+*Sizing (design D3; ADR-0002)*
 - `UnknownRateClass` — a userspace-poll tenant terminates a rate class with no
   seeded worker row → see §8 OQ3.
 - `CoreBudgetExceeded` — the derived T exceeds `max_cores` → raise the budget
   or shed ports.
 
-*Extras (design D5)*
+*Extras (design D5; ADR-0003)*
 - `ExtraNotCompanion` — an extra on a family that is not one of the four
   companions → only dpio/dpbp/dpmcp/dpcon accept extras.
 - `ExtraNotPositive` — an extra whose count is below 1 → raise it or remove it.
 
-*Crypto (design D1; dpseci.md)*
+*Crypto (design D1; restool-baseline; dpseci.md)*
 - `CryptoFlowsNotPositive` — a crypto block whose flows are below 1 (carries
   the block's 1-based ordinal so two bad blocks stay distinct).
 - `CryptoFlowsOverDevice` — a block whose flows exceed one dpseci's 16 queue
@@ -398,7 +398,7 @@ materialises for such a reference stays owned by the split materialisation trigg
   Counted/Observed ceiling → the request does not fit the board (names family,
   needed, available).
 
-*Dataplane pricing (design D3)*
+*Dataplane pricing (design D3; ADR-0002)*
 - `UnpricedDataplane` — a tenant whose dataplane ADR-0012 does not price
   (today `userspace-event`) → use a priced dataplane.
 
@@ -409,7 +409,7 @@ materialises for such a reference stays owned by the split materialisation trigg
   holder's (the reserved kernel counts as kernel-netlink).
 
 *Programmatic parity (vocabulary-v2 D4) — compile-side twins of parse-side
-checks, closing the design-D11 one-sided rows so a programmatic `Intent` (built
+checks, closing the design-D11 (restool-baseline) one-sided rows so a programmatic `Intent` (built
 in Rust, never parsed) cannot slip a shape the TOML boundary already refuses.
 Each site carries the deliberate-duplication doc note naming its parse twin.*
 - `LinkSelfLoop` — a link whose two ends resolve to the same tenant → a link
@@ -433,7 +433,7 @@ deliberately carries no `DuplicateName` refusal — a name shared across familie
 (port, link, fabric, extra sort to separate namespaces during synthesis, so
 cross-family collision is unrepresentable after identity reification) is checked
 only in the raw parse layer. The raw model's `intent_raw.qnt` `rawDuplicateNameTest`
-and its frozen trace cover this one-sided D11 row.
+and its frozen trace cover this one-sided D11 (restool-baseline) row.
 
 Two warnings attach to an accepted compile: `UnknownCeiling` (a derived
 family's ceiling is Unknown, so feasibility could not check it — accepted, not
@@ -443,7 +443,7 @@ unmeasured).
 
 ### 6. The invariants the plan type makes unrepresentable
 
-The plan relationships design D6 wants unrepresentable in Rust, first stated
+The plan relationships design D6 (ADR-0004) wants unrepresentable in Rust, first stated
 as named predicates over the derived `Plan` (`invariants.qnt`, ids
 INTENT_I1–I10); the Rust type surface (task 3.1) transcribes what they prove.
 
@@ -492,7 +492,7 @@ INTENT_I1–I10); the Rust type surface (task 3.1) transcribes what they prove.
 ### 7. The scenarios as worked witnesses
 
 Each scenario is an intent `.toml` an operator types, paired with a `.qnt`
-asserting the derived plan (design D8); numbers are the model's.
+asserting the derived plan (design D8; restool-baseline); numbers are the model's.
 
 - **fabric** (`scenarios/fabric.*`) — two 10G ports (dpmac.7/8) in a
   kernel-forwarded hardware fabric, with a userspace-poll `router` joined as a
@@ -574,7 +574,7 @@ asserting the derived plan (design D8); numbers are the model's.
   (§6), and the five scenarios (§7) — are hand-maintained copies of what
   `models/intent/*.qnt` states, and copies drift (the `COVERAGE.md` narrative
   drifted exactly this way across tasks 2.6b/2.6c until 2.6d caught it). The
-  `dpaa2-verify` ledger lint — the design-D9 cross-check of the archived
+  `dpaa2-verify` ledger lint — the design-D9 (ADR-0006) cross-check of the archived
   `verify-foundation` change — now holds them: R11 checks the §5 refusal
   vocabulary, R12 the §6 invariants, R13 the scenario `.qnt`/`.toml` pairing
   (task 3.4), and R14 the Rust domain copies (task 5.1). The models remain
@@ -693,7 +693,7 @@ Each entry keeps the question as posed and records the decision.
   `keysAreIdentities`: name/key, reused N, and the label seam).
 - `docs/baseline/object-model.md` (the edge table) and the per-family
   baselines under `docs/baseline/`.
-- External anchors (design D7): RFC 9315 / RFC 9316 (intent is a declarative
+- External anchors (design D7; ADR-0005): RFC 9315 / RFC 9316 (intent is a declarative
   outcome plus constraints — `max_cores` is a constraint, `workers` would have
   been configuration), and the ONOS intent framework (per-type compilers
   producing installable intents, installers kept separate, recompiled on

@@ -2,17 +2,17 @@
 //!
 //! These types exist only to deserialize `topology.toml`; [`crate::parse`] validates
 //! them and converts them into the neutral [`dpaa2_api::intent::Intent`], so no `serde` derive
-//! ever leaks into the core (topology-config spec; design D10). Every table is
+//! ever leaks into the core (topology-config spec; design D10; restool-baseline). Every table is
 //! `deny_unknown_fields`, so a mistyped or retired key is rejected by name rather than
 //! silently ignored. Ports are keyed by their stable DPMAC anchor and never by a DPNI
 //! index, and no construct carries a dpio/dpbp/dpcon/dpmcp/queue/worker count — those
-//! are the derivation's (design D1). Every construct table carries those retired count
+//! are the derivation's (design D1; restool-baseline). Every construct table carries those retired count
 //! keys as explicit rejected `Option`s (minted by [`construct_table`]) so the parser
 //! names them in the "count is derived" error instead of the generic unknown-field one.
 //!
 //! Name slots deserialize straight into the [`TenantName`]/[`ConstructName`] newtypes
 //! the neutral model uses, so a name cannot be confused among slots even in the raw
-//! layer (types.rs). `serde` stays out of `dpaa2-api` (design D10): the [`name`] family
+//! layer (types.rs). `serde` stays out of `dpaa2-api` (design D10; restool-baseline): the [`name`] family
 //! of `deserialize_with` helpers convert through the newtypes' infallible `From<String>`
 //! rather than a foreign `Deserialize` impl. Slots whose value can be *malformed* —
 //! `dpmac`, `mac`, `family` — stay `String` on purpose, so [`crate::parse`] can name the
@@ -24,7 +24,7 @@ use dpaa2_api::core::types::{ConstructName, TenantName};
 use serde::{Deserialize, Deserializer};
 
 /// Deserializes a name slot straight into its dpaa2-api newtype (types.rs), through the
-/// newtype's infallible `From<String>` so `serde` need never touch `dpaa2-api` (design D10).
+/// newtype's infallible `From<String>` so `serde` need never touch `dpaa2-api` (design D10; restool-baseline).
 fn name<'de, D, T>(de: D) -> Result<T, D::Error>
 where
     D: Deserializer<'de>,
@@ -56,7 +56,7 @@ where
 
 /// Deserializes a keyed table — `[tenant.<name>]`, `[fabric.<name>]`, `[extra.<tenant>]` —
 /// whose outer key names the construct. The key crosses into its dpaa2-api newtype through
-/// the infallible `From<String>` (design D10), like the [`name`] family of helpers, so
+/// the infallible `From<String>` (design D10; restool-baseline), like the [`name`] family of helpers, so
 /// identity lives in the TOML structure: a duplicate name is a key-redefinition parse
 /// error, unrepresentable rather than validated. The value deserializes as itself.
 fn keyed<'de, D, K, V>(de: D) -> Result<BTreeMap<K, V>, D::Error>
@@ -96,7 +96,7 @@ pub struct RawRenamed<T> {
 /// (dpio/dpbp/dpcon/dpmcp/queues/workers) as rejected `Option`s. `serde` accepts the
 /// key under `deny_unknown_fields` so [`crate::parse`] names it in the "count is
 /// derived" error rather than the generic unknown-field one (topology-config spec: "A
-/// count field is rejected"; design D1: counts are derived, never declared). The body
+/// count field is rejected"; design D1; restool-baseline: counts are derived, never declared). The body
 /// fields are written per table; the rejected counts are appended identically to each.
 macro_rules! construct_table {
     ($(#[$meta:meta])* $name:ident { $($field:tt)* }) => {
@@ -105,7 +105,7 @@ macro_rules! construct_table {
         #[serde(deny_unknown_fields)]
         pub struct $name {
             $($field)*
-            /// Present only to reject a derived count with a targeted error (design D1).
+            /// Present only to reject a derived count with a targeted error (design D1; restool-baseline).
             #[serde(default)]
             pub dpio: Option<i64>,
             /// See [`Self::dpio`].
@@ -159,7 +159,7 @@ pub struct RawIntent {
     /// The `[[crypto]]` array (ordered — declaration order numbers each dpseci).
     #[serde(default)]
     pub crypto: Vec<RawCrypto>,
-    /// The `[extra.<tenant>]` map: the additive raise-only override channel (design D5),
+    /// The `[extra.<tenant>]` map: the additive raise-only override channel (design D5; ADR-0003),
     /// each per-tenant table carrying `family = count` pairs. Identity is structural, so
     /// a duplicate (tenant, family) is a TOML key-redefinition parse error,
     /// unrepresentable rather than validated. The inner family key stays `String` on
@@ -168,7 +168,7 @@ pub struct RawIntent {
     pub extra: BTreeMap<TenantName, BTreeMap<String, i64>>,
 }
 
-/// The `[intent]` table: the document-level properties anchor (design D1).
+/// The `[intent]` table: the document-level properties anchor (design D1; restool-baseline).
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RawIntentTable {
@@ -177,7 +177,7 @@ pub struct RawIntentTable {
     pub schema: Option<i64>,
 }
 
-/// Where a tenant's dataplane runs, as written in TOML (design D1).
+/// Where a tenant's dataplane runs, as written in TOML (design D1; restool-baseline).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum RawDataplane {
@@ -203,7 +203,7 @@ pub enum RawIsolation {
 }
 
 construct_table! {
-    /// A `[tenant.<name>]` table (design D1). The name lives in the table key, so a
+    /// A `[tenant.<name>]` table (design D1; restool-baseline). The name lives in the table key, so a
     /// duplicate name is a TOML key-redefinition parse error, unrepresentable rather than
     /// validated; the reserved `kernel` key is refused in [`crate::parse`].
     RawTenant {
@@ -237,7 +237,7 @@ pub enum RawMacMode {
 }
 
 construct_table! {
-    /// A `[port.<name>]` table (design D1). The interface name lives in the table key
+    /// A `[port.<name>]` table (design D1; restool-baseline). The interface name lives in the table key
     /// (ADR-0015 decision 1), so a duplicate name is a TOML key-redefinition parse error,
     /// unrepresentable rather than validated.
     RawPort {
@@ -286,7 +286,7 @@ construct_table! {
     }
 }
 
-/// Who forwards between a fabric's members, as written in TOML (design D1).
+/// Who forwards between a fabric's members, as written in TOML (design D1; restool-baseline).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum RawSwitching {
@@ -297,7 +297,7 @@ pub enum RawSwitching {
 }
 
 construct_table! {
-    /// A `[fabric.<name>]` table: one switched domain over its members (design D1). The
+    /// A `[fabric.<name>]` table: one switched domain over its members (design D1; restool-baseline). The
     /// name lives in the table key (the dpsw provenance key), so a duplicate name is a TOML
     /// key-redefinition parse error, unrepresentable rather than validated.
     RawFabric {

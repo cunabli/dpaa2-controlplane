@@ -23,7 +23,7 @@ pub enum Error {
 
     /// An MC firmware command was refused with a non-OK status. Carries the raw MC
     /// status byte for the core to judge — the adapter reports it, it does not classify
-    /// (design D4). The status→cause mapping lives once, core-side, in
+    /// (design D4; ADR-0003). The status→cause mapping lives once, core-side, in
     /// [`dprc::Refusal::mc_status`](crate::families::dprc::Refusal::mc_status) and
     /// [`dprc_plan::attribute_mc`](crate::plan::dprc::attribute_mc).
     #[error("MC command refused with status {status:#04x}")]
@@ -36,7 +36,7 @@ pub enum Error {
     /// MC command (e.g. the plugged-move guard, `docs/baseline/dprc.md` DPRC-I3).
     /// Kept distinct from [`Error::McStatus`] so the core can attribute it to
     /// [`dprc_plan::Attribution::RestoolClientGuard`](crate::plan::dprc::Attribution::RestoolClientGuard)
-    /// (design D4).
+    /// (design D4; ADR-0003).
     #[error("restool client-side refusal: {detail}")]
     RestoolGuard {
         /// The restool guard message, verbatim for the operator.

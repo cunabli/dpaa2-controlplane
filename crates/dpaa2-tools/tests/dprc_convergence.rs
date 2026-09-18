@@ -1,6 +1,6 @@
 //! End-to-end child-DPRC (consumer container) convergence through the product pipeline
 //! (read → compile → reconcile → dispatch), driven entirely against the in-memory fake
-//! backend (design D2/D10; reconciler delta; task 4.2). No board is touched.
+//! backend (design D2/D10; ADR-0002, restool-baseline; reconciler delta; task 4.2). No board is touched.
 //!
 //! The acceptance scenario "Consumer declared on an empty board"
 //! (`specs/reconciler/spec.md`): a declared consumer converges to exactly its child DPRC
@@ -111,7 +111,7 @@ fn consumer_on_empty_board_converges_to_only_the_container_and_reruns_clean() {
 #[test]
 fn dry_run_shows_container_plan_and_per_object_provenance() {
     // The dry-run text on an empty board: the container-only create step and the derived
-    // container's provenance node resolved to its baseline anchor (design D6).
+    // container's provenance node resolved to its baseline anchor (design D6; ADR-0004).
     let compiled = compiled_router();
     let backend = FakeBackend::new();
     let planned = engine::plan_containers(&compiled.plan, &backend).unwrap();
@@ -125,7 +125,7 @@ fn dry_run_shows_container_plan_and_per_object_provenance() {
 fn a_refused_create_is_attributed_and_does_not_converge() {
     // A typed MC status refusal (0x6, SPAWN absent) flows to the typed attribution and
     // the run reports a discriminated permission gap — never a collapsed denial, never a
-    // convergence (design D4; the CLI exits non-zero on this outcome).
+    // convergence (design D4; ADR-0003; the CLI exits non-zero on this outcome).
     let compiled = compiled_router();
     let backend = FakeBackend::new().with_dprc_create_refusal(Error::McStatus { status: 0x6 });
     let outcome = engine::converge_containers(&compiled.plan, &backend, disruptive_cfg()).unwrap();

@@ -6,7 +6,7 @@
 //! [`Availability`] from the ADR-0003 safety matrix, the DPL-owned objects a plan
 //! must never claim (ADR-0001 §4), and one three-valued [`Ceiling`] per derived
 //! family (ADR-0011). `ensure` reads it from the board; tests and the model read it
-//! from change #2's reference snapshot. It carries no `serde` (design D10).
+//! from change #2's reference snapshot. It carries no `serde` (design D10; restool-baseline).
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -45,7 +45,7 @@ pub enum DpmacLinkType {
     Backplane,
 }
 
-/// Whether a dpmac may anchor a port (design D2; `types.qnt` `Availability`).
+/// Whether a dpmac may anchor a port (design D2; ADR-0002; `types.qnt` `Availability`).
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub enum Availability {
     /// Free to anchor a port.
@@ -58,7 +58,7 @@ pub enum Availability {
     Foreign(String),
 }
 
-/// One dpmac the board offers, by the attributes `dpmac info` reports (design D2;
+/// One dpmac the board offers, by the attributes `dpmac info` reports (design D2 (ADR-0002);
 /// `types.qnt` `DpmacOffer`).
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub struct DpmacOffer {
@@ -95,10 +95,10 @@ pub enum Ceiling {
     Unknown,
 }
 
-/// The hardware offer as data (design D2; `types.qnt` `Inventory`).
+/// The hardware offer as data (design D2; ADR-0002; `types.qnt` `Inventory`).
 ///
 /// Observed, never operator-written — an operator-written inventory would be a
-/// second source of truth the board contradicts (design D2, alternative rejected).
+/// second source of truth the board contradicts (design D2; ADR-0002, alternative rejected).
 #[derive(Clone, PartialEq, Eq, Debug, Default)]
 pub struct Inventory {
     /// Online CPUs of the kernel container: the kernel dataplane draws one dpio

@@ -1,6 +1,6 @@
 //! Backend-neutral domain model and pure reconciliation core for DPAA2 provisioning.
 //!
-//! This crate is the hexagon's centre (design D0): it defines the neutral topology
+//! This crate is the hexagon's centre (design D0; add-dpaa2-provisioning): it defines the neutral topology
 //! model, the southbound/northbound trait seams, and the pure
 //! [`reconcile`](plan::reconcile::reconcile) engine. It depends on neither a concrete MC
 //! backend nor a concrete config format, so the reconciler can be exhaustively

@@ -3,7 +3,7 @@
 //! backend.
 //!
 //! The logic lives in a library so it can be exercised against the in-memory fake
-//! backend with no hardware (design D10); the `dpaa2ctl` binary is a thin CLI over
+//! backend with no hardware (design D10; restool-baseline); the `dpaa2ctl` binary is a thin CLI over
 //! it.
 
 pub mod engine;

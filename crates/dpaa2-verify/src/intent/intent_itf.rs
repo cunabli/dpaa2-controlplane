@@ -1,29 +1,29 @@
 //! Reader and comparator for frozen intent-model ITF traces
 //! (`models/intent/traces/*.itf.json`, emitted by `models/intent/replay.qnt`).
 //!
-//! quint-connect evaluation (task 3.2, design D9): Informal's `quint-connect`
+//! quint-connect evaluation (task 3.2, design D9; ADR-0006): Informal's `quint-connect`
 //! MBT crate was weighed against this hand-rolled reader and NOT adopted. It is
 //! a *step-driver* framework — a `Driver::step(&mut self, &Step)` trait that
 //! walks a system-under-test through a model's transitions — whereas an intent
 //! trace is one state feeding a *pure* `compile`, so its paradigm does not fit;
 //! and it maps trace states with `serde::Deserialize`, which `dpaa2-api` refuses
-//! to carry (design D10), so adopting it would need serde mirror types in verify
+//! to carry (design D10; restool-baseline), so adopting it would need serde mirror types in verify
 //! plus ~7 new dependencies (quint-connect, -macros, itf, tempfile, colored,
 //! rand, similar) — code and deps ADDED, none retired. The few-dependencies
-//! tenet decides against it (design D9). The stepped-machine revisit trigger
+//! tenet decides against it (design D9; ADR-0006). The stepped-machine revisit trigger
 //! fired at task 6.7 — `edits.qnt` is a perturb/converge stepped machine and
 //! `tests/intent_edit_replay.rs` walks its frozen sweeps — and was re-judged
-//! for hand-rolled trace replay: the D10 no-serde stance and the ~7 added
+//! for hand-rolled trace replay: the D10 (restool-baseline) no-serde stance and the ~7 added
 //! dependencies decide it alone. Revisit if `dpaa2-api` ever gains serde.
 //!
-//! Structural comparison (design D9): the model is the oracle. Each trace's
+//! Structural comparison (design D9; ADR-0006): the model is the oracle. Each trace's
 //! frozen `intent`/`inv` are parsed into the Rust [`Intent`]/[`Inventory`] and
 //! re-compiled by the Rust [`compile`]; the frozen `outcome` is parsed into the
 //! same [`Outcome`] projection and the two are asserted equal — objects (key,
 //! container, attributes, provenance key), edges (both ends and provenance key),
 //! emission order, the provenance DAG, warnings, and (the refused arm) the
 //! refusal set. `PlannedObject`/`Edge` have no public constructor (witness-only,
-//! design D6), so both sides project to tuples of their *public* leaf types
+//! design D6; ADR-0004), so both sides project to tuples of their *public* leaf types
 //! ([`ObjectKey`], [`Container`], [`Attributes`], [`AttachPoint`], [`ProvenanceKey`], [`ProvenanceNode`]),
 //! which carry the derived equality this diff rides on.
 //!
@@ -166,7 +166,7 @@ pub(crate) fn opt_name<T: From<String>>(v: &Value) -> Result<Option<T>, String> 
     Ok(if s.is_empty() { None } else { Some(s.into()) })
 }
 
-/// The intent records' `from` slot — the model's `Rename` sum (`types.qnt`, design D2)
+/// The intent records' `from` slot — the model's `Rename` sum (`types.qnt`, design D2; ADR-0002)
 /// — as the neutral `renamed` field, which IS that two-case sum: `NotRenamed` ⇒ `None`,
 /// `RenamedFrom(name)` ⇒ `Some(name)`, the accepted rename clause the matcher consumes
 /// (ADR-0015 decision 10 / task 6.5). Decodes the sum by tag exactly as [`tenant_ref`]

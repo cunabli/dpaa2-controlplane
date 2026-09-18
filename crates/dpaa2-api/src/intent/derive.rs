@@ -10,7 +10,7 @@
 //!
 //! The plan is built *through* the witness constructors of [`crate::intent::compiled`]
 //! ([`Tenant::companion`], [`Tenant::dpni`], [`Tenant::dpseci`], [`Port::terminate`],
-//! [`Link::wire`], [`Fabric::dpsw`], [`Fabric::edge`], [`Fabric::wire`]), so the D6
+//! [`Link::wire`], [`Fabric::dpsw`], [`Fabric::edge`], [`Fabric::wire`]), so the D6 (ADR-0004)
 //! relationship locks hold on the compile path exactly as on a hand-built plan: a
 //! companion is drawn only through a tenant, a link end is a dpni never a dpmac, and
 //! a non-kernel tenant's object can never land in the root dprc.
@@ -48,7 +48,7 @@ const DPSW_DRAW_DPMCP: i64 = 1;
 const DPSECI_DRAW_DPBP: i64 = 0;
 const DPSECI_DRAW_DPMCP: i64 = 1;
 
-/// Workers a single port of the given rate class draws (design D3; `derive.qnt`
+/// Workers a single port of the given rate class draws (design D3 (ADR-0002); `derive.qnt`
 /// `WORKER_TABLE`/`workersPerPort`): 10G ⇒ 2 (the seed, decomposed from the verified
 /// `T = 5 = 1 + 2·2` configuration), 25G ⇒ 5 (declared linear-in-rate, unmeasured,
 /// signed off at gate close). A rate class absent here has no worker count, so its
@@ -63,7 +63,7 @@ pub(crate) fn workers_per_port(rate: i64) -> Option<i64> {
     }
 }
 
-/// `T = 1 main + Σ workers(rate)` over the ports the tenant terminates (design D3, the
+/// `T = 1 main + Σ workers(rate)` over the ports the tenant terminates (design D3 (ADR-0002), the
 /// explicit formula; `derive.qnt` `threadCount`). A portless tenant is main-only ⇒
 /// `Some(1)`; a port whose rate class has no worker row poisons the whole sum ⇒
 /// `None`, which `refuse.qnt` turns into `UnknownRateClass`.
@@ -86,7 +86,7 @@ fn u(n: i64) -> u32 {
     u32::try_from(n).unwrap_or(0)
 }
 
-// ---- fabric member helpers (design D6; DPAA2 UM §2.2.2 fig. 6) ----
+// ---- fabric member helpers (design D6; ADR-0004; DPAA2 UM §2.2.2 fig. 6) ----
 
 #[must_use]
 pub(crate) fn fabric_by_name<'a>(intent: &'a Intent, name: &ConstructName) -> Option<&'a Fabric> {
@@ -152,7 +152,7 @@ pub(crate) fn terminated_ports<'a>(intent: &'a Intent, name: &TenantName) -> Vec
 
 /// The distinct seeded rate classes a tenant's terminated ports span; a set larger
 /// than one is a cross-class mix the worker formula prices but flags as unmeasured
-/// (design D3; `derive.qnt` `seededRateClasses`).
+/// (design D3; ADR-0002; `derive.qnt` `seededRateClasses`).
 #[must_use]
 pub(crate) fn seeded_rate_classes(intent: &Intent, name: &TenantName) -> BTreeSet<i64> {
     terminated_ports(intent, name)
@@ -205,7 +205,7 @@ fn crypto_blocks_of<'a>(intent: &'a Intent, name: &TenantName) -> Vec<&'a Crypto
     intent.crypto.iter().filter(|k| &k.tenant == name).collect()
 }
 
-// ---- dpni origins (design D6; object-model.md §2; UM §2.2.2 fig. 6) ----
+// ---- dpni origins (design D6; ADR-0004; object-model.md §2; UM §2.2.2 fig. 6) ----
 
 /// Each dpni source a tenant terminates, in the concatenation order that fixes its
 /// ordinal (`derive.qnt` `Origin`/`originList`).
@@ -409,7 +409,7 @@ fn dpsw_ordinal_of(intent: &Intent, f: &Fabric) -> u32 {
         .map_or(0, |i| u32::try_from(i + 1).unwrap_or(0))
 }
 
-// ---- per-tenant sizing (design D3/D4/D5) ----
+// ---- per-tenant sizing (design D3/D4/D5; ADR-0002, ADR-0003) ----
 
 /// A derived count and the additive extra that raised it (`derive.qnt` `EffectiveDemand`).
 #[derive(Clone)]
@@ -430,7 +430,7 @@ fn extra_of(intent: &Intent, name: &TenantName, fam: Family) -> i64 {
         .sum()
 }
 
-/// The request/extra idiom (design D5; `derive.qnt` `effective`): a matching
+/// The request/extra idiom (design D5; ADR-0003; `derive.qnt` `effective`): a matching
 /// per-`(tenant, family)` extra adds its count to the request; else the request
 /// stands.
 fn effective(intent: &Intent, name: &TenantName, fam: Family, request: i64) -> EffectiveDemand {
@@ -567,7 +567,7 @@ fn link_names_kernel(intent: &Intent) -> bool {
 ///
 /// Bead 093.8 (vocabulary-v2 4b.2): the pure core materialises the kernel on the LINK
 /// trigger only. A port-only kernel reference — a [`TenantRef::Kernel`] port with no
-/// kernel link and no declared kernel — is accepted (D2 killed the `TenantAbsent`
+/// kernel link and no declared kernel — is accepted (D2 (ADR-0002) killed the `TenantAbsent`
 /// `"kernel"` wrinkle) but its kernel is materialised by the tools shell's
 /// `complete_kernel`, NOT here, so this pure derivation stays link-triggered and
 /// input-faithful. The model twin `derive.qnt` `effectiveTenants` carries the same split.
@@ -614,7 +614,7 @@ fn build_tenant(
     objects: &mut BTreeSet<PlannedObject>,
     order: &mut Vec<ObjectKey>,
 ) {
-    // A child DPRC for every tenant that owns one (design D6): an isolated tenant or
+    // A child DPRC for every tenant that owns one (design D6; ADR-0004): an isolated tenant or
     // a public holder; the reserved kernel and a restricted drawer own none.
     if !(s.is_root_kernel || s.is_restricted) {
         objects.insert(t.child_dprc());
@@ -656,7 +656,7 @@ fn dprtc_obj() -> PlannedObject {
     kernel_tenant(0).companion(Family::Dprtc, 1)
 }
 
-// ---- provenance nodes (design D6: value points at what it consumed) ----
+// ---- provenance nodes (design D6; ADR-0004: value points at what it consumed) ----
 
 fn provkeys(keys: &[(&str, &str, &str)]) -> BTreeSet<ProvenanceKey> {
     keys.iter()
@@ -1086,7 +1086,7 @@ fn build_edges(
 
 // ---- the derivation ----
 
-/// The pure derivation (design D3/D4/D6; `derive.qnt` `derive`): intent plus the
+/// The pure derivation (design D3/D4/D6; ADR-0002, ADR-0003, ADR-0004; `derive.qnt` `derive`): intent plus the
 /// observed offer become the complete [`CompiledPlan`]. Total by construction — safe
 /// to run on any intent, since [`crate::intent::refuse`] runs it for its feasibility count
 /// before the refusal set is known.

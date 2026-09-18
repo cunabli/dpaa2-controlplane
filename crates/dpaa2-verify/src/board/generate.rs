@@ -453,7 +453,7 @@ fn recovery_footer(id: &str) -> String {
 /// the same views after the operator's reboot and diff against the
 /// pre-state capture. A clean diff is what marks the recovery guarantee
 /// verified (the operator then commits the marker file); any difference
-/// stops the board program (design D7 step 1).
+/// stops the board program (design D7; ADR-0005 step 1).
 fn postboot_script(id: &str, absence: bool) -> String {
     let ref_pair = REF_PAIR_ASSERT;
     // A reboot-persistence suite additionally asserts every object the

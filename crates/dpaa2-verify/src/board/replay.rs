@@ -10,7 +10,7 @@
 //! and diffs the plan against what the model actually did next.
 //!
 //! The model-action ↔ plan-step mapping (the granularity decision of
-//! design D2, settled in `models/retro/reconciler.qnt`) lives in
+//! design D2; ADR-0002, settled in `models/retro/reconciler.qnt`) lives in
 //! `deltas`: one plan step is coarser than one machine action, and
 //! only reconciler-observable changes classify — dep-chain objects
 //! (dpio/dpmcp/dpbp/dpcon), plug flips, and bus rescans are sub-steps

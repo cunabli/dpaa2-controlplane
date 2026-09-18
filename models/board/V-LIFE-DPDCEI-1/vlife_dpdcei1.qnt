@@ -1,4 +1,4 @@
-// Scenario module for board suite V-LIFE-DPDCEI-1 (task 5.2; design D7
+// Scenario module for board suite V-LIFE-DPDCEI-1 (task 5.2; design D7 (ADR-0005)
 // step 2's "per-family lifecycle scenarios"): the dpdcei lifecycle face
 // — create in a scratch container, plugged, then destroyed
 // while plugged and the container after it. dpdcei has no kernel

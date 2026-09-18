@@ -1,7 +1,7 @@
 # Invariant coverage ledger
 
 One row per invariant candidate from the baseline family documents
-(`docs/baseline/*.md`). The ledger is the honesty mechanism (design D9
+(`docs/baseline/*.md`). The ledger is the honesty mechanism (design D9 (ADR-0006)
 of `openspec/changes/verify-foundation`): a candidate absent from the
 model corpus is a decision on record here, never an omission.
 
@@ -73,7 +73,7 @@ Tally: 55 modeled, 47 deferred, 7 board-settled, 0 board-pending — 109 candida
 | DPRC-I2 | modeled | `core/invariants.qnt` `DPRC_I2` (`unplugAt` now requires an unbound object) | apalache | verified (V-LINK-5: unplug of a bound netdev-backed dpni refused −EBUSY, not raced) |
 | DPRC-I3 | modeled | `main.qnt` `DPRC_I3Test` + `families/dprc.qnt` `dprc_lifecycle` `acceptedUnplugAndMoveOutTest` (the accepted resident-unplug and move-out arms, frozen for ITF-replay so the plugged-move inference is witnessed on both faces — dprc-hardening PASS2-F7) | simulate | verified 2026-08-29 (V-DPRC-6 rev 1, 4/4 + hook 3/3): the one-hop move of a *plugged* dpbp was refused by restool's own client guard (`cannot be moved because it is currently in plugged state` / `unplug it first`) before any MC command, and the dpbp stayed in its container — the move precondition holds; the refusal is the restool layer, and the MC-layer face stays unreachable through restool (as with the −EBUSY unplug) |
 | DPRC-I4 | modeled | `core/invariants.qnt` `DPRC_I4` (child default mask; the OBJ_CREATE bit modeled in `dprc_lifecycle` `Options` for completeness) | apalache | verified (prior work); the OBJ_CREATE_ALLOWED gate bites only on creates issued through a child's own portal, which restool never opens (dprc.md unknown-register #3), so that refusal face is a deferral row to `mc-portal-backend` (#10) |
-| DPRC-I5 | modeled | `core/connect.qnt` `canConnect` + `main.qnt` `DPNI_I9Test` + `families/dprc.qnt` `dprc_lifecycle` `connectWithTopologyTest`/`connectNoTopologyRefused0x4Test` (the restool-reachable TOPOLOGY_CHANGES gate face; the common-ancestor/unconnected face is a root-portal concern out of container scope, design D5) | simulate | — |
+| DPRC-I5 | modeled | `core/connect.qnt` `canConnect` + `main.qnt` `DPNI_I9Test` + `families/dprc.qnt` `dprc_lifecycle` `connectWithTopologyTest`/`connectNoTopologyRefused0x4Test` (the restool-reachable TOPOLOGY_CHANGES gate face; the common-ancestor/unconnected face is a root-portal concern out of container scope, design D5; ADR-0003) | simulate | — |
 | DPRC-I6 | modeled | `main.qnt` `DPRC_I6Test`, `DPRC_I6RescanRefusedTest` | simulate | verified 2026-08-29 (V-DPRC-5 rev 1, 3/3 + hook 4/4): a child-container dpci is absent from `/sys/bus/fsl-mc/devices` before and after `dprc sync` while `dprc show` lists it in the child — bus visibility reaches root residents only; the root-only bind half was already board-exercised (V-LIFE-DPNI-1 binds in dprc.1; V-DPNI-1's child-container dpni never bound); settled for runtime children 2026-08-29 (V-POOL-1 rev 2): restool refuses to plug a dprc, so a runtime-created child is never kernel-driven |
 | DPRC-I7 | modeled | `main.qnt` `DPRC_I7Test` + `families/dprc.qnt` `dprc_lifecycle` `DPRC_I7Test` (a Linux bus event over the no-op `busRemoveEvent` leaves the plugged, VFIO-bound container and its residents intact — removal is Linux-side only) | simulate | unbind half anchored 2026-09-13 (V-DPRC-8 rev 1, dprc-encapsulation task 5.2): censuses unmoved across the scratch child's vfio bind and unbind; the device_del face is unprobed |
 | DPRC-I8 | deferred | `pool-objects` (#6): V-POOL-1 — batch plug→probe ordering; the machine models no scan batching | — | open, no runtime observable through restool (V-POOL-1 rev 2, 2026-08-29): a restool-created child is unplugged and the tool refuses `--plugged` on a dprc, so its residents are never probed; needs a DPL-defined child or the raw command path (#10) → `pool-objects` (#6) |
@@ -183,7 +183,7 @@ Tally: 55 modeled, 47 deferred, 7 board-settled, 0 board-pending — 109 candida
 ## Intent invariants (task 5.1)
 
 These are the `intent-layer` change's own plan invariants
-(`models/intent/invariants.qnt`, ids INTENT_I1–I10), the laws design D6 — and,
+(`models/intent/invariants.qnt`, ids INTENT_I1–I10), the laws design D6 (ADR-0004) — and,
 for INTENT_I10, ADR-0015 decision 5 — make unrepresentable/checkable in Rust.
 Each row ties an invariant to the baseline and ADR anchors it derives from, the
 same honesty mechanism the candidate ledger above applies to the family
@@ -199,7 +199,7 @@ by the crate parcels that restore the cargo side.)
 | INTENT_I3 | companionsOnlyDerived | simulate | ADR-0012; design D6 |
 | INTENT_I4 | emissionOrderLawful | simulate | object-model.md §5; ADR-0012 |
 | INTENT_I5 | keysAreIdentities | simulate | ADR-0010 §4 |
-| INTENT_I6 | provenanceClosed | simulate | design D6 |
+| INTENT_I6 | provenanceClosed | simulate | design D6 (ADR-0004) |
 | INTENT_I7 | feasibleAgainstCeilings | simulate (apalache-marked, front-end heap wall — bead gqf.26) | ADR-0011; design D2 |
 | INTENT_I8 | companionCountsByRegime | simulate (apalache-marked, front-end heap wall — bead gqf.26) | ADR-0012 via companionDraw |
 | INTENT_I9 | isolatedContainerPrivate | simulate (apalache-marked, front-end heap wall — bead gqf.26) | design D6a; task 2.6c |
@@ -234,10 +234,10 @@ CryptoFlowsOverDevice fires (task 2.6e).
   2076, the three remaining pool/isolation refusals (PoolDataplaneMismatch 1299,
   PoolChain 1277, HolderNotPublic 1457 — the two illegal pool shapes
   `PoolWithoutRestricted`/`RestrictedWithoutPool` left the compile vocabulary in
-  D1, unrepresentable in `Isolation::Restricted { pool }`), TenantAbsent 593 (a
+  D1; restool-baseline, unrepresentable in `Isolation::Restricted { pool }`), TenantAbsent 593 (a
   Restricted tenant may name a pool holder never declared — referrer
-  `Pool(drawer)`, D3, reachable through `addTenant`), the parity refusal
-  LinkSelfLoop 979 (equal `addLink` ends, D4), and the UnknownCeiling warning
+  `Pool(drawer)`, D3; ADR-0002, reachable through `addTenant`), the parity refusal
+  LinkSelfLoop 979 (equal `addLink` ends, D4; ADR-0003), and the UnknownCeiling warning
   3000; Accepted 3000, Refused 2999.
 - **Structure dimensions reached** (traces of 3000): `wPublicTenant` 3000,
   `wCryptoPresent` 2869, `wExtraPresent` 2848, `wFabricPresent` 2803,
@@ -248,7 +248,7 @@ CryptoFlowsOverDevice fires (task 2.6e).
   (`intent/main.qnt`, `invWithForeignDpmac7`); `Infeasible` — intents this
   small never sum past a REF_INVENTORY ceiling, covered by the vfabric
   overdrawn-pool twin (`scenarios/vfabric.qnt` `twinInfeasibleTest`,
-  `Counted(5)`) and `infeasibleTest`; the two D4 parity twins `RenameDoubleClaim`
+  `Counted(5)`) and `infeasibleTest`; the two D4 (ADR-0003) parity twins `RenameDoubleClaim`
   and `KernelDeclared` — the alphabet draws no `renamed = { from }` clause and
   seeds only the reserved kernel (whose exact value is exempt), so neither
   fires here; covered by the directed `renameDoubleClaimTest` and
@@ -291,7 +291,7 @@ reverse, fails the harness (`models/intent/raw_replay.qnt` freezes the corpus,
 Every near-miss the dirty alphabet reaches (seed 20260905, 10 steps, 2000
 samples, re-run for the vocabulary-v2 raw-layer changes — task 5.1):
 `wReservedKernel` 1583, `wRawLinkSelfLoop` 492 (the raw `RawLinkSelfLoop`,
-Raw-prefixed since compile now owns a `LinkSelfLoop`, D4), `wRawMemberUnresolved`
+Raw-prefixed since compile now owns a `LinkSelfLoop`, D4; ADR-0003), `wRawMemberUnresolved`
 1170, `wUnknownExtraFamily` 840, `wTenantAbsent` 1984, `wPoolWithoutRestricted`
 812, `wRestrictedWithoutPool` 424, `wNonPositiveExtra` 1189, `wNonPositiveRate`
 1384, `wRenamedFromDeclared` 97; `wRawAccepted`/`wRawRefused` both 2000. No law

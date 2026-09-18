@@ -1,4 +1,4 @@
-// Scenario module for board suite V-LIFE-DPSECI-1 (task 5.2; design D7
+// Scenario module for board suite V-LIFE-DPSECI-1 (task 5.2; design D7 (ADR-0005)
 // step 2's "per-family lifecycle scenarios"): the §5 canonical forward
 // order for a dpseci — its census companion (1 dpmcp, dpseci.qnt draw)
 // created and plugged in the Linux root, bus rescan, then the kernel's

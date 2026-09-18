@@ -1,4 +1,4 @@
-//! Snapshot tests over the pure render functions (design D9). Inputs are built
+//! Snapshot tests over the pure render functions (design D9; ADR-0006). Inputs are built
 //! through the public API — a hand-built [`Intent`] and [`Inventory`] compiled by
 //! [`compile`] — so the frozen text is the operator's real dry-run, board-free.
 
@@ -151,7 +151,7 @@ fn dry_run_crypto_and_warning() {
 }
 
 /// A port anchored on a Reserved dpmac: the compile is refused, and the text names
-/// every broken rule with its offending construct (design D5/D10).
+/// every broken rule with its offending construct (design D5/D10; ADR-0003, restool-baseline).
 #[test]
 fn refusal_reserved_anchor() {
     let intent = Intent {

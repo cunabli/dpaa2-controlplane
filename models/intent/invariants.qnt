@@ -1,7 +1,7 @@
-// The plan relationships design D6 wants unrepresentable in Rust, first
+// The plan relationships design D6 (ADR-0004) wants unrepresentable in Rust, first
 // stated here as named predicates over the derived `Plan` (openspec change
 // `intent-layer`, design D6; spec.md "Plan relationships are unrepresentable
-// if wrong"). D6 locks edges, resource-container (dprc) memberships, companions, emission
+// if wrong"). D6 (ADR-0004) locks edges, resource-container (dprc) memberships, companions, emission
 // order, key identity, and provenance closure by construction; the Rust type
 // surface (task 3.1) transcribes what these predicates prove, so a
 // free-standing companion, a dpmac at a pseudo-wire end, a double-connected
@@ -191,7 +191,7 @@ module intent_invariants {
   }
 
   // ---- provenanceClosed (INTENT_I6): provenance is closed ----
-  // design D6 (the tree reaches the construct and the anchor). Every provenance
+  // design D6 (ADR-0004) (the tree reaches the construct and the anchor). Every provenance
   // reference resolves, every node carries an anchor, and the only rule that
   // may be Unmeasured today is "T"; a second unmeasured rule must be declared
   // in this predicate before it can appear in a plan. The Rust provenance

@@ -72,7 +72,7 @@ impl KernelControl for SysfsKernel {
     // Pure sysfs mechanics on the fsl-mc bus: the DPRC's own `driver_override`, the
     // `vfio-fsl-mc` driver's `bind`/`unbind`, and read-back of the `driver` and
     // `iommu_group` links. The driver-name sentinel is `dprc::VFIO_FSL_MC_DRIVER`, read
-    // from the core so the adapter never spells its own copy (design D5). Observations
+    // from the core so the adapter never spells its own copy (design D5; ADR-0003). Observations
     // report raw sysfs facts; the core judges them (`dprc::VfioBind::classify`). No
     // method touches the MC object or a lifecycle phase — a bus event is not an MC
     // transition (DPRC-I7).

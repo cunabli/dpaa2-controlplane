@@ -22,13 +22,13 @@ pub trait KernelControl {
     // ---- child-DPRC VFIO binding (dprc-encapsulation, task 3.2) ----
     //
     // The `vfio-fsl-mc` bind path for a child DPRC (`docs/baseline/dprc.md`
-    // "Kernel-defined semantics"; design D3/D6). The driver has no match table, so
+    // "Kernel-defined semantics"; design D3/D6; ADR-0002, ADR-0004). The driver has no match table, so
     // binding is `driver_override` write + `bind`; unbind + a cleared override restore
     // `fsl_mc_dprc` eligibility. This face OBSERVES and ACTUATES the kernel bus; it
     // never advances the [`dprc::Container`](crate::families::dprc::Container) lifecycle phase — a
     // Linux bus event maps to no MC transition (DPRC-I7), and the plugged-face
     // [`dprc::VfioBind`] the model carries is derived from these observations by the
-    // core, not written by the adapter (adapters report, never judge — design D4/D5).
+    // core, not written by the adapter (adapters report, never judge — design D4/D5; ADR-0003).
     // The observation verbs report raw sysfs facts (bound-driver name, override value,
     // IOMMU-group id); [`dprc::VfioBind::classify`](crate::families::dprc::VfioBind::classify)
     // does the judging.
@@ -63,7 +63,7 @@ pub trait KernelControl {
     /// Observes the child DPRC's bound driver name — what the sysfs `driver` link
     /// reports, or `None` when it has no driver. A raw report: the caller maps it to a
     /// bind state with [`dprc::VfioBind::classify`](crate::families::dprc::VfioBind::classify)
-    /// (adapters report, never judge — design D5).
+    /// (adapters report, never judge — design D5; ADR-0003).
     ///
     /// # Errors
     /// Returns an error only if the kernel state cannot be read at all.

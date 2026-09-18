@@ -34,7 +34,7 @@ module dprc {
 // Authored model-first; sums/payloads/phases are what the Rust encoding must
 // mirror, names converging on readable English both sides.
 //
-// The phase sum (design D3):
+// The phase sum (design D3; ADR-0002):
 //   Declared -> Created -> Populated -> Plugged | Locked -> Emptied -> Destroyed
 // with the kernel-side VFIO bind state carried ONLY on the Plugged face — a
 // DPRC's plugged state is not restool-mutable (dprc.md "Lifecycle ordering",
@@ -43,7 +43,7 @@ module dprc {
 //
 // Guarded transitions carry the board-settled containment laws, each anchored:
 //   - Permission matrix (dprc.md unknown-register #3, V-DPRC-2/6): three
-//     DISTINCT refusal statuses, never one generic denial (design D4). Each
+//     DISTINCT refusal statuses, never one generic denial (design D4; ADR-0003). Each
 //     option bit maps to its own refusal — SPAWN absent => SpawnViolation
 //     (0x6, Configuration error), ALLOC absent => AllocViolation (0x8, No
 //     resources), TOPOLOGY_CHANGES absent / a lock / a plugged-move =>
@@ -117,7 +117,7 @@ module dprc_lifecycle {
     | Unbound
     | BoundVfioFslMc
 
-  // The container lifecycle phase (design D3).
+  // The container lifecycle phase (design D3; ADR-0002).
   type ContainerState =
     | Declared            // intent exists; no MC object yet
     | Created             // dprc_create done; empty; unplugged
@@ -163,7 +163,7 @@ module dprc_lifecycle {
     | Refused(Refusal)
 
   // MC status codes (0x4/0x6/0x8 == decimal 4/6/8): a reconciler must read
-  // three distinct values, never collapse them to one denial (design D4).
+  // three distinct values, never collapse them to one denial (design D4; ADR-0003).
   pure def mcStatus(o: Outcome): int =
     match o {
       | Accepted => 0
@@ -309,7 +309,7 @@ module dprc_lifecycle {
 
   // Spawn a grandchild container. SPAWN_ALLOWED absent => SpawnViolation (0x6);
   // under lock the create class is stripped => TopologyLockGate (0x4). The
-  // grandchild itself is elided (design D5, container-only population).
+  // grandchild itself is elided (design D5; ADR-0003, container-only population).
   action spawnGrandchild: bool = all {
     unpluggedFace(world.child) or isLocked(world.child),
     if (isLocked(world.child))

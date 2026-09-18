@@ -30,6 +30,9 @@ if [ -d openspec/changes ]; then
     [ -d "$d" ] || continue
     b=$(basename "$d")
     [ "$b" = "archive" ] && continue
+    # Strip the YYYY-MM-DD- prefix so the durable, undated spec name is the
+    # recognized anchor; dated references still match it as a substring.
+    b=$(printf '%s' "$b" | sed -E 's/^[0-9]{4}-[0-9]{2}-[0-9]{2}-//')
     slugs="$slugs|$b"
   done
 else

@@ -1,11 +1,11 @@
 // Retro-model of the reconciler's dpni↔dpmac association flow (task
-// 3.1, design D2): the one flow already encoded and board-validated in
+// 3.1, design D2; ADR-0002): the one flow already encoded and board-validated in
 // Rust (ADR-0001, crates/dpaa2-api reconcile.rs + crates/dpaa2-mc
 // restool.rs), rendered as directed runs over the core machine — no new
 // actions, no family fork. The reconciler is a modeling subject, read
 // only.
 //
-// Granularity (the D2 risk, settled here): one reconciler plan step is
+// Granularity (the D2; ADR-0002 risk, settled here): one reconciler plan step is
 // COARSER than one machine action. The expansion mirrors RestoolMc:
 //
 //   Create{port}   = ensure_dpio (dpio + its dpmcp, plugged) +

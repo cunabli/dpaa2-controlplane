@@ -5,7 +5,7 @@
 //! are modelled: the operator's [`DesiredTopology`] (intent) and the
 //! [`ObservedTopology`] read back from the Management Complex every pass.
 //!
-//! Identity is anchored on the stable **DPMAC** (design D1): the operator keys a
+//! Identity is anchored on the stable **DPMAC** (design D1; restool-baseline): the operator keys a
 //! port by `dpmac.N`, and a managed DPNI's identity is derived from its connection
 //! edge to that DPMAC, never from its MC-assigned index.
 
@@ -307,7 +307,7 @@ pub enum LinkType {
     Fixed,
 }
 
-/// How a port's MAC address is treated (design D9, config spec).
+/// How a port's MAC address is treated (design D9; ADR-0006, config spec).
 ///
 /// `Ord`/`Hash` are derived so this rides on the fully-ordered, hashable
 /// [`crate::intent::Port`] (task 3.3); the ordering is incidental, never semantic.
@@ -320,9 +320,9 @@ pub enum MacMode {
     Actuate,
 }
 
-/// Whether the operator wants this port present or torn down (design D7).
+/// Whether the operator wants this port present or torn down (design D7; ADR-0005).
 ///
-/// A [`DesiredPort`] the compile path builds (design D10:
+/// A [`DesiredPort`] the compile path builds (design D10 (restool-baseline):
 /// `topology.toml → Intent → compile → DesiredTopology → reconcile`) is
 /// [`Presence::Present`]. [`Presence::Absent`] combined with `--prune` opts a port
 /// into teardown; without prune, a removed port is left in place.
@@ -356,8 +356,8 @@ pub struct DesiredPort {
     /// Required create-time-only attributes, keyed by attribute name.
     ///
     /// A mismatch against the live object is reported as drift and refused rather
-    /// than repaired by destroy-and-recreate (design D8). The compile path (design
-    /// D10) leaves this empty today; the machinery is exercised directly against the
+    /// than repaired by destroy-and-recreate (design D8; restool-baseline). The compile path (design
+    /// D10; restool-baseline) leaves this empty today; the machinery is exercised directly against the
     /// neutral model.
     pub immutable: BTreeMap<String, String>,
 }
@@ -378,9 +378,9 @@ impl DesiredPort {
 }
 
 /// The reconciler's input: the compiled object plan plus the port-family
-/// actuation projection that `reconcile` drives (design D10).
+/// actuation projection that `reconcile` drives (design D10; restool-baseline).
 ///
-/// This is the reshaped desired value the compiler produces (design D6): a
+/// This is the reshaped desired value the compiler produces (design D6; ADR-0004): a
 /// [`CompiledPlan`] of objects keyed `(tenant, family, ordinal)`, edges, emission
 /// order and provenance. `reconcile` executes the one family it has an executor for
 /// — the dpni↔dpmac port subset — and (from task 3.6) reports the rest as
@@ -394,7 +394,7 @@ impl DesiredPort {
 /// It carries no serialization derives (config spec); the northbound
 /// [`crate::contract::ConfigSource`] parses into it. The plan's witness-taking constructors
 /// are public, so a library user builds one programmatically without an
-/// [`crate::intent::Intent`] and reconciles it (design D11).
+/// [`crate::intent::Intent`] and reconciles it (design D11; restool-baseline).
 #[derive(Clone, PartialEq, Eq, Debug, Default)]
 pub struct DesiredTopology {
     plan: CompiledPlan,
@@ -402,7 +402,7 @@ pub struct DesiredTopology {
 }
 
 /// Refusal from [`DesiredTopology::from_parts`] when the plan facet and the port
-/// projection disagree — the pairing would let the two facets drift (design D11).
+/// projection disagree — the pairing would let the two facets drift (design D11; restool-baseline).
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum FacetMismatch {
     /// A [`DesiredPort`] whose dpmac has no dpni↔dpmac port-edge in the plan.
@@ -423,7 +423,7 @@ impl DesiredTopology {
     /// Builds a desired topology from an iterator of ports.
     ///
     /// A port-only file defaults every port to the kernel tenant in root (design
-    /// D10): each port terminates a kernel dpni whose dpni↔dpmac edge is emitted
+    /// D10; restool-baseline): each port terminates a kernel dpni whose dpni↔dpmac edge is emitted
     /// through the [`crate::intent::Port`] witness path, so the plan facet is built,
     /// not fabricated.
     #[must_use]
@@ -436,7 +436,7 @@ impl DesiredTopology {
     }
 
     /// Builds a desired topology from an already-compiled plan and its port-family
-    /// actuation projection (design D11): the seam a compiler or a library user
+    /// actuation projection (design D11; restool-baseline): the seam a compiler or a library user
     /// fills through the plan's witness constructors.
     ///
     /// The two facets must agree, so this constructor is fallible where
@@ -466,7 +466,7 @@ impl DesiredTopology {
     }
 
     /// Appends a port, extending the plan facet with the kernel dpni and port-edge
-    /// it terminates (design D10; the port-only projection).
+    /// it terminates (design D10; restool-baseline; the port-only projection).
     pub fn push(&mut self, port: DesiredPort) {
         let ordinal = u32::try_from(self.ports.len() + 1).unwrap_or(u32::MAX);
         // ponytail: num_queues 0 in the port-only projection — the unsized marker the
@@ -486,7 +486,7 @@ impl DesiredTopology {
         &self.ports
     }
 
-    /// The compiled object plan (design D6): objects, edges, order, provenance.
+    /// The compiled object plan (design D6; ADR-0004): objects, edges, order, provenance.
     #[must_use]
     pub fn plan(&self) -> &CompiledPlan {
         &self.plan
@@ -541,14 +541,14 @@ pub struct ObservedDpmac {
     pub id: DpmacId,
     /// The DPMAC's physical link type.
     pub link_type: LinkType,
-    /// The DPMAC's burned-in MAC, readable ahead of provisioning (design D3).
+    /// The DPMAC's burned-in MAC, readable ahead of provisioning (design D3; ADR-0002).
     pub mac: Option<MacAddr>,
 }
 
 /// The state of the MC as read back in a single observation pass.
 ///
 /// Treated as authoritative every pass; nothing here is persisted between runs
-/// (design D2, level-triggered).
+/// (design D2; ADR-0002, level-triggered).
 #[derive(Clone, PartialEq, Eq, Debug, Default)]
 pub struct ObservedTopology {
     /// All DPNI objects the observation surfaced.

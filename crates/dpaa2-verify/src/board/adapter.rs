@@ -36,7 +36,7 @@ use serde_json::Value;
 /// The domain type is [`dpaa2_api::core::family::Family`], not a sibling copy: one Rust
 /// transcription of `models/core/types.qnt`, tied to the model by `intent_lint`
 /// R14 (ADR-0014; `models/intent/types.qnt` `Family`). This adapter keeps only the ITF/serde plumbing
-/// that stays local because `dpaa2-api` carries no serde (design D10): the
+/// that stays local because `dpaa2-api` carries no serde (design D10; restool-baseline): the
 /// variant-name serde (`family_serde`), the ITF-tag and restool-name parsers
 /// (`family_from_tag`, `family_from_str`).
 pub use dpaa2_api::core::family::Family;
@@ -65,7 +65,7 @@ fn family_from_str(s: &str) -> Result<Family, String> {
 
 /// serde for the foreign [`Family`] via its [`Family::variant_name`] string
 /// (`"Dprc"`) — the form the batch plan/snapshot files already carry. Lives here
-/// rather than on the type: `dpaa2-api` stays serde-free (design D10), and
+/// rather than on the type: `dpaa2-api` stays serde-free (design D10; restool-baseline), and
 /// `Serialize`/`Deserialize` for a foreign type is an orphan-rule violation, so
 /// the field opts in with `#[serde(with = "family_serde")]` and [`CreateArgs`]
 /// maps its keys through [`family_from_variant`].
@@ -620,7 +620,7 @@ fn create_args(fam: Family) -> &'static [&'static str] {
 /// renders the map key as the `"Dpio"` form the plan already uses for `created`,
 /// so keying by the value stays the smaller of the two. serde is hand-written
 /// (via `family_serde`) because the foreign [`Family`] carries none of its own
-/// (design D10); a transparent map with the key mapped through
+/// (design D10; restool-baseline); a transparent map with the key mapped through
 /// `family_from_variant` reproduces the committed on-disk form byte for byte.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct CreateArgs(BTreeMap<Family, Vec<String>>);
