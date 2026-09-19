@@ -249,13 +249,20 @@ impl DpniOpt {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum RawEscape {
     /// `0x80000000` `PFDR_IN_PEB` — deployed on the PMD profile [verified in use],
-    /// unnamed in any MC 10.39 header (unknown-register #10).
+    /// unnamed in any MC 10.39 header (unknown-register #10). Persists bit-exact on
+    /// read-back (V-DPNI-5, 2026-09-19).
     PfdrInPeb,
+    /// `0x4000` `HAS_REPLICATION` — rides restool's `strtoull` map the same way but is
+    /// absent from the MC 10.39 headers, so the MC silently clears it on create
+    /// (V-DPNI-9 rev 2, 2026-09-19; `docs/baseline/dpni.md`). Carried as an escape, not
+    /// `DpniOpt` vocabulary, so a create can request it and the observation
+    /// ([`DpniObservation::project`], model `clearMcBits`) predicts its erasure.
+    HasReplication,
 }
 
 /// The [`RawEscape`] variant names, in declaration order — the Rust copy of the
 /// `dpni.qnt` `type RawEscape` cases (ADR-0014, tied by [`RawEscape::name`]).
-pub const RAW_ESCAPE_VARIANTS: [&str; 1] = ["PfdrInPeb"];
+pub const RAW_ESCAPE_VARIANTS: [&str; 2] = ["PfdrInPeb", "HasReplication"];
 
 impl RawEscape {
     /// This variant's name, the token [`RAW_ESCAPE_VARIANTS`] lists (ADR-0014).
@@ -263,15 +270,17 @@ impl RawEscape {
     pub const fn name(self) -> &'static str {
         match self {
             Self::PfdrInPeb => "PfdrInPeb",
+            Self::HasReplication => "HasReplication",
         }
     }
 
     /// The raw mask bit this escape carries (`dpni.qnt` `rawValue`): `0x80000000` for
-    /// `PFDR_IN_PEB`.
+    /// `PFDR_IN_PEB`, `0x4000` for `HAS_REPLICATION`.
     #[must_use]
     pub const fn raw_value(self) -> u32 {
         match self {
             Self::PfdrInPeb => 0x8000_0000,
+            Self::HasReplication => 0x4000,
         }
     }
 }
@@ -333,6 +342,18 @@ impl OptionMask {
     #[must_use]
     pub fn contains_escape(&self, escape: RawEscape) -> bool {
         self.escapes.contains(&escape)
+    }
+
+    /// This mask with the bits the MC silently clears on a bare create removed —
+    /// `SHARED_CONGESTION` and the raw `0x4000` `HAS_REPLICATION` (`dpni.qnt`
+    /// `clearMcBits`/`MC_CLEARED_FLAGS`; board-verified V-DPNI-7/9 rev 2, 2026-09-19).
+    /// Only the observation projection strips bits; a create block keeps the request
+    /// verbatim, so this stays internal to the family and no path admits an unnamed bit.
+    fn without_mc_cleared_bits(&self) -> Self {
+        let mut m = self.clone();
+        m.flags.remove(&DpniOpt::SharedCongestion);
+        m.escapes.remove(&RawEscape::HasReplication);
+        m
     }
 }
 
@@ -799,7 +820,9 @@ impl From<DeadOptionRefusal> for Error {
 
 // ---- the observation projection: dist_key_size excluded by construct (dpni-typestate design D4) ----
 
-/// The dpni observation surface — the Rust twin of the `dpni.qnt` `type Observation`.
+/// The dpni observation surface — the Rust twin of the `dpni.qnt` `type Observation`,
+/// and what [`project`](Self::project) predicts the board reads back (board-verified
+/// V-DPNI-5/7/8/9, 2026-09-19; `docs/baseline/dpni.md`).
 ///
 /// `dpni_attr` omits `dist_key_size`, so it can never be read back and is write-only
 /// (`docs/baseline/dpni.md` "Attribute mutability", DPNI-I12; dpni-typestate design D4).
@@ -839,23 +862,48 @@ pub struct DpniObservation {
 }
 
 impl DpniObservation {
-    /// Projects a create block to its observable surface — the Rust twin of the
-    /// `dpni.qnt` `observe`: it drops write-only `dist_key_size` and the container
-    /// placement (dpni-typestate design D4), so two blocks differing only in those fields
-    /// project equal and cannot drift.
+    /// Projects a create block to the board read-back it predicts — the Rust twin of the
+    /// `dpni.qnt` `observe` (board-verified V-DPNI-5/7/8/9, 2026-09-19;
+    /// `docs/baseline/dpni.md`). It is not an echo of the request: the MC-cleared bits are
+    /// stripped (`McClearedFlags`, V-DPNI-7/9), `num_cgs` is honored only under `CUSTOM_CG`
+    /// and otherwise reads back the forced 1 (`SizingCoupledToFlags`, V-DPNI-8), and
+    /// `num_opr` reads back 0 without `HAS_OPR`, else the requested value or the MC default
+    /// fill 8 when the request is unset (V-DPNI-5). Modelling the read-back — not the
+    /// request — is what keeps a bare create from looking like permanent drift.
+    ///
+    /// It also drops write-only `dist_key_size` and the container placement
+    /// (dpni-typestate design D4), so two blocks differing only in those fields project
+    /// equal and cannot drift.
+    ///
+    /// # Panics
+    /// Never in practice: the forced read-back literals `1` and `8` are inside every
+    /// board-verified create envelope, so their range constructors cannot fail.
     #[must_use]
     pub fn project(cfg: &DpniCfg) -> Self {
+        let ok = "1 and 8 are inside every board-verified create envelope";
         Self {
-            options: cfg.options.clone(),
+            options: cfg.options.without_mc_cleared_bits(),
             num_queues: cfg.num_queues,
             num_tcs: cfg.num_tcs,
             mac_filter_entries: cfg.mac_filter_entries,
             vlan_filter_entries: cfg.vlan_filter_entries,
             qos_entries: cfg.qos_entries,
             fs_entries: cfg.fs_entries,
-            num_cgs: cfg.num_cgs,
+            num_cgs: if cfg.options.contains(DpniOpt::CustomCg) {
+                cfg.num_cgs
+            } else {
+                NumCgs::new(1).expect(ok)
+            },
             num_ceetm_ch: cfg.num_ceetm_ch,
-            num_opr: cfg.num_opr,
+            num_opr: if cfg.options.contains(DpniOpt::HasOpr) {
+                if cfg.num_opr == NumOpr::DEFAULT {
+                    NumOpr::new(8).expect(ok)
+                } else {
+                    cfg.num_opr
+                }
+            } else {
+                NumOpr::DEFAULT
+            },
         }
     }
 }
@@ -934,11 +982,14 @@ mod tests {
 
     #[test]
     fn raw_escape_variants_and_value() {
-        // dpni.qnt `type RawEscape` / `rawValue`: one escape, value 0x80000000.
+        // dpni.qnt `type RawEscape`/`rawValue`: PFDR_IN_PEB 0x80000000 persists, HAS_REPLICATION 0x4000 MC-cleared (V-DPNI-9).
         assert!(RAW_ESCAPE_VARIANTS.contains(&RawEscape::PfdrInPeb.name()));
-        assert_eq!(RAW_ESCAPE_VARIANTS, ["PfdrInPeb"]);
+        assert!(RAW_ESCAPE_VARIANTS.contains(&RawEscape::HasReplication.name()));
+        assert_eq!(RAW_ESCAPE_VARIANTS, ["PfdrInPeb", "HasReplication"]);
         assert_eq!(RawEscape::PfdrInPeb.raw_value(), 0x8000_0000);
         assert_eq!(RawEscape::PfdrInPeb.raw_value(), 2_147_483_648);
+        assert_eq!(RawEscape::HasReplication.raw_value(), 0x4000);
+        assert_eq!(RawEscape::HasReplication.raw_value(), 16_384);
     }
 
     // ---- the two board-verified profiles (dpni.qnt profiles / deriveProfile) ----
@@ -1222,9 +1273,16 @@ mod tests {
         drifts!(|c| c.vlan_filter_entries = VlanFilterEntries::new(1).unwrap());
         drifts!(|c| c.qos_entries = QosEntries::new(1).unwrap());
         drifts!(|c| c.fs_entries = FsEntries::new(1).unwrap());
-        drifts!(|c| c.num_cgs = NumCgs::new(1).unwrap());
+        // SizingCoupledToFlags (dpni.qnt; V-DPNI-8): num_cgs/num_opr drift only under their coupling flag, else project to the MC-forced value.
+        drifts!(|c| {
+            c.options = OptionMask::empty().with_flag(DpniOpt::CustomCg);
+            c.num_cgs = NumCgs::new(24).unwrap();
+        });
         drifts!(|c| c.num_ceetm_ch = NumCeetmCh::new(1).unwrap());
-        drifts!(|c| c.num_opr = NumOpr::new(1).unwrap());
+        drifts!(|c| {
+            c.options = OptionMask::empty().with_flag(DpniOpt::HasOpr);
+            c.num_opr = NumOpr::new(1).unwrap();
+        });
     }
 
     #[test]
@@ -1241,6 +1299,52 @@ mod tests {
         assert_eq!(
             drift_disposition(&cfg, MacAddr::ZERO, &observed, MacAddr::ZERO),
             DpniDisposition::Converged
+        );
+    }
+
+    #[test]
+    fn project_is_the_read_back_twin_over_both_profiles() {
+        // dpni.qnt `observe` (V-DPNI-5/7/8/9): the projection predicts the read-back, not the request.
+        let pmd = Profile::Pmd.cfg();
+        let obs = DpniObservation::project(&pmd);
+        assert_eq!(
+            obs.options, pmd.options,
+            "no cleared bit present, options pass"
+        );
+        assert_eq!(
+            obs.num_cgs.get(),
+            24,
+            "CUSTOM_CG honors the requested num_cgs"
+        );
+        assert_eq!(
+            obs.num_opr.get(),
+            8,
+            "HAS_OPR fills the MC default 8 for an unset num_opr"
+        );
+
+        let kernel = Profile::Kernel.cfg();
+        let obs = DpniObservation::project(&kernel);
+        assert_eq!(obs.options, kernel.options);
+        assert_eq!(
+            obs.num_cgs.get(),
+            1,
+            "no CUSTOM_CG ⇒ the MC forces num_cgs 1"
+        );
+        assert_eq!(obs.num_opr.get(), 0, "no HAS_OPR ⇒ num_opr observes 0");
+    }
+
+    #[test]
+    fn project_strips_the_mc_cleared_bits() {
+        // dpni.qnt `McClearedFlags` (V-DPNI-7/9): observation is invariant under SHARED_CONGESTION and raw 0x4000 HAS_REPLICATION.
+        let base = DpniCfg::defaults();
+        let mut with_cleared = base.clone();
+        with_cleared.options = OptionMask::empty()
+            .with_flag(DpniOpt::SharedCongestion)
+            .with_escape(RawEscape::HasReplication);
+        assert_eq!(
+            DpniObservation::project(&with_cleared),
+            DpniObservation::project(&base),
+            "the MC-cleared bits must not ride the observation"
         );
     }
 
