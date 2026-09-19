@@ -201,6 +201,34 @@ finishing. On the live bare boot that step is vacuous, since the boot
 pair the reference capture shows is a provisioned-moment artifact and
 no such edge exists to restore (reference-environment.md).
 
+## dpni option-walk suites (generated, awaiting the sitting)
+
+The `dpni-typestate` change (task 5.1, bead dpaa2-controlplane-guu.7)
+renders six dpni suites that probe the create-option surface the family
+model now types (`models/families/dpni.qnt`); they are generated,
+envelope-clear and offline-gated here, and run at the task-5.2
+learning-mode sitting (dpni-typestate design D7). They carry no ledger
+row or verdict until then — an unrun suite settles nothing. Each is
+scratch-first and self-cleaning, asserts the reference pair, and takes
+read-back as its only observation. The option masks and sizes ride the
+generator's `--create-args` (options are not a lifecycle attribute the
+object machine tracks); the `dpni info` attribute read-back is a suite
+hook, the V-READBACK-1 shape, because the adapter's observation surface
+is present/plugged/endpoint/driver-bound only.
+
+| dpni suite | Probes |
+|---|---|
+| V-DPNI-5 | the PMD option profile created and read back at full granularity (SINGLE_SENDER, CUSTOM_CG, HAS_KEY_MASKING, HAS_OPR, OPR_PER_TC, 0x80000000; 16q/16tc; num_cgs 24) |
+| V-DPNI-6 | the kernel option profile created and read back (HAS_KEY_MASKING only; 1q/1tc) |
+| V-DPNI-7 | the unread option flags TX_FRM_RELEASE, HAS_POLICING, SHARED_CONGESTION created and observed (dpni.md unknown-register #6) |
+| V-DPNI-8 | the sizing-field bracket walks over num_cgs, num_opr and the write-only dist_key_size, read-back only (dpni.md unknown-register #3; DPNI-I12) |
+| V-DPNI-9 | the HAS_REPLICATION 0x4000 accept/reject probe — the MC's answer is recorded either way and the run is not failed by a refusal (dpni.md unknown-register #8; mbt-harness "A probe refusal is an answer") |
+| V-DPNI-10 | the primary-MAC mutation — the one runtime setter restool drives — set and read back (dpni-typestate design D1) |
+
+V-DPNI-4 is not one of these: the suite ledger's deferral table reserves
+it for the raw-command probe that needs the `/dev/dprc.N` transport
+(mc-portal-backend, #10), so this series continues at V-DPNI-5.
+
 ## Regenerating
 
 Each module's header records its freeze command. Then:

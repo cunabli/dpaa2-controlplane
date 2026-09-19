@@ -42,7 +42,7 @@ shim, verify, board, close-out. One bead at a time through acceptance.
 
 ## 5. Verify and board
 
-- [ ] 5.1 `dpaa2-verify`: frozen-trace MBT twins for the dpni model;
+- [x] 5.1 `dpaa2-verify`: frozen-trace MBT twins for the dpni model;
   batch-suite generation for the option-profile walks, sizing-field
   probes (#3), `HAS_REPLICATION` accept/reject (#8), unread-flag probes
   (#6), primary-MAC mutation — scratch-first, self-cleaning, reference
