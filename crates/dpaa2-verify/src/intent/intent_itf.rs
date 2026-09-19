@@ -46,6 +46,10 @@ use dpaa2_api::core::inventory::{
 };
 use dpaa2_api::core::model::{DpmacId, MacMode};
 use dpaa2_api::core::types::{ConstructName, TenantName};
+use dpaa2_api::families::dpni::{
+    DistKeySize, DpniCfg, DpniOpt, FsEntries, MacFilterEntries, NumCeetmCh, NumCgs, NumOpr,
+    NumQueues, NumTcs, OptionMask, QosEntries, RawEscape, VlanFilterEntries,
+};
 use dpaa2_api::intent::compiled::{
     AttachPoint, Attributes, Container, Measurement, ObjectKey, ProvenanceKey, ProvenanceNode,
 };
@@ -470,12 +474,73 @@ fn container(v: &Value) -> Result<Container, String> {
     }
 }
 
+fn dpni_opt(v: &Value) -> Result<DpniOpt, String> {
+    match tag(v)? {
+        "SingleSender" => Ok(DpniOpt::SingleSender),
+        "CustomCg" => Ok(DpniOpt::CustomCg),
+        "HasKeyMasking" => Ok(DpniOpt::HasKeyMasking),
+        "HasOpr" => Ok(DpniOpt::HasOpr),
+        "OprPerTc" => Ok(DpniOpt::OprPerTc),
+        "TxFrmRelease" => Ok(DpniOpt::TxFrmRelease),
+        "HasPolicing" => Ok(DpniOpt::HasPolicing),
+        "SharedCongestion" => Ok(DpniOpt::SharedCongestion),
+        "NoMacFilter" => Ok(DpniOpt::NoMacFilter),
+        "StashingDis" => Ok(DpniOpt::StashingDis),
+        t => Err(format!("unknown dpni opt `{t}`")),
+    }
+}
+
+fn raw_escape(v: &Value) -> Result<RawEscape, String> {
+    match tag(v)? {
+        "PfdrInPeb" => Ok(RawEscape::PfdrInPeb),
+        t => Err(format!("unknown raw escape `{t}`")),
+    }
+}
+
+fn option_mask(v: &Value) -> Result<OptionMask, String> {
+    let mut m = OptionMask::empty();
+    for f in set_items(field(v, "flags")?)? {
+        m = m.with_flag(dpni_opt(f)?);
+    }
+    for e in set_items(field(v, "escapes")?)? {
+        m = m.with_escape(raw_escape(e)?);
+    }
+    Ok(m)
+}
+
+/// The frozen `CreateCfg` (`dpni.qnt` `type CreateCfg`) as the Rust [`DpniCfg`]: every
+/// range field is in-envelope on an accepted trace, so the refined constructors succeed.
+fn dpni_cfg(v: &Value) -> Result<DpniCfg, String> {
+    // Each numeric field is a `#bigint` inside the restool envelope; narrow to the u16
+    // the refined range type carries, then construct it (fallible only off-envelope).
+    macro_rules! ranged {
+        ($ty:ty, $f:literal) => {{
+            let n = u16::try_from(num(field(v, $f)?)?).map_err(|e| e.to_string())?;
+            <$ty>::new(n).map_err(|e| e.to_string())?
+        }};
+    }
+    Ok(DpniCfg {
+        options: option_mask(field(v, "options")?)?,
+        num_queues: ranged!(NumQueues, "numQueues"),
+        num_tcs: ranged!(NumTcs, "numTcs"),
+        mac_filter_entries: ranged!(MacFilterEntries, "macFilterEntries"),
+        vlan_filter_entries: ranged!(VlanFilterEntries, "vlanFilterEntries"),
+        qos_entries: ranged!(QosEntries, "qosEntries"),
+        fs_entries: ranged!(FsEntries, "fsEntries"),
+        num_cgs: ranged!(NumCgs, "numCgs"),
+        dist_key_size: ranged!(DistKeySize, "distKeySize"),
+        num_ceetm_ch: ranged!(NumCeetmCh, "numCeetmCh"),
+        num_opr: ranged!(NumOpr, "numOpr"),
+        root_container: flag(field(v, "rootContainer")?)?,
+    })
+}
+
 fn attributes(v: &Value) -> Result<Attributes, String> {
     let p = &v["value"];
     match tag(v)? {
         "Unsized" => Ok(Attributes::Unsized),
         "DpniAttrs" => Ok(Attributes::Dpni {
-            num_queues: num(field(p, "numQueues")?)?,
+            cfg: dpni_cfg(field(p, "cfg")?)?,
         }),
         "DpseciAttrs" => Ok(Attributes::Dpseci {
             num_queues: num(field(p, "numQueues")?)?,
