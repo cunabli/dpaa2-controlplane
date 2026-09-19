@@ -2,6 +2,7 @@ use core::fmt;
 
 use crate::core::model::{DpmacId, DpniId, MacAddr};
 use crate::core::types::ConstructName;
+use crate::families::dpni::DpniCfg;
 
 /// The disruption class of a plan or one of its transitions (ADR-0015 decision 12).
 ///
@@ -53,10 +54,12 @@ pub enum Transition {
         /// unlabelled (ADR-0010 §4 ABA guard). The name IS the label, byte-for-byte
         /// (decision 13).
         label: ConstructName,
-        /// The compiled transmit-queue sizing (`Attributes::Dpni`) carried so the shim
-        /// never re-derives it; 0 = unsized port-only projection, the backend falls
-        /// back to its host-derived default (synthesis L2/B3).
-        num_queues: u32,
+        /// The compiled, in-envelope create block (`Attributes::Dpni`) carried verbatim
+        /// so the shim renders it without re-deriving anything (dpni-typestate task 4.1;
+        /// dpni-typestate design D3). Sizing rides inside as [`DpniCfg::num_queues`]; an unsized
+        /// port-only projection carries [`DpniCfg::defaults`] (`num_queues` 0), which the
+        /// backend sizes from the host (synthesis L2/B3).
+        cfg: DpniCfg,
     },
     /// Connect the port's DPNI to its DPMAC (single edge).
     Connect {

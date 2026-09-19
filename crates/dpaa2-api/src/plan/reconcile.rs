@@ -14,6 +14,7 @@
 use crate::core::model::{
     DesiredPort, DesiredTopology, Lifecycle, LinkType, MacMode, ObservedTopology, Presence,
 };
+use crate::families::dpni::DpniCfg;
 use crate::plan::{AssertMismatch, DriftReport, Plan, Transition};
 
 /// Options controlling reconciliation policy.
@@ -48,11 +49,13 @@ pub fn reconcile_with(
     for port in desired.ports() {
         match port.presence {
             Presence::Present => {
-                // The one sizing authority: the compiled dpni's queue count, carried
-                // into Create so the shim never re-derives it (synthesis L2/B3). 0 = the
-                // unsized port-only projection, which the backend sizes from the host.
-                let num_queues = desired.plan().port_dpni_num_queues(port.dpmac).unwrap_or(0);
-                plan_present(port, observed, num_queues, &mut plan);
+                // The compiled block, carried verbatim into Create (dpni-typestate design D3);
+                // no block ⇒ `DpniCfg::defaults()` (num_queues 0, prior `unwrap_or(0)`).
+                let cfg = desired
+                    .plan()
+                    .port_dpni_cfg(port.dpmac)
+                    .unwrap_or_else(DpniCfg::defaults);
+                plan_present(port, observed, cfg, &mut plan);
             }
             Presence::Absent => plan_absent(port, observed, options, &mut plan),
         }
@@ -62,7 +65,7 @@ pub fn reconcile_with(
 }
 
 /// Plans convergence for a port the operator wants present.
-fn plan_present(port: &DesiredPort, observed: &ObservedTopology, num_queues: u32, plan: &mut Plan) {
+fn plan_present(port: &DesiredPort, observed: &ObservedTopology, cfg: DpniCfg, plan: &mut Plan) {
     let link_type = observed
         .dpmac(port.dpmac)
         .map_or(LinkType::Phy, |m| m.link_type);
@@ -75,7 +78,7 @@ fn plan_present(port: &DesiredPort, observed: &ObservedTopology, num_queues: u32
         plan.transitions.push(Transition::Create {
             port: port.dpmac,
             label: port.name.clone(),
-            num_queues,
+            cfg,
         });
         if port.mac_mode == MacMode::Actuate
             && let Some(mac) = port.mac
@@ -188,6 +191,7 @@ mod tests {
         DesiredPort, DesiredTopology, DpmacId, DpniId, Lifecycle, LinkType, MacAddr, MacMode,
         ObservedDpmac, ObservedDpni, ObservedTopology, Presence,
     };
+    use crate::families::dpni::DpniCfg;
     use crate::plan::Transition;
     use crate::plan::reconcile::{ReconcileOptions, reconcile, reconcile_with};
 
@@ -227,6 +231,7 @@ mod tests {
             mac,
             netdev: netdev.map(str::to_owned),
             attributes: BTreeMap::new(),
+            cfg_observation: None,
         }
     }
 
@@ -249,10 +254,11 @@ mod tests {
         assert_eq!(
             plan.transitions,
             vec![
+                // Port-only projection ⇒ a bare MC-default block (ls-addni parity).
                 Transition::Create {
                     port: DpmacId::new(3),
                     label: "wan0".into(),
-                    num_queues: 0,
+                    cfg: DpniCfg::defaults(),
                 },
                 Transition::Connect {
                     port: DpmacId::new(3)
@@ -281,7 +287,7 @@ mod tests {
                 Transition::Create {
                     port: DpmacId::new(3),
                     label: "wan0".into(),
-                    num_queues: 0,
+                    cfg: DpniCfg::defaults(),
                 },
                 Transition::SetMac {
                     port: DpmacId::new(3),
@@ -298,10 +304,8 @@ mod tests {
     }
 
     #[test]
-    fn create_carries_the_compiled_num_queues() {
-        // A sized compiled plan (num_queues=5) is carried verbatim into the Create, so
-        // `ensure` executes exactly what dry-run rendered (synthesis L2/B3) — unlike the
-        // port-only projection above, whose Create is the unsized 0.
+    fn create_carries_the_compiled_cfg() {
+        // A sized compiled plan carries its whole block into the Create (dpni-typestate task 4.1).
         use crate::intent::compiled::CompiledPlan;
         use crate::intent::kernel_tenant;
 
@@ -315,6 +319,11 @@ mod tests {
         let desired =
             DesiredTopology::from_parts(compiled, vec![DesiredPort::new(DpmacId::new(3), "wan0")])
                 .expect("plan port-edge and port agree on dpmac.3");
+        let want_cfg = desired
+            .plan()
+            .port_dpni_cfg(DpmacId::new(3))
+            .expect("compiled port dpni cfg");
+        assert_eq!(want_cfg.num_queues.get(), 5, "sized at 5 by the compiler");
         let observed = ObservedTopology {
             dpnis: vec![],
             dpmacs: vec![phy(3, MAC_3)],
@@ -325,7 +334,7 @@ mod tests {
             Transition::Create {
                 port: DpmacId::new(3),
                 label: "wan0".into(),
-                num_queues: 5,
+                cfg: want_cfg,
             }
         );
     }
@@ -614,10 +623,8 @@ mod tests {
             }
             for t in &plan.transitions {
                 match t {
-                    Transition::Create {
-                        label, num_queues, ..
-                    } => {
-                        let id = backend.create_dpni(label, *num_queues).unwrap();
+                    Transition::Create { label, cfg, .. } => {
+                        let id = backend.create_dpni(label, cfg).unwrap();
                         backend.connect(id, DpmacId::new(3)).unwrap();
                     }
                     Transition::Connect { .. } | Transition::Bind { .. } => {}

@@ -111,7 +111,7 @@ mod tests {
                 Transition::Create {
                     port: DpmacId::new(7),
                     label: "wan0".into(),
-                    num_queues: 0,
+                    cfg: crate::families::dpni::DpniCfg::defaults(),
                 },
             ],
             ..Plan::new()

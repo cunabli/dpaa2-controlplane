@@ -81,6 +81,12 @@ fn hand_built_plan_reconciles_and_locks_relationships() {
             mac: Some(MAC_7),
         }],
     };
+    // The hand-built dpni (sized 4) has its whole block carried into the Create (dpni-typestate task 4.1).
+    let want_cfg = desired
+        .plan()
+        .port_dpni_cfg(DpmacId::new(7))
+        .expect("compiled port dpni cfg");
+    assert_eq!(want_cfg.num_queues.get(), 4);
     let out = reconcile(&desired, &observed);
     assert_eq!(
         out.transitions,
@@ -88,9 +94,7 @@ fn hand_built_plan_reconciles_and_locks_relationships() {
             Transition::Create {
                 port: DpmacId::new(7),
                 label: "lan0".into(),
-                // The hand-built dpni is sized at 4 (see `kernel.dpni(1, 4, ..)`), and
-                // `reconcile` carries that compiled count into the Create.
-                num_queues: 4,
+                cfg: want_cfg,
             },
             Transition::Connect {
                 port: DpmacId::new(7)

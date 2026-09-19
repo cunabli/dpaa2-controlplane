@@ -465,15 +465,21 @@ impl DesiredTopology {
         Ok(Self { plan, ports })
     }
 
-    /// Appends a port, extending the plan facet with the kernel dpni and port-edge
-    /// it terminates (design D10; restool-baseline; the port-only projection).
+    /// Appends a port, extending the plan facet with the port-only dpni and port-edge it
+    /// terminates (design D10; restool-baseline; the port-only projection). The dpni takes
+    /// kernel *tenancy* (placement + label) but a **bare** MC-default create block — no
+    /// consumer is declared here, so there is no option profile to derive, matching
+    /// `ls-addni`'s always-default-empty `--options` (`docs/baseline/dpni.md` "Option
+    /// inventory"). Consumer-typed option derivation (dpni-typestate design D3) is the
+    /// intent-compile path's alone; keeping it out of this projection holds the ADR-0002
+    /// isomorphism law against the frozen retro traces.
     pub fn push(&mut self, port: DesiredPort) {
         let ordinal = u32::try_from(self.ports.len() + 1).unwrap_or(u32::MAX);
         // ponytail: num_queues 0 in the port-only projection — the unsized marker the
         // shim maps to its host-derived default; real sizing is the compiler's (task 3.2).
         let kernel = kernel_tenant(0);
-        // The kernel dpni serves this port; its name is the label (ADR-0015 decision 13).
-        let (dpni, iface) = kernel.dpni(ordinal, 0, port.name.clone());
+        // Kernel tenancy names/places the dpni (ADR-0015 decision 13); its block is bare, not the kernel profile.
+        let (dpni, iface) = kernel.port_only_dpni(ordinal, 0, port.name.clone());
         self.plan.order.push(dpni.key().clone());
         self.plan.objects.insert(dpni);
         self.plan.edges.insert(iface.into_port_edge(port.dpmac));
@@ -520,6 +526,14 @@ pub struct ObservedDpni {
     ///
     /// Compared against [`DesiredPort::immutable`] for drift detection.
     pub attributes: BTreeMap<String, String>,
+    /// The typed `dpni_attr` read-back, when the shim could map the whole attr block
+    /// (dpni-typestate task 4.1; design D4). `None` when the block was absent or
+    /// unparsable — the honest gap. This is the drift-comparison surface with the
+    /// asymmetric read-back mapped to its domain names (`num_tx_tcs`→`num_tcs`,
+    /// `num_channels`→`num_ceetm_ch`); write-only `dist_key_size` is never here. The
+    /// stringly [`attributes`](Self::attributes) map stays untouched as the legacy drift
+    /// path.
+    pub cfg_observation: Option<crate::families::dpni::DpniObservation>,
 }
 
 impl ObservedDpni {

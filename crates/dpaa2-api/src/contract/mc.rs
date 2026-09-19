@@ -37,12 +37,20 @@ pub trait McControl {
     /// window in which a fresh object would otherwise show unlabelled and be misread
     /// as foreign (ADR-0010 §4 ABA guard; ADR-0015 decision 9).
     ///
-    /// `num_queues` is the compiled transmit-queue sizing the plan carries; 0 means
-    /// unsized and the backend applies its host-derived default (synthesis L2/B3).
+    /// `cfg` is the compiled, in-envelope create block the plan carries
+    /// (dpni-typestate task 4.1; design D3): the backend renders it verbatim, never
+    /// re-deriving an option or a size. Sizing rides inside as
+    /// [`DpniCfg::num_queues`](crate::families::dpni::DpniCfg::num_queues); 0 means
+    /// unsized and the backend applies its host-derived default (synthesis L2/B3),
+    /// preserving the prior contract.
     ///
     /// # Errors
     /// Returns an error if creation fails.
-    fn create_dpni(&self, label: &ConstructName, num_queues: u32) -> Result<DpniId, Error>;
+    fn create_dpni(
+        &self,
+        label: &ConstructName,
+        cfg: &crate::families::dpni::DpniCfg,
+    ) -> Result<DpniId, Error>;
 
     /// Connects a single DPNI↔DPMAC edge.
     ///

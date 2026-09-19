@@ -20,6 +20,7 @@ use crate::core::model::{
     DpmacId, DpniId, DprcId, LinkType, MacAddr, ObjectRef, ObservedDpmac, ObservedDpni,
     ObservedTopology,
 };
+use crate::families::dpni::DpniCfg;
 use crate::families::dprc::ContainerState;
 use crate::intent::compiled::Container;
 use crate::plan::dprc::ObservedContainer;
@@ -59,6 +60,10 @@ struct FakeState {
     /// of minting a container — the one-shot seam that drives the refusal (non-zero
     /// exit) path. Consumed on use ([`Error`] is not `Clone`).
     refuse_dprc_create: Option<Error>,
+    /// The create blocks handed to [`McControl::create_dpni`], in call order — the fake
+    /// records what it was told to build so a test can assert the compiled cfg reached
+    /// the backend verbatim (dpni-typestate task 4.1).
+    created_cfgs: Vec<(DpniId, DpniCfg)>,
 }
 
 /// In-memory fake implementing both southbound ports over a shared state.
@@ -82,8 +87,16 @@ impl FakeBackend {
                 next_dprc: 2,
                 containers: BTreeMap::new(),
                 refuse_dprc_create: None,
+                created_cfgs: Vec::new(),
             }),
         }
+    }
+
+    /// The create blocks handed to [`McControl::create_dpni`], in call order, so a test
+    /// can assert the compiled cfg reached the backend verbatim (dpni-typestate task 4.1).
+    #[must_use]
+    pub fn created_cfgs(&self) -> Vec<(DpniId, DpniCfg)> {
+        self.state.borrow().created_cfgs.clone()
     }
 
     /// Makes the next [`McControl::dprc_create`] refuse with `error` — a typed shim
@@ -159,6 +172,7 @@ impl FakeBackend {
                 mac,
                 netdev,
                 attributes: BTreeMap::new(),
+                cfg_observation: None,
             });
             if dpni.into_inner() >= st.next_index {
                 st.next_index = dpni.into_inner() + 1;
@@ -234,11 +248,13 @@ impl McControl for FakeBackend {
     fn create_dpni(
         &self,
         label: &crate::core::types::ConstructName,
-        _num_queues: u32,
+        cfg: &DpniCfg,
     ) -> Result<DpniId, Error> {
         let mut st = self.state.borrow_mut();
         let id = DpniId::new(st.next_index);
         st.next_index += 1;
+        // Record the handed-in block so a test can assert it reached the backend (dpni-typestate task 4.1).
+        st.created_cfgs.push((id, cfg.clone()));
         // The object is stamped with the construct name at create (ADR-0010 §4 ABA
         // guard), so a re-observe never sees it unlabelled.
         st.dpnis.push(ObservedDpni {
@@ -248,6 +264,7 @@ impl McControl for FakeBackend {
             mac: None,
             netdev: None,
             attributes: BTreeMap::new(),
+            cfg_observation: None,
         });
         Ok(id)
     }

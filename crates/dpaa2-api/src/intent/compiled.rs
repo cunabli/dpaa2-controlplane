@@ -480,6 +480,25 @@ impl CompiledPlan {
             _ => None,
         }
     }
+
+    /// The full compiled create block of the dpni terminating the port anchored at
+    /// `dpmac`, or `None` when the plan has no such port-edge (dpni-typestate task 4.1).
+    /// The sibling of [`port_dpni_num_queues`](Self::port_dpni_num_queues): `reconcile`
+    /// carries this whole block into `Transition::Create`, so the shim renders the
+    /// derived options and sizing without re-deriving anything (dpni-typestate design D3).
+    #[must_use]
+    pub fn port_dpni_cfg(&self, dpmac: DpmacId) -> Option<DpniCfg> {
+        let key = self.edges.iter().find_map(|e| {
+            e.port_edge_dpni()
+                .filter(|&(_, m)| m == dpmac)
+                .map(|(key, _)| key)
+        })?;
+        let obj = self.objects.iter().find(|o| o.key() == key)?;
+        match obj.attributes() {
+            Attributes::Dpni { cfg } => Some(cfg.clone()),
+            _ => None,
+        }
+    }
 }
 
 /// The child-DPRC option mask restool creates by default, verified on the reference
@@ -576,6 +595,43 @@ impl Tenant {
             attributes: Attributes::Dpni {
                 cfg: crate::intent::derive::dpni_cfg(self.dataplane, num_queues),
             },
+            provenance: ProvenanceKey::new(self.name.clone(), "dpnis", ""),
+            label,
+        };
+        (obj, Interface { key, port: 0 })
+    }
+
+    /// The port-only projection's dpni (design D10 of restool-baseline;
+    /// `DesiredTopology::from_ports`): a **bare** MC-default create block carrying only the
+    /// compiled `num_queues`, never a consumer-derived option profile. A port declared
+    /// directly (no intent, so no consumer) creates like `ls-addni` — always a
+    /// default-empty `--options` (`docs/baseline/dpni.md` "Option inventory") — so the
+    /// block is [`DpniCfg::defaults`] with the sizing overlaid, not routed through
+    /// `intent::derive::dpni_cfg`. The consumer-typed profile derivation
+    /// (dpni-typestate design D3) rides only through [`dpni`](Self::dpni) /
+    /// [`Port::terminate`], the intent-compile witnesses; here the kernel tenancy is
+    /// placement and labeling only, not a PMD-vs-kernel option choice. Keeping the two
+    /// apart holds the ADR-0002 structural-isomorphism law: the frozen retro traces
+    /// project this bare block, and the reconciler must plan exactly it.
+    #[must_use]
+    pub fn port_only_dpni(
+        &self,
+        ordinal: u32,
+        num_queues: u32,
+        label: ConstructName,
+    ) -> (PlannedObject, Interface) {
+        let key = ObjectKey::new(self.name.clone(), Family::Dpni, ordinal);
+        let cfg = DpniCfg {
+            num_queues: u16::try_from(num_queues)
+                .ok()
+                .and_then(|v| crate::families::dpni::NumQueues::new(v).ok())
+                .unwrap_or(crate::families::dpni::NumQueues::DEFAULT),
+            ..DpniCfg::defaults()
+        };
+        let obj = PlannedObject {
+            key: key.clone(),
+            container: self.container(),
+            attributes: Attributes::Dpni { cfg },
             provenance: ProvenanceKey::new(self.name.clone(), "dpnis", ""),
             label,
         };
