@@ -86,7 +86,11 @@ notes. No script passes any of them [read].
 (`mc_v10/dpni.c:136`) but no restool option writes it — always 0, so Rx TCs
 = `num_tcs` (capped at 8 by MC). Only the DPL boot path can declare a
 distinct value, and restool's own `generate-dpl` emits it, which is what
-breaks the round-trip (silent-failure notes) [read].
+breaks the round-trip (silent-failure notes) [read]. Never-settable is
+board-confirmed and observable-asymmetric: `num_rx_tcs` reads **8** on the
+16-TC PMD create (the MC's 8-TC cap) and **1** on the 1-TC kernel create
+[verified 2026-09-19, V-DPNI-5 / V-DPNI-6] — the value is readable, just
+not writable through restool (register #12 below).
 
 `--options` parsing (`restool.c:1561-1611`) [read]: comma-separated only
 (the help text's "or space separated" is not implemented); tokens matched
@@ -107,7 +111,25 @@ Option profiles in production on this board [verified, dprc-script:94-117]:
 The restool map also knows `DPNI_OPT_HAS_REPLICATION` (0x4000), which does
 **not** exist in the MC 10.39.0 flib header (14 flags, ending
 `STASHING_DIS` 0x2000, `fsl_dpni.h:84-149`) — restool is ahead of the
-pinned firmware's documented vocabulary here (unknown register) [read].
+pinned firmware's documented vocabulary here, and the MC accepts the raw
+bit and silently clears it (register #8 below, V-DPNI-9 rev 2)
+[verified 2026-09-19].
+
+**MC-cleared option bits** [verified 2026-09-19]: the MC drops individual
+option bits at create rather than refusing them, and it clears **per bit**
+— there is no blanket rule against raw or unnamed bits. On a bare create
+`DPNI_OPT_SHARED_CONGESTION` (0x8) is accepted (rc 0, restool passes the
+named flag, stderr empty) yet is **absent from the `dpni_attr.options`
+read-back** (V-DPNI-7 rev 2: requested 0xd, read back 0x5), so drift on it
+is undetectable through read-back; the raw `0x4000` HAS_REPLICATION escape
+is likewise accepted-and-cleared (V-DPNI-9 rev 2: the mask reads 0). By
+contrast the raw `0x80000000` PFDR_IN_PEB bit **persists** bit-exact
+(V-DPNI-5: the PMD profile reads back 0x800003d0, the undefined bit
+included), as do `TX_FRM_RELEASE` and `HAS_POLICING` from the same 0xd
+request — so the clearing is a per-bit MC decision, not a rule about which
+bits are named. `dpni info` prints "Unrecognized options found..." for the
+persisting `0x80000000` — a label restool renders for a mask bit it cannot
+name, not an error (V-DPNI-5).
 
 ls-debug touches dpni only as a glob passed to the dpdbg dumper
 (`ls-debug:266,278`); ls-append-dpl is fully generic (DPL property names
@@ -140,9 +162,13 @@ The create/runtime split is absolute and asymmetric [read,
   distribution/policing, early drop, congestion notification, taildrop,
   OPR, tx confirmation mode, custom TPID, 1588, SP profile, MACsec (36
   `dpni_set_*` total in the 10.39 flib).
-- restool exposes exactly one mutation: the primary MAC. The kernel driver
-  exercises ~20 of the setters via netdev/ethtool ops (kernel-side
-  section); the rest have no consumer in this corpus.
+- restool exposes exactly one mutation: the primary MAC. A bare create
+  reads back all-zeroes, and a restool `update --mac-addr` to a
+  locally-administered test address round-trips bit-exact
+  [verified 2026-09-19, V-DPNI-10] — MAC-only drift is mutable in place,
+  which is why the reconciler splits it from the recreate-only cfg block.
+  The kernel driver exercises ~20 of the setters via netdev/ethtool ops
+  (kernel-side section); the rest have no consumer in this corpus.
 
 For the typestate design: the `dpni_cfg` block is the immutable type
 parameter of a DPNI; the runtime surface is state within that type. Drift
@@ -152,7 +178,10 @@ Attribute read-back asymmetry [read]: `dpni_attr` returns `num_rx_tcs` +
 `num_tx_tcs` (split), adds `qos_key_size`, `fs_key_size`, `wriop_version`
 (0xC00 = WRIOP 3.0.0 = LX2160), but **omits `dist_key_size`** — that
 create-time value can never be read back, so the reconciler cannot detect
-drift on it and must treat it as write-only.
+drift on it and must treat it as write-only. Board-confirmed:
+`dist_key_size` is absent from `dpni info` at every requested value (1, 24,
+56) [verified 2026-09-19, V-DPNI-8 rev 2] — DPNI-I12's write-only law
+observed.
 
 ## MC API notes
 
@@ -305,7 +334,7 @@ container's ioctl path: set/get primary MAC (set requires
 `CAP_NET_ADMIN`), get statistics, get link state, get max frame length
 (`fsl-mc-uapi.c:60-64,253-283`); the full whitelist, with every
 verb the series drives resolved against it, is
-`docs/baseline/mc-ioctl-policy.md` (task 6.5) [read].
+`docs/baseline/mc-ioctl-policy.md` (verify-foundation task 6.5) [read].
 
 ## Lifecycle ordering and dependencies
 
@@ -349,7 +378,11 @@ compiler must carry, all evidence-anchored:
 
 - `num_queues` ≥ the maximum rx/tx queues any consumer will ask for;
   VPP's tx floor is `main + workers` threads and cannot be rationed down
-  (ADR-0012 [verified] — a shared tx ring silently drops enqueues).
+  (ADR-0012 [verified] — a shared tx ring silently drops enqueues). The
+  compiler fences the derived count against the `num_queues` 1–32 create
+  envelope: a count past 32 is refused `QueueEnvelopeExceeded`, not
+  degraded to the MC default, because the count is unrepresentable on the
+  wire (ADR-0013 §5, bead dpaa2-controlplane-guu.4a).
 - One DPCON per polled queue, DPIO = 2 per thread (bus-wide), DPBP per
   pool — the companion-object math lives with the pool families
   (`dpbp.md`/`dpio.md`/`dpcon.md`/`dpmcp.md`) but is *triggered* by dpni
@@ -359,6 +392,14 @@ compiler must carry, all evidence-anchored:
   choosing options must know which driver will bind [verified].
 - `num_cgs = num_queues + 8` under `CUSTOM_CG` is the deployed heuristic
   [verified in use]; its rationale is unrecorded (unknown register).
+  `CUSTOM_CG` *gates* the field: without it the MC silently forces
+  `num_cgs` to 1 at every requested value (register #3 below); with it, an
+  explicit 24 is honored [verified 2026-09-19, V-DPNI-8 rev 2 / V-DPNI-5].
+- `num_opr` is gated by `HAS_OPR` the same way: absent the flag it reads 0
+  (its label absent from `dpni info`) at every request; under the flag an
+  unset request fills the MC default 8 [verified 2026-09-19, V-DPNI-8
+  rev 2 / V-DPNI-5] — the documented `num_tcs × num_queues` default is not
+  what the board applies.
 
 ## Silent-failure notes
 
@@ -455,9 +496,17 @@ attribute get) — never on the return code of the mutation.
    at all, it caps at or above restool's own limit of 32; the walk found
    no refusal below the cap, and the MC-side ceiling stays unreachable
    through restool.
-3. Semantics of `num_cgs`, `num_opr`, `dist_key_size` — present in
-   `dpni_cfg`, absent from its doc block; and the rationale for our
-   deployed `num_cgs = num_queues + 8`.
+3. ~~Semantics of `num_cgs`, `num_opr`, `dist_key_size` — present in
+   `dpni_cfg`, absent from its doc block~~ **Answered** — board suites
+   V-DPNI-8 rev 2 and V-DPNI-5, 2026-09-19: each of the three is
+   flag-gated, not free. Without `CUSTOM_CG` the MC silently forces
+   `num_cgs` to 1 at every requested value (1, 8, 24, 64, 128 — no refusal
+   even at restool's 128 ceiling); with it, an explicit 24 is honored.
+   Without `HAS_OPR` `num_opr` reads 0 (label absent from `dpni info`) at
+   1, 16, 128; under the flag an unset request fills the MC default 8.
+   `dist_key_size` is write-only (absent from `dpni info` at 1, 24, 56 —
+   DPNI-I12). The rationale for the deployed `num_cgs = num_queues + 8`
+   heuristic stays unrecorded.
 4. What exactly `dpni_reset` clears: the flib says "returns the object to
    initial state" with no per-field enumeration (pools binding? QoS/FS
    tables?). Narrowed [V-DPNI-3 rev 1, 2026-08-29]: **`dpni_reset` does
@@ -472,20 +521,42 @@ attribute get) — never on the return code of the mutation.
    broken.
 6. Observable behavior of `DPNI_OPT_TX_FRM_RELEASE`, `HAS_POLICING`,
    `SHARED_CONGESTION` — no consumer in the corpus reads them.
+   **Partially answered** (create-mask observability) — board suite
+   V-DPNI-7 rev 2, 2026-09-19: on a bare create the MC silently **clears
+   `SHARED_CONGESTION` (0x8)** — accepted rc 0, absent from the
+   `dpni_attr.options` read-back (requested 0xd, read 0x5) — while
+   `TX_FRM_RELEASE` and `HAS_POLICING` persist bit-exact. Their runtime
+   *behavior* stays unread; what is settled is that drift on
+   `SHARED_CONGESTION` is undetectable through read-back.
 7. `DPNI_OPT_SINGLE_SENDER` ("ignore num_queues for tx") vs our PMD
    profile, which sets it *and* drives `main+workers` tx rings
    successfully — what the flag actually gates on LX2160 is unclear.
-8. `DPNI_OPT_HAS_REPLICATION` (restool knows 0x4000; the 10.39 flib
-   header does not list it) — real MC option or restool running ahead?
+8. ~~`DPNI_OPT_HAS_REPLICATION` (restool knows 0x4000; the 10.39 flib
+   header does not list it) — real MC option or restool running ahead?~~
+   **Answered** — board suite V-DPNI-9 rev 2, 2026-09-19: the raw 0x4000
+   bit is **accepted and cleared** (create rc 0, object present, the mask
+   reads back 0), not refused — restool is ahead of the firmware and the
+   MC drops the bit. It joins `SHARED_CONGESTION` in the cleared set;
+   contrast the persisting raw 0x80000000 (register #10, V-DPNI-5), so the
+   MC clears per bit, with no blanket rule about unnamed bits.
 9. What `DPNI_CMDID_CREATE_V8` (API ≥ 8.6) adds over V7 — identical
    payload in restool; and restool's create behavior against pre-8.3
    firmware (selector fall-through unresolved in source).
 10. The meaning of raw option bit `0x80000000` (PFDR_IN_PEB per NXP's
     dynamic_dpl conventions) — deployed and working [verified], never
-    named in any header in the corpus.
+    named in any header in the corpus. Its *observability* is now
+    board-confirmed: the bit persists bit-exact in the read-back mask
+    (V-DPNI-5, 2026-09-19: the PMD profile reads 0x800003d0) and
+    `dpni info` labels it "Unrecognized options found...", not an error —
+    its meaning stays unknown.
 11. Whether the >8-TC `dpni_set_tx_priorities` constraint (strict-priority
     lock on TCs 0-7, fixed weighted grouping above) affects our 16-TC
     dpnis under the PMD's default scheduling — no consumer in the corpus
     calls `dpni_set_tx_priorities`.
-12. `num_rx_tcs` reachable only via DPL: can a restool-created dpni ever
-    have `num_rx_tcs ≠ min(num_tcs, 8)`?
+12. ~~`num_rx_tcs` reachable only via DPL: can a restool-created dpni ever
+    have `num_rx_tcs ≠ min(num_tcs, 8)`?~~ **Answered for the restool
+    path** — board suites V-DPNI-5 and V-DPNI-6, 2026-09-19: no.
+    `num_rx_tcs` is readable but never settable through restool, and reads
+    `min(num_tcs, 8)` exactly — 8 on the 16-TC PMD create, 1 on the 1-TC
+    kernel create. A distinct value stays reachable only through the DPL
+    boot path (deferred to `dpl-tape-out`, #14).

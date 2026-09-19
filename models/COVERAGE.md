@@ -213,7 +213,9 @@ board: a variant the alphabet cannot reach is a decision on record here, not
 an omission. `pnpm model:coverage` runs `models/intent/alphabet.qnt` under
 every invariant with one witness per outcome and structure dimension; the
 counted run is seed 20260831, 12 steps, 3000 samples, dated 2026-09-01,
-deterministic and reproducible. This section is the single authoritative copy
+deterministic and reproducible — re-confirmed 2026-09-19 (dpni-typestate
+task 6.1, bead dpaa2-controlplane-guu.9) with the `wQueueEnvelopeExceeded`
+witness (bead guu.4a) in the command: every count below unchanged. This section is the single authoritative copy
 of the counts — `models/intent/alphabet.qnt` carries a pointer here, not a
 second copy (ADR-0014, single-sourced by bead dpaa2-controlplane-9yy.11); the
 check is re-running the seeded command. No invariant violated (the deep hunt
@@ -381,5 +383,5 @@ face; its candidate row above now reads `modeled`.
 | Profile totality | ProfileTotality | apalache | dpni.md "Intent mapping"; ADR-0012; dpni-typestate design D3 |
 | Dead-option parity | DeadOptionParity | apalache | dpni.md "Dead options"/"Never settable"; dpni-typestate design D2 |
 | Write-only field law | WriteOnlyDistKeySize | apalache | dpni.md "Attribute mutability" (DPNI-I12); dpni-typestate design D4; verified (V-DPNI-8, 2026-09-19) |
-| Cleared-bits observation | McClearedFlags | apalache | dpni.md "Option inventory" (#6/#8 outcomes queued, bead dpaa2-controlplane-guu.9); verified (V-DPNI-7/V-DPNI-9, 2026-09-19) |
-| Sizing-coupling observation | SizingCoupledToFlags | apalache | dpni.md "Option inventory" (#3 outcome queued, bead dpaa2-controlplane-guu.9); verified (V-DPNI-5/V-DPNI-8, 2026-09-19) |
+| Cleared-bits observation | McClearedFlags | apalache | dpni.md "Option inventory" + register #6/#8 (answered and folded in at bead dpaa2-controlplane-guu.9); verified (V-DPNI-7/V-DPNI-9, 2026-09-19) |
+| Sizing-coupling observation | SizingCoupledToFlags | apalache | dpni.md "Option inventory" + register #3 (answered and folded in at bead dpaa2-controlplane-guu.9); verified (V-DPNI-5/V-DPNI-8, 2026-09-19) |

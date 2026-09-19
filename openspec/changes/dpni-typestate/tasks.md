@@ -53,7 +53,7 @@ shim, verify, board, close-out. One bead at a time through acceptance.
 
 ## 6. Close-out
 
-- [ ] 6.1 Docs close-out: `docs/baseline/dpni.md` amendments for every
+- [x] 6.1 Docs close-out: `docs/baseline/dpni.md` amendments for every
   probe outcome; deferral rows verified (#10 runtime setters + TX_CONF
   v2, #14 num_rx_tcs-via-DPL, table/traffic items to earliest
   reachability); ADR for anything that solidified or died on the board;

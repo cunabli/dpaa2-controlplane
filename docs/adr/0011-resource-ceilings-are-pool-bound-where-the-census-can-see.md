@@ -137,4 +137,9 @@ dpni, with a cap of 64 per family.
   with V-POOL-4's exoneration of empty dprc create/destroy cycles, so it
   stays open: the discriminating probe is the per-step pool instrument
   (`--pool-record`) over the *first* container cycle of a fresh boot.
+  A further corroboration (V-DPNI-9 rev 2, dpni-typestate task 5.2,
+  2026-09-19) reads `mcp` 203 → 200 across one sitting that stood **three**
+  online-session container cycles until reboot — a drop of exactly three,
+  the first multi-cycle-in-one-boot witness and consistent with one portal
+  drawn and never returned per cycle.
 - Any firmware or DPC change re-anchors all three numbers.
