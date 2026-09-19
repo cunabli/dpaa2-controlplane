@@ -62,6 +62,7 @@ fn mac_is_sourced_from_the_connected_dpni_when_the_dpmac_reports_none() {
             mac: Some(MAC_7),
             netdev: Some("eth1".to_owned()),
             attributes: std::collections::BTreeMap::new(),
+            cfg_observation: None,
         }],
         dpmacs: vec![ObservedDpmac {
             id: DpmacId::new(3),

@@ -17,8 +17,8 @@ use dpaa2_api::intent::compiled::{
     ProvenanceKey,
 };
 use dpaa2_api::intent::refuse::{Refusal, Warning};
-use dpaa2_api::plan::Plan;
 use dpaa2_api::plan::dprc::{ConsumerConvergence, ContainerVerdict, FingerprintField, PruneItem};
+use dpaa2_api::plan::{Plan, Transition};
 
 /// Renders the whole dry-run text: the compiled objects with their provenance trees
 /// and edges, the transitions `reconcile` would execute, the plan-only report, and
@@ -139,7 +139,7 @@ pub fn render_transitions(plan: &Plan) -> String {
         plan.headline(),
     );
     for t in &plan.transitions {
-        let _ = writeln!(out, "  [{}] {t:?}", t.class());
+        let _ = writeln!(out, "  [{}] {}", t.class(), render_transition(t));
     }
     for d in &plan.drift {
         let _ = writeln!(out, "  DRIFT {} {}: {}", d.dpni, d.attribute, d.detail);
@@ -148,6 +148,24 @@ pub fn render_transitions(plan: &Plan) -> String {
         let _ = writeln!(out, "  ASSERT {} {}: {}", a.port, a.field, a.detail);
     }
     out
+}
+
+/// One dry-run transition line. `Create` gets a concise summary — its label, the
+/// compiled `num_queues`, and the derived option names — rather than a full `DpniCfg`
+/// Debug dump (dpni-typestate task 4.1); every other transition prints its Debug form.
+fn render_transition(t: &Transition) -> String {
+    match t {
+        Transition::Create { port, label, cfg } => {
+            let mut opts: Vec<&str> = cfg.options.flags().iter().map(|f| f.name()).collect();
+            opts.extend(cfg.options.escapes().iter().map(|e| e.name()));
+            format!(
+                "Create {{ port: {port}, label: {label:?}, num_queues: {}, options: [{}] }}",
+                cfg.num_queues.get(),
+                opts.join(",")
+            )
+        }
+        other => format!("{other:?}"),
+    }
 }
 
 /// Renders the plan-only report (design D10; restool-baseline): the families the reconciler does not
