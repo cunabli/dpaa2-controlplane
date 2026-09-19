@@ -767,6 +767,11 @@ fn refusal(v: &Value) -> Result<Refusal, String> {
             t: int64(field(p, "t")?)?,
             max_cores: int64(field(p, "maxCores")?)?,
         },
+        "QueueEnvelopeExceeded" => Refusal::QueueEnvelopeExceeded {
+            tenant: tname(field(p, "tenant")?)?,
+            num_queues: int64(field(p, "numQueues")?)?,
+            hi: int64(field(p, "hi")?)?,
+        },
         "ExtraNotCompanion" => Refusal::ExtraNotCompanion {
             tenant: tname(field(p, "tenant")?)?,
             family: family(field(p, "family")?)?,
