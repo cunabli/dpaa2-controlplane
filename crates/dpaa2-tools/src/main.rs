@@ -372,7 +372,7 @@ mod tests {
         let mut intent = Intent {
             tenants: vec![],
             ports: vec![port("kernel")],
-            ..Intent::default()
+            ..Intent::empty()
         };
         complete_kernel(&mut intent, 16);
         assert_eq!(intent.tenants, vec![kernel_tenant(16)]);
@@ -384,7 +384,7 @@ mod tests {
         let mut intent = Intent {
             tenants: vec![kernel_tenant(16)],
             ports: vec![port("kernel")],
-            ..Intent::default()
+            ..Intent::empty()
         };
         complete_kernel(&mut intent, 8);
         assert_eq!(intent.tenants, vec![kernel_tenant(16)]);
@@ -395,7 +395,7 @@ mod tests {
         let mut intent = Intent {
             tenants: vec![],
             ports: vec![port("app")],
-            ..Intent::default()
+            ..Intent::empty()
         };
         complete_kernel(&mut intent, 16);
         assert!(intent.tenants.is_empty());

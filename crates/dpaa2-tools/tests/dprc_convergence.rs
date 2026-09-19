@@ -47,7 +47,7 @@ fn compiled_router() -> Compiled {
             mac_mode: MacMode::Assert,
             renamed: None,
         }],
-        ..Intent::default()
+        ..Intent::empty()
     };
     compile(&intent, &ref_inventory(16)).expect("router intent must compile")
 }
@@ -156,7 +156,7 @@ fn prune_disruptive_cfg() -> ConvergeConfig {
 
 /// An empty intent: no declared consumer, so every observed child container is undeclared.
 fn compiled_empty() -> Compiled {
-    compile(&Intent::default(), &ref_inventory(16)).expect("empty intent must compile")
+    compile(&Intent::empty(), &ref_inventory(16)).expect("empty intent must compile")
 }
 
 /// An orphan child container seeded with two residents (created + assigned-in) so a

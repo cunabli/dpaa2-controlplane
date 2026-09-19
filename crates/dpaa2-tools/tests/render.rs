@@ -111,7 +111,7 @@ fn dry_run_reference() {
         }]
         .into_iter()
         .collect(),
-        ..Intent::default()
+        ..Intent::empty()
     };
     let compiled = compile(&intent, &inventory()).expect("intent must compile");
     let desired = compiled.desired_topology(&intent);
@@ -138,7 +138,7 @@ fn dry_run_crypto_and_warning() {
             tenant: "router".into(),
             flows: 4,
         }],
-        ..Intent::default()
+        ..Intent::empty()
     };
     let compiled = compile(&intent, &inventory()).expect("intent must compile");
     let desired = compiled.desired_topology(&intent);
@@ -157,7 +157,7 @@ fn refusal_reserved_anchor() {
     let intent = Intent {
         tenants: vec![kernel_tenant(16)],
         ports: vec![port("wan0", 3, 25_000, "kernel")],
-        ..Intent::default()
+        ..Intent::empty()
     };
     let refusals = compile(&intent, &inventory()).expect_err("intent must be refused");
     insta::assert_snapshot!(render_refusals(&refusals));
