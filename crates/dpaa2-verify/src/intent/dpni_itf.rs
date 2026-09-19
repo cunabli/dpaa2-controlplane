@@ -17,7 +17,8 @@
 //! dropped from the observation the replay compares on.
 //!
 //! Mapping (the only place the two encodings are reconciled) — every sum tag is the Rust
-//! variant name verbatim (the ADR-0014 lint-bijection makes them identical spellings):
+//! variant name verbatim (the ADR-0014 lint-bijection makes them identical spellings), with
+//! one exception: the `DeadOptionRefusal` tag maps to `DpniRefusal::DeadOption`:
 //! - `DpniState` (`Absent`/`Created`), `Outcome`/`Refusal`, `DpniOpt`, `RawEscape`,
 //!   `Unrepresentable` ⇒ the [`dpaa2_api::families::dpni`] types of the same name;
 //! - the `CreateCfg` numeric fields ⇒ the refined range newtypes;
