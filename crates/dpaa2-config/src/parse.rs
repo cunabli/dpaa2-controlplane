@@ -1339,7 +1339,7 @@ mod tests {
     #[test]
     fn header_only_document_is_valid_and_empty() {
         let intent = parse_str(HEADER).expect("just the header parses");
-        assert_eq!(intent, dpaa2_api::intent::Intent::default());
+        assert_eq!(intent, dpaa2_api::intent::Intent::empty());
     }
 
     #[test]
