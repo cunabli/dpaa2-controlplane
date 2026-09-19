@@ -108,6 +108,21 @@ pub trait McControl {
     /// Returns an error if the backend cannot be queried.
     fn observe_containers(&self) -> Result<BTreeMap<DprcId, ObservedContainer>, Error>;
 
+    /// Re-observes exactly one child container by its re-observation handle, returning the
+    /// same [`ObservedContainer`] shape as [`McControl::observe_containers`], or `Ok(None)` when `id`
+    /// is not a child of the root — honest absence, the signal a prune verdict reads to
+    /// assert a destroyed id is gone without a bus rescan.
+    ///
+    /// Per-candidate re-observation replaces the full root rescan (1+2N spawns ×4 per
+    /// ensure) with a read scoped to that container only (dpni-typestate design D5; DPRC-I6
+    /// re-observation law). The OI-3 dpmcp-budget measurement (bead am0.2, board evidence
+    /// V-DPRC-13-rev1) found NO leak — the dpmcp census held flat at 203 across all five
+    /// censuses — so this seam is recorded as a spawn-count/latency fix, not a leak fix.
+    ///
+    /// # Errors
+    /// Returns an error if the backend cannot be queried.
+    fn observe_container(&self, id: DprcId) -> Result<Option<ObservedContainer>, Error>;
+
     /// `dprc create <parent> [--options] [--label]`: mints a child container under
     /// `parent` and returns its MC-assigned [`DprcId`] for re-observation. The new
     /// child reads back **unplugged** — a created DPRC is never driver-bound, and

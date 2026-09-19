@@ -338,6 +338,11 @@ impl McControl for FakeBackend {
         Ok(self.state.borrow().containers.clone())
     }
 
+    // Per-candidate re-observation is a map lookup here; `None` is honest absence (dpni-typestate design D5).
+    fn observe_container(&self, id: DprcId) -> Result<Option<ObservedContainer>, Error> {
+        Ok(self.state.borrow().containers.get(&id).cloned())
+    }
+
     // `dprc_create` mints a fresh, unplugged child container and records it so a
     // subsequent [`observe_containers`] re-queries it (the create-then-reobserve loop,
     // DPRC-I6). A created DPRC reads back on the [`ContainerState::Created`] (unplugged)
