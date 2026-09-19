@@ -1,4 +1,4 @@
-//! Reader for frozen dprc-lifecycle ITF traces (`models/families/traces/*.itf.json`,
+//! Reader for frozen dprc-lifecycle ITF traces (`models/traces/families/dprc/*.itf.json`,
 //! emitted by `models/families/dprc.qnt` module `dprc_lifecycle` via `pnpm
 //! model:freeze-dprc`).
 //!

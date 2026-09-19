@@ -153,7 +153,7 @@ Acceptance: every `\bowner\b` hit in `models/intent/`, `derive.rs`, and the tool
 
 ## Residual checks
 
-- **Ran — PASS7 Q1:** `grep -l "UnknownCeiling|UnmeasuredCombination" models/traces/*.itf.json` → **no files**. No frozen trace exercises a warning; L7's severity upgraded accordingly (the warning decoder tags in `intent_itf.rs` are dead code against the committed corpus).
+- **Ran — PASS7 Q1:** `grep -l "UnknownCeiling|UnmeasuredCombination" models/traces/retro/*.itf.json` → **no files**. No frozen trace exercises a warning; L7's severity upgraded accordingly (the warning decoder tags in `intent_itf.rs` are dead code against the committed corpus).
 - **Ran — PASS7 Q2:** `raw_alphabet.qnt:61` draws families from `Set("dpio", "dpni", "dpwidget")` only — 14 of 16 `FAMILY_NAMES` entries are conformance-unexercised; L8's R14 leg is confirmed necessary, not optional.
 - **Manual (needs Bash, not available to the judge):** `git log --oneline 648f804..4272019 -- crates/dpaa2-verify/src/{snapshot,safety,ioctlpolicy,mcstatus,driver,generate}.rs` — Pass 4's content-grep proxy shows no intent vocabulary reached the board files, but a semantic behavior tweak in the span is unruled-out.
 - **Manual (`bd`):** duplicate checks before filing B2 (vs gqf.57 and the open design bead gqf.40) and B3.

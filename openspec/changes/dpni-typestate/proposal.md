@@ -90,7 +90,7 @@ None — the change lands entirely as deltas to existing capabilities.
   frozen-trace twins), `dpaa2-config` (no schema change — options never
   surface in TOML).
 - Models: `models/families/dpni.qnt`, shared params; new frozen traces under
-  `models/traces`.
+  `models/traces/families/dpni`.
 - Docs: `docs/baseline/dpni.md` amendments for every probe outcome; ADR for
   any decision that solidifies or dies on the board; roadmap row #5; deferral
   rows to #10 (runtime setters, TX_CONF v2) and #14 (`num_rx_tcs` via DPL).

@@ -46,7 +46,7 @@ for audit trail):
 | 1.4 | DPRC-I12 `createdByUs` ghost, bucket invariant, voiding-verb enumeration (bead cd3.16) | PASS — `dprc.qnt`: `createdByUs` ghost field, `DPRC_I12` invariant, `labelVoidEscapeTest`/`labelVoidUnderLockEscapeTest` all present |
 | 2.1 | Parity test binding Rust to Quint sum (ADR-0002) | PASS — `dprc.rs:1026` `container_states_match_the_enum_and_the_model`, `dprc.rs:1050` `typestate_markers_match_the_container_states` |
 | 2.2 | Plan semantics (containment guards, eviction teardown, re-observation verdicts, typed refusal discrimination) | PASS (by inspection) — `plan_teardown`, `ContainerVerdict`, `attribute_mc` all present in `dprc_plan.rs` |
-| 2.3 | ITF conformance: frozen traces replay green in `cargo test` | PASS structurally / UNCHECKABLE-OFFLINE for the actual run — `dprc_traces_replay_green` + self-checking `every_committed_trace_is_listed` test exist; 14 `TRACES` entries match exactly 14 files on disk under `models/families/traces/`, no orphans, no missing |
+| 2.3 | ITF conformance: frozen traces replay green in `cargo test` | PASS structurally / UNCHECKABLE-OFFLINE for the actual run — `dprc_traces_replay_green` + self-checking `every_committed_trace_is_listed` test exist; 14 `TRACES` entries match exactly 14 files on disk under `models/traces/families/`, no orphans, no missing |
 | 2.4 | Prune buckets/planning, tests pinned to 1.4 enumeration (bead cd3.17) | PASS — `dprc_plan.rs` `scenario_empty_label_is_report_only_the_label_void_escape` (labelVoidEscapeTest twin), `scenario_relabel_remedy_re_enters_the_candidate_buckets`, `prune_buckets_match_the_enum_and_the_model` all present |
 | 3.1 | Restool shim verbs; unit tests against recorded restool transcripts | PASS — `restool.rs` `mod tests` with 19 `#[test]` fns; `crates/dpaa2-mc/tests/fixtures/dprc_show.txt` referenced via `include_str!` in `shim.rs:13` |
 | 3.2 | KernelControl VFIO face; sysfs plumbing testable via Runner seam | PASS (by inspection) — `kernel.rs`/`sysfs.rs` have `mod tests` with multiple `#[test]` fns |
@@ -80,7 +80,7 @@ found in epic-touched code.
 
 **Read:** `openspec/changes/dprc-encapsulation/tasks.md`, `design.md`,
 `specs/reconciler/spec.md`; `models/COVERAGE.md`,
-`models/families/dprc.qnt`, `models/families/traces/` (directory listing);
+`models/families/dprc.qnt`, `models/traces/families/` (directory listing);
 `docs/baseline/dprc.md`, `docs/ROADMAP.md`, `docs/adr/0001*`,
 `docs/adr/0007*`, `docs/adr/0011*`, `docs/adr/0017*`; `CHANGELOG.md`,
 `cliff.toml` (existence only); `crates/dpaa2-api/src/dprc.rs`,

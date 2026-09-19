@@ -23,7 +23,7 @@ Reviewed span 34e708b..a578470 (7 commits, epic 093). Inputs: `openspec/changes/
 | 13 | PASS2-F5 | `refuse.rs:1738,1758,1780` | simplify: `contains` vs the module's stated complete-set `assert_eq!` convention | misleads-a-reader | pass-verified | Amend: `assert_eq!` on the singleton set — free strength. |
 | 14 | PASS1-F4 | `crates/dpaa2-config/src/parse.rs:381-382` | simplify: manufactures `""` from an `Option` just to emptiness-test; also the reason task 1.1's verify grep passes vacuously | carries-cost | judge-verified | Amend (fold into #3's stream): `match t.pool.as_deref()`; errors stay byte-identical. |
 | 15 | PASS1-F5 | `refuse.rs:1643-1647` | duplicate: sixth tombstone, in a test module, for a test that does not exist | carries-cost | pass-verified | Delete this one; the other five each earn their place. |
-| 16 | PASS3-F5 | `openspec/changes/vocabulary-v2/proposal.md:90` | copy-drift: wrong corpus path (`models/traces/` vs `models/intent/traces/`) | carries-cost (minor) | pass-verified | Amend path. |
+| 16 | PASS3-F5 | `openspec/changes/vocabulary-v2/proposal.md:90` | copy-drift: wrong corpus path (`models/traces/retro/` vs `models/intent/traces/`) | carries-cost (minor) | pass-verified | Amend path. |
 
 ## 2. D6 compliance verdict: **YES, qualified**
 

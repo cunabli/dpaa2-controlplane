@@ -1,4 +1,4 @@
-//! Reader for frozen dpni create-surface ITF traces (`models/families/traces/dpni/*.itf.json`,
+//! Reader for frozen dpni create-surface ITF traces (`models/traces/families/dpni/*.itf.json`,
 //! emitted by `models/families/dpni.qnt` module `dpni_scenario` via `pnpm model:freeze-dpni`).
 //!
 //! The stepped-machine twin of the dprc reader ([`crate::intent::dprc_itf`]): the `world` var

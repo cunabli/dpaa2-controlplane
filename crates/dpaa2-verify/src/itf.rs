@@ -1,4 +1,4 @@
-//! Reader for frozen Quint ITF traces (`models/traces/*.itf.json`).
+//! Reader for frozen Quint ITF traces (`models/traces/<aspect>/*.itf.json`).
 //!
 //! An ITF trace serializes every state of one directed run of the core
 //! machine (`models/core/machine.qnt`). The replayer does not need the

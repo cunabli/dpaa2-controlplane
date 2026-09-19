@@ -86,7 +86,7 @@ tile #10 in `models/COVERAGE.md` AND in `docs/baseline/dprc.md`. Sweep the
 scaffolding: `todo!`, `unimplemented!`, `dbg!`, `#[allow(dead_code)]`,
 `#[ignore]`, commented-out code, stale `create-only` wording that predates
 the D8 amendment, and orphaned fixtures. Verify the frozen traces
-`dprc_replay.rs` replays are committed under `models/families/traces/` and
+`dprc_replay.rs` replays are committed under `models/traces/families/` and
 referenced, none orphaned. Sweep `ponytail:` markers in touched files.
 Classify every hit: (a) stale — a named task should have updated it;
 (b) deliberate (grounding lists the protected decisions); (c) historical

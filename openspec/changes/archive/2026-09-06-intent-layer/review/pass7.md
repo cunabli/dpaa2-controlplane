@@ -52,7 +52,7 @@ Consolidated from Passes 3/4/5 inventories. Parse boundary and MC observed-world
 **Deliberately not read:** everything the four inventories already established — api/verify/config module bodies, qnt invariant bodies, ITF traces, test suites; pass1.md (vocabulary not needed); `adapter.rs` body beyond Pass 4's verdict (relied on); board machinery. Prior passes' file:line citations are consumed as given, per the brief.
 
 **Open questions:**
-1. **F2's current-guard strength:** whether any frozen intent trace actually reaches a warning-carrying state (if none does, `intent_itf.rs`'s decoder tags are entirely unexercised and F2's severity is understated). Synthesis check: `grep -l "UnknownCeiling\|UnmeasuredCombination" models/traces/*.itf.json`.
+1. **F2's current-guard strength:** whether any frozen intent trace actually reaches a warning-carrying state (if none does, `intent_itf.rs`'s decoder tags are entirely unexercised and F2's severity is understated). Synthesis check: `grep -l "UnknownCeiling\|UnmeasuredCombination" models/traces/retro/*.itf.json`.
 2. **F1's coverage proxy:** whether `raw_alphabet.qnt`'s `UnknownExtraFamily` witness draws only one bad family name (if so, 15 of 16 `FAMILY_NAMES` entries are conformance-unexercised today, strengthening the R14-leg case).
 3. The rows-4–6 bundle needs an owner: no existing bead covers a vocabulary-v2 change (gqf.57 is the unanchored-family executor; PASS3-F14's matcher-lowering bead is separate). Synthesis should propose it as one new change with the three items as tasks.
 

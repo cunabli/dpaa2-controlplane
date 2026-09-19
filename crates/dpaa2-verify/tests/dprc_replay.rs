@@ -37,7 +37,7 @@ use dpaa2_api::plan::dprc::{
 };
 use dpaa2_verify::intent::dprc_itf::{WorldView, parse_dprc_trace};
 
-/// Every committed trace under `models/families/traces/`, with the model face it pins
+/// Every committed trace under `models/traces/families/`, with the model face it pins
 /// (the acceptance-criterion coverage list).
 const TRACES: &[(&str, &str)] = &[
     (
@@ -114,7 +114,7 @@ const TRACES: &[(&str, &str)] = &[
 
 fn load(file: &str) -> String {
     let path = format!(
-        "{}/../../models/families/traces/{file}.itf.json",
+        "{}/../../models/traces/families/dprc/{file}.itf.json",
         env!("CARGO_MANIFEST_DIR")
     );
     std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {path}: {e}"))
@@ -665,7 +665,7 @@ fn replay_detects_a_diverging_world() {
 #[test]
 fn every_committed_trace_is_listed() {
     let dir = format!(
-        "{}/../../models/families/traces",
+        "{}/../../models/traces/families/dprc",
         env!("CARGO_MANIFEST_DIR")
     );
     let on_disk: BTreeSet<String> = std::fs::read_dir(&dir)

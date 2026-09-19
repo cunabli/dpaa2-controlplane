@@ -24,7 +24,7 @@ fn repo_root() -> std::path::PathBuf {
 fn trace_files() -> Vec<std::path::PathBuf> {
     let root = repo_root();
     let mut out = Vec::new();
-    if let Ok(entries) = std::fs::read_dir(root.join("models/traces")) {
+    if let Ok(entries) = std::fs::read_dir(root.join("models/traces/retro")) {
         for e in entries.flatten() {
             if e.path().extension().and_then(|x| x.to_str()) == Some("json") {
                 out.push(e.path());

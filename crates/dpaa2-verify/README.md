@@ -9,7 +9,7 @@ is D6 (ADR-0004) of that change's `design.md`.
 ## What it does today
 
 The **ITF trace replayer** (phase 3): frozen model traces in
-`models/traces/*.itf.json` replay against the pure reconciler
+`models/traces/<aspect>/*.itf.json` replay against the pure reconciler
 (`dpaa2_api::plan::reconcile`) on every `cargo test`, no board attached.
 This is rung 3 of the model validation (`pnpm model:replay`); the
 full run is `pnpm model:validation` — see `models/README.md` for the
@@ -238,7 +238,7 @@ catches wrong decisions.
 
 1. Add/extend a directed run in `models/retro/reconciler.qnt`,
    documenting its observation points in the run's comment.
-2. `pnpm model:freeze` — rewrites `models/traces/{test}.itf.json`.
+2. `pnpm model:freeze` — rewrites `models/traces/retro/{test}.itf.json`.
 3. Transcribe the observation points into the `TRACES` table in
    `tests/retro_replay.rs` (file, port anchor, presence, prune,
    observation state indices).
