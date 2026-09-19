@@ -577,6 +577,10 @@ impl Tenant {
     /// name its origin resolves to — carried as the MC label (ADR-0015 decisions 9+13);
     /// the caller derives it from the origin, since one tenant's dpnis serve different
     /// constructs.
+    ///
+    /// Precondition: the caller has cleared the `refuse::sizing_refusals` compile fence
+    /// (bead guu.4a). An off-envelope `num_queues` here silently degrades to
+    /// `NumQueues::DEFAULT` (`intent::derive::dpni_cfg`) instead of refusing.
     #[must_use]
     pub fn dpni(
         &self,
@@ -664,6 +668,10 @@ impl Port {
     /// dpni↔dpmac edge (`object-model.md` §2, figure 6a). Placement comes from the
     /// terminating [`Tenant`] witness, so a tenant's dpni can never be asked to
     /// live in the root dprc; ordinal and queue count are the derivation's outputs.
+    ///
+    /// Precondition: the caller has cleared the `refuse::sizing_refusals` compile fence
+    /// (bead guu.4a). An off-envelope `num_queues` here silently degrades to
+    /// `NumQueues::DEFAULT` (`intent::derive::dpni_cfg`) instead of refusing.
     #[must_use]
     pub fn terminate(
         &self,

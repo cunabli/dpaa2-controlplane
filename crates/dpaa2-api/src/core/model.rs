@@ -528,11 +528,12 @@ pub struct ObservedDpni {
     pub attributes: BTreeMap<String, String>,
     /// The typed `dpni_attr` read-back, when the shim could map the whole attr block
     /// (dpni-typestate task 4.1; design D4). `None` when the block was absent or
-    /// unparsable — the honest gap. This is the drift-comparison surface with the
-    /// asymmetric read-back mapped to its domain names (`num_tx_tcs`→`num_tcs`,
-    /// `num_channels`→`num_ceetm_ch`); write-only `dist_key_size` is never here. The
-    /// stringly [`attributes`](Self::attributes) map stays untouched as the legacy drift
-    /// path.
+    /// unparsable — the honest gap. This is the typed observation the planner will consume
+    /// once the drift wiring lands (openspec change dpni-hardening, bead
+    /// dpaa2-controlplane-7fv.2); today the legacy [`attributes`](Self::attributes) path
+    /// still judges drift. The asymmetric read-back is mapped to its domain names
+    /// (`num_tx_tcs`→`num_tcs`, `num_channels`→`num_ceetm_ch`); write-only `dist_key_size`
+    /// is never here.
     pub cfg_observation: Option<crate::families::dpni::DpniObservation>,
 }
 

@@ -915,7 +915,8 @@ impl DpniObservation {
 /// "Primary MAC mutation plans without touching cfg").
 ///
 /// A sans-io decision function ([`drift_disposition`]) produces it; wiring it to the
-/// executor/shim is a later tile (dpni-typestate task 4.1).
+/// planner/executor is a later tile (openspec change dpni-hardening, bead
+/// dpaa2-controlplane-7fv.2).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[must_use]
 pub enum DpniDisposition {

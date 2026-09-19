@@ -10,7 +10,10 @@ use crate::plan::dprc::ObservedContainer;
 /// Southbound MC-portal control at MC-command granularity.
 ///
 /// Each method corresponds to a single MC firmware command so a future ioctl
-/// implementation maps one-to-one behind the same trait (mc-backend spec).
+/// implementation maps one-to-one behind the same trait (mc-backend spec) — with one
+/// exception: [`create_dpni`](Self::create_dpni) is a transactional
+/// companion-provisioning chain (shim policy today), which a portal backend would fork.
+/// Where that chain policy lives for the two backends (tile #10) is recorded in ADR-0018.
 pub trait McControl {
     /// Reads the current MC state (objects + connection edges) as authoritative.
     ///
