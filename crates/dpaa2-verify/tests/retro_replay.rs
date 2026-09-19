@@ -28,7 +28,10 @@ const TRACES: &[RetroTrace] = &[
 ];
 
 fn load(file: &str) -> Vec<ModelView> {
-    let path = format!("{}/../../models/traces/retro/{file}", env!("CARGO_MANIFEST_DIR"));
+    let path = format!(
+        "{}/../../models/traces/retro/{file}",
+        env!("CARGO_MANIFEST_DIR")
+    );
     parse_trace(&std::fs::read_to_string(&path).expect("read committed trace"))
         .expect("parse committed trace")
 }
