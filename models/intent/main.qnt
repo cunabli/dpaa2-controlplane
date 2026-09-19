@@ -196,7 +196,7 @@ module intent_main {
               attributes: DprcAttrs({ options: DPRC_DEFAULT_OPTIONS }), provenance: { tenant: "router", rule: "dprc", construct: "" } }),
       countFam(p, "router", Dpni) == 2,
       objsOfFam(p, "router", Dpni).forall(o =>
-        o.container == Child("router") and match o.attributes { | DpniAttrs(a) => a.numQueues == 5 | _ => false }),
+        o.container == Child("router") and match o.attributes { | DpniAttrs(a) => a.cfg.numQueues == 5 | _ => false }),
       countFam(p, "router", Dpio) == 10,
       countFam(p, "router", Dpbp) == 2,
       countFam(p, "router", Dpmcp) == 1,
@@ -247,7 +247,7 @@ module intent_main {
       countFam(p, "kernel", Dpcon) == 16,
       countFam(p, "kernel", Dpni) == 1,
       objsOfFam(p, "kernel", Dpni).forall(o =>
-        o.container == Root and match o.attributes { | DpniAttrs(a) => a.numQueues == 16 | _ => false }),
+        o.container == Root and match o.attributes { | DpniAttrs(a) => a.cfg.numQueues == 16 | _ => false }),
       p.objs.filter(o => o.key.family == Dprtc) ==
         Set({ key: { tenant: KERNEL, family: Dprtc, ordinal: 1 }, container: Root, attributes: Unsized,
               provenance: { tenant: KERNEL, rule: "dprtc", construct: "" } }),
@@ -268,7 +268,7 @@ module intent_main {
               attributes: DpswAttrs({ numIfs: 3, maxFdbs: 3, perFdbFlooding: true, perFdbBroadcast: true, ctrlIf: true }),
               provenance: { tenant: "kernel", rule: "dpsw", construct: "lan" } }),
       countFam(p, "router", Dpni) == 1,
-      objsOfFam(p, "router", Dpni).forall(o => match o.attributes { | DpniAttrs(a) => a.numQueues == 1 | _ => false }),
+      objsOfFam(p, "router", Dpni).forall(o => match o.attributes { | DpniAttrs(a) => a.cfg.numQueues == 1 | _ => false }),
       countFam(p, "router", Dpio) == 2,
       countFam(p, "router", Dpcon) == 1,
       countFam(p, "kernel", Dpni) == 0,
@@ -298,7 +298,7 @@ module intent_main {
     all {
       p.objs.filter(o => o.key.family == Dpsw) == Set(),
       countFam(p, "vpp", Dpni) == 3,
-      objsOfFam(p, "vpp", Dpni).forall(o => match o.attributes { | DpniAttrs(a) => a.numQueues == 5 | _ => false }),
+      objsOfFam(p, "vpp", Dpni).forall(o => match o.attributes { | DpniAttrs(a) => a.cfg.numQueues == 5 | _ => false }),
       countFam(p, "vpp", Dpio) == 10,
       countFam(p, "kernel", Dpni) == 1,
       p.edges.contains({ a: ObjectAttach({ key: { tenant: "vpp", family: Dpni, ordinal: 1 }, port: 0 }),
@@ -365,8 +365,8 @@ module intent_main {
     all {
       countFam(p, "routerA", Dpni) == 1,
       countFam(p, "routerB", Dpni) == 1,
-      objsOfFam(p, "routerA", Dpni).forall(o => match o.attributes { | DpniAttrs(a) => a.numQueues == 1 | _ => false }),
-      objsOfFam(p, "routerB", Dpni).forall(o => match o.attributes { | DpniAttrs(a) => a.numQueues == 1 | _ => false }),
+      objsOfFam(p, "routerA", Dpni).forall(o => match o.attributes { | DpniAttrs(a) => a.cfg.numQueues == 1 | _ => false }),
+      objsOfFam(p, "routerB", Dpni).forall(o => match o.attributes { | DpniAttrs(a) => a.cfg.numQueues == 1 | _ => false }),
       p.edges.contains({ a: ObjectAttach({ key: { tenant: "routerA", family: Dpni, ordinal: 1 }, port: 0 }),
                          b: ObjectAttach({ key: { tenant: "routerB", family: Dpni, ordinal: 1 }, port: 0 }),
                          provenance: { tenant: "routerA", rule: "link-edge", construct: "wire" } }),
@@ -645,7 +645,7 @@ module intent_main {
       countFam(p, "ns1", Dpni) == 1,
       countFam(p, "ns1", Dpcon) == 16,
       objsOfFam(p, "ns1", Dpni).forall(o =>
-        o.container == Child("ns1") and match o.attributes { | DpniAttrs(a) => a.numQueues == 16 | _ => false }),
+        o.container == Child("ns1") and match o.attributes { | DpniAttrs(a) => a.cfg.numQueues == 16 | _ => false }),
       p.objs.filter(o => o.key.tenant == "ns1" and o.key.family != Dprc).forall(o => o.container == Child("ns1")),
     }
 
@@ -697,7 +697,7 @@ module intent_main {
           all {
             countFam(p, "kernel", Dpni) == 1,
             objsOfFam(p, "kernel", Dpni).forall(o =>
-              o.container == Root and match o.attributes { | DpniAttrs(a) => a.numQueues == 16 | _ => false }),
+              o.container == Root and match o.attributes { | DpniAttrs(a) => a.cfg.numQueues == 16 | _ => false }),
             countFam(p, "routerX", Dpni) == 1,
             p.edges.contains({ a: ObjectAttach({ key: { tenant: "routerX", family: Dpni, ordinal: 1 }, port: 0 }),
                                b: ObjectAttach({ key: { tenant: "kernel", family: Dpni, ordinal: 1 }, port: 0 }),

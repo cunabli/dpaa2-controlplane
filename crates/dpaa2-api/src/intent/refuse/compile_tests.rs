@@ -752,12 +752,68 @@ fn pollmode_per_thread_draws_and_dpcon_per_polled_queue() {
     assert_eq!(count_fam(&c, "router", Family::Dpni), 2);
     assert_eq!(
         attributes_of(&c, "router", Family::Dpni, 1),
-        Attributes::Dpni { num_queues: 5 }
+        Attributes::Dpni {
+            cfg: crate::intent::derive::dpni_cfg(Dataplane::UserspacePoll, 5)
+        }
     );
     assert_eq!(count_fam(&c, "router", Family::Dpio), 10); // 2·T
     assert_eq!(count_fam(&c, "router", Family::Dpbp), 2);
     assert_eq!(count_fam(&c, "router", Family::Dpmcp), 1);
     assert_eq!(count_fam(&c, "router", Family::Dpcon), 10); // dpnis·T
+}
+
+#[test]
+fn dpni_option_profile_follows_the_binding_consumer() {
+    // dpni-typestate design D3: two tenants differing only in dataplane, same construct
+    // (a physical port) — poll consumer's dpni gets the PMD mask, kernel-netlink the kernel.
+    use crate::families::dpni::Profile;
+    let intent = Intent {
+        tenants: vec![kernel_tenant(16), poll("app")],
+        ports: vec![
+            port("k7", 7, 10_000, "kernel"),
+            port("a9", 9, 10_000, "app"),
+        ],
+        ..Intent::default()
+    };
+    let c = ok(&intent, &ref_inv());
+    let Attributes::Dpni { cfg: kernel_cfg } = attributes_of(&c, "kernel", Family::Dpni, 1) else {
+        panic!("kernel dpni")
+    };
+    assert_eq!(kernel_cfg.options, Profile::Kernel.mask());
+    let Attributes::Dpni { cfg: app_cfg } = attributes_of(&c, "app", Family::Dpni, 1) else {
+        panic!("app dpni")
+    };
+    assert_eq!(app_cfg.options, Profile::Pmd.mask());
+}
+
+#[test]
+fn dpni_cfg_overlays_num_queues_and_custom_cg() {
+    // dpni-typestate design D3 / `dpni.qnt` `dpniCfg`: a poll consumer at 5 queues overlays
+    // num_queues=5, num_cgs=5+8=13 under CUSTOM_CG at PMD's 16 TCs; a kernel one takes the count at 1 TC, default num_cgs.
+    use crate::families::dpni::DpniOpt;
+    let pmd = crate::intent::derive::dpni_cfg(Dataplane::UserspacePoll, 5);
+    assert_eq!(pmd.num_queues.get(), 5);
+    assert_eq!(pmd.num_cgs.get(), 13);
+    assert_eq!(pmd.num_tcs.get(), 16);
+    assert!(pmd.options.contains(DpniOpt::CustomCg));
+
+    let knl = crate::intent::derive::dpni_cfg(Dataplane::KernelNetlink, 16);
+    assert_eq!(knl.num_queues.get(), 16);
+    assert_eq!(knl.num_tcs.get(), 1);
+    assert_eq!(knl.num_cgs.get(), 0);
+}
+
+#[test]
+fn dpni_options_provenance_node_carries_the_profile_anchor() {
+    // dpni-typestate design D3: the dry-run plan carries a dpni-options node whose value
+    // is the flag + escape count of the derived mask and whose anchor names the profile.
+    let c = ok(&reference_intent(), &ref_inv());
+    let opts = provenance(&c, "router", "dpni-options", "");
+    assert_eq!(opts.value, 6); // 5 PMD flags + PfdrInPeb
+    assert!(opts.anchor.contains("PMD profile"), "{}", opts.anchor);
+    let kopts = provenance(&c, "kernel", "dpni-options", "");
+    assert_eq!(kopts.value, 1); // HAS_KEY_MASKING only
+    assert!(kopts.anchor.contains("kernel profile"), "{}", kopts.anchor);
 }
 
 #[test]
@@ -792,7 +848,10 @@ fn kernel_netlink_namespace_child_resident_draws_dpio_zero() {
     assert_eq!(count_fam(&c, "ns", Family::Dpni), 1);
     assert_eq!(
         attributes_of(&c, "ns", Family::Dpni, 1),
-        Attributes::Dpni { num_queues: 16 } // cpus transmit queues
+        // cpus transmit queues, kernel profile
+        Attributes::Dpni {
+            cfg: crate::intent::derive::dpni_cfg(Dataplane::KernelNetlink, 16)
+        }
     );
     assert_eq!(count_fam(&c, "ns", Family::Dpcon), 16); // dpnis·cpus
     // a namespace is isolated: its own kernel-bound child dprc.

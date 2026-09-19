@@ -26,6 +26,10 @@ use std::collections::{BTreeMap, BTreeSet};
 use crate::core::family::Family;
 use crate::core::inventory::Inventory;
 use crate::core::types::{ConstructName, TenantName};
+use crate::families::dpni::{
+    DpniCfg, DpniOpt, InterfaceConstruct, NumCgs, NumQueues, Profile, ProfileOutcome,
+    derive_profile,
+};
 use crate::intent::compiled::{
     AttachPoint, CompiledPlan, Measurement, ObjectKey, PlannedObject, ProvenanceKey, ProvenanceNode,
 };
@@ -84,6 +88,35 @@ fn imin(a: i64, b: i64) -> i64 {
 /// count (only reachable on a refused intent's undefined derivation) reads as 0.
 fn u(n: i64) -> u32 {
     u32::try_from(n).unwrap_or(0)
+}
+
+/// A priced tenant's dpni create block, derived purely from its consumer
+/// (dpni-typestate design D3; `derive.qnt` `dpniCfg`): the profile follows the
+/// [`Dataplane`], the sizing's `num_queues` overlays the profile block, and
+/// `num_cgs = num_queues + 8` under `CUSTOM_CG` (the deployed heuristic, baseline
+/// dpni.md "Intent mapping"); every other field stays the profile's. `UserspaceEvent`
+/// never reaches here (compile refuses it, [`crate::intent::refuse`]), so the `Unpriced`
+/// arm is total-but-undefined on refused intents and falls back to the kernel block —
+/// the same "undefined on refused intents" idiom as the negative-count [`u`].
+pub(crate) fn dpni_cfg(dp: Dataplane, num_queues: u32) -> DpniCfg {
+    match derive_profile(dp, InterfaceConstruct::PhysicalPort) {
+        ProfileOutcome::Derived(p) => {
+            let mut cfg = p.cfg();
+            // Off-envelope is only a refused intent's undefined derivation ⇒ MC default.
+            cfg.num_queues = u16::try_from(num_queues)
+                .ok()
+                .and_then(|v| NumQueues::new(v).ok())
+                .unwrap_or(NumQueues::DEFAULT);
+            if p.mask().contains(DpniOpt::CustomCg) {
+                cfg.num_cgs = u16::try_from(num_queues.saturating_add(8))
+                    .ok()
+                    .and_then(|v| NumCgs::new(v).ok())
+                    .unwrap_or(NumCgs::DEFAULT);
+            }
+            cfg
+        }
+        ProfileOutcome::Unpriced => Profile::Kernel.cfg(),
+    }
 }
 
 // ---- fabric member helpers (design D6; ADR-0004; DPAA2 UM §2.2.2 fig. 6) ----
@@ -470,6 +503,7 @@ fn kernel_cores(inv: &Inventory, c: &Tenant) -> i64 {
 /// (`derive.qnt` `Sizing`).
 struct Sizing {
     name: TenantName,
+    dataplane: Dataplane,
     is_kernel: bool,
     is_root_kernel: bool,
     is_restricted: bool,
@@ -530,6 +564,7 @@ fn size_tenant(intent: &Intent, inv: &Inventory, c: &Tenant) -> Sizing {
 
     Sizing {
         name: nm.clone(),
+        dataplane: c.dataplane,
         is_kernel,
         is_root_kernel,
         is_restricted,
@@ -880,6 +915,28 @@ fn add_tenant_prov(intent: &Intent, s: &Sizing, m: &mut BTreeMap<ProvenanceKey, 
     m.insert(
         ProvenanceKey::new(nm, "dpni-queues", ""),
         dpni_queues_node(s),
+    );
+    // The tenant's derived dpni options (dpni-typestate design D3; `derive.qnt`
+    // `addTenantProv`): value is the flag + escape count of the profile mask.
+    let opt_cfg = dpni_cfg(s.dataplane, u(s.num_queues));
+    let n_opts =
+        i64::try_from(opt_cfg.options.flags().len() + opt_cfg.options.escapes().len()).unwrap_or(0);
+    m.insert(
+        ProvenanceKey::new(nm, "dpni-options", ""),
+        ProvenanceNode {
+            rule: "dpni-options".into(),
+            anchor: if s.is_kernel {
+                "dpni-typestate design D3: kernel profile (kernel-netlink) — HAS_KEY_MASKING only, baseline dpni.md Intent mapping".to_owned()
+            } else {
+                "dpni-typestate design D3: PMD profile (userspace-poll) — consumer-typed, baseline dpni.md Intent mapping".to_owned()
+            },
+            mark: Measurement::Measured,
+            request: n_opts,
+            extra: None,
+            value: n_opts,
+            inputs: provkeys(&[(nm.as_str(), "dpni-queues", "")]),
+            constructs: BTreeSet::new(),
+        },
     );
     m.insert(ProvenanceKey::new(nm, "dpcon", ""), dpcon_node(s));
     if s.is_kernel {

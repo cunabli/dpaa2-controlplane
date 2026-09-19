@@ -11,6 +11,10 @@
 // Apalache-marked subset: DPNI-I9, DPNI-I11.
 module dpni {
   import types.* from "../core/types"
+  // The consumer type is the intent vocabulary's Dataplane, not a local copy:
+  // the profile is consumer-typed (baseline "Intent mapping", [verified]), and
+  // ADR-0002's isomorphism binds this sum to the Rust family's consumer input.
+  import intent_types.* from "../intent/types"
 
   pure val dpniParams: FamilyParams = {
     creatable: true,
@@ -29,36 +33,6 @@ module dpni {
     // from the shared service, never drawn.
     draw: { dpmcp: 1, dpbp: 1, dpcon: 1 },
   }
-}
-
-// The dpni create-option surface as a sum-typed state machine — the
-// isomorphic twin (ADR-0002 §3, quint-is-the-spec) of the Rust typestates
-// this change grows (dpni-typestate design D8, model first). Authored model-first;
-// sums/payloads are what the Rust encoding must mirror. Everything below
-// traces to docs/baseline/dpni.md — the twelve live options and their
-// ranges from "Option inventory: used vs available", the flag vocabulary
-// and the raw escape from the same section, the two profiles from its
-// production-profiles list, the dead options and num_rx_tcs from its
-// "Dead options"/"Never settable" notes, and the observation asymmetry
-// from "Attribute mutability".
-//
-// Named invariants (dispositions in models/COVERAGE.md "dpni create-surface
-// invariants"):
-//   CreateRangeRefusal  no accepted create sits outside the restool envelope;
-//   ProfileTotality     every (Dataplane, interface construct) maps to exactly
-//                       one of the two board-verified option sets (dpni-typestate design D3);
-//   DeadOptionParity    the eleven dead options and num_rx_tcs never ride an
-//                       accepted create (unrepresentable by construct, dpni-typestate design D2);
-//   WriteOnlyDistKeySize dist_key_size participates in create, never in
-//                       observation (dpni-typestate design D4; DPNI-I12).
-// Apalache-marked subset: the stateInvariants conjunction — all four
-// (create-range and dead-parity are state-expressible over world; totality
-// and write-only are finite-quantified constants), per the DoD model gate.
-module dpni_lifecycle {
-  // The consumer type is the intent vocabulary's Dataplane, not a local copy:
-  // the profile is consumer-typed (baseline "Intent mapping", [verified]), and
-  // ADR-0002's isomorphism binds this sum to the Rust family's consumer input.
-  import intent_types.* from "../intent/types"
 
   // The interface construct an intent gives a dpni (baseline "Intent mapping";
   // ADR-0005): a physical port (dpni↔dpmac), a host-injection pair (dpni↔dpni
@@ -131,47 +105,6 @@ module dpni_lifecycle {
     rootContainer: bool,     // --container: root dprc (true) or a child (false)
   }
 
-  // A field is in the restool envelope when it is either 0 (the option omitted,
-  // so the MC applies its own default — baseline "Option inventory": an omitted
-  // flag sends literal 0) or an explicit value inside the restool range.
-  pure def inRange(v: int, hi: int): bool = v == 0 or (v >= 1 and v <= hi)
-
-  // No accepted create sits outside the verified restool envelope (baseline
-  // "Option inventory" ranges; the tightest verified bounds, dpni-typestate design D2).
-  pure def inEnvelope(cfg: CreateCfg): bool = and {
-    inRange(cfg.numQueues, 32),
-    inRange(cfg.numTcs, 16),
-    inRange(cfg.macFilterEntries, 80),
-    inRange(cfg.vlanFilterEntries, 16),
-    inRange(cfg.qosEntries, 64),
-    inRange(cfg.fsEntries, 1024),
-    inRange(cfg.numCgs, 128),
-    inRange(cfg.distKeySize, 56),
-    inRange(cfg.numCeetmCh, 32),
-    inRange(cfg.numOpr, 128),
-    cfg.options.flags.subseteq(MC_VOCABULARY),
-  }
-
-  // The observation surface (baseline "Attribute mutability", read-back
-  // asymmetry): dpni_attr omits dist_key_size, so it can never be read back and
-  // is write-only (dpni-typestate design D4). The model observation mirrors that omission — it
-  // carries no distKeySize field, so the reconciler cannot claim drift on it.
-  type Observation = {
-    options: OptionMask,
-    numQueues: int, numTcs: int,
-    macFilterEntries: int, vlanFilterEntries: int,
-    qosEntries: int, fsEntries: int,
-    numCgs: int, numCeetmCh: int, numOpr: int,
-  }
-
-  pure def observe(cfg: CreateCfg): Observation = {
-    options: cfg.options,
-    numQueues: cfg.numQueues, numTcs: cfg.numTcs,
-    macFilterEntries: cfg.macFilterEntries, vlanFilterEntries: cfg.vlanFilterEntries,
-    qosEntries: cfg.qosEntries, fsEntries: cfg.fsEntries,
-    numCgs: cfg.numCgs, numCeetmCh: cfg.numCeetmCh, numOpr: cfg.numOpr,
-  }
-
   // ---- the two board-verified profiles (dpni-typestate design D3; baseline production list) ----
 
   type OptionProfile = ProfilePmd | ProfileKernel
@@ -240,6 +173,79 @@ module dpni_lifecycle {
   // keeps them (QNT404; the same reason families/params.qnt hosts ALL_PARAMS).
   pure val DATAPLANE_DRAWS: Set[Dataplane] =
     Set(KernelNetlink, UserspacePoll, UserspaceEvent)
+}
+
+// The dpni create-option surface as a sum-typed state machine — the
+// isomorphic twin (ADR-0002 §3, quint-is-the-spec) of the Rust typestates
+// this change grows (dpni-typestate design D8, model first). Authored model-first;
+// sums/payloads are what the Rust encoding must mirror. Everything below
+// traces to docs/baseline/dpni.md — the twelve live options and their
+// ranges from "Option inventory: used vs available", the flag vocabulary
+// and the raw escape from the same section, the two profiles from its
+// production-profiles list, the dead options and num_rx_tcs from its
+// "Dead options"/"Never settable" notes, and the observation asymmetry
+// from "Attribute mutability".
+//
+// The pure option surface (types, profiles, deriveProfile) lives in `module
+// dpni` above so the intent compiler can import it (intent/derive.qnt); this
+// lifecycle module imports it and adds the stateful create/destroy machine.
+//
+// Named invariants (dispositions in models/COVERAGE.md "dpni create-surface
+// invariants"):
+//   CreateRangeRefusal  no accepted create sits outside the restool envelope;
+//   ProfileTotality     every (Dataplane, interface construct) maps to exactly
+//                       one of the two board-verified option sets (dpni-typestate design D3);
+//   DeadOptionParity    the eleven dead options and num_rx_tcs never ride an
+//                       accepted create (unrepresentable by construct, dpni-typestate design D2);
+//   WriteOnlyDistKeySize dist_key_size participates in create, never in
+//                       observation (dpni-typestate design D4; DPNI-I12).
+// Apalache-marked subset: the stateInvariants conjunction — all four
+// (create-range and dead-parity are state-expressible over world; totality
+// and write-only are finite-quantified constants), per the DoD model gate.
+module dpni_lifecycle {
+  import intent_types.* from "../intent/types"
+  import dpni.*
+
+  // A field is in the restool envelope when it is either 0 (the option omitted,
+  // so the MC applies its own default — baseline "Option inventory": an omitted
+  // flag sends literal 0) or an explicit value inside the restool range.
+  pure def inRange(v: int, hi: int): bool = v == 0 or (v >= 1 and v <= hi)
+
+  // No accepted create sits outside the verified restool envelope (baseline
+  // "Option inventory" ranges; the tightest verified bounds, dpni-typestate design D2).
+  pure def inEnvelope(cfg: CreateCfg): bool = and {
+    inRange(cfg.numQueues, 32),
+    inRange(cfg.numTcs, 16),
+    inRange(cfg.macFilterEntries, 80),
+    inRange(cfg.vlanFilterEntries, 16),
+    inRange(cfg.qosEntries, 64),
+    inRange(cfg.fsEntries, 1024),
+    inRange(cfg.numCgs, 128),
+    inRange(cfg.distKeySize, 56),
+    inRange(cfg.numCeetmCh, 32),
+    inRange(cfg.numOpr, 128),
+    cfg.options.flags.subseteq(MC_VOCABULARY),
+  }
+
+  // The observation surface (baseline "Attribute mutability", read-back
+  // asymmetry): dpni_attr omits dist_key_size, so it can never be read back and
+  // is write-only (dpni-typestate design D4). The model observation mirrors that omission — it
+  // carries no distKeySize field, so the reconciler cannot claim drift on it.
+  type Observation = {
+    options: OptionMask,
+    numQueues: int, numTcs: int,
+    macFilterEntries: int, vlanFilterEntries: int,
+    qosEntries: int, fsEntries: int,
+    numCgs: int, numCeetmCh: int, numOpr: int,
+  }
+
+  pure def observe(cfg: CreateCfg): Observation = {
+    options: cfg.options,
+    numQueues: cfg.numQueues, numTcs: cfg.numTcs,
+    macFilterEntries: cfg.macFilterEntries, vlanFilterEntries: cfg.vlanFilterEntries,
+    qosEntries: cfg.qosEntries, fsEntries: cfg.fsEntries,
+    numCgs: cfg.numCgs, numCeetmCh: cfg.numCeetmCh, numOpr: cfg.numOpr,
+  }
 
   // ---- the unrepresentable options (dpni-typestate design D2; baseline dead/never-settable) ----
 

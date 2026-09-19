@@ -46,6 +46,7 @@ use std::collections::BTreeSet;
 
 use crate::core::error::Error;
 use crate::core::model::MacAddr;
+use crate::intent::Dataplane;
 
 // ---- the ten refined numeric create options (dpni-typestate design D2) ----
 
@@ -281,7 +282,7 @@ impl RawEscape {
 ///
 /// Built additively from [`OptionMask::empty`]; there is no path that admits an
 /// unnamed flag or an arbitrary raw bit.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct OptionMask {
     flags: BTreeSet<DpniOpt>,
     escapes: BTreeSet<RawEscape>,
@@ -351,7 +352,10 @@ impl OptionMask {
 /// is write-only (dpni-typestate design D4) and is excluded from drift comparison by a
 /// separate observation projection ([`DpniObservation`], the sibling of dprc's
 /// `Resident` vs `ObservedResident` split), never by fighting this derive.
-#[derive(Debug, Clone, PartialEq, Eq)]
+///
+/// `Ord`/`Hash` let a create block flow through the plan's [`Attributes`](crate::intent::compiled::Attributes)
+/// (a `BTreeSet`-hosted, hashable sum); every field already carries them.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct DpniCfg {
     /// The options mask.
     pub options: OptionMask,
@@ -401,6 +405,146 @@ impl DpniCfg {
             num_opr: NumOpr::DEFAULT,
             root_container: false,
         }
+    }
+}
+
+// ---- the interface construct and the two board-verified profiles (dpni-typestate design D3) ----
+
+/// The interface construct an intent gives a dpni (`dpni.qnt` `type InterfaceConstruct`;
+/// `docs/baseline/dpni.md` "Intent mapping"; ADR-0005 — the dpni is the object behind
+/// every interface construct): a physical port (dpni↔dpmac), a host-injection pair
+/// (dpni↔dpni across containers), a loopback (dpni↔self), or a fabric port (dpsw/dpdmux).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum InterfaceConstruct {
+    /// A physical port: dpni↔dpmac.
+    PhysicalPort,
+    /// A host-injection pair: dpni↔dpni across containers.
+    InjectionPair,
+    /// A loopback: dpni↔self.
+    Loopback,
+    /// A fabric port: a dpsw/dpdmux endpoint.
+    FabricPort,
+}
+
+/// The [`InterfaceConstruct`] variant names, in declaration order — the Rust copy of the
+/// `dpni.qnt` `type InterfaceConstruct` cases (ADR-0014: an enumeration that restates the
+/// model is a linted copy, kept honest by the exhaustive `match` in
+/// [`InterfaceConstruct::name`]).
+pub const INTERFACE_CONSTRUCT_VARIANTS: [&str; 4] =
+    ["PhysicalPort", "InjectionPair", "Loopback", "FabricPort"];
+
+impl InterfaceConstruct {
+    /// The whole construct set — the Rust copy of the `dpni.qnt` `CONSTRUCTS` set.
+    pub const CONSTRUCTS: [Self; 4] = [
+        Self::PhysicalPort,
+        Self::InjectionPair,
+        Self::Loopback,
+        Self::FabricPort,
+    ];
+
+    /// This variant's name, the token [`INTERFACE_CONSTRUCT_VARIANTS`] lists (ADR-0014).
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::PhysicalPort => "PhysicalPort",
+            Self::InjectionPair => "InjectionPair",
+            Self::Loopback => "Loopback",
+            Self::FabricPort => "FabricPort",
+        }
+    }
+}
+
+/// The two board-verified consumer option profiles (`dpni.qnt` `type OptionProfile`;
+/// `docs/baseline/dpni.md` production-profiles list; ADR-0005): both the option mask and
+/// the full create block are consumer-typed, never operator-supplied
+/// (dpni-typestate design D3).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Profile {
+    /// The PMD-facing dpni (userspace poll): `SINGLE_SENDER`, `CUSTOM_CG`,
+    /// `HAS_KEY_MASKING`, `HAS_OPR`, `OPR_PER_TC` and the raw `0x80000000`, 16q/16tc.
+    Pmd,
+    /// The kernel-facing dpni (kernel-netlink injection pairs): `HAS_KEY_MASKING` only,
+    /// 1q/1tc — `PFDR_IN_PEB` and `SINGLE_SENDER` absent so the kernel side tx's freely.
+    Kernel,
+}
+
+impl Profile {
+    /// The profile's option mask (`dpni.qnt` `PMD_PROFILE`/`KERNEL_PROFILE`,
+    /// `profileMask`). Built through the additive [`OptionMask`] builder, so it carries
+    /// only named flags and the provenance-carrying escape.
+    #[must_use]
+    pub fn mask(self) -> OptionMask {
+        match self {
+            Self::Pmd => OptionMask::empty()
+                .with_flag(DpniOpt::SingleSender)
+                .with_flag(DpniOpt::CustomCg)
+                .with_flag(DpniOpt::HasKeyMasking)
+                .with_flag(DpniOpt::HasOpr)
+                .with_flag(DpniOpt::OprPerTc)
+                .with_escape(RawEscape::PfdrInPeb),
+            Self::Kernel => OptionMask::empty().with_flag(DpniOpt::HasKeyMasking),
+        }
+    }
+
+    /// The full create block the profile derives (`dpni.qnt` `profileCfg`). Fields the
+    /// production scripts leave unset ride their MC default (`0`): PMD is 16q/16tc, vlan
+    /// 16, qos 64, fs 1, `num_cgs = num_queues + 8 = 24` (the deployed `CUSTOM_CG`
+    /// heuristic, unknown-register #3), one CEETM channel, in a child container; kernel
+    /// is 1q/1tc with everything else at its default. The literals are in-envelope by
+    /// construction, so the fallible range constructors never fail here.
+    ///
+    /// # Panics
+    /// Panics only if a profile literal is misdeclared outside the board-verified create
+    /// envelope (`dpni.qnt` `profileCfg`), which the fixed constants forbid; the
+    /// range-boundary tests catch a bad edit before this can fire.
+    #[must_use]
+    pub fn cfg(self) -> DpniCfg {
+        let ok = "profile literal is inside the board-verified create envelope";
+        match self {
+            Self::Pmd => DpniCfg {
+                options: self.mask(),
+                num_queues: NumQueues::new(16).expect(ok),
+                num_tcs: NumTcs::new(16).expect(ok),
+                vlan_filter_entries: VlanFilterEntries::new(16).expect(ok),
+                qos_entries: QosEntries::new(64).expect(ok),
+                fs_entries: FsEntries::new(1).expect(ok),
+                num_cgs: NumCgs::new(24).expect(ok),
+                num_ceetm_ch: NumCeetmCh::new(1).expect(ok),
+                ..DpniCfg::defaults()
+            },
+            Self::Kernel => DpniCfg {
+                options: self.mask(),
+                num_queues: NumQueues::new(1).expect(ok),
+                num_tcs: NumTcs::new(1).expect(ok),
+                ..DpniCfg::defaults()
+            },
+        }
+    }
+}
+
+/// The outcome of profile derivation (`dpni.qnt` `type ProfileOutcome`): a priced
+/// consumer derives one of the two profiles; `UserspaceEvent` is unpriced (ADR-0012) and
+/// refused upstream ([`crate::intent::refuse`]), so it derives none.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum ProfileOutcome {
+    /// The consumer's board-verified profile.
+    Derived(Profile),
+    /// An unpriced consumer — no dpni profile.
+    Unpriced,
+}
+
+/// Derives the option profile purely from the consumer and its interface construct
+/// (`dpni.qnt` `deriveProfile`; dpni-typestate design D3): the operator never writes an
+/// option. The board keys the profile on the [`Dataplane`] — a userspace-poll process
+/// gets PMD, the kernel gets kernel — so the construct rides the signature for totality
+/// but does not split the two current profiles (a third profile is a documented
+/// amendment, dpni-typestate design D3). `UserspaceEvent` is unpriced and derives none.
+#[must_use]
+pub fn derive_profile(dp: Dataplane, _ic: InterfaceConstruct) -> ProfileOutcome {
+    match dp {
+        Dataplane::KernelNetlink => ProfileOutcome::Derived(Profile::Kernel),
+        Dataplane::UserspacePoll => ProfileOutcome::Derived(Profile::Pmd),
+        Dataplane::UserspaceEvent => ProfileOutcome::Unpriced,
     }
 }
 
@@ -795,6 +939,89 @@ mod tests {
         assert_eq!(RAW_ESCAPE_VARIANTS, ["PfdrInPeb"]);
         assert_eq!(RawEscape::PfdrInPeb.raw_value(), 0x8000_0000);
         assert_eq!(RawEscape::PfdrInPeb.raw_value(), 2_147_483_648);
+    }
+
+    // ---- the two board-verified profiles (dpni.qnt profiles / deriveProfile) ----
+
+    #[test]
+    fn profile_masks_match_the_model() {
+        // dpni.qnt `PMD_PROFILE`/`KERNEL_PROFILE`: PMD carries five named flags plus the
+        // raw escape; kernel carries HAS_KEY_MASKING only, no escape.
+        let pmd = Profile::Pmd.mask();
+        for f in [
+            DpniOpt::SingleSender,
+            DpniOpt::CustomCg,
+            DpniOpt::HasKeyMasking,
+            DpniOpt::HasOpr,
+            DpniOpt::OprPerTc,
+        ] {
+            assert!(pmd.contains(f), "{}", f.name());
+        }
+        assert_eq!(pmd.flags().len(), 5);
+        assert!(pmd.contains_escape(RawEscape::PfdrInPeb));
+
+        let kernel = Profile::Kernel.mask();
+        assert!(kernel.contains(DpniOpt::HasKeyMasking));
+        assert_eq!(kernel.flags().len(), 1);
+        assert!(kernel.escapes().is_empty());
+    }
+
+    #[test]
+    fn profile_cfgs_carry_the_production_shape() {
+        // dpni.qnt `profileCfg`: PMD is 16q/16tc, vlan 16, qos 64, fs 1, num_cgs 24, one
+        // CEETM channel, child container; kernel is 1q/1tc, everything else default.
+        let pmd = Profile::Pmd.cfg();
+        assert_eq!(pmd.num_queues.get(), 16);
+        assert_eq!(pmd.num_tcs.get(), 16);
+        assert_eq!(pmd.vlan_filter_entries.get(), 16);
+        assert_eq!(pmd.qos_entries.get(), 64);
+        assert_eq!(pmd.fs_entries.get(), 1);
+        assert_eq!(pmd.num_cgs.get(), 24);
+        assert_eq!(pmd.num_ceetm_ch.get(), 1);
+        assert!(!pmd.root_container);
+        assert_eq!(pmd.options, Profile::Pmd.mask());
+
+        let kernel = Profile::Kernel.cfg();
+        assert_eq!(kernel.num_queues.get(), 1);
+        assert_eq!(kernel.num_tcs.get(), 1);
+        assert_eq!(kernel.num_cgs.get(), 0);
+        assert_eq!(kernel.options, Profile::Kernel.mask());
+    }
+
+    #[test]
+    fn derive_profile_keys_on_the_consumer() {
+        // dpni.qnt `deriveProfile`: kernel-netlink ⇒ kernel, userspace-poll ⇒ PMD,
+        // userspace-event ⇒ unpriced. The construct rides for totality only.
+        for ic in InterfaceConstruct::CONSTRUCTS {
+            assert_eq!(
+                derive_profile(Dataplane::KernelNetlink, ic),
+                ProfileOutcome::Derived(Profile::Kernel)
+            );
+            assert_eq!(
+                derive_profile(Dataplane::UserspacePoll, ic),
+                ProfileOutcome::Derived(Profile::Pmd)
+            );
+            assert_eq!(
+                derive_profile(Dataplane::UserspaceEvent, ic),
+                ProfileOutcome::Unpriced
+            );
+        }
+    }
+
+    #[test]
+    fn interface_construct_variants_match_the_enum() {
+        // dpni.qnt `type InterfaceConstruct` / `CONSTRUCTS` (ADR-0014).
+        for ic in InterfaceConstruct::CONSTRUCTS {
+            assert!(
+                INTERFACE_CONSTRUCT_VARIANTS.contains(&ic.name()),
+                "{}",
+                ic.name()
+            );
+        }
+        assert_eq!(
+            INTERFACE_CONSTRUCT_VARIANTS.len(),
+            InterfaceConstruct::CONSTRUCTS.len()
+        );
     }
 
     // ---- refined ranges: accept and refuse (dpni.qnt `inEnvelope`) ----

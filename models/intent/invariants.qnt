@@ -29,6 +29,7 @@ module intent_invariants {
   import intent_types.* from "./types"           // Intent, Inventory, KERNEL, DERIVED_FAMILIES
   import intent_derive.* from "./derive"         // Plan, ObjectKey, PlannedObject, AttachPoint, Edge, derive, sizeTenant, dprtcKey
   import intent_refuse.* from "./refuse"         // compile, Compiled, Warning
+  import dpni.* from "../families/dpni"          // KERNEL_PROFILE, PMD_PROFILE (dpni-typestate design D3 profile law)
 
   // ---- helpers ----
 
@@ -254,7 +255,12 @@ module intent_invariants {
             s.effectiveDpio.request == reqDraw.dpio,
             r.plan.objs.forall(o => (o.key.tenant == c.name and o.key.family == Dpni) implies
               match o.attributes {
-                | DpniAttrs(a) => if (c.dataplane == KernelNetlink) a.numQueues == s.cpus else a.numQueues >= s.t
+                | DpniAttrs(a) => and {
+                    if (c.dataplane == KernelNetlink) a.cfg.numQueues == s.cpus else a.cfg.numQueues >= s.t,
+                    // the profile follows the binding consumer (dpni-typestate design D3;
+                    // spec scenario "Profile follows the binding consumer")
+                    if (c.dataplane == KernelNetlink) a.cfg.options == KERNEL_PROFILE else a.cfg.options == PMD_PROFILE,
+                  }
                 | _ => false
               }),
             r.plan.objs.forall(o => (o.key.tenant == c.name and o.key.family != Dprc) implies

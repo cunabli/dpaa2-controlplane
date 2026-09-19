@@ -408,8 +408,8 @@ fn intent_i8_companion_counts_by_regime(c: &Compiled, intent: &Intent) -> bool {
             }
             let queues_ok = o.key().family != Family::Dpni
                 || match o.attributes() {
-                    Attributes::Dpni { num_queues } => {
-                        let q = i64::from(*num_queues);
+                    Attributes::Dpni { cfg } => {
+                        let q = i64::from(cfg.num_queues.get());
                         if is_kernel {
                             q == feeder_val
                         } else {

@@ -67,7 +67,7 @@ module vfabric {
             countFam(p, "routerA", Dpni) == 1,
             objsOfFam(p, "routerA", Dpni).forall(o =>
               o.container == Child("routerA") and
-              match o.attributes { | DpniAttrs(a) => a.numQueues == 1 | _ => false }),
+              match o.attributes { | DpniAttrs(a) => a.cfg.numQueues == 1 | _ => false }),
             countFam(p, "routerA", Dpio) == 2,   // 2·T (ADR-0012)
             countFam(p, "routerA", Dpbp) == 2,
             countFam(p, "routerA", Dpmcp) == 1,
@@ -75,7 +75,7 @@ module vfabric {
             countFam(p, "routerB", Dpni) == 1,
             objsOfFam(p, "routerB", Dpni).forall(o =>
               o.container == Child("routerB") and
-              match o.attributes { | DpniAttrs(a) => a.numQueues == 1 | _ => false }),
+              match o.attributes { | DpniAttrs(a) => a.cfg.numQueues == 1 | _ => false }),
             countFam(p, "routerB", Dpio) == 2,
             countFam(p, "routerB", Dpbp) == 2,
             countFam(p, "routerB", Dpmcp) == 1,

@@ -76,7 +76,7 @@ module router {
             countFam(p, "router", Dpni) == 3,
             objsOfFam(p, "router", Dpni).forall(o =>
               o.container == Child("router") and
-              match o.attributes { | DpniAttrs(a) => a.numQueues == 10 | _ => false }),
+              match o.attributes { | DpniAttrs(a) => a.cfg.numQueues == 10 | _ => false }),
             countFam(p, "router", Dpio) == 20,   // 2·T (ADR-0012)
             countFam(p, "router", Dpbp) == 2,
             countFam(p, "router", Dpmcp) == 1,

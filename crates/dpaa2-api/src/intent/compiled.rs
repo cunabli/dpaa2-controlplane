@@ -31,6 +31,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use crate::core::family::{Family, Permission};
 use crate::core::model::DpmacId;
 use crate::core::types::{ConstructName, RuleName, TenantName};
+use crate::families::dpni::DpniCfg;
 use crate::intent::{Fabric, Link, Port, Tenant};
 
 /// A derived object's identity (design D6; ADR-0004; `derive.qnt` `ObjectKey`). This is the plan
@@ -94,7 +95,7 @@ impl fmt::Display for ObjectKey {
 /// let _ = PlannedObject {
 ///     key: ObjectKey::new("vpp", Family::Dpni, 1),
 ///     container: Container::Root,
-///     attributes: Attributes::Dpni { num_queues: 1 },
+///     attributes: Attributes::Dpni { cfg: dpaa2_api::families::dpni::DpniCfg::defaults() },
 ///     provenance: ProvenanceKey::new("vpp", "dpnis", ""),
 ///     label: ConstructName::from("vpp"),
 /// };
@@ -124,10 +125,13 @@ pub enum Measurement {
 pub enum Attributes {
     /// No sizing knob.
     Unsized,
-    /// A dpni's transmit-queue count (≥ T poll-mode, `cpus` kernel).
+    /// A dpni's full create block, derived purely from the tenant's consumer and its
+    /// interface construct (dpni-typestate design D3): the compiler chooses the option
+    /// profile and sizing, so no construct accepts an operator-supplied option token. The
+    /// transmit-queue count rides inside as [`DpniCfg::num_queues`].
     Dpni {
-        /// Transmit queues.
-        num_queues: u32,
+        /// The derived, in-envelope create block.
+        cfg: DpniCfg,
     },
     /// A dpseci's queue count and the `DPSECI_OPT_HAS_CG` safety bit.
     Dpseci {
@@ -472,7 +476,7 @@ impl CompiledPlan {
         })?;
         let obj = self.objects.iter().find(|o| o.key() == key)?;
         match obj.attributes() {
-            Attributes::Dpni { num_queues } => Some(*num_queues),
+            Attributes::Dpni { cfg } => Some(u32::from(cfg.num_queues.get())),
             _ => None,
         }
     }
@@ -565,7 +569,13 @@ impl Tenant {
         let obj = PlannedObject {
             key: key.clone(),
             container: self.container(),
-            attributes: Attributes::Dpni { num_queues },
+            // The create block derives from the tenant's consumer
+            // (dpni-typestate design D3; `dpni.qnt` `dpniCfg`), so the witness is the sole
+            // path and an operator option token is unrepresentable — the caller supplies
+            // only the sizing.
+            attributes: Attributes::Dpni {
+                cfg: crate::intent::derive::dpni_cfg(self.dataplane, num_queues),
+            },
             provenance: ProvenanceKey::new(self.name.clone(), "dpnis", ""),
             label,
         };
@@ -609,7 +619,10 @@ impl Port {
         let obj = PlannedObject {
             key: key.clone(),
             container: tenant.container(),
-            attributes: Attributes::Dpni { num_queues },
+            // Same sole-path derivation as `Tenant::dpni` (dpni-typestate design D3).
+            attributes: Attributes::Dpni {
+                cfg: crate::intent::derive::dpni_cfg(tenant.dataplane, num_queues),
+            },
             provenance: ProvenanceKey::new(tenant.name.clone(), "dpnis", ""),
             // The port's own name: the dpni is anchored on the port's dpmac, but the
             // label is stamped for debuggability (ADR-0015 decision 9).

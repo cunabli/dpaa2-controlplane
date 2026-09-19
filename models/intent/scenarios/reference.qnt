@@ -67,6 +67,7 @@ module reference {
   import intent_inventory.* from "../inventory"    // REF_INVENTORY
   import intent_derive.* from "../derive"          // Plan, PlannedObject, Container, DpniAttrs, AttachPoint, …
   import intent_refuse.* from "../refuse"          // compile
+  import dpni.* from "../../families/dpni"         // PMD_PROFILE (dpni-typestate design D3 profile mask)
   import intent_invariants.* from "../invariants"  // planInvariants, compileInvariants
 
   pure def objsOfFam(p: Plan, name: str, fam: Family): Set[PlannedObject] =
@@ -191,7 +192,8 @@ module reference {
             countFam(p, "router", Dpni) == 2,
             objsOfFam(p, "router", Dpni).forall(o =>
               o.container == Child("router") and
-              match o.attributes { | DpniAttrs(a) => a.numQueues == 5 | _ => false }),
+              // the poll consumer's dpni carries the PMD option mask (dpni-typestate design D3)
+              match o.attributes { | DpniAttrs(a) => a.cfg.numQueues == 5 and a.cfg.options == PMD_PROFILE | _ => false }),
             countFam(p, "router", Dpio) == 10,   // 2·T (ADR-0012)
             countFam(p, "router", Dpbp) == 2,
             countFam(p, "router", Dpmcp) == 1,   // one MC portal per process

@@ -23,7 +23,7 @@ shim, verify, board, close-out. One bead at a time through acceptance.
 
 ## 3. Intent derivation and hazard closure
 
-- [ ] 3.1 Compiler derives options purely from `Dataplane` + interface
+- [x] 3.1 Compiler derives options purely from `Dataplane` + interface
   construct (PMD/kernel profile map, one function, dry-run rule
   provenance); no TOML or vocabulary surface for options
 - [ ] 3.2 Close the `intent::tenant` typestate hazards: no zero-value

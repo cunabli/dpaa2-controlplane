@@ -44,6 +44,7 @@ module intent_derive {
   import companions as comp from "../core/companions" // comp::Regime, comp::companionDraw (ADR-0012)
   import dpsw.* from "../families/dpsw"          // dpswParams.draw (kernel census row)
   import dpseci.* from "../families/dpseci"      // dpseciParams.draw (kernel census row)
+  import dpni.* from "../families/dpni"          // CreateCfg, deriveProfile, profileCfg, profile masks (dpni-typestate design D3)
   import intent_types.* from "./types"           // Intent, Tenant, Port, …, KERNEL
 
   // ---- the plan's shape (design D6; ADR-0004) ----
@@ -62,7 +63,7 @@ module intent_derive {
   // DPCON-I3) and dprtc (DPRTC-I5).
   type Attributes =
     | Unsized
-    | DpniAttrs({ numQueues: int })
+    | DpniAttrs({ cfg: CreateCfg })
     | DpseciAttrs({ numQueues: int, hasCg: bool })
     | DpswAttrs({ numIfs: int, maxFdbs: int, perFdbFlooding: bool, perFdbBroadcast: bool, ctrlIf: bool })
     | DprcAttrs({ options: Set[Permission] })
@@ -557,6 +558,25 @@ module intent_derive {
           attributes: DpseciAttrs({ numQueues: k.flows, hasCg: true }),
           provenance: { tenant: name, rule: "dpseci", construct: "" } })) }).set
 
+  // A priced tenant's dpni create block, derived purely from its consumer
+  // (dpni-typestate design D3): the profile follows the Dataplane (the construct
+  // rides deriveProfile for totality only — at intent level all of a tenant's
+  // dpnis share the tenant's dataplane, so one cfg per tenant). Start from the
+  // profile's block, overlay the sizing's num_queues (T poll / cpus kernel), and
+  // set num_cgs = num_queues + 8 under CUSTOM_CG (the deployed heuristic,
+  // baseline dpni.md "Intent mapping"); every other field stays the profile's.
+  // UserspaceEvent never reaches here (compile refuses it, intent/refuse.qnt),
+  // so the Unpriced arm is total-but-undefined — it falls back to the kernel
+  // block, the same "undefined on refused intents" idiom as negative counts.
+  pure def dpniCfg(dp: Dataplane, numQueues: int): CreateCfg =
+    match deriveProfile(dp, PhysicalPort) {
+      | Derived(p) =>
+          val withQ = profileCfg(p).with("numQueues", numQueues)
+          if (profileMask(p).flags.contains(CustomCg)) withQ.with("numCgs", numQueues + 8)
+          else withQ
+      | Unpriced => profileCfg(ProfileKernel)
+    }
+
   pure def tenantObjs(intent: Intent, inv: Inventory, c: Tenant): Set[PlannedObject] =
     val s = sizeTenant(intent, inv, c)
     dprcObjs(s)
@@ -564,7 +584,7 @@ module intent_derive {
       .union(sizedObjs(s.name, Dpmcp, s.container, s.effectiveDpmcp.value, Unsized, "dpmcp"))
       .union(sizedObjs(s.name, Dpbp, s.container, s.effectiveDpbp.value, Unsized, "dpbp"))
       .union(sizedObjs(s.name, Dpcon, s.container, s.effectiveDpcon.value, Unsized, "dpcon"))
-      .union(sizedObjs(s.name, Dpni, s.container, s.dpnis, DpniAttrs({ numQueues: s.numQueues }), "dpnis"))
+      .union(sizedObjs(s.name, Dpni, s.container, s.dpnis, DpniAttrs({ cfg: dpniCfg(c.dataplane, s.numQueues) }), "dpnis"))
       // one dpseci per crypto block owned by c, each sized by its own flows.
       .union(dpseciObjs(s.name, s.container, cryptoBlocksOf(intent, s.name)))
       .union(dpswObjs(intent, s))
@@ -702,6 +722,9 @@ module intent_derive {
     val nm = s.name
     val pn = terminatedPortNames(intent, nm)
     val np = terminatedPorts(intent, nm).length()
+    // the tenant's derived dpni options (dpni-typestate design D3): flags + raw escapes chosen
+    val optCfg = dpniCfg(c.dataplane, s.numQueues)
+    val nOpts = optCfg.options.flags.size() + optCfg.options.escapes.size()
     val m1 = m
       .put({ tenant: nm, rule: "ports", construct: "" },
            { rule: "ports", anchor: "design D1: declared port constructs", mark: Measured,
@@ -714,6 +737,14 @@ module intent_derive {
       .put({ tenant: nm, rule: "dpbp", construct: "" }, dpbpNode(s))
       .put({ tenant: nm, rule: "dpmcp", construct: "" }, dpmcpNode(s))
       .put({ tenant: nm, rule: "dpni-queues", construct: "" }, dpniQueuesNode(s))
+      .put({ tenant: nm, rule: "dpni-options", construct: "" },
+           { rule: "dpni-options",
+             anchor: if (s.isKernel)
+                       "dpni-typestate design D3: kernel profile (kernel-netlink) — HAS_KEY_MASKING only, baseline dpni.md Intent mapping"
+                     else
+                       "dpni-typestate design D3: PMD profile (userspace-poll) — consumer-typed, baseline dpni.md Intent mapping",
+             mark: Measured, request: nOpts, extra: None, value: nOpts,
+             inputs: Set({ tenant: nm, rule: "dpni-queues", construct: "" }), constructs: Set() })
       .put({ tenant: nm, rule: "dpcon", construct: "" }, dpconNode(s))
     val m2 = if (s.isKernel)
                m1.put({ tenant: nm, rule: "cpus", construct: "" },
@@ -838,7 +869,7 @@ module intent_derive {
   pure val CONTAINERS_USE: Set[Container] = Set(Root, Child("c"))
   pure val ATTRS_USE: Set[Attributes] = Set(
     Unsized,
-    DpniAttrs({ numQueues: 0 }),
+    DpniAttrs({ cfg: profileCfg(ProfileKernel) }),
     DpseciAttrs({ numQueues: 0, hasCg: false }),
     DpswAttrs({ numIfs: 0, maxFdbs: 0, perFdbFlooding: false, perFdbBroadcast: false, ctrlIf: false }),
     DprcAttrs({ options: Set() }))
