@@ -144,6 +144,37 @@ fn a_refused_create_is_attributed_and_does_not_converge() {
     );
 }
 
+#[test]
+fn observe_container_returns_present_and_absent() {
+    // The per-candidate seam (dpni-typestate task 4.2): a seeded id reads back Some; an unseeded id is honest absence (None).
+    let backend = FakeBackend::new().with_container(
+        DprcId::new(5),
+        orphan_container("foreign", Options::DEFAULT, Container::Root),
+    );
+    let seen = backend
+        .observe_container(DprcId::new(5))
+        .unwrap()
+        .expect("seeded container reads back present");
+    assert_eq!(seen.label.as_str(), "foreign");
+    assert!(backend.observe_container(DprcId::new(9)).unwrap().is_none());
+}
+
+#[test]
+fn converge_reobserves_the_created_candidate_per_id() {
+    // The post-dispatch verdict re-observes the created container by id (dpni-typestate design D5): the fake mints dprc.2, which reads back converged.
+    let compiled = compiled_router();
+    let backend = FakeBackend::new();
+    assert_eq!(
+        engine::converge_containers(&compiled.plan, &backend, disruptive_cfg()).unwrap(),
+        ContainerOutcome::Converged
+    );
+    let seen = backend
+        .observe_container(DprcId::new(2))
+        .unwrap()
+        .expect("the created dprc.2 is re-observable by its id");
+    assert_eq!(seen.label.as_str(), "router");
+}
+
 // ---- undeclared-consumer prune under the double gate (dprc-encapsulation task 4.3) ----
 
 fn prune_disruptive_cfg() -> ConvergeConfig {
@@ -212,6 +243,21 @@ fn full_fingerprint_orphan_is_pruned_and_reruns_clean() {
         engine::prune_containers(&compiled.plan, &backend, prune_disruptive_cfg()).unwrap(),
         PruneOutcome::Clean
     );
+}
+
+#[test]
+fn prune_verdict_reobserves_destroyed_id_as_absent() {
+    // The prune verdict re-checks each destroyed id via observe_container, expecting None (dpni-typestate design D5); a survivor would be an error.
+    let compiled = compiled_empty();
+    let backend = FakeBackend::new().with_container(
+        DprcId::new(5),
+        orphan_container("foreign", Options::DEFAULT, Container::Root),
+    );
+    assert!(matches!(
+        engine::prune_containers(&compiled.plan, &backend, prune_disruptive_cfg()).unwrap(),
+        PruneOutcome::Pruned { .. }
+    ));
+    assert!(backend.observe_container(DprcId::new(5)).unwrap().is_none());
 }
 
 #[test]

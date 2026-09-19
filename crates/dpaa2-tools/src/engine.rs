@@ -15,11 +15,11 @@ use dpaa2_api::core::error::Error;
 use dpaa2_api::core::model::{DesiredTopology, DpmacId, DpniId, DprcId, ObservedTopology};
 use dpaa2_api::core::types::ConstructName;
 use dpaa2_api::families::dprc::Options;
-use dpaa2_api::intent::compiled::{CompiledPlan, Container};
+use dpaa2_api::intent::compiled::{Attributes, CompiledPlan, Container, PlannedObject};
 use dpaa2_api::plan::dprc::{
     Attribution, ConsumerConvergence, ContainerPlan, ContainerStep, ContainerVerdict, PruneBucket,
     PruneItem, Verb, attribute_refusal, derive_consumer_containers, plan_consumer_convergence,
-    plan_prune,
+    plan_prune, verdict,
 };
 use dpaa2_api::plan::reconcile::{ReconcileOptions, reconcile_with};
 use dpaa2_api::plan::{Class, Plan, Transition};
@@ -151,7 +151,8 @@ pub enum PruneOutcome {
 /// (DPRC-I6 — a fresh MC query, never `sync`), plans container-only via
 /// [`plan_consumer_convergence`] (the child DPRC alone, so no companion/dpni step is
 /// representable — bead cd3.8), gates the headline against `cfg.allow`, dispatches each
-/// step to the task-3.1 verbs, and judges convergence by a second re-observation. A
+/// step to the task-3.1 verbs, and judges convergence by re-observing each dispatched
+/// candidate alone (dpni-typestate design D5), never a full root rescan. A
 /// second run against the post-converged state plans zero steps and returns
 /// [`ContainerOutcome::Converged`] without dispatching. A typed shim refusal
 /// (`Error::McStatus`/`Error::RestoolGuard`) becomes a discriminated
@@ -187,29 +188,47 @@ pub fn converge_containers<M: McControl>(
         });
     }
 
-    // Dispatch: each container-only step maps one-to-one to a task-3.1 verb. A typed
-    // shim refusal is attributed (design D4; ADR-0003) and surfaced discriminated.
-    for c in &convergences {
+    // The declared child-DPRC objects, carried so each dispatched candidate keeps its `PlannedObject` for the per-candidate verdict (dpni-typestate design D5).
+    let desired: Vec<&PlannedObject> = plan
+        .objects
+        .iter()
+        .filter(|o| matches!(o.attributes(), Attributes::Dprc { .. }))
+        .collect();
+
+    let mut touched: Vec<(&PlannedObject, DprcId)> = Vec::new();
+    for (object, c) in desired.iter().copied().zip(&convergences) {
+        // Pair on name identity, not position: the two lists filter `plan.objects` independently, so a divergence must be a loud error, never a silent misjudgement (dpni-typestate design D5; ADR-0015).
+        if *object.label() != c.container.label {
+            return Err(Error::Backend(format!(
+                "container pairing misaligned: object `{}` vs convergence `{}`",
+                object.label(),
+                c.container.label
+            )));
+        }
         for step in &c.plan.steps {
-            if let Err(e) = dispatch_container_step(step, mc) {
-                return match attribute_refusal(&e, c.container.options, Verb::SpawnChild) {
-                    Some(attribution) => Ok(ContainerOutcome::Refused {
-                        label: c.container.label.clone(),
-                        attribution,
-                    }),
-                    None => Err(e),
-                };
+            match dispatch_container_step(step, mc) {
+                Ok(Some(id)) => touched.push((object, id)),
+                Ok(None) => {}
+                Err(e) => {
+                    return match attribute_refusal(&e, c.container.options, Verb::SpawnChild) {
+                        Some(attribution) => Ok(ContainerOutcome::Refused {
+                            label: c.container.label.clone(),
+                            attribution,
+                        }),
+                        None => Err(e),
+                    };
+                }
             }
         }
     }
 
-    // Verdict by re-observation (DPRC-I6): re-query and judge, never assume the dispatch.
-    let observed = mc.observe_containers()?;
-    for c in &plan_consumer_convergence(plan, &observed) {
-        if let ContainerVerdict::Diverged(reasons) = &c.verdict {
+    // Verdict by per-candidate re-observation (dpni-typestate design D5; DPRC-I6): re-query exactly each touched container and judge it core-side, never a full root rescan.
+    for (object, id) in touched {
+        let observed = mc.observe_container(id)?;
+        if let ContainerVerdict::Diverged(reasons) = verdict(object, observed.as_ref()) {
             return Err(Error::Backend(format!(
                 "container `{}` did not converge after dispatch: {reasons:?}",
-                c.container.label
+                object.label()
             )));
         }
     }
@@ -317,10 +336,9 @@ pub fn prune_containers<M: McControl>(
         }
     }
 
-    // Verdict by re-observation only (DPRC-I6): a dispatched survivor is an error, a refused one is expected.
-    let after = mc.observe_containers()?;
+    // Verdict by per-candidate re-observation (dpni-typestate design D5; DPRC-I6): each dispatched id must read back absent (`None`) — a survivor is an error, a refused one expected.
     for id in &dispatched {
-        if after.contains_key(id) {
+        if mc.observe_container(*id)?.is_some() {
             return Err(Error::Backend(format!(
                 "container {id} survived prune dispatch"
             )));
@@ -381,11 +399,15 @@ fn dispatch_teardown_step<M: McControl>(
     }
 }
 
-/// Dispatches one container-only step to its task-3.1 verb. The container-only
-/// convergence path emits only [`ContainerStep::CreateContainer`] (existence, options,
-/// label, placement); any other step is out of this change's scope (companion/dpni are
-/// tiles #5/#6) and is an error, not a silent no-op.
-fn dispatch_container_step<M: McControl>(step: &ContainerStep, mc: &M) -> Result<(), Error> {
+/// Dispatches one container-only step to its task-3.1 verb, returning the created child's
+/// re-observation handle for [`ContainerStep::CreateContainer`] so the caller re-observes
+/// exactly it (dpni-typestate design D5). The container-only convergence path emits only
+/// that step (existence, options, label, placement); any other step is out of this
+/// change's scope (companion/dpni are tiles #5/#6) and is an error, not a silent no-op.
+fn dispatch_container_step<M: McControl>(
+    step: &ContainerStep,
+    mc: &M,
+) -> Result<Option<DprcId>, Error> {
     match step {
         ContainerStep::CreateContainer {
             label,
@@ -402,7 +424,7 @@ fn dispatch_container_step<M: McControl>(step: &ContainerStep, mc: &M) -> Result
             };
             let id = mc.dprc_create(parent, *options, label)?;
             tracing::info!(%id, %label, "created child dprc container");
-            Ok(())
+            Ok(Some(id))
         }
         other => Err(Error::Backend(format!(
             "container-only convergence emits no {other:?} (companion/dpni are tiles #5/#6)"

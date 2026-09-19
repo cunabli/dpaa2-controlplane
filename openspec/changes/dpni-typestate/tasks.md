@@ -36,7 +36,7 @@ shim, verify, board, close-out. One bead at a time through acceptance.
 - [x] 4.1 restool shim dpni create at full option granularity (computed
   raw mask only), primary-MAC set, observation mapping of the
   `dpni_attr` asymmetries
-- [ ] 4.2 `observe_container(id)` beside the enumerate verb; planning
+- [x] 4.2 `observe_container(id)` beside the enumerate verb; planning
   re-observation uses it per candidate; OI-3 dpmcp-budget outcome cited
   in the disposition (rider z5z)
 
