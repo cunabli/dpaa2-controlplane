@@ -252,7 +252,11 @@ CryptoFlowsOverDevice fires (task 2.6e).
   and `KernelDeclared` — the alphabet draws no `renamed = { from }` clause and
   seeds only the reserved kernel (whose exact value is exempt), so neither
   fires here; covered by the directed `renameDoubleClaimTest` and
-  `kernelDeclaredTest` (`intent/main.qnt`). The `UnmeasuredCombination` warning
+  `kernelDeclaredTest` (`intent/main.qnt`); `QueueEnvelopeExceeded` — the
+  alphabet's derived per-dpni queue count never passes 32 (max T = 1 + 3·5 = 16
+  over three ports, cpus fixed at 16), covered by the directed
+  `queueEnvelopeExceededTest` (`intent/main.qnt`, bead guu.4a). The
+  `UnmeasuredCombination` warning
   is reachable but unhit in 3000 samples (a clean accepted cross-class mix is a
   narrow draw — the sole Free 25G dpmac is 4); its shape precursor is counted
   (`wMixedRates` 457) and the warning is covered by `mixedRateClassWarnsTest`.

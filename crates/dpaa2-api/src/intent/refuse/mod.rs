@@ -193,6 +193,19 @@ pub enum Refusal {
         /// The declared budget.
         max_cores: i64,
     },
+    /// The derived per-dpni queue count exceeds the [`crate::families::dpni::NumQueues`]
+    /// envelope (`hi = 32`): poll derives `num_queues = T`, kernel `num_queues = cpus`
+    /// (`derive::size_tenant`), and a count past the envelope is
+    /// unrepresentable on the wire, so it is refused, not degraded to the MC default
+    /// (bead guu.4a; `refuse.qnt` rule 7; V-DPNI create surface).
+    QueueEnvelopeExceeded {
+        /// The tenant.
+        tenant: TenantName,
+        /// The derived per-dpni queue count.
+        num_queues: i64,
+        /// The `NumQueues` envelope ceiling (32).
+        hi: i64,
+    },
     /// An extra on a family that is not one of the four companions (design D5; ADR-0003).
     ExtraNotCompanion {
         /// The tenant.
@@ -314,7 +327,7 @@ pub enum Refusal {
 /// §5 spelling, aliased to the model's anchor names in the lint). `Refusal` is
 /// payload-carrying, so it cannot be iterated like [`crate::core::family::ALL_FAMILIES`]; this
 /// list stands in, kept honest by the exhaustive `match` in [`Refusal::name`].
-pub const REFUSAL_VARIANTS: [&str; 25] = [
+pub const REFUSAL_VARIANTS: [&str; 26] = [
     "TenantAbsent",
     "MemberUnresolved",
     "SelfMember",
@@ -328,6 +341,7 @@ pub const REFUSAL_VARIANTS: [&str; 25] = [
     "UnsupportedEdge",
     "UnknownRateClass",
     "CoreBudgetExceeded",
+    "QueueEnvelopeExceeded",
     "ExtraNotCompanion",
     "ExtraNotPositive",
     "CryptoFlowsNotPositive",
@@ -364,6 +378,7 @@ impl Refusal {
             Self::UnsupportedEdge { .. } => "UnsupportedEdge",
             Self::UnknownRateClass { .. } => "UnknownRateClass",
             Self::CoreBudgetExceeded { .. } => "CoreBudgetExceeded",
+            Self::QueueEnvelopeExceeded { .. } => "QueueEnvelopeExceeded",
             Self::ExtraNotCompanion { .. } => "ExtraNotCompanion",
             Self::ExtraNotPositive { .. } => "ExtraNotPositive",
             Self::CryptoFlowsNotPositive { .. } => "CryptoFlowsNotPositive",
@@ -580,7 +595,7 @@ fn refusals(intent: &Intent, inv: &Inventory, counts: &BTreeMap<Family, i64>) ->
     port::anchor_refusals(intent, inv, &mut out);
     port::double_claimed_refusals(intent, &mut out);
     fabric::fabric_rules_refusals(intent, &mut out);
-    tenant::sizing_refusals(intent, &mut out);
+    tenant::sizing_refusals(intent, inv, &mut out);
     extra::extra_refusals(intent, &mut out);
     crypto::crypto_refusals(intent, &mut out);
     feasibility_refusals(inv, counts, &mut out);

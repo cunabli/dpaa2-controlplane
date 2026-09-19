@@ -102,7 +102,7 @@ pub(crate) fn dpni_cfg(dp: Dataplane, num_queues: u32) -> DpniCfg {
     match derive_profile(dp, InterfaceConstruct::PhysicalPort) {
         ProfileOutcome::Derived(p) => {
             let mut cfg = p.cfg();
-            // Off-envelope is only a refused intent's undefined derivation ⇒ MC default.
+            // Off-envelope is now fenced by QueueEnvelopeExceeded (refuse.qnt rule 7; bead guu.4a), so it is only a refused intent's undefined derivation ⇒ MC default.
             cfg.num_queues = u16::try_from(num_queues)
                 .ok()
                 .and_then(|v| NumQueues::new(v).ok())
@@ -491,7 +491,7 @@ pub(crate) fn has_pricing(c: &Tenant) -> bool {
     c.dataplane != Dataplane::UserspaceEvent
 }
 
-fn kernel_cores(inv: &Inventory, c: &Tenant) -> i64 {
+pub(crate) fn kernel_cores(inv: &Inventory, c: &Tenant) -> i64 {
     if KERNEL_BUDGET_IS_DPIO_COUNT {
         c.max_cores
     } else {

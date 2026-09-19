@@ -302,6 +302,7 @@ module intent_alphabet {
   val wUnsupportedEdge = hasRefusal(r => match r { | UnsupportedEdge(_) => true | _ => false })
   val wUnknownRateClass = hasRefusal(r => match r { | UnknownRateClass(_) => true | _ => false })
   val wCoreBudgetExceeded = hasRefusal(r => match r { | CoreBudgetExceeded(_) => true | _ => false })
+  val wQueueEnvelopeExceeded = hasRefusal(r => match r { | QueueEnvelopeExceeded(_) => true | _ => false })
   val wExtraNotCompanion = hasRefusal(r => match r { | ExtraNotCompanion(_) => true | _ => false })
   val wExtraNotPositive = hasRefusal(r => match r { | ExtraNotPositive(_) => true | _ => false })
   val wCryptoFlowsNotPositive = hasRefusal(r => match r { | CryptoFlowsNotPositive(_) => true | _ => false })

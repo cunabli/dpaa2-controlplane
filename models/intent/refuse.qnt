@@ -70,6 +70,7 @@ module intent_refuse {
     | UnsupportedEdge({ fabric: str, member: str })             // Hardware fabric listing a Hardware fabric (object-model.md §2; derive.qnt (d))
     | UnknownRateClass({ tenant: str, rates: List[int] })     // userspace-poll tenant terminating a rate class with no seeded worker row (design D3; ADR-0002; derive.qnt (b))
     | CoreBudgetExceeded({ tenant: str, t: int, maxCores: int }) // userspace-poll T > maxCores (design D3; ADR-0012 never rations)
+    | QueueEnvelopeExceeded({ tenant: str, numQueues: int, hi: int }) // derived per-dpni queue count past the dpni.qnt numQueues 1-32 envelope (bead guu.4a; V-DPNI create surface)
     | ExtraNotCompanion({ tenant: str, family: Family })      // an extra on a family that is not one of the four companions (design D5; ADR-0003)
     | ExtraNotPositive({ tenant: str, family: Family, count: int }) // an extra whose count is below 1 (design D5; ADR-0003)
     | CryptoFlowsNotPositive({ tenant: str, ordinal: int, flows: int }) // a crypto block whose flows are below 1 (design D1; restool-baseline; dpseci.md); ordinal = the block's 1-based declaration position (task 2.6e)
@@ -266,17 +267,28 @@ module intent_refuse {
       acc.union(notKernel).union(mismatches).union(unsupported))
 
   // ---- rule 7: userspace-poll thread-count sizing (design D3; ADR-0012) ----
-  // KernelNetlink tenants: none. Under the online-CPU reading of open question 2
-  // (KERNEL_BUDGET_IS_DPIO_COUNT = false), maxCores is not a bound on the
-  // kernel dataplane, so no CoreBudgetExceeded fires for a kernel tenant.
+  // Under the online-CPU reading of open question 2 (KERNEL_BUDGET_IS_DPIO_COUNT =
+  // false), maxCores is not a bound on the kernel dataplane, so no
+  // CoreBudgetExceeded fires for a kernel tenant. The queue-envelope fence (bead
+  // guu.4a) is two-sided: the derived per-dpni numQueues (poll = T, kernel = cpus,
+  // derive.qnt sizeTenant) must land in the dpni.qnt 1-32 envelope (V-DPNI create
+  // surface), or the plan is unrepresentable on the wire — refused, not degraded
+  // to the MC default. Poll's budget and envelope checks are independent (both
+  // may fire, sets union).
   pure def sizingRefusals(intent: Intent, inv: Inventory): Set[Refusal] =
     intent.tenants.foldl(Set(), (acc, c) =>
       if (c.dataplane == UserspacePoll)
         val ports = terminatedPorts(intent, c.name)
         match threadCount(ports) {
           | None => acc.union(Set(UnknownRateClass({ tenant: c.name, rates: ports.foldl([], (a, p) => a.append(p.rate)) })))
-          | Some(t) => if (t > c.maxCores) acc.union(Set(CoreBudgetExceeded({ tenant: c.name, t: t, maxCores: c.maxCores }))) else acc
+          | Some(t) =>
+              val budget = if (t > c.maxCores) Set(CoreBudgetExceeded({ tenant: c.name, t: t, maxCores: c.maxCores })) else Set()
+              val envelope = if (t > 32) Set(QueueEnvelopeExceeded({ tenant: c.name, numQueues: t, hi: 32 })) else Set()
+              acc.union(budget).union(envelope)
         }
+      else if (c.dataplane == KernelNetlink)
+        val cpus = kernelCores(inv, c)
+        if (cpus > 32) acc.union(Set(QueueEnvelopeExceeded({ tenant: c.name, numQueues: cpus, hi: 32 }))) else acc
       else acc)
 
   // ---- rule 8: additive extras (design D5; ADR-0003) ----
@@ -502,6 +514,7 @@ module intent_refuse {
     UnsupportedEdge({ fabric: "f", member: "m" }),
     UnknownRateClass({ tenant: "c", rates: [] }),
     CoreBudgetExceeded({ tenant: "c", t: 0, maxCores: 0 }),
+    QueueEnvelopeExceeded({ tenant: "c", numQueues: 0, hi: 0 }),
     ExtraNotCompanion({ tenant: "c", family: Dpni }),
     ExtraNotPositive({ tenant: "c", family: Dpio, count: 0 }),
     CryptoFlowsNotPositive({ tenant: "c", ordinal: 0, flows: 0 }),

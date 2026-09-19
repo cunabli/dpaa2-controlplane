@@ -47,6 +47,15 @@ module intent_main {
   // alone, not on OverRate — the board has no 40G nic, this is a test fixture.
   pure val invWith40GMac: Inventory =
     REF_INVENTORY.with("dpmacs", REF_INVENTORY.dpmacs.put(4, REF_INVENTORY.dpmacs.get(4).with("maxRate", 40000)))
+  // Seven free 25G dpmacs so a poll tenant terminating seven of them anchors
+  // cleanly (bead guu.4a): dpmacs 4/5/6 are free 25G in REF_INVENTORY, 20-23
+  // are added here — a test fixture, not the reference board's six usable macs.
+  pure val invSeven25G: Inventory =
+    REF_INVENTORY.with("dpmacs", REF_INVENTORY.dpmacs
+      .put(20, { id: 20, maxRate: 25000, ethIf: CAUI, linkType: LinkPhy, avail: Free })
+      .put(21, { id: 21, maxRate: 25000, ethIf: CAUI, linkType: LinkPhy, avail: Free })
+      .put(22, { id: 22, maxRate: 25000, ethIf: CAUI, linkType: LinkPhy, avail: Free })
+      .put(23, { id: 23, maxRate: 25000, ethIf: CAUI, linkType: LinkPhy, avail: Free }))
 
   // ---- shared intent fragments ----
 
@@ -122,6 +131,19 @@ module intent_main {
       fabrics: [], crypto: [], extras: Set() }
   // The refused intents the compile-side runs exercise.
   pure val coreBudgetIntent: Intent = routerIntent.with("tenants", [router.with("maxCores", 4)])
+  // A poll tenant terminating seven 25G ports derives T = 1 + 7·5 = 36 per-dpni
+  // transmit queues, past the dpni.qnt 1-32 envelope (bead guu.4a). max_cores 36
+  // clears the core budget, so QueueEnvelopeExceeded fires alone.
+  pure val queueEnvelopeIntent: Intent =
+    { tenants: [router.with("maxCores", 36)],
+      ports: [{ name: "wan0", dpmac: 4, rate: 25000, tenant: Named("router"), from: NotRenamed },
+              { name: "wan1", dpmac: 5, rate: 25000, tenant: Named("router"), from: NotRenamed },
+              { name: "wan2", dpmac: 6, rate: 25000, tenant: Named("router"), from: NotRenamed },
+              { name: "p1", dpmac: 20, rate: 25000, tenant: Named("router"), from: NotRenamed },
+              { name: "p2", dpmac: 21, rate: 25000, tenant: Named("router"), from: NotRenamed },
+              { name: "p3", dpmac: 22, rate: 25000, tenant: Named("router"), from: NotRenamed },
+              { name: "p7", dpmac: 23, rate: 25000, tenant: Named("router"), from: NotRenamed }],
+      links: [], fabrics: [], crypto: [], extras: Set() }
   pure val infeasibleIntent: Intent =
     { tenants: [{ name: "a", dataplane: UserspacePoll, maxCores: 2, isolation: Isolated, from: NotRenamed },
                   { name: "b", dataplane: UserspacePoll, maxCores: 2, isolation: Isolated, from: NotRenamed },
@@ -408,6 +430,12 @@ module intent_main {
   run coreBudgetExceededTest =
     refusalSet(compile(coreBudgetIntent, REF_INVENTORY)) ==
       Set(CoreBudgetExceeded({ tenant: "router", t: 5, maxCores: 4 }))
+
+  // T = 36 poll transmit queues past the numQueues envelope refuses by name and
+  // nothing else — max_cores 36 clears the budget (bead guu.4a; V-DPNI surface).
+  run queueEnvelopeExceededTest =
+    refusalSet(compile(queueEnvelopeIntent, invSeven25G)) ==
+      Set(QueueEnvelopeExceeded({ tenant: "router", numQueues: 36, hi: 32 }))
 
   // Two independent violations reported at once (spec.md "All violations at
   // once"): a reserved anchor and an exceeded core budget, and only those.

@@ -4,8 +4,10 @@
 
 use std::collections::BTreeSet;
 
+use crate::core::inventory::Inventory;
 use crate::core::types::TenantName;
-use crate::intent::derive::{has_pricing, terminated_ports, thread_count};
+use crate::families::dpni::NumQueues;
+use crate::intent::derive::{has_pricing, kernel_cores, terminated_ports, thread_count};
 use crate::intent::{Dataplane, Intent, Tenant, TenantRef, kernel_tenant};
 
 use super::{Referrer, Refusal};
@@ -77,28 +79,52 @@ pub(super) fn tenant_absent_refusals(intent: &Intent, out: &mut BTreeSet<Refusal
     }
 }
 
-pub(super) fn sizing_refusals(intent: &Intent, out: &mut BTreeSet<Refusal>) {
+// The queue-envelope fence (bead guu.4a) mirrors `refuse.qnt` rule 7: the derived
+// per-dpni `num_queues` (poll = T, kernel = cpus) must land in the [`NumQueues`]
+// envelope, or the plan is unrepresentable on the wire and is refused, not degraded
+// to the MC default. Poll's budget and envelope checks are independent (both may fire).
+pub(super) fn sizing_refusals(intent: &Intent, inv: &Inventory, out: &mut BTreeSet<Refusal>) {
+    let hi = i64::from(NumQueues::HI);
     for c in &intent.tenants {
-        if c.dataplane != Dataplane::UserspacePoll {
-            continue;
-        }
-        let ports = terminated_ports(intent, &c.name);
-        match thread_count(&ports) {
-            None => {
-                out.insert(Refusal::UnknownRateClass {
-                    tenant: c.name.clone(),
-                    rates: ports.iter().map(|p| p.rate).collect(),
-                });
+        match c.dataplane {
+            Dataplane::UserspacePoll => {
+                let ports = terminated_ports(intent, &c.name);
+                match thread_count(&ports) {
+                    None => {
+                        out.insert(Refusal::UnknownRateClass {
+                            tenant: c.name.clone(),
+                            rates: ports.iter().map(|p| p.rate).collect(),
+                        });
+                    }
+                    Some(t) => {
+                        if t > c.max_cores {
+                            out.insert(Refusal::CoreBudgetExceeded {
+                                tenant: c.name.clone(),
+                                t,
+                                max_cores: c.max_cores,
+                            });
+                        }
+                        if t > hi {
+                            out.insert(Refusal::QueueEnvelopeExceeded {
+                                tenant: c.name.clone(),
+                                num_queues: t,
+                                hi,
+                            });
+                        }
+                    }
+                }
             }
-            Some(t) => {
-                if t > c.max_cores {
-                    out.insert(Refusal::CoreBudgetExceeded {
+            Dataplane::KernelNetlink => {
+                let cpus = kernel_cores(inv, c);
+                if cpus > hi {
+                    out.insert(Refusal::QueueEnvelopeExceeded {
                         tenant: c.name.clone(),
-                        t,
-                        max_cores: c.max_cores,
+                        num_queues: cpus,
+                        hi,
                     });
                 }
             }
+            Dataplane::UserspaceEvent => {}
         }
     }
 }

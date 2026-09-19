@@ -381,6 +381,10 @@ materialises for such a reference stays owned by the split materialisation trigg
   seeded worker row → see §8 OQ3.
 - `CoreBudgetExceeded` — the derived T exceeds `max_cores` → raise the budget
   or shed ports.
+- `QueueEnvelopeExceeded` — the derived per-dpni queue count (poll T, kernel
+  cpus) exceeds the `NumQueues` 1-32 envelope → shed ports or CPUs; the count is
+  unrepresentable on the wire, so it is refused, not degraded to the MC default
+  (bead guu.4a).
 
 *Extras (design D5; ADR-0003)*
 - `ExtraNotCompanion` — an extra on a family that is not one of the four

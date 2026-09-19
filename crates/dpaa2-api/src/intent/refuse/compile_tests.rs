@@ -129,7 +129,7 @@ fn provenance<'a>(
 }
 
 // ======================================================================
-// one test per Refusal variant (22) — the smallest triggering intent
+// one test per Refusal variant (23) — the smallest triggering intent
 // ======================================================================
 
 #[test]
@@ -429,6 +429,59 @@ fn refuse_core_budget_exceeded() {
             tenant: "t".into(),
             t: 3,
             max_cores: 1,
+        }])
+    );
+}
+
+#[test]
+fn refuse_queue_envelope_exceeded() {
+    // Seven free 25G dpmacs the poll tenant anchors: T = 1 + 7·5 = 36 queues past the 32 envelope, max_cores 36 clears the budget (bead guu.4a).
+    let mut inv = ref_inv();
+    for id in [20, 21, 22, 23] {
+        let (d, o) = offer(id, 25_000, Availability::Free);
+        inv.dpmacs.insert(d, o);
+    }
+    let intent = Intent {
+        tenants: vec![tenant(
+            "t",
+            Dataplane::UserspacePoll,
+            36,
+            Isolation::Isolated,
+        )],
+        ports: vec![
+            port("q1", 4, 25_000, "t"),
+            port("q2", 5, 25_000, "t"),
+            port("q3", 6, 25_000, "t"),
+            port("q4", 20, 25_000, "t"),
+            port("q5", 21, 25_000, "t"),
+            port("q6", 22, 25_000, "t"),
+            port("q7", 23, 25_000, "t"),
+        ],
+        ..Intent::empty()
+    };
+    assert_eq!(
+        err(&intent, &inv),
+        BTreeSet::from([Refusal::QueueEnvelopeExceeded {
+            tenant: "t".into(),
+            num_queues: 36,
+            hi: 32,
+        }])
+    );
+}
+
+#[test]
+fn refuse_queue_envelope_exceeded_kernel() {
+    // A kernel-netlink tenant derives num_queues = cpus; 40 online CPUs exceed the 32 envelope (bead guu.4a).
+    let intent = Intent {
+        tenants: vec![knl("t")],
+        ..Intent::empty()
+    };
+    assert_eq!(
+        err(&intent, &ref_inventory(40)),
+        BTreeSet::from([Refusal::QueueEnvelopeExceeded {
+            tenant: "t".into(),
+            num_queues: 40,
+            hi: 32,
         }])
     );
 }

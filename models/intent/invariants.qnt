@@ -256,6 +256,11 @@ module intent_invariants {
             r.plan.objs.forall(o => (o.key.tenant == c.name and o.key.family == Dpni) implies
               match o.attributes {
                 | DpniAttrs(a) => and {
+                    // bead guu.4a: an accepted intent's every dpni numQueues lands in
+                    // the dpni.qnt 1-32 envelope (dpni_lifecycle inRange inlined; that
+                    // module is not imported here) — the two-sided closure of rule 7's
+                    // QueueEnvelopeExceeded fences.
+                    a.cfg.numQueues == 0 or (a.cfg.numQueues >= 1 and a.cfg.numQueues <= 32),
                     if (c.dataplane == KernelNetlink) a.cfg.numQueues == s.cpus else a.cfg.numQueues >= s.t,
                     // the profile follows the binding consumer (dpni-typestate design D3;
                     // spec scenario "Profile follows the binding consumer")
