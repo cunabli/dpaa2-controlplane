@@ -27,6 +27,7 @@ module intent_refuse {
   import intent_types.* from "./types"           // Intent, Inventory, Availability, Dataplane, DERIVED_FAMILIES
   import intent_derive.* from "./derive"         // derive, sizeTenant, terminatedPorts, threadCount, hasPricing, …
   import dpseci.* from "../families/dpseci"      // DPSECI_MAX_QUEUE_NUM (the one-device queue-pair ceiling)
+  import dpni.* from "../families/dpni"           // NUM_QUEUES_HI (the shared queue-envelope bound; bead guu.4a)
 
   // The site a TenantAbsent refusal refers FROM (vocabulary-v2 D3, PASS3-F13): the
   // referencing construct, identified by its own name where it has one, or by the
@@ -283,12 +284,12 @@ module intent_refuse {
           | None => acc.union(Set(UnknownRateClass({ tenant: c.name, rates: ports.foldl([], (a, p) => a.append(p.rate)) })))
           | Some(t) =>
               val budget = if (t > c.maxCores) Set(CoreBudgetExceeded({ tenant: c.name, t: t, maxCores: c.maxCores })) else Set()
-              val envelope = if (t > 32) Set(QueueEnvelopeExceeded({ tenant: c.name, numQueues: t, hi: 32 })) else Set()
+              val envelope = if (t > NUM_QUEUES_HI) Set(QueueEnvelopeExceeded({ tenant: c.name, numQueues: t, hi: NUM_QUEUES_HI })) else Set()
               acc.union(budget).union(envelope)
         }
       else if (c.dataplane == KernelNetlink)
         val cpus = kernelCores(inv, c)
-        if (cpus > 32) acc.union(Set(QueueEnvelopeExceeded({ tenant: c.name, numQueues: cpus, hi: 32 }))) else acc
+        if (cpus > NUM_QUEUES_HI) acc.union(Set(QueueEnvelopeExceeded({ tenant: c.name, numQueues: cpus, hi: NUM_QUEUES_HI }))) else acc
       else acc)
 
   // ---- rule 8: additive extras (design D5; ADR-0003) ----

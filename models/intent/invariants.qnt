@@ -257,10 +257,11 @@ module intent_invariants {
               match o.attributes {
                 | DpniAttrs(a) => and {
                     // bead guu.4a: an accepted intent's every dpni numQueues lands in
-                    // the dpni.qnt 1-32 envelope (dpni_lifecycle inRange inlined; that
-                    // module is not imported here) — the two-sided closure of rule 7's
+                    // the dpni.qnt 1-NUM_QUEUES_HI envelope (dpni_lifecycle inRange
+                    // inlined; that module is not imported here, but the shared bound
+                    // NUM_QUEUES_HI is) — the two-sided closure of rule 7's
                     // QueueEnvelopeExceeded fences.
-                    a.cfg.numQueues == 0 or (a.cfg.numQueues >= 1 and a.cfg.numQueues <= 32),
+                    a.cfg.numQueues == 0 or (a.cfg.numQueues >= 1 and a.cfg.numQueues <= NUM_QUEUES_HI),
                     if (c.dataplane == KernelNetlink) a.cfg.numQueues == s.cpus else a.cfg.numQueues >= s.t,
                     // the profile follows the binding consumer (dpni-typestate design D3;
                     // spec scenario "Profile follows the binding consumer")

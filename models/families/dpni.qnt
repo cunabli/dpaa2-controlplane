@@ -112,6 +112,11 @@ module dpni {
     rootContainer: bool,     // --container: root dprc (true) or a child (false)
   }
 
+  // The numQueues envelope ceiling, named once so the create-surface envelope
+  // (inEnvelope) and the intent-side QueueEnvelopeExceeded fences share one bound
+  // (baseline "Option inventory" 1–32; bead guu.4a; Rust twin NumQueues::HI).
+  pure val NUM_QUEUES_HI: int = 32
+
   // ---- the two board-verified profiles (dpni-typestate design D3; baseline production list) ----
 
   type OptionProfile = ProfilePmd | ProfileKernel
@@ -226,7 +231,7 @@ module dpni_lifecycle {
   // No accepted create sits outside the verified restool envelope (baseline
   // "Option inventory" ranges; the tightest verified bounds, dpni-typestate design D2).
   pure def inEnvelope(cfg: CreateCfg): bool = and {
-    inRange(cfg.numQueues, 32),
+    inRange(cfg.numQueues, NUM_QUEUES_HI),
     inRange(cfg.numTcs, 16),
     inRange(cfg.macFilterEntries, 80),
     inRange(cfg.vlanFilterEntries, 16),
