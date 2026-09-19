@@ -137,7 +137,11 @@ models/
 │   └── invariants.qnt    phase-2 state invariants under baseline ids; §6 law map
 ├── families/             16 per-family FamilyParams records; laws as data,
 │                         no family forks the lifecycle logic; params.qnt
-│                         is the corpus-wide ALL_PARAMS table
+│                         is the corpus-wide ALL_PARAMS table. dprc.qnt and
+│                         dpni.qnt also carry a grown lifecycle twin
+│                         (dprc_lifecycle; dpni_lifecycle, the dpni
+│                         create-option surface and its named invariants) —
+│                         model-first sums the typestate changes mirror
 ├── helpers/              source-derived generators: mc-ioctl-policy.py writes
 │                         core/ioctl_policy.qnt and docs/baseline/mc-ioctl-policy.md
 │                         from the reference kernel whitelist; intent-inventory.py

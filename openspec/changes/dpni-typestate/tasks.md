@@ -5,7 +5,7 @@ shim, verify, board, close-out. One bead at a time through acceptance.
 
 ## 1. Model gate
 
-- [ ] 1.1 Grow `models/families/dpni.qnt` with the create-option surface
+- [x] 1.1 Grow `models/families/dpni.qnt` with the create-option surface
   (twelve live options with ranges, typed flag vocabulary + raw-mask
   escape, PMD/kernel profiles) and named invariants (create-range
   refusal, profile totality, dead-option parity, write-only field law);

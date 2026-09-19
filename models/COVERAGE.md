@@ -65,7 +65,7 @@ and the adapter render must resolve inside the kernel's `/dev/dprc.N`
 command whitelist (`docs/baseline/mc-ioctl-policy.md`), and the two raw
 probes must resolve outside it.
 
-Tally: 55 modeled, 47 deferred, 7 board-settled, 0 board-pending — 109 candidates.
+Tally: 56 modeled, 46 deferred, 7 board-settled, 0 board-pending — 109 candidates.
 
 | Candidate | Disposition | Location / owning change / settling scenario | CI rung | Board status |
 |-----------|-------------|----------------------------------------------|---------|--------------|
@@ -93,7 +93,7 @@ Tally: 55 modeled, 47 deferred, 7 board-settled, 0 board-pending — 109 candida
 | DPNI-I9 | modeled | `core/invariants.qnt` `DPNI_I9` + `main.qnt` `DPNI_I9Test` | apalache | verified (kdpni pairs in production) |
 | DPNI-I10 | deferred | `dpni-typestate` (#5): tx-ring/thread coupling below core-model scope | — | verified (ADR-0012) |
 | DPNI-I11 | modeled | `main.qnt` `IOCTL_OK` / `DPNI_I11Test` + `core/ioctl_policy.qnt` | apalache | open: V-DPNI-4 — its raw command `DPNI_SET_TX_CONFIRMATION_MODE` is outside the kernel's `/dev/dprc.N` whitelist (`docs/baseline/mc-ioctl-policy.md` §3, refused EACCES), so it needs a kernel patch or the VFIO transport → `mc-portal-backend` (#10) |
-| DPNI-I12 | deferred | this change ph.4 adapter: write-only field, no drift claim | — | — |
+| DPNI-I12 | modeled | structural — `families/dpni.qnt` `dpni_lifecycle` observation omits `dist_key_size` (write-only, dpni-typestate design D4); the ph.4 adapter carries the read-back half | typecheck | — |
 | DPMAC-I1 | modeled | `core/invariants.qnt` `DPMAC_I1` (no-additions + root-pin; destroy is off-nominal) | apalache | verified (ADR-0001 §3); phantom-create face V-DPMAC-2 → `dpmac-typestate` (#7) |
 | DPMAC-I2 | deferred | `dpmac-typestate` (#7): MAC values not in core state | — | verified (ADR-0001 C2) |
 | DPMAC-I3 | deferred | `dpmac-typestate` (#7): attr surface with the eth_if/IPG exceptions | — | — |
@@ -350,3 +350,26 @@ interesting shape is reached (traces of 2000): `wSynced` 2000, `wIntentTwo` 1426
   hitless), so it is unreachable in the sweep and is covered by `ambiguityRefusesTest`
   (`match.qnt`) — a recorded unknown, the same honesty mechanism `wForeignAnchor`
   uses on the intent side.
+
+## dpni create-surface invariants (dpni-typestate task 1.1)
+
+The `dpni-typestate` change's create-option surface laws
+(`models/families/dpni.qnt`'s `dpni_lifecycle` module, bead
+dpaa2-controlplane-guu.1). They pin the family's create envelope as the Rust
+typestates grow: the twelve live options stay in their restool ranges, the two
+board-verified consumer profiles are total over the intent vocabulary, the
+eleven dead options and `num_rx_tcs` are unrepresentable, and `dist_key_size` is
+write-only. Each is a named invariant in the module header and checked on the
+model ladder; the four are the `stateInvariants` conjunction, Apalache-marked
+under `pnpm model:verify` per the DoD model gate (dpni-typestate design D8).
+Anchored to the baseline the module traces (`docs/baseline/dpni.md`) and the
+ADR-0002 structural-isomorphism law — the same honesty mechanism the candidate
+ledger applies to the family invariants. The write-only law is DPNI-I12's model
+face; its candidate row above now reads `modeled`.
+
+| Invariant | Name | CI rung | Anchors / baseline ties |
+|-----------|------|---------|-------------------------|
+| Create-range refusal | CreateRangeRefusal | apalache | dpni.md "Option inventory" ranges; dpni-typestate design D2 |
+| Profile totality | ProfileTotality | apalache | dpni.md "Intent mapping"; ADR-0012; dpni-typestate design D3 |
+| Dead-option parity | DeadOptionParity | apalache | dpni.md "Dead options"/"Never settable"; dpni-typestate design D2 |
+| Write-only field law | WriteOnlyDistKeySize | apalache | dpni.md "Attribute mutability" (DPNI-I12); dpni-typestate design D4 |
