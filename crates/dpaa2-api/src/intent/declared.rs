@@ -16,7 +16,7 @@ use crate::intent::{Crypto, Extra, Fabric, Link, Port, Tenant};
 /// genuinely anonymous, so declaration order IS the dpseci ordinal and crypto is never
 /// sorted. Only `extras` is a set — unordered, matched by `(tenant, family)`,
 /// additive, never by position.
-#[derive(Clone, PartialEq, Eq, Debug, Default)]
+#[derive(Clone, PartialEq, Eq, Debug)]
 pub struct Intent {
     /// The declared tenants, in name order — order-free by construction (dprc identity is
     /// keyed by name, not position; the config keys them as `[tenant.<name>]` tables).
@@ -35,6 +35,25 @@ pub struct Intent {
 }
 
 impl Intent {
+    /// The empty intent — all six fields visibly empty. It replaces the derived
+    /// [`Default`] the hazard closure removed (dpni-typestate design D6): `Default` is
+    /// a trait path, so a derive or generic bound could mint a zero-value intent
+    /// implicitly, skipping the [`TenantRef::from_name`](crate::intent::TenantRef::from_name)
+    /// discipline every tenant reference must route through. A named constructor can
+    /// only be called deliberately, so the escape hatch is closed while a base value
+    /// for `..Intent::empty()` struct-update remains available.
+    #[must_use]
+    pub fn empty() -> Self {
+        Self {
+            tenants: Vec::new(),
+            ports: Vec::new(),
+            links: Vec::new(),
+            fabrics: Vec::new(),
+            crypto: Vec::new(),
+            extras: BTreeSet::new(),
+        }
+    }
+
     /// The ownership-recognition set of ADR-0010 §4 (`edits.qnt` `intentNames`): every
     /// name the control plane recognizes as its own. It is every declared construct
     /// name — tenants, ports, links, fabrics — plus every active `renamed = { from }`
@@ -102,7 +121,7 @@ mod tests {
                 interface_b: TenantRef::Kernel,
                 renamed: None,
             }],
-            ..Intent::default()
+            ..Intent::empty()
         };
         let names = intent.declared_names();
         assert!(names.contains(&ConstructName::from("kernel")));

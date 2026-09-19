@@ -20,11 +20,32 @@
 /// PartialOrd, Ord, Hash` (so it stands in for a `String` key in the plan's ordered
 /// collections) plus, by hand, [`Display`](core::fmt::Display), [`AsRef<str>`],
 /// `From<&str>`/`From<String>`/`From<&Self>` (so `.into()` and `From<&str>` keep
-/// construction terse), the `empty()` constructor for the absent-name sentinel, and
-/// `as_str`/`is_empty` accessors. It deliberately omits
+/// construction terse), and `as_str`/`is_empty` accessors. It deliberately omits
 /// `Deref`, so a value of one name type never coerces into another or into a raw
-/// `&str` argument.
+/// `&str` argument. The `@sentinel` arm additionally mints the `empty()` constructor,
+/// for the name slots with a genuine absent/voided-name role (`ConstructName`,
+/// `RuleName`); `TenantName` is deliberately excluded so no zero-value tenant name is
+/// constructible through the vocabulary (dpni-typestate design D6).
 macro_rules! resource_name {
+    // Sentinel arm: the base type plus the `empty()` absent-name constructor, for the
+    // slots whose absent/voided-name role is real (dpni-typestate design D6).
+    (@sentinel $(#[$meta:meta])* $name:ident) => {
+        resource_name! { $(#[$meta])* $name }
+
+        impl $name {
+            /// The empty/absent name — the sentinel an optional name slot carries: a
+            /// non-restricted tenant's `pool`, a tenant-level provenance `construct`, or
+            /// a voided label (the model reasons about it as a first-class value, e.g.
+            /// `dprc.qnt` `label == ""` -> `ReportOnly`). Deliberately NOT a valid
+            /// interface name, so [`validate`](Self::validate) rejects it; [`is_empty`](Self::is_empty)
+            /// is its predicate. Not minted for [`TenantName`] — a zero-value tenant
+            /// name has no legitimate role (dpni-typestate design D6).
+            #[must_use]
+            pub const fn empty() -> Self {
+                Self(String::new())
+            }
+        }
+    };
     ($(#[$meta:meta])* $name:ident) => {
         $(#[$meta])*
         #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -45,17 +66,6 @@ macro_rules! resource_name {
             #[must_use]
             pub fn is_empty(&self) -> bool {
                 self.0.is_empty()
-            }
-
-            /// The empty/absent name — the sentinel an optional name slot carries: a
-            /// non-restricted tenant's `pool`, a tenant-level provenance `construct`, or
-            /// a voided label (the model reasons about it as a first-class value, e.g.
-            /// `dprc.qnt` `label == ""` -> `ReportOnly`). Deliberately NOT a valid
-            /// interface name, so [`validate`](Self::validate) rejects it; [`is_empty`](Self::is_empty)
-            /// is its predicate.
-            #[must_use]
-            pub const fn empty() -> Self {
-                Self(String::new())
             }
 
             /// Checks the name is a valid Linux interface name that cannot be mistaken
@@ -118,6 +128,7 @@ resource_name! {
 }
 
 resource_name! {
+    @sentinel
     /// A declared construct's name: a port, link or fabric identity, and the
     /// polymorphic `construct` a derived value bottoms out in — a tenant-level count
     /// carries the empty name, a per-construct rule the port/fabric/link name
@@ -141,6 +152,7 @@ impl From<&TenantName> for ConstructName {
 }
 
 resource_name! {
+    @sentinel
     /// A derivation rule's name: the token a [`ProvenanceNode`](crate::intent::compiled::ProvenanceNode)
     /// and its [`ProvenanceKey`](crate::intent::compiled::ProvenanceKey) address it by
     /// (`"dpio"`, `"T"`, `"port-edge"`, …; design D6; ADR-0004). Distinct from the tenant and

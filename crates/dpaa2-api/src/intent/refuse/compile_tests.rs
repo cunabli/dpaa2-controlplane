@@ -136,7 +136,7 @@ fn provenance<'a>(
 fn refuse_tenant_absent() {
     let intent = Intent {
         ports: vec![port("wan0", 7, 10_000, "ghost")],
-        ..Intent::default()
+        ..Intent::empty()
     };
     assert_eq!(
         err(&intent, &ref_inv()),
@@ -165,7 +165,7 @@ fn kernel_forwarded_fabric_resolves_without_a_declared_kernel() {
             members: vec![Member::Tenant("a".into())],
             renamed: None,
         }],
-        ..Intent::default()
+        ..Intent::empty()
     };
     assert_eq!(compile(&intent, &ref_inv()).err(), None);
 }
@@ -181,7 +181,7 @@ fn kernel_crypto_allocation_resolves() {
             tenant: "kernel".into(),
             flows: 4,
         }],
-        ..Intent::default()
+        ..Intent::empty()
     };
     assert_eq!(compile(&intent, &ref_inv()).err(), None);
 }
@@ -197,7 +197,7 @@ fn refuse_member_unresolved() {
             members: vec![Member::Tenant("ghost".into())],
             renamed: None,
         }],
-        ..Intent::default()
+        ..Intent::empty()
     };
     assert_eq!(
         err(&intent, &ref_inv()),
@@ -219,7 +219,7 @@ fn refuse_self_member() {
             members: vec![Member::Tenant("sw".into())],
             renamed: None,
         }],
-        ..Intent::default()
+        ..Intent::empty()
     };
     assert_eq!(
         err(&intent, &ref_inv()),
@@ -235,7 +235,7 @@ fn refuse_unanchored() {
     let intent = Intent {
         tenants: vec![knl("t")],
         ports: vec![port("wan0", 99, 10_000, "t")],
-        ..Intent::default()
+        ..Intent::empty()
     };
     assert_eq!(
         err(&intent, &ref_inv()),
@@ -251,7 +251,7 @@ fn refuse_reserved() {
     let intent = Intent {
         tenants: vec![knl("t")],
         ports: vec![port("wan0", 3, 25_000, "t")],
-        ..Intent::default()
+        ..Intent::empty()
     };
     assert_eq!(
         err(&intent, &ref_inv()),
@@ -271,7 +271,7 @@ fn refuse_foreign() {
     let intent = Intent {
         tenants: vec![knl("t")],
         ports: vec![port("wan0", 11, 25_000, "t")],
-        ..Intent::default()
+        ..Intent::empty()
     };
     assert_eq!(
         err(&intent, &inv),
@@ -288,7 +288,7 @@ fn refuse_double_claimed() {
     let intent = Intent {
         tenants: vec![knl("t")],
         ports: vec![port("wan0", 7, 10_000, "t"), port("wan1", 7, 10_000, "t")],
-        ..Intent::default()
+        ..Intent::empty()
     };
     assert_eq!(
         err(&intent, &ref_inv()),
@@ -304,7 +304,7 @@ fn refuse_over_rate() {
     let intent = Intent {
         tenants: vec![knl("t")],
         ports: vec![port("wan0", 7, 25_000, "t")],
-        ..Intent::default()
+        ..Intent::empty()
     };
     assert_eq!(
         err(&intent, &ref_inv()),
@@ -327,7 +327,7 @@ fn refuse_fabric_not_kernel_forwarded() {
             members: vec![],
             renamed: None,
         }],
-        ..Intent::default()
+        ..Intent::empty()
     };
     assert_eq!(
         err(&intent, &ref_inv()),
@@ -350,7 +350,7 @@ fn refuse_port_tenant_mismatch() {
             members: vec![Member::Port("p".into())],
             renamed: None,
         }],
-        ..Intent::default()
+        ..Intent::empty()
     };
     assert_eq!(
         err(&intent, &ref_inv()),
@@ -382,7 +382,7 @@ fn refuse_unsupported_edge() {
                 renamed: None,
             },
         ],
-        ..Intent::default()
+        ..Intent::empty()
     };
     assert_eq!(
         err(&intent, &ref_inv()),
@@ -400,7 +400,7 @@ fn refuse_unknown_rate_class() {
     let intent = Intent {
         tenants: vec![poll("t")],
         ports: vec![port("wan0", 12, 40_000, "t")],
-        ..Intent::default()
+        ..Intent::empty()
     };
     assert_eq!(
         err(&intent, &inv),
@@ -421,7 +421,7 @@ fn refuse_core_budget_exceeded() {
             Isolation::Isolated,
         )],
         ports: vec![port("wan0", 7, 10_000, "t")],
-        ..Intent::default()
+        ..Intent::empty()
     };
     assert_eq!(
         err(&intent, &ref_inv()),
@@ -444,7 +444,7 @@ fn refuse_extra_not_companion() {
     let intent = Intent {
         tenants: vec![knl("t")],
         extras,
-        ..Intent::default()
+        ..Intent::empty()
     };
     assert_eq!(
         err(&intent, &ref_inv()),
@@ -466,7 +466,7 @@ fn refuse_extra_not_positive() {
     let intent = Intent {
         tenants: vec![knl("t")],
         extras,
-        ..Intent::default()
+        ..Intent::empty()
     };
     assert_eq!(
         err(&intent, &ref_inv()),
@@ -486,7 +486,7 @@ fn refuse_crypto_flows_not_positive() {
             tenant: "t".into(),
             flows: 0,
         }],
-        ..Intent::default()
+        ..Intent::empty()
     };
     assert_eq!(
         err(&intent, &ref_inv()),
@@ -506,7 +506,7 @@ fn refuse_crypto_flows_over_device() {
             tenant: "t".into(),
             flows: 17,
         }],
-        ..Intent::default()
+        ..Intent::empty()
     };
     assert_eq!(
         err(&intent, &ref_inv()),
@@ -526,7 +526,7 @@ fn refuse_infeasible() {
     let intent = Intent {
         tenants: vec![knl("t")],
         ports: vec![port("wan0", 7, 10_000, "t")],
-        ..Intent::default()
+        ..Intent::empty()
     };
     assert_eq!(
         err(&intent, &inv),
@@ -547,7 +547,7 @@ fn refuse_unpriced_dataplane() {
             16,
             Isolation::Isolated,
         )],
-        ..Intent::default()
+        ..Intent::empty()
     };
     assert_eq!(
         err(&intent, &ref_inv()),
@@ -565,7 +565,7 @@ fn refuse_holder_not_public() {
             tenant("t", Dataplane::KernelNetlink, 16, restricted("h")),
             knl("h"), // Isolated, not Public
         ],
-        ..Intent::default()
+        ..Intent::empty()
     };
     assert_eq!(
         err(&intent, &ref_inv()),
@@ -587,7 +587,7 @@ fn refuse_pool_chain() {
             tenant("h", Dataplane::KernelNetlink, 16, restricted("g")),
             tenant("t", Dataplane::KernelNetlink, 16, restricted("h")),
         ],
-        ..Intent::default()
+        ..Intent::empty()
     };
     assert_eq!(
         err(&intent, &ref_inv()),
@@ -620,7 +620,7 @@ fn port_named_pool_does_not_collide_with_pool_referrer() {
         ],
         // A perfectly legal port an operator named `pool`, owned by the kernel.
         ports: vec![port("pool", 7, 10_000, "kernel")],
-        ..Intent::default()
+        ..Intent::empty()
     };
     // The only refusal is the missing pool holder, keyed by the DRAWING tenant `t`
     // via the typed referrer — never a construct string that a port could match.
@@ -643,7 +643,7 @@ fn programmatic_self_loop_link_is_refused() {
     let intent = Intent {
         tenants: vec![kernel_tenant(16)],
         links: vec![link("wire", "kernel", "kernel")],
-        ..Intent::default()
+        ..Intent::empty()
     };
     // `compile` returns the refusal set (Err), so derivation's plan is never
     // handed out; the self-loop is named.
@@ -668,7 +668,7 @@ fn programmatic_kernel_declaration_is_refused() {
             8,
             Isolation::Isolated,
         )],
-        ..Intent::default()
+        ..Intent::empty()
     };
     assert_eq!(
         err(&intent, &ref_inv()),
@@ -693,7 +693,7 @@ fn programmatic_rename_double_claim_is_refused() {
     let intent = Intent {
         tenants: vec![poll("router")],
         ports: vec![mk("e0", 7, Some("wan0")), mk("wan0", 8, None)],
-        ..Intent::default()
+        ..Intent::empty()
     };
     assert_eq!(
         err(&intent, &ref_inv()),
@@ -713,7 +713,7 @@ fn refuse_pool_dataplane_mismatch() {
             16,
             restricted("kernel"),
         )],
-        ..Intent::default()
+        ..Intent::empty()
     };
     assert_eq!(
         err(&intent, &ref_inv()),
@@ -738,7 +738,7 @@ fn reference_intent() -> Intent {
             port("wan0", 7, 10_000, "router"),
             port("wan1", 9, 10_000, "router"),
         ],
-        ..Intent::default()
+        ..Intent::empty()
     }
 }
 
@@ -773,7 +773,7 @@ fn dpni_option_profile_follows_the_binding_consumer() {
             port("k7", 7, 10_000, "kernel"),
             port("a9", 9, 10_000, "app"),
         ],
-        ..Intent::default()
+        ..Intent::empty()
     };
     let c = ok(&intent, &ref_inv());
     let Attributes::Dpni { cfg: kernel_cfg } = attributes_of(&c, "kernel", Family::Dpni, 1) else {
@@ -823,7 +823,7 @@ fn undeclared_reserved_kernel_full_percpu_draw_in_root() {
     let intent = Intent {
         tenants: vec![poll("app")],
         links: vec![link("up", "app", "kernel")],
-        ..Intent::default()
+        ..Intent::empty()
     };
     let c = ok(&intent, &ref_inv());
     assert_eq!(count_fam(&c, "kernel", Family::Dpio), 16); // one per online CPU
@@ -841,7 +841,7 @@ fn kernel_netlink_namespace_child_resident_draws_dpio_zero() {
     let intent = Intent {
         tenants: vec![knl("ns")],
         links: vec![link("veth", "ns", "kernel")],
-        ..Intent::default()
+        ..Intent::empty()
     };
     let c = ok(&intent, &ref_inv());
     assert_eq!(count_fam(&c, "ns", Family::Dpio), 0); // child-resident
@@ -876,7 +876,7 @@ fn dpseci_per_crypto_block_sized_by_its_own_flows() {
                 flows: 8,
             },
         ],
-        ..Intent::default()
+        ..Intent::empty()
     };
     let c = ok(&intent, &ref_inv());
     assert_eq!(count_fam(&c, "sec", Family::Dpseci), 2);
@@ -913,7 +913,7 @@ fn dpsw_hardware_fabric() {
             members: vec![Member::Port("p7".into()), Member::Port("p8".into())],
             renamed: None,
         }],
-        ..Intent::default()
+        ..Intent::empty()
     };
     let c = ok(&intent, &ref_inv());
     assert_eq!(count_fam(&c, "kernel", Family::Dpsw), 1);
@@ -944,7 +944,7 @@ fn extras_only_raise_a_count() {
         tenants: vec![kernel_tenant(16), poll("router")],
         ports: vec![port("wan0", 7, 10_000, "router")],
         extras,
-        ..Intent::default()
+        ..Intent::empty()
     };
     let c = ok(&intent, &ref_inv());
     // request = 2·T = 2·3 = 6; extra 3 raises it to 9 (raise-only).
@@ -965,7 +965,7 @@ fn restricted_tenant_pools_into_its_holders_container() {
             tenant("prim", Dataplane::UserspacePoll, 16, Isolation::Public),
             tenant("sec", Dataplane::UserspacePoll, 16, restricted("prim")),
         ],
-        ..Intent::default()
+        ..Intent::empty()
     };
     let c = ok(&intent, &ref_inv());
     assert_eq!(count_fam(&c, "sec", Family::Dprc), 0); // no dprc of its own
@@ -1001,7 +1001,7 @@ fn desired_topology_keeps_the_operators_mac_intent() {
             mac_mode: crate::core::model::MacMode::Actuate,
             ..port("wan0", 7, 10_000, "kernel")
         }],
-        ..Intent::default()
+        ..Intent::empty()
     };
     let c = ok(&intent, &ref_inv());
     let topology = c.desired_topology(&intent);
@@ -1027,7 +1027,7 @@ fn warnings_flag_unmeasured_cross_class_mix() {
             port("wan0", 7, 10_000, "router"),
             port("wan1", 4, 25_000, "router"),
         ],
-        ..Intent::default()
+        ..Intent::empty()
     };
     let c = ok(&intent, &ref_inv());
     assert!(c.warnings.contains(&Warning::UnmeasuredCombination {

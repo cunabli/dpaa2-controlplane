@@ -66,7 +66,7 @@ fn a_declared_consumer_derives_exactly_one_container_with_the_default_mask() {
     let intent = Intent {
         tenants: vec![poll("vpp")],
         ports: vec![port("wan0", 7, "vpp")],
-        ..Intent::default()
+        ..Intent::empty()
     };
     let c = compiled(&intent);
     let containers = derive_consumer_containers(&c.plan);
@@ -91,7 +91,7 @@ fn every_public_holder_and_isolated_consumer_derives_its_own_container() {
             },
         ],
         ports: vec![port("wan0", 7, "vpp")],
-        ..Intent::default()
+        ..Intent::empty()
     };
     let containers = derive_consumer_containers(&compiled(&intent).plan);
     let names: Vec<&str> = containers.keys().map(TenantName::as_str).collect();
@@ -123,7 +123,7 @@ fn the_reserved_kernel_derives_no_container() {
             interface_b: TenantRef::Kernel,
             renamed: None,
         }],
-        ..Intent::default()
+        ..Intent::empty()
     };
     let c = compiled(&intent);
     // The kernel is materialised (its dpio draw is in the full plan) yet owns no DPRC.
@@ -160,7 +160,7 @@ fn the_derivation_is_container_only_dropping_companions_and_dpnis() {
     let intent = Intent {
         tenants: vec![poll("vpp")],
         ports: vec![port("wan0", 7, "vpp")],
-        ..Intent::default()
+        ..Intent::empty()
     };
     let c = compiled(&intent);
     // Precondition: the full plan DOES carry the companions and the dpni this surface drops.
@@ -187,7 +187,7 @@ fn the_container_provenance_cites_the_baseline_anchor() {
     let intent = Intent {
         tenants: vec![poll("vpp")],
         ports: vec![port("wan0", 7, "vpp")],
-        ..Intent::default()
+        ..Intent::empty()
     };
     let c = compiled(&intent);
     let cc = &derive_consumer_containers(&c.plan)[&TenantName::from("vpp")];
@@ -218,7 +218,7 @@ fn the_derived_mask_pairs_with_the_dprc_lifecycle_entry_state() {
     let intent = Intent {
         tenants: vec![poll("vpp")],
         ports: vec![port("wan0", 7, "vpp")],
-        ..Intent::default()
+        ..Intent::empty()
     };
     let c = compiled(&intent);
     let cc = &derive_consumer_containers(&c.plan)[&TenantName::from("vpp")];

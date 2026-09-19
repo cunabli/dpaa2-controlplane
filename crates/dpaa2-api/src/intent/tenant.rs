@@ -51,13 +51,18 @@ impl TenantRef {
     /// `""` IS the omitted-tenant default. This Rust side does **not** fold `""` — the
     /// raw side carries an `Option`, so `""` reaching `from_name` is a (bogus) *name*,
     /// not an omission; folding it to [`TenantRef::Kernel`] would silently bless an
-    /// empty string the API should never see. An empty name stays [`TenantRef::Named`]:
+    /// empty string the API should never see. An empty name stays [`TenantRef::Named`].
+    /// The empty-name residue only ever reaches here through the raw [`From<&str>`]
+    /// boundary — the typed vocabulary itself no longer offers an empty-name
+    /// constructor (dpni-typestate design D6) — and it is a bogus name
+    /// [`validate`](crate::core::types::TenantName::validate) rejects, not a second
+    /// spelling of the kernel:
     ///
     /// ```
     /// use dpaa2_api::intent::{KERNEL, TenantRef};
     /// use dpaa2_api::core::types::TenantName;
     /// // "" is a name here, never "the kernel": the raw Option already carried absence.
-    /// assert_eq!(TenantRef::from_name(TenantName::empty()), TenantRef::Named("".into()));
+    /// assert_eq!(TenantRef::from_name(TenantName::from("")), TenantRef::Named("".into()));
     /// assert_eq!(TenantRef::from_name(TenantName::from(KERNEL)), TenantRef::Kernel);
     /// ```
     #[must_use]
@@ -111,23 +116,22 @@ pub enum Dataplane {
 /// How a tenant sits in the MC container tree (design D6a; `types.qnt`
 /// `Isolation`): the private-VLAN shape the tree already enforces.
 ///
-/// [`Isolation::Isolated`] is the default the TOML applies when the field is
-/// absent, so every prior intent keeps its shape. The pool holder a
-/// [`Isolation::Restricted`] tenant draws inside rides in the variant payload
-/// (vocabulary-v2 D1, PASS5-F4): a pool on a non-restricted tenant, and a
-/// restricted tenant with no pool, have no constructor — they are unrepresentable
-/// rather than refused, and restrictedness is read off the variant, never a `""`
-/// sentinel. Not `Copy`: the [`TenantName`] payload owns a heap string.
+/// Isolated is the default the TOML applies when the field is absent, so every prior
+/// intent keeps its shape — but that default is now solely the parser's rule
+/// (dpaa2-config's `RawIsolation` folds to [`Isolation::Isolated`]), never a
+/// [`Default`] on this type. The pool holder a [`Isolation::Restricted`] tenant draws
+/// inside rides in the variant payload (vocabulary-v2 D1, PASS5-F4): a pool on a
+/// non-restricted tenant, and a restricted tenant with no pool, have no constructor —
+/// they are unrepresentable rather than refused, and restrictedness is read off the
+/// variant, never a `""` sentinel. Not `Copy`: the [`TenantName`] payload owns a heap
+/// string.
 ///
-/// TYPESTATE HAZARDS (deferred to the typestate roadmap change, not this one): two
-/// zero-value escape hatches survive the sum encoding and want a typestate to close.
-/// (a) [`Default`] on `Isolation` (and on [`Intent`](crate::intent::Intent)) admits a zero-value intent that
-/// never routes a tenant reference through [`TenantRef::from_name`], so its `""`→name
-/// discipline can be skipped by constructing the value directly. (b) An empty
-/// [`TenantName`] is constructible (`TenantName::empty()`), so an empty pool holder or
-/// tenant name is representable at the type level though no valid intent carries one.
-/// Both are recorded here for the future typestate change; no code change lands now.
-#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Default)]
+/// TYPESTATE HAZARDS — closed (dpni-typestate design D6): both zero-value escape
+/// hatches are gone. `Default` no longer exists on `Isolation` or
+/// [`Intent`](crate::intent::Intent), so no zero-value intent can skip the
+/// [`TenantRef::from_name`] discipline; and an empty [`TenantName`] is unconstructible
+/// through the vocabulary (the `empty()` sentinel is no longer minted for it).
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub enum Isolation {
     /// A holder that accepts legal drawers into its own dprc; the reserved kernel
     /// is implicitly public.
@@ -139,8 +143,8 @@ pub enum Isolation {
         /// The public holder this restricted tenant draws inside.
         pool: TenantName,
     },
-    /// Its own child dprc, MC-isolated from siblings — the default.
-    #[default]
+    /// Its own child dprc, MC-isolated from siblings — the default the TOML parser
+    /// applies (dpni-typestate design D6; no `Default` on the type).
     Isolated,
 }
 
