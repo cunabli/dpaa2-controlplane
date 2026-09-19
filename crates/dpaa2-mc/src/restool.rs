@@ -528,6 +528,49 @@ impl<R: Runner> RestoolMc<R> {
     }
 }
 
+impl<R: Runner> RestoolMc<R> {
+    /// Assembles one child container's observation from its own scoped `dprc info`
+    /// (options) and `dprc show` (residents) reads, given the `label` the root's rows
+    /// carry — the only place a child's label is visible (dpni-typestate task 4.2). Shared
+    /// by the enumerate verb and the scoped `observe_container` so both render one shape.
+    fn observe_child(
+        &self,
+        num: u32,
+        label: ConstructName,
+    ) -> Result<dprc_plan::ObservedContainer, Error> {
+        let obj = format!("dprc.{num}");
+
+        let info = self.run_verb(&["dprc", "info", &obj])?;
+        let options = parse::parse_dprc_info(&info)
+            .ok_or_else(|| Error::Parse(format!("no dprc options in `dprc info {obj}`")))?;
+
+        let child_show = self.run_verb(&["dprc", "show", &obj])?;
+        let mut residents = BTreeMap::new();
+        for r in parse::parse_dprc_rows(&child_show) {
+            // Grandchild DPRCs are containers, not residents (skipped); origin is unobservable through restool, so None, keyed by ObjectRef so families never collide (review M2/M1; PASS3-F2/F14).
+            if r.family == Family::Dprc {
+                continue;
+            }
+            residents.insert(
+                ObjectRef::new(r.family, r.num),
+                dprc::ObservedResident {
+                    origin: None,
+                    plugged: r.plugged,
+                },
+            );
+        }
+
+        let state = dprc::ContainerState::classify(&residents);
+        Ok(dprc_plan::ObservedContainer {
+            state,
+            options,
+            label,
+            placement: Container::Root,
+            residents,
+        })
+    }
+}
+
 impl<R: Runner> McControl for RestoolMc<R> {
     fn observe(&self) -> Result<ObservedTopology, Error> {
         let show = self.run_verb(&["dprc", "show", &self.container])?;
@@ -575,57 +618,32 @@ impl<R: Runner> McControl for RestoolMc<R> {
     }
 
     fn observe_containers(&self) -> Result<BTreeMap<DprcId, dprc_plan::ObservedContainer>, Error> {
-        // Re-observe the root's child containers from one `dprc show` (DPRC-I6: the
-        // convergence verdict re-queries, it never trusts `sync`). Each `dprc.N` child
-        // row carries its name-keyed label; the row is a child of the root, so its
-        // placement is [`Container::Root`].
+        // One root `dprc show` (DPRC-I6: re-query, never trust `sync`); each `dprc.N` row carries the child label, and the per-child assembly is shared with the scoped `observe_container` (dpni-typestate task 4.2).
         let show = self.run_verb(&["dprc", "show", &self.container])?;
         let mut containers = BTreeMap::new();
         for row in parse::parse_dprc_rows(&show) {
             if row.family != Family::Dprc {
                 continue;
             }
-            let obj = format!("dprc.{}", row.num);
-
-            // Options are read back from the child's own `dprc info`; a `None` parse
-            // (no options line, a refused/malformed read) is an error, never the default.
-            let info = self.run_verb(&["dprc", "info", &obj])?;
-            let options = parse::parse_dprc_info(&info)
-                .ok_or_else(|| Error::Parse(format!("no dprc options in `dprc info {obj}`")))?;
-
-            // Residents are the child's own `dprc show` rows; a grandchild DPRC is a
-            // container, not a resident, in the model's World, so it is skipped.
-            let child_show = self.run_verb(&["dprc", "show", &obj])?;
-            let mut residents = BTreeMap::new();
-            for r in parse::parse_dprc_rows(&child_show) {
-                if r.family == Family::Dprc {
-                    continue;
-                }
-                // Origin unobservable through restool: reported None, never invented; keyed by ObjectRef so families never collide (review M2/M1; PASS3-F2/F14).
-                residents.insert(
-                    ObjectRef::new(r.family, r.num),
-                    dprc::ObservedResident {
-                        origin: None,
-                        plugged: r.plugged,
-                    },
-                );
-            }
-
-            // The core judges Created-vs-Populated from the residents the shim read (review M2; PASS3-F1).
-            let state = dprc::ContainerState::classify(&residents);
-
             containers.insert(
                 DprcId::from(row.num),
-                dprc_plan::ObservedContainer {
-                    state,
-                    options,
-                    label: row.label,
-                    placement: Container::Root,
-                    residents,
-                },
+                self.observe_child(row.num, row.label)?,
             );
         }
         Ok(containers)
+    }
+
+    fn observe_container(&self, id: DprcId) -> Result<Option<dprc_plan::ObservedContainer>, Error> {
+        // A child's label lives only on the ROOT's rows (dpni-typestate task 4.2), so one root show recovers it and doubles as the honest-absence signal.
+        // An id with no `dprc.N` child row is not a child of the root -> `Ok(None)`, no per-child spawn; a present id then reads only its own `dprc info`/`dprc show`, never the 1+2N per-child rescan (dpni-typestate design D5).
+        let show = self.run_verb(&["dprc", "show", &self.container])?;
+        let Some(row) = parse::parse_dprc_rows(&show)
+            .into_iter()
+            .find(|r| r.family == Family::Dprc && DprcId::from(r.num) == id)
+        else {
+            return Ok(None);
+        };
+        Ok(Some(self.observe_child(row.num, row.label)?))
     }
 
     fn read_inventory(&self) -> Result<Inventory, Error> {
@@ -1154,6 +1172,71 @@ mod tests {
         ]);
         let mc = RestoolMc::with_runner(runner, DEFAULT_CONTAINER);
         match mc.observe_containers().expect_err("refused info") {
+            Error::Parse(msg) => assert!(msg.contains("dprc.2"), "{msg}"),
+            other => panic!("expected Parse, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn observe_container_scopes_spawns_to_one_child() {
+        // Scoped read: root show recovers the label, then only this child's own info/show fire — the sibling `dprc.3` is never touched (dpni-typestate task 4.2).
+        let root = dprc_show(&[
+            "dprc.2          router          unplugged",
+            "dprc.3          other           unplugged",
+        ]);
+        let info = parse::dprc_info(&[
+            "DPRC_CFG_OPT_SPAWN_ALLOWED",
+            "DPRC_CFG_OPT_ALLOC_ALLOWED",
+            "DPRC_CFG_OPT_OBJ_CREATE_ALLOWED",
+        ]);
+        let child = dprc_show(&[]);
+        let runner = ScriptedRunner::canned(&[
+            ("dprc show dprc.1", &root),
+            ("dprc info dprc.2", &info),
+            ("dprc show dprc.2", &child),
+        ]);
+        let mc = RestoolMc::with_runner(runner, DEFAULT_CONTAINER);
+
+        let c = mc
+            .observe_container(DprcId::new(2))
+            .expect("observe one")
+            .expect("dprc.2 is a child of the root");
+        assert_eq!(c.label, ConstructName::from("router"));
+        assert_eq!(c.options, dprc::Options::DEFAULT);
+        // Exactly the root show plus dprc.2's own info/show — never the sibling dprc.3.
+        let calls = mc.runner().calls();
+        assert_eq!(calls.len(), 3);
+        assert!(calls.iter().all(|c| !c.contains(&"dprc.3".to_owned())));
+    }
+
+    #[test]
+    fn observe_container_absent_child_is_none() {
+        // Honest absence (dpni-typestate task 4.2): an id with no child row is `Ok(None)`, no per-child spawn.
+        let root = dprc_show(&["dprc.2          router          unplugged"]);
+        let runner = ScriptedRunner::canned(&[("dprc show dprc.1", &root)]);
+        let mc = RestoolMc::with_runner(runner, DEFAULT_CONTAINER);
+
+        assert!(
+            mc.observe_container(DprcId::new(9))
+                .expect("absence is not an error")
+                .is_none()
+        );
+        assert_eq!(mc.runner().calls().len(), 1);
+    }
+
+    #[test]
+    fn observe_container_errors_on_a_refused_info_read() {
+        // A genuine query failure stays `Err`: the child is present but its info has no options line (dpni-typestate task 4.2).
+        let root = dprc_show(&["dprc.2          router          unplugged"]);
+        let runner = ScriptedRunner::canned(&[
+            ("dprc show dprc.1", &root),
+            ("dprc info dprc.2", "container id: 2\nicid: 27\n"),
+        ]);
+        let mc = RestoolMc::with_runner(runner, DEFAULT_CONTAINER);
+        match mc
+            .observe_container(DprcId::new(2))
+            .expect_err("refused info")
+        {
             Error::Parse(msg) => assert!(msg.contains("dprc.2"), "{msg}"),
             other => panic!("expected Parse, got {other:?}"),
         }
