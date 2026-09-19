@@ -17,7 +17,7 @@ shim, verify, board, close-out. One bead at a time through acceptance.
   `dpni_cfg` as immutable type parameter, refined range types, typed
   option set with provenance-carrying raw-mask constructor; runtime
   state slot holding the primary MAC
-- [ ] 2.2 Dead-option and `num_rx_tcs` parity refusals; `dist_key_size`
+- [x] 2.2 Dead-option and `num_rx_tcs` parity refusals; `dist_key_size`
   write-only by construct (excluded from observation comparison); cfg
   drift plans destroy + create, MAC-only drift plans the mutation
 

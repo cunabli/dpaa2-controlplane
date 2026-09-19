@@ -8,10 +8,13 @@
 //! Authored model-first (quint-is-the-spec): the sums, payloads and refined ranges
 //! here are structurally isomorphic to the Quint sums, and the ADR-0002 §3 law binds
 //! them — same cases, same payloads, same range semantics; names converge on readable
-//! English on both surfaces. This tile (dpni-typestate task 2.1) grows the *create surface* — the
-//! refined ranges, the typed option set, the immutable create block, and the runtime
-//! MAC slot; the programmatic dead-option refusals and the observation/drift surface
-//! are the following tile.
+//! English on both surfaces. dpni-typestate task 2.1 grew the *create surface* — the
+//! refined ranges, the typed option set, the immutable create block, and the runtime MAC
+//! slot. dpni-typestate task 2.2 adds the rest: the programmatic dead-option parity
+//! refusals ([`Unrepresentable`] /
+//! [`DeadOptionRefusal`], dpni-typestate design D2), the observation projection that
+//! excludes write-only `dist_key_size` ([`DpniObservation`], dpni-typestate design D4),
+//! and the cfg-vs-MAC drift disposition ([`drift_disposition`], ADR-0001 §4).
 //!
 //! # The create/runtime split, by construct (dpni-typestate design D1)
 //!
@@ -20,18 +23,19 @@
 //! create (`docs/baseline/dpni.md` "Attribute mutability", ADR-0001 §4). The family
 //! encodes it structurally: the validated create block [`DpniCfg`] parameterizes a
 //! [`Dpni`] and lives inside it by shared reference only (no setter, no `&mut cfg`),
-//! while the runtime surface [`RuntimeState`] is mutable state within the type. Today
-//! that runtime surface is exactly one value — the primary MAC — because it is the
-//! only setter the restool transport can drive; the remaining `dpni_set_*` surface is
-//! a deferral to the mc-portal backend and slots into [`RuntimeState`] without
-//! reshaping the family.
+//! while the runtime surface [`RuntimeState`] is mutable state within the type. This
+//! family names no transport (ADR-0018, sans-io hexagonal: the backend vocabulary lives
+//! in `dpaa2-mc`, not here). Today that runtime surface is exactly one value — the
+//! primary MAC — the one runtime mutation in today's create contract; the remaining
+//! `dpni_set_*` surface is a named deferral to the mc-portal backend and slots into
+//! [`RuntimeState`] without reshaping the family.
 //!
 //! # Invalid configurations are unrepresentable (dpni-typestate design D2)
 //!
 //! The twelve live create options (`docs/baseline/dpni.md` "Option inventory: used vs
 //! available") are the ten numeric fields — each a refined range type with no
-//! constructor for a value outside the restool-verified envelope — the typed option
-//! mask [`OptionMask`], and the `--container` placement (`root_container`). The mask
+//! constructor for a value outside the board-verified create envelope — the typed option
+//! mask [`OptionMask`], and the container placement (`root_container`). The mask
 //! is a typed set over the ten named MC 10.39 flags [`DpniOpt`] plus a
 //! provenance-carrying raw-mask escape [`RawEscape`] — `0x80000000` (`PFDR_IN_PEB`) is
 //! deployed and working but unnamed in any header, so the escape is a first-class
@@ -46,7 +50,7 @@ use crate::core::model::MacAddr;
 // ---- the ten refined numeric create options (dpni-typestate design D2) ----
 
 /// Mints one refined create-option range type — a `u16` newtype whose only
-/// constructor refuses anything outside the restool-verified envelope.
+/// constructor refuses anything outside the board-verified create envelope.
 ///
 /// `0` is the omitted/MC-default sentinel (`docs/baseline/dpni.md` "Option inventory":
 /// an omitted flag sends literal 0, so the MC applies its own default) and is valid
@@ -60,8 +64,8 @@ macro_rules! ranged_option {
         pub struct $name(u16);
 
         impl $name {
-            /// The inclusive restool upper bound for this option
-            /// (`docs/baseline/dpni.md` "Option inventory" range).
+            /// The inclusive upper bound of the board-verified create envelope for this
+            /// option (`docs/baseline/dpni.md` "Option inventory" range).
             pub const HI: u16 = $hi;
 
             /// The omitted option — `0` on the wire, so the MC applies its own default
@@ -70,11 +74,11 @@ macro_rules! ranged_option {
             /// everywhere (model `inRange`).
             pub const DEFAULT: Self = Self(0);
 
-            /// Builds the refined value, refusing anything outside the restool
-            /// envelope. `0` (the omitted/MC-default sentinel) and `1..=HI` construct;
-            /// every other value has no path — the refusal is a type-boundary error,
-            /// not a board rejection (spec "Out-of-range option has no constructor";
-            /// dpni-typestate design D2).
+            /// Builds the refined value, refusing anything outside the board-verified
+            /// create envelope. `0` (the omitted/MC-default sentinel) and `1..=HI`
+            /// construct; every other value has no path — the refusal is a type-boundary
+            /// error, not a board rejection (spec "Out-of-range option has no
+            /// constructor"; dpni-typestate design D2).
             ///
             /// # Errors
             /// [`Error::Config`] naming the field and its `1..=HI` range when `v` is
@@ -84,7 +88,7 @@ macro_rules! ranged_option {
                     Ok(Self(v))
                 } else {
                     Err(Error::Config(format!(
-                        concat!($field, " {} outside restool range 1..={} (0 = MC default)"),
+                        concat!($field, " {} outside the verified create envelope 1..={} (0 = MC default)"),
                         v,
                         Self::HI,
                     )))
@@ -101,52 +105,50 @@ macro_rules! ranged_option {
 }
 
 ranged_option! {
-    /// `--num-queues` (model `numQueues`, range 1–32; MC default 1).
+    /// `num_queues` (model `numQueues`, range 1–32; MC default 1).
     NumQueues, 32, "num_queues"
 }
 ranged_option! {
-    /// `--num-tcs` (model `numTcs`, range 1–16; MC default 1).
+    /// `num_tcs` (model `numTcs`, range 1–16; MC default 1).
     NumTcs, 16, "num_tcs"
 }
 ranged_option! {
-    /// `--mac-entries`/`--mac-filter-entries` (model `macFilterEntries`, range 1–80;
-    /// MC default 16 — 80 is restool's maximum, not the default).
+    /// `mac_filter_entries` (model `macFilterEntries`, range 1–80; MC default 16 — 80 is
+    /// the envelope maximum, not the default).
     MacFilterEntries, 80, "mac_filter_entries"
 }
 ranged_option! {
-    /// `--vlan-entries`/`--vlan-filter-entries` (model `vlanFilterEntries`, range
-    /// 1–16; MC default 0 = VLAN filtering disabled).
+    /// `vlan_filter_entries` (model `vlanFilterEntries`, range 1–16; MC default 0 = VLAN
+    /// filtering disabled).
     VlanFilterEntries, 16, "vlan_filter_entries"
 }
 ranged_option! {
-    /// `--qos-entries` (model `qosEntries`, range 1–64; MC default 0 with one TC —
-    /// the `QoS` table exists only for a multi-TC dpni; 64 is restool's maximum).
+    /// `qos_entries` (model `qosEntries`, range 1–64; MC default 0 with one TC — the
+    /// `QoS` table exists only for a multi-TC dpni; 64 is the envelope maximum).
     QosEntries, 64, "qos_entries"
 }
 ranged_option! {
-    /// `--fs-entries` (model `fsEntries`, range 1–1024; MC default 64).
+    /// `fs_entries` (model `fsEntries`, range 1–1024; MC default 64).
     FsEntries, 1024, "fs_entries"
 }
 ranged_option! {
-    /// `--num-cgs` (model `numCgs`, range 1–128; MC default one CG per TC). The
-    /// deployed heuristic is `num_queues + 8` under `CUSTOM_CG` (unknown-register #3).
+    /// `num_cgs` (model `numCgs`, range 1–128; MC default one CG per TC). The deployed
+    /// heuristic is `num_queues + 8` under `CUSTOM_CG` (unknown-register #3).
     NumCgs, 128, "num_cgs"
 }
 ranged_option! {
-    /// `--dist-key-size` (model `distKeySize`, range 1–56; MC default treated as 24).
+    /// `dist_key_size` (model `distKeySize`, range 1–56; MC default treated as 24).
     /// Write-only at observation: `dpni_attr` omits it, so the reconciler never reads
-    /// it back and never claims drift on it (dpni-typestate design D4; DPNI-I12). It
-    /// rides create here; the observation projection that excludes it lands with the
-    /// observation/drift tile, not this one.
+    /// it back and never claims drift on it (dpni-typestate design D4; DPNI-I12); the
+    /// exclusion is realized in [`DpniObservation`].
     DistKeySize, 56, "dist_key_size"
 }
 ranged_option! {
-    /// `--num-channels` (model `numCeetmCh`, range 1–32; MC default single CEETM
-    /// channel).
+    /// `num_ceetm_ch` (model `numCeetmCh`, range 1–32; MC default single CEETM channel).
     NumCeetmCh, 32, "num_ceetm_ch"
 }
 ranged_option! {
-    /// `--num-opr` (model `numOpr`, range 1–128; MC default `num_tcs × num_queues`).
+    /// `num_opr` (model `numOpr`, range 1–128; MC default `num_tcs × num_queues`).
     NumOpr, 128, "num_opr"
 }
 
@@ -286,7 +288,7 @@ pub struct OptionMask {
 }
 
 impl OptionMask {
-    /// The empty mask — `--options` omitted, so `0` on the wire (`ls-addni`'s default;
+    /// The empty mask — no options set, so `0` on the wire (the create default;
     /// `dpni.qnt` `Set()`/`Set()`).
     #[must_use]
     pub fn empty() -> Self {
@@ -339,7 +341,7 @@ impl OptionMask {
 /// (`dpni.qnt` `type CreateCfg`; `docs/baseline/dpni.md` "Option inventory").
 ///
 /// Every field is a refined type ([range types](NumQueues) / [`OptionMask`]) or the
-/// `--container` placement, so an out-of-envelope create block cannot be built. Once a
+/// container placement, so an out-of-envelope create block cannot be built. Once a
 /// block parameterizes a [`Dpni`] it is immutable — the model's `Created(CreateCfg)`
 /// payload — because [`Dpni`] owns it privately and exposes it only by shared
 /// reference (`docs/baseline/dpni.md` "Attribute mutability": every `dpni_cfg` field
@@ -347,33 +349,33 @@ impl OptionMask {
 ///
 /// The derived `Eq` is *create-block identity*, not observation equality: `dist_key_size`
 /// is write-only (dpni-typestate design D4) and is excluded from drift comparison by a
-/// separate observation projection (the observation/drift tile, the sibling of dprc's
+/// separate observation projection ([`DpniObservation`], the sibling of dprc's
 /// `Resident` vs `ObservedResident` split), never by fighting this derive.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DpniCfg {
-    /// The options mask (`--options`).
+    /// The options mask.
     pub options: OptionMask,
-    /// `--num-queues`.
+    /// `num_queues`.
     pub num_queues: NumQueues,
-    /// `--num-tcs`.
+    /// `num_tcs`.
     pub num_tcs: NumTcs,
-    /// `--mac-entries`/`--mac-filter-entries`.
+    /// `mac_filter_entries`.
     pub mac_filter_entries: MacFilterEntries,
-    /// `--vlan-entries`/`--vlan-filter-entries`.
+    /// `vlan_filter_entries`.
     pub vlan_filter_entries: VlanFilterEntries,
-    /// `--qos-entries`.
+    /// `qos_entries`.
     pub qos_entries: QosEntries,
-    /// `--fs-entries`.
+    /// `fs_entries`.
     pub fs_entries: FsEntries,
-    /// `--num-cgs`.
+    /// `num_cgs`.
     pub num_cgs: NumCgs,
-    /// `--dist-key-size` (write-only at observation; dpni-typestate design D4).
+    /// `dist_key_size` (write-only at observation; dpni-typestate design D4).
     pub dist_key_size: DistKeySize,
-    /// `--num-channels`.
+    /// `num_ceetm_ch`.
     pub num_ceetm_ch: NumCeetmCh,
-    /// `--num-opr`.
+    /// `num_opr`.
     pub num_opr: NumOpr,
-    /// `--container`: the root dprc (`true`) or a child (`false`) — model
+    /// The container placement: the root dprc (`true`) or a child (`false`) — model
     /// `rootContainer`.
     pub root_container: bool,
 }
@@ -407,10 +409,10 @@ impl DpniCfg {
 /// The runtime surface — mutable state carried within a [`Dpni`] beside its immutable
 /// [`DpniCfg`] (dpni-typestate design D1).
 ///
-/// Today it is exactly the primary MAC, the only setter the restool transport can
-/// drive (`docs/baseline/dpni.md` "Command surface": `update --mac-addr` is the sole
-/// post-create mutation). The remaining 35 `dpni_set_*` setters are a named deferral
-/// to the mc-portal backend and add fields *here*, without reshaping the family.
+/// Today it is exactly the primary MAC, the one runtime mutation in today's create
+/// contract (`docs/baseline/dpni.md` "Command surface": the sole post-create mutation
+/// the current transport exposes). The remaining 35 `dpni_set_*` setters are a named
+/// deferral to the mc-portal backend and add fields *here*, without reshaping the family.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RuntimeState {
     primary_mac: MacAddr,
@@ -464,11 +466,301 @@ impl Dpni {
         self.runtime.primary_mac
     }
 
-    /// `dpni update --mac-addr` — the one runtime mutation restool can drive
+    /// Sets the primary MAC — the one runtime mutation in today's create contract
     /// (`docs/baseline/dpni.md` "Attribute mutability"). Touches only the runtime
     /// surface; the create block is untouched.
     pub fn set_primary_mac(&mut self, mac: MacAddr) {
         self.runtime.primary_mac = mac;
+    }
+}
+
+// ---- the unrepresentable options and their parity refusals (dpni-typestate design D2) ----
+
+/// The eleven dead create knobs — the create-time MAC and the ten v9-era `max_*`
+/// fields — plus the never-settable `num_rx_tcs` (`dpni.qnt` `type Unrepresentable`;
+/// `docs/baseline/dpni.md` "Dead options" / "Never settable").
+///
+/// None has a field in [`DpniCfg`]: they are unrepresentable *by construct*, exactly as
+/// the model gives them no `CreateCfg` field. This enum exists only so a programmatic
+/// refusal *names* each one — the vocabulary-v2 parity precedent
+/// ([`crate::intent::refuse::Refusal`], ADR-0014): every item an operator might reach
+/// for is answered by a named refusal, so the dpni-typestate design-D11 rows stay
+/// two-sided. Accepting one is worse than an error — legacy tooling takes the knob and
+/// leaks a dpni (`docs/baseline/dpni.md` "Silent-failure notes").
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Unrepresentable {
+    /// The create-time MAC address — a dead create knob; the primary MAC is a *runtime*
+    /// mutation ([`Dpni::set_primary_mac`]), never a create option.
+    MacAddrCreate,
+    /// `max_senders` — a v9-era dead create knob.
+    MaxSenders,
+    /// `max_tcs` — a v9-era dead create knob.
+    MaxTcs,
+    /// `max_dist_per_tc` — a v9-era dead create knob.
+    MaxDistPerTc,
+    /// `max_fs_entries_per_tc` — a v9-era dead create knob.
+    MaxFsEntriesPerTc,
+    /// `max_unicast_filters` — a v9-era dead create knob.
+    MaxUnicastFilters,
+    /// `max_multicast_filters` — a v9-era dead create knob.
+    MaxMulticastFilters,
+    /// `max_vlan_filters` — a v9-era dead create knob.
+    MaxVlanFilters,
+    /// `max_qos_entries` — a v9-era dead create knob.
+    MaxQosEntries,
+    /// `max_qos_key_size` — a v9-era dead create knob.
+    MaxQosKeySize,
+    /// `max_dist_key_size` — a v9-era dead create knob.
+    MaxDistKeySize,
+    /// `num_rx_tcs` — wired into the MC create command but absent from the create
+    /// contract (`docs/baseline/dpni.md` "Never settable").
+    NumRxTcs,
+}
+
+/// The [`Unrepresentable`] variant names, in declaration order — the Rust copy of the
+/// `dpni.qnt` `type Unrepresentable` cases (ADR-0014: an enumeration that restates the
+/// model is a linted copy, kept honest by the exhaustive `match` in
+/// [`Unrepresentable::name`]).
+pub const UNREPRESENTABLE_VARIANTS: [&str; 12] = [
+    "MacAddrCreate",
+    "MaxSenders",
+    "MaxTcs",
+    "MaxDistPerTc",
+    "MaxFsEntriesPerTc",
+    "MaxUnicastFilters",
+    "MaxMulticastFilters",
+    "MaxVlanFilters",
+    "MaxQosEntries",
+    "MaxQosKeySize",
+    "MaxDistKeySize",
+    "NumRxTcs",
+];
+
+impl Unrepresentable {
+    /// The eleven dead options — the Rust copy of the `dpni.qnt` `DEAD_OPTIONS` set
+    /// (the create-time MAC and the ten `max_*` fields; `num_rx_tcs` is not a dead
+    /// option, it is never-settable, so it is not here).
+    pub const DEAD_OPTIONS: [Self; 11] = [
+        Self::MacAddrCreate,
+        Self::MaxSenders,
+        Self::MaxTcs,
+        Self::MaxDistPerTc,
+        Self::MaxFsEntriesPerTc,
+        Self::MaxUnicastFilters,
+        Self::MaxMulticastFilters,
+        Self::MaxVlanFilters,
+        Self::MaxQosEntries,
+        Self::MaxQosKeySize,
+        Self::MaxDistKeySize,
+    ];
+
+    /// The whole unrepresentable set — the Rust copy of the `dpni.qnt` `UNREPRESENTABLE`
+    /// set ([`DEAD_OPTIONS`](Self::DEAD_OPTIONS) plus [`NumRxTcs`](Self::NumRxTcs)).
+    pub const UNREPRESENTABLE: [Self; 12] = [
+        Self::MacAddrCreate,
+        Self::MaxSenders,
+        Self::MaxTcs,
+        Self::MaxDistPerTc,
+        Self::MaxFsEntriesPerTc,
+        Self::MaxUnicastFilters,
+        Self::MaxMulticastFilters,
+        Self::MaxVlanFilters,
+        Self::MaxQosEntries,
+        Self::MaxQosKeySize,
+        Self::MaxDistKeySize,
+        Self::NumRxTcs,
+    ];
+
+    /// This variant's name, the token [`UNREPRESENTABLE_VARIANTS`] lists (ADR-0014).
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::MacAddrCreate => "MacAddrCreate",
+            Self::MaxSenders => "MaxSenders",
+            Self::MaxTcs => "MaxTcs",
+            Self::MaxDistPerTc => "MaxDistPerTc",
+            Self::MaxFsEntriesPerTc => "MaxFsEntriesPerTc",
+            Self::MaxUnicastFilters => "MaxUnicastFilters",
+            Self::MaxMulticastFilters => "MaxMulticastFilters",
+            Self::MaxVlanFilters => "MaxVlanFilters",
+            Self::MaxQosEntries => "MaxQosEntries",
+            Self::MaxQosKeySize => "MaxQosKeySize",
+            Self::MaxDistKeySize => "MaxDistKeySize",
+            Self::NumRxTcs => "NumRxTcs",
+        }
+    }
+
+    /// Why the item has no constructor — a dead v9-era create knob or the never-settable
+    /// field (`docs/baseline/dpni.md` "Dead options" / "Never settable" /
+    /// "Silent-failure notes"). Backend-neutral: the CLI-token map moves to `dpaa2-mc`
+    /// with the transport (ADR-0018), never onto this domain surface.
+    #[must_use]
+    pub const fn why(self) -> &'static str {
+        match self {
+            Self::NumRxTcs => {
+                "wired into the MC create command but absent from the create contract \
+                 (baseline \"Never settable\")"
+            }
+            _ => {
+                "a v9-era create knob absent from the MC v10 create contract; legacy \
+                 tooling accepts it and leaks a dpni (baseline \"Dead options\" / \
+                 \"Silent-failure notes\")"
+            }
+        }
+    }
+
+    /// The named programmatic refusal for this item (`dpni.qnt`
+    /// `Refusal::DeadOptionRefusal(Unrepresentable)`): the answer when a caller asks
+    /// whether the option is expressible is a refusal that *names* it, never a silent
+    /// absence (spec "A dead option is refused by name"; dpni-typestate design D2).
+    pub const fn refuse(self) -> DeadOptionRefusal {
+        DeadOptionRefusal(self)
+    }
+}
+
+/// A dead-option / `num_rx_tcs` request, refused by name — the Rust twin of the
+/// `dpni.qnt` `Refusal::DeadOptionRefusal(Unrepresentable)` arm.
+///
+/// The model's `type Refusal` has two other arms this tile does not own, so they are
+/// mirrored where they land, not here: `RangeViolation` is the range constructors'
+/// [`Error::Config`] (dpni-typestate task 2.1, [`NumQueues::new`] et al.), and
+/// `UnpricedDataplane` belongs to profile derivation (dpni-typestate task 3.1). This
+/// wrapper carries the [`Unrepresentable`] so rendering derives the human string from
+/// the variant, and it folds into the crate's error idiom via [`From`] ⇒ [`Error::Config`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[must_use]
+pub struct DeadOptionRefusal(pub Unrepresentable);
+
+impl DeadOptionRefusal {
+    /// The refused item.
+    #[must_use]
+    pub const fn option(self) -> Unrepresentable {
+        self.0
+    }
+}
+
+impl core::fmt::Display for DeadOptionRefusal {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "{} is unrepresentable: {}", self.0.name(), self.0.why())
+    }
+}
+
+impl From<DeadOptionRefusal> for Error {
+    /// A dead-option refusal is a configuration boundary error — the crate's error idiom
+    /// (the sibling of the range constructors' [`Error::Config`]).
+    fn from(refusal: DeadOptionRefusal) -> Self {
+        Error::Config(refusal.to_string())
+    }
+}
+
+// ---- the observation projection: dist_key_size excluded by construct (dpni-typestate design D4) ----
+
+/// The dpni observation surface — the Rust twin of the `dpni.qnt` `type Observation`.
+///
+/// `dpni_attr` omits `dist_key_size`, so it can never be read back and is write-only
+/// (`docs/baseline/dpni.md` "Attribute mutability", DPNI-I12; dpni-typestate design D4).
+/// This projection carries every observable create-option field but *not* `dist_key_size`
+/// — the exclusion is by construct (there is no field to compare), never a runtime skip,
+/// so drift can never be claimed on it. It is the sibling of dprc's
+/// [`ObservedContainer`](crate::plan::dprc::ObservedContainer) split: the create block
+/// [`DpniCfg`] keeps its `Eq` for create-block identity, while drift is judged on this
+/// separate type, so the `dist_key_size` exclusion never fights the [`DpniCfg`] derive.
+///
+/// Placement (`root_container`) is likewise absent: it is the container placement, not a
+/// resize-triggering cfg field, and the model's `observe` omits it too — a dpni's
+/// container is the assign/move machinery's concern (companion tile #6), not this
+/// cfg-drift surface (dpni-typestate design D4).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DpniObservation {
+    /// The observed options mask.
+    pub options: OptionMask,
+    /// The observed `num_queues`.
+    pub num_queues: NumQueues,
+    /// The observed `num_tcs`.
+    pub num_tcs: NumTcs,
+    /// The observed `mac_filter_entries`.
+    pub mac_filter_entries: MacFilterEntries,
+    /// The observed `vlan_filter_entries`.
+    pub vlan_filter_entries: VlanFilterEntries,
+    /// The observed `qos_entries`.
+    pub qos_entries: QosEntries,
+    /// The observed `fs_entries`.
+    pub fs_entries: FsEntries,
+    /// The observed `num_cgs`.
+    pub num_cgs: NumCgs,
+    /// The observed `num_ceetm_ch`.
+    pub num_ceetm_ch: NumCeetmCh,
+    /// The observed `num_opr`.
+    pub num_opr: NumOpr,
+}
+
+impl DpniObservation {
+    /// Projects a create block to its observable surface — the Rust twin of the
+    /// `dpni.qnt` `observe`: it drops write-only `dist_key_size` and the container
+    /// placement (dpni-typestate design D4), so two blocks differing only in those fields
+    /// project equal and cannot drift.
+    #[must_use]
+    pub fn project(cfg: &DpniCfg) -> Self {
+        Self {
+            options: cfg.options.clone(),
+            num_queues: cfg.num_queues,
+            num_tcs: cfg.num_tcs,
+            mac_filter_entries: cfg.mac_filter_entries,
+            vlan_filter_entries: cfg.vlan_filter_entries,
+            qos_entries: cfg.qos_entries,
+            fs_entries: cfg.fs_entries,
+            num_cgs: cfg.num_cgs,
+            num_ceetm_ch: cfg.num_ceetm_ch,
+            num_opr: cfg.num_opr,
+        }
+    }
+}
+
+// ---- drift disposition: cfg drift is destroy+create, MAC-only is the mutation ----
+
+/// What planning does about an observed dpni that differs from the desired one — the
+/// pure decision the reconciler acts on (spec "Cfg drift plans destroy-and-create" /
+/// "Primary MAC mutation plans without touching cfg").
+///
+/// A sans-io decision function ([`drift_disposition`]) produces it; wiring it to the
+/// executor/shim is a later tile (dpni-typestate task 4.1).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[must_use]
+pub enum DpniDisposition {
+    /// Desired and observed agree — nothing to do.
+    Converged,
+    /// Only the primary MAC differs — the one runtime mutation
+    /// ([`Dpni::set_primary_mac`]), no destroy + create.
+    PrimaryMacMutation,
+    /// A create-immutable cfg field differs — repair is refused; the object is destroyed
+    /// and recreated (ADR-0001 §4; `docs/baseline/dpni.md` "Attribute mutability", LAW 1).
+    DestroyThenCreate,
+}
+
+/// Decides what a dpni whose observation differs from its desired create block needs
+/// (dpni-typestate design D1; ADR-0001 §4). Pure and sans-io: it re-observes nothing and
+/// drives nothing — the caller supplies the desired block, the desired primary MAC, the
+/// freshly observed projection, and the observed primary MAC.
+///
+/// Ordering — cfg wins over MAC (a combined cfg+MAC drift is [`DpniDisposition::DestroyThenCreate`]):
+/// a create-immutable field mismatch is refuse-and-report, destroy + create, never repair
+/// (ADR-0001 §4; `docs/baseline/dpni.md` "Attribute mutability"). A destroy + create
+/// rebuilds the object from scratch and re-applies the runtime primary MAC afterward, so a
+/// coincident MAC difference is *subsumed* by the rebuild — checking cfg first is exactly
+/// why cfg drift dominates. Comparison runs on [`DpniObservation`], so write-only
+/// `dist_key_size` can never contribute a difference (dpni-typestate design D4).
+pub fn drift_disposition(
+    desired: &DpniCfg,
+    desired_mac: MacAddr,
+    observed: &DpniObservation,
+    observed_mac: MacAddr,
+) -> DpniDisposition {
+    if DpniObservation::project(desired) != *observed {
+        DpniDisposition::DestroyThenCreate
+    } else if desired_mac != observed_mac {
+        DpniDisposition::PrimaryMacMutation
+    } else {
+        DpniDisposition::Converged
     }
 }
 
@@ -615,5 +907,138 @@ mod tests {
         assert!(cfg.options.flags().is_empty());
         assert!(cfg.options.escapes().is_empty());
         assert!(!cfg.root_container);
+    }
+
+    // ---- the unrepresentable options and their parity refusals (dpni-typestate design D2) ----
+
+    #[test]
+    fn unrepresentable_variants_match_the_enum_and_the_sets() {
+        // dpni.qnt `type Unrepresentable` / `DEAD_OPTIONS` / `UNREPRESENTABLE` (ADR-0014).
+        for u in Unrepresentable::UNREPRESENTABLE {
+            assert!(UNREPRESENTABLE_VARIANTS.contains(&u.name()), "{}", u.name());
+        }
+        assert_eq!(
+            UNREPRESENTABLE_VARIANTS.len(),
+            Unrepresentable::UNREPRESENTABLE.len()
+        );
+        let mut seen = UNREPRESENTABLE_VARIANTS.to_vec();
+        seen.sort_unstable();
+        seen.dedup();
+        assert_eq!(seen.len(), UNREPRESENTABLE_VARIANTS.len(), "duplicate name");
+
+        assert_eq!(Unrepresentable::DEAD_OPTIONS.len(), 11);
+        assert!(!Unrepresentable::DEAD_OPTIONS.contains(&Unrepresentable::NumRxTcs));
+        assert!(Unrepresentable::UNREPRESENTABLE.contains(&Unrepresentable::NumRxTcs));
+    }
+
+    #[test]
+    fn every_unrepresentable_item_fires_a_named_refusal() {
+        // spec "A dead option is refused by name": each item is named, never a silent
+        // absence (dpni-typestate design D2; the vocabulary-v2 parity precedent).
+        for u in Unrepresentable::UNREPRESENTABLE {
+            let refusal = u.refuse();
+            assert_eq!(refusal.option(), u, "{}", u.name());
+
+            let rendered = refusal.to_string();
+            assert!(rendered.contains(u.name()), "{rendered}");
+
+            match Error::from(refusal) {
+                Error::Config(msg) => assert!(msg.contains(u.name()), "{msg}"),
+                other => panic!("expected Error::Config, got {other:?}"),
+            }
+        }
+
+        assert!(
+            Unrepresentable::NumRxTcs
+                .why()
+                .contains("wired into the MC create command")
+        );
+        assert!(
+            Unrepresentable::MaxSenders
+                .why()
+                .contains("v9-era create knob")
+        );
+    }
+
+    // ---- the observation projection and drift disposition (dpni-typestate design D4) ----
+
+    #[test]
+    fn dist_key_size_never_drifts_while_every_projected_field_does() {
+        // dpni.qnt `WriteOnlyDistKeySize` / spec "dist_key_size never reports drift":
+        // excluded from the projection by construct (dpni-typestate design D4).
+        let base = DpniCfg::defaults();
+        let observed = DpniObservation::project(&base);
+        let mac = MacAddr::ZERO;
+
+        let mut only_dks = base.clone();
+        only_dks.dist_key_size = DistKeySize::new(24).unwrap();
+        assert_eq!(
+            drift_disposition(&only_dks, mac, &observed, mac),
+            DpniDisposition::Converged
+        );
+
+        macro_rules! drifts {
+            ($mutate:expr) => {{
+                let mut d = base.clone();
+                let mutate: fn(&mut DpniCfg) = $mutate;
+                mutate(&mut d);
+                assert_eq!(
+                    drift_disposition(&d, mac, &observed, mac),
+                    DpniDisposition::DestroyThenCreate
+                );
+            }};
+        }
+        drifts!(|c| c.options = OptionMask::empty().with_flag(DpniOpt::HasKeyMasking));
+        drifts!(|c| c.num_queues = NumQueues::new(1).unwrap());
+        drifts!(|c| c.num_tcs = NumTcs::new(1).unwrap());
+        drifts!(|c| c.mac_filter_entries = MacFilterEntries::new(1).unwrap());
+        drifts!(|c| c.vlan_filter_entries = VlanFilterEntries::new(1).unwrap());
+        drifts!(|c| c.qos_entries = QosEntries::new(1).unwrap());
+        drifts!(|c| c.fs_entries = FsEntries::new(1).unwrap());
+        drifts!(|c| c.num_cgs = NumCgs::new(1).unwrap());
+        drifts!(|c| c.num_ceetm_ch = NumCeetmCh::new(1).unwrap());
+        drifts!(|c| c.num_opr = NumOpr::new(1).unwrap());
+    }
+
+    #[test]
+    fn mac_only_drift_plans_the_mutation() {
+        // spec "Primary MAC mutation plans without touching cfg".
+        let cfg = DpniCfg::defaults();
+        let observed = DpniObservation::project(&cfg);
+        let desired_mac = MacAddr::new([0x02, 0, 0, 0, 0, 0x07]);
+        assert_eq!(
+            drift_disposition(&cfg, desired_mac, &observed, MacAddr::ZERO),
+            DpniDisposition::PrimaryMacMutation
+        );
+
+        assert_eq!(
+            drift_disposition(&cfg, MacAddr::ZERO, &observed, MacAddr::ZERO),
+            DpniDisposition::Converged
+        );
+    }
+
+    #[test]
+    fn cfg_drift_wins_over_a_coincident_mac_drift() {
+        // spec "Cfg drift plans destroy-and-create": cfg drift dominates a coincident
+        // MAC drift because the rebuild re-applies the MAC (ADR-0001 §4).
+        let base = DpniCfg::defaults();
+        let observed = DpniObservation::project(&base);
+
+        let mut drifted = base.clone();
+        drifted.num_tcs = NumTcs::new(1).unwrap();
+
+        assert_eq!(
+            drift_disposition(&drifted, MacAddr::ZERO, &observed, MacAddr::ZERO),
+            DpniDisposition::DestroyThenCreate
+        );
+        assert_eq!(
+            drift_disposition(
+                &drifted,
+                MacAddr::new([0x02, 0, 0, 0, 0, 0x07]),
+                &observed,
+                MacAddr::ZERO,
+            ),
+            DpniDisposition::DestroyThenCreate
+        );
     }
 }
