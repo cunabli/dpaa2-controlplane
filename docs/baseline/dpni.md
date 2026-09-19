@@ -168,7 +168,8 @@ The create/runtime split is absolute and asymmetric [read,
   [verified 2026-09-19, V-DPNI-10] — MAC-only drift is mutable in place,
   which is why the reconciler splits it from the recreate-only cfg block.
   The kernel driver exercises ~20 of the setters via netdev/ethtool ops
-  (kernel-side section); the rest have no consumer in this corpus.
+  (kernel-side section); the rest have no consumer in this corpus. The 35
+  non-primary-MAC `dpni_set_*` setters defer to `mc-portal-backend` (#10).
 
 For the typestate design: the `dpni_cfg` block is the immutable type
 parameter of a DPNI; the runtime surface is state within that type. Drift
@@ -382,7 +383,9 @@ compiler must carry, all evidence-anchored:
   compiler fences the derived count against the `num_queues` 1–32 create
   envelope: a count past 32 is refused `QueueEnvelopeExceeded`, not
   degraded to the MC default, because the count is unrepresentable on the
-  wire (ADR-0013 §5, bead dpaa2-controlplane-guu.4a).
+  wire (ADR-0013 §5, bead dpaa2-controlplane-guu.4a); the fence is revisited
+  at `mc-portal-backend` (#10), or on any board where the derived T can
+  exceed 32 (bead dpaa2-controlplane-guu.4a).
 - One DPCON per polled queue, DPIO = 2 per thread (bus-wide), DPBP per
   pool — the companion-object math lives with the pool families
   (`dpbp.md`/`dpio.md`/`dpcon.md`/`dpmcp.md`) but is *triggered* by dpni
@@ -391,7 +394,8 @@ compiler must carry, all evidence-anchored:
   kernel profile differ (option inventory above); an intent compiler
   choosing options must know which driver will bind [verified].
 - `num_cgs = num_queues + 8` under `CUSTOM_CG` is the deployed heuristic
-  [verified in use]; its rationale is unrecorded (unknown register).
+  [verified in use]; its rationale is unrecorded (unknown register), with a
+  revisit trigger at `mc-portal-backend` (#10).
   `CUSTOM_CG` *gates* the field: without it the MC silently forces
   `num_cgs` to 1 at every requested value (register #3 below); with it, an
   explicit 24 is honored [verified 2026-09-19, V-DPNI-8 rev 2 / V-DPNI-5].
@@ -487,7 +491,8 @@ attribute get) — never on the return code of the mutation.
    `SET/GET_TX_CONFIRMATION_MODE` (and if so, does it read the
    `ceetm_ch_idx` byte)? Client-side corpus cannot answer; needs firmware
    release notes or a board probe. Highest-risk item of the 10.32→10.39
-   skew.
+   skew. Deferred to `mc-portal-backend` (#10): emit TX_CONF v2 with an
+   explicit channel index; probe v1-handler retention.
 2. True `num_queues` ceiling on WRIOP 3.0.0: doc says 8, restool caps 32,
    16 is deployed and working [verified]. Where between 16 and 32 does the
    MC refuse? Partially answered [board suite V-DPNI-2 rev 1,
@@ -506,7 +511,8 @@ attribute get) — never on the return code of the mutation.
    1, 16, 128; under the flag an unset request fills the MC default 8.
    `dist_key_size` is write-only (absent from `dpni info` at 1, 24, 56 —
    DPNI-I12). The rationale for the deployed `num_cgs = num_queues + 8`
-   heuristic stays unrecorded.
+   heuristic stays unrecorded, with a revisit trigger at
+   `mc-portal-backend` (#10).
 4. What exactly `dpni_reset` clears: the flib says "returns the object to
    initial state" with no per-field enumeration (pools binding? QoS/FS
    tables?). Narrowed [V-DPNI-3 rev 1, 2026-08-29]: **`dpni_reset` does
@@ -515,7 +521,7 @@ attribute get) — never on the return code of the mutation.
    restool while unbound survived the rebind (which calls it again), so
    whatever "initial state" the reset restores, the primary MAC is not in
    it. Max frame length read 1536 while unbound. The QoS/FS-table half is
-   still unread.
+   still unread — earliest reachability at #9/#10.
 5. `dpni_set_pools.dpbp_id`: DPBP object id or BPID? The two in-tree
    kernel call sites disagree; the answer decides which one is latently
    broken.
@@ -530,7 +536,8 @@ attribute get) — never on the return code of the mutation.
    `SHARED_CONGESTION` is undetectable through read-back.
 7. `DPNI_OPT_SINGLE_SENDER` ("ignore num_queues for tx") vs our PMD
    profile, which sets it *and* drives `main+workers` tx rings
-   successfully — what the flag actually gates on LX2160 is unclear.
+   successfully — what the flag actually gates on LX2160 is unclear;
+    earliest reachability at #9/#10.
 8. ~~`DPNI_OPT_HAS_REPLICATION` (restool knows 0x4000; the 10.39 flib
    header does not list it) — real MC option or restool running ahead?~~
    **Answered** — board suite V-DPNI-9 rev 2, 2026-09-19: the raw 0x4000
@@ -552,7 +559,7 @@ attribute get) — never on the return code of the mutation.
 11. Whether the >8-TC `dpni_set_tx_priorities` constraint (strict-priority
     lock on TCs 0-7, fixed weighted grouping above) affects our 16-TC
     dpnis under the PMD's default scheduling — no consumer in the corpus
-    calls `dpni_set_tx_priorities`.
+    calls `dpni_set_tx_priorities`; earliest reachability at #9/#10.
 12. ~~`num_rx_tcs` reachable only via DPL: can a restool-created dpni ever
     have `num_rx_tcs ≠ min(num_tcs, 8)`?~~ **Answered for the restool
     path** — board suites V-DPNI-5 and V-DPNI-6, 2026-09-19: no.

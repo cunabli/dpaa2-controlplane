@@ -5,12 +5,15 @@
 ### Requirement: The dpni create surface is typed and invalid configurations are unrepresentable
 The `dpaa2-api` crate SHALL model the dpni family in
 `families::dpni` with the validated create block (`dpni_cfg`) as the
-immutable type parameter of a DPNI: the twelve live create options
+immutable private create block of a DPNI behind a shared-ref
+accessor: the twelve live create options
 (baseline `docs/baseline/dpni.md` option inventory) SHALL carry refined
 range types bounded by the restool-verified envelope, and the options
-mask SHALL be a typed flag set over the 14-flag MC 10.39 vocabulary plus
-a provenance-carrying raw-mask constructor for values outside the named
-map (`0x80000000` PFDR_IN_PEB). No `dpni_cfg` field SHALL be mutable
+mask SHALL be a typed flag set over the named ten of the 14-flag MC 10.39
+vocabulary (the four unnamed flags are a recorded gap with no constructor)
+plus a provenance-carrying raw-mask constructor for values outside the named
+map (`HAS_REPLICATION` and `0x80000000` PFDR_IN_PEB ride the escape, not the
+vocabulary). No `dpni_cfg` field SHALL be mutable
 after creation; changing one SHALL plan destroy + create, never repair
 (ADR-0001 §4).
 

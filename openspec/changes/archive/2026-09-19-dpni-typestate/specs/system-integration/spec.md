@@ -11,7 +11,8 @@ Every probe outcome SHALL amend `docs/baseline/dpni.md` in the same
 change — answers move items off the unknown-register list, silence is
 recorded with a revisit trigger — and the restool-unreachable unknowns
 SHALL be verified as deferral rows: the runtime `dpni_set_*` surface and
-TX_CONFIRMATION_MODE v2 to `mc-portal-backend` (#10), `num_rx_tcs`-via-
+TX_CONFIRMATION_MODE to `mc-portal-backend` (#10) — emit v2 with an explicit
+channel index, probe v1-handler retention (register #1) — `num_rx_tcs`-via-
 DPL to `dpl-tape-out` (#14), table-write and traffic-dependent items to
 their earliest reachable tile.
 

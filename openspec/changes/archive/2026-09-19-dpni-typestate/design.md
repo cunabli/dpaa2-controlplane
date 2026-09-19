@@ -60,9 +60,11 @@ surface would be untestable speculation #10 would reshape.
 The twelve live options carry refined range types taken from the restool
 ranges (the tightest verified envelope; MC-side ceilings beyond them are
 unreachable and stay unknown-register). The options mask is a typed set over
-the 14-flag MC 10.39 vocabulary plus a raw-mask escape — `0x80000000`
-(PFDR_IN_PEB) is deployed and working but unnamed in any header, so the
-escape is a first-class, provenance-carrying constructor, not a backdoor.
+the named ten of the 14-flag MC 10.39 vocabulary (the four unnamed flags are a
+recorded gap with no constructor) plus a raw-mask escape — `HAS_REPLICATION`
+and `0x80000000` (PFDR_IN_PEB) ride the escape, not the vocabulary; the latter
+is deployed and working but unnamed in any header, so the escape is a
+first-class, provenance-carrying constructor, not a backdoor.
 The eleven dead options and `num_rx_tcs` follow the vocabulary-v2 parity
 precedent: no constructor, and a programmatic refusal names each one so the
 design-D11 rows stay two-sided.

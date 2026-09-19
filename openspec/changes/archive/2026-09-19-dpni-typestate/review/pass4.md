@@ -1,0 +1,75 @@
+# Pass 4 — Spec/docs alignment (dpni-typestate)
+
+Note: this session had no Bash tool, so git log/show on `9373b40` and the 5.2 trio could not be run; commit-level facts are taken from the brief's grounding (verified 2026-09-19) and all other checks are file reads/greps.
+
+## Findings ledger
+
+| ID | file:line (absolute; repo root `the repo root`) | category | superseded-by | severity | disposition | verification |
+|---|---|---|---|---|---|---|
+| **PASS4-F1** | `openspec/changes/dpni-typestate/proposal.md:22` + `openspec/changes/dpni-typestate/specs/reconciler/spec.md:11` + `openspec/changes/dpni-typestate/design.md:62-63` vs `crates/dpaa2-api/src/families/dpni.rs:158-219` | doc-drift | task 2.1 — the shipped `DpniOpt::MC_VOCABULARY` is 10 constructors; the code records "the flib header carries 14 flags … the four unnamed flags are a recorded gap, not invented here, so they have no constructor" and moves `HAS_REPLICATION` to the `RawEscape` enum; the spec text was never narrowed | misleads-a-reader | amend at archive: "the named ten of the 14-flag MC 10.39 vocabulary (four unnamed flags have no constructor — a recorded gap; `HAS_REPLICATION` is escape, not vocabulary)" | `grep -n '14-flag' openspec/changes/dpni-typestate/{proposal.md,design.md,specs/reconciler/spec.md}` each hit carries the ten-named qualifier |
+| **PASS4-F2** | `docs/baseline/dpni.md:393-394` and `:508-509` | doc-drift | task 6.1 / `dc64596` — design Open Question 1 recorded its own landing: "if the board stays silent it remains recorded as deployed heuristic **with a revisit trigger at #10**"; the board stayed silent on the +8 rationale ("stays unrecorded") and no #10 trigger was written | misleads-a-reader | amend — one clause on the num_cgs heuristic row and register #3 closing sentence; fold into PASS1-F1's tile-pointer amend | `grep -n 'num_cgs' docs/baseline/dpni.md` shows a `#10` revisit trigger beside "rationale … unrecorded" |
+| **PASS4-F3** | `docs/adr/0013-accepted-intent-vocabulary.md:384-387` (and `docs/baseline/dpni.md:379-385`) | doc-drift | — (unmet bead-acceptance residue, not staleness: the guu.4a revisit trigger "tile #10 or a board with T > 32" is bead-resident only) | carries-cost | amend — one clause on the `QueueEnvelopeExceeded` bullet naming the revisit trigger | `grep -n 'QueueEnvelopeExceeded' docs/adr/0013-accepted-intent-vocabulary.md` shows the #10 / T>32 trigger |
+| **PASS4-F4** | `models/COVERAGE.md:86` (DPNI-I2), `:89` (I5), `:92` (I8), `:94` (I10) | stale | task 6.1 / `dc64596` — each row still ends in a forward pointer "→ `dpni-typestate` (#5)" to the tile ROADMAP row 25 marks "delivered 2026-09-19"; #5's landing (I2/I8: primary MAC as `RuntimeState` + V-DPNI-10 round-trip; I10: the ADR-0013 §5 envelope fence; I5: the family-model half, #6 half remains) was never written back | misleads-a-reader | amend — re-disposition the four check columns; fold into PASS1-F2's COVERAGE amend | `grep -c 'dpni-typestate (#5)' models/COVERAGE.md` == 0 after amend (today: 4) |
+| **PASS4-F5** | `crates/dpaa2-api/src/families/dpni.rs:374` (and module header precedent cites) vs `docs/adr/0019-…md:32-41` | doc-drift | `9373b40` + the 5.2 commits (`3861a64`/`61a3a9e`) that touched `dpni.rs` after ADR-0019 landed without adding its anchor | carries-cost | fold — add the ADR-0019 P1/P2 anchors to `families/{dprc,dpni}.rs` doc headers the next time a change touches them (0019's own no-churn rule); attach to the qtk table-lint bead | `grep -c 'ADR-0019' crates/dpaa2-api/src/families/dpni.rs` ≥ 1 |
+| **PASS4-F6** | `docs/adr/0019-four-state-patterns-cover-the-sixteen-families.md` (whole file) — **Scope Creep, accepted as its own record** | — (disposition row) | n/a | carries-cost (process only) | no content change; see ADR-0019 disposition below | n/a |
+
+## Pass 1 category-(a) doc-hit dispositions
+
+- **PASS1-F1 — CONFIRMED, targets refined.** Re-read verified: the only genuine tile pointer is `:562` (#12 → #14). Missing pointers with exact amend targets: `docs/baseline/dpni.md:171` (35 setters → #10), `:486-490` (register #1 → #10), `:509` (num_cgs rationale → #10, = PASS4-F2), `:517-518` (#4 QoS/FS half → #9/#10), `:531-533`/`:552-555` (#7/#11 → #9/#10).
+- **PASS1-F2 — CONFIRMED, widened.** COVERAGE `:85-96` carries no 35-setters→#10 row and no num_rx_tcs→#14 row (TX_CONF→#10 lives in DPNI-I11 `:95`); PASS4-F4 adds the four stale #5 forward pointers to the same amend.
+- **PASS1-F5 — CONFIRMED** as filed (`models/README.md:180-181` tree node lags `5508c75`).
+- **PASS1-F6 — CONFIRMED; template fix (answers Pass 1 open question 4).** `CHANGELOG.md:7` `[Unreleased]` is empty; project instructions say the file is "entirely managed with cliff automatically", so the per-epic checkbox "CHANGELOG via cliff" is unsatisfiable as written. Fix once: amend the DoD/task template wording to "CHANGELOG via cliff at release"; touch the two sealed tasks.md files only if a change opens them anyway.
+- **PASS1-F7 — REFINED, not a simple inversion.** Two real facets got conflated: (a) the *v2-emission* obligation ("the Rust southbound must emit v2 with an explicit channel index", `docs/baseline/dpni.md:200-201`) and (b) the *v1-handler retention* unknown (register #1, design D7, proposal What-Changes `:50`). "v2" sites needing the amend: `proposal.md:96`, `tasks.md:57-58`, `specs/system-integration/spec.md:13-14`. Amend to name both: "TX_CONF → #10 (emit v2 with explicit channel index; probe v1-handler retention, register #1)".
+- **PASS1-F8 — CONFIRMED** as filed (verify README rung list).
+
+## ADR-0019 disposition
+
+- **Belongs in this change record? No.** It self-declares independent authority (`:3-5`: grilling bead dpaa2-controlplane-chi, "no openspec change — a modeling-vocabulary agreement … changes no behavior") and its scope is all sixteen families, not tile #5. Under the review's scope-creep rule it is docs-only scope creep riding the epic span untagged — accept it as its own record; the residue is process (an untagged mid-epic commit) not content, and the commits are sealed. No dpni-typestate artifact should be retrofitted to cite it (the design predates it); the only fold is PASS4-F5 (code-side anchors, next-touch).
+- **Do the four patterns cover the shipped dpni shape? Yes, point-for-point.** Every P2 idiom (`:79-89`) is present in `families/dpni.rs`: newtype refined ranges with fallible constructors (`ranged_option!` `:151-154`), closed flag enum + provenance-carrying escape (`DpniOpt` `:165-186`, `RawEscape` `:250-261`), cfg immutable by privacy witnessed by the `compile_fail` doctest (`:594`), `RuntimeState` slot (`:582`), observation projection excluding write-only fields (`DpniObservation` `:841`), pure `drift_disposition` (`:944`), parity refusals (`DeadOptionRefusal` `:797`). The "type boundary is the envelope, not the profile" claim (`:90-96`) matches the shipped surface (any crate builds in-envelope blocks; only `derive_profile` mints profiles) and is what let the board suites drive off-profile probes.
+- **Atemporal? Yes.** Context/Decision are present-tense and prescriptive; the temporal-looking phrases ("until its lint lands" `:153`, "directional until the ioctl portal consumes it" `:203-206`, "recorded, not applied" `:232`) are all conditions/revisit triggers, the allowed class. Status/Date header metadata is standard. No "so far", no travel narrative.
+
+## Pass 1 open question 3 (V-DPNI-4) — RESOLVED: deliberate reservation
+
+`models/board/README.md:121` and `:237-239` (deferral table): V-DPNI-4 is reserved for the raw-command probe (`DPNI_SET_TX_CONFIRMATION_MODE` via `/dev/dprc.N`) whose command is outside the ioctl whitelist — route is a kernel patch or VFIO transport (#10) — "so this series continues at V-DPNI-5". `COVERAGE.md:95`'s cite is a live deferral pointer, not dangling. No V-DPNI-4 directory or VERDICTS.json entry exists, consistent with a reserved-never-run id. No finding.
+
+## guu.4a trail — COMPLETE (one residue = PASS4-F3)
+
+bead ↔ commits: per brief grounding (`3861a64`/`61a3a9e`/`58f0ccd`). Model: `models/intent/refuse.qnt:73` constructor, `:270-291` two-sided predicate (poll T and kernel cpus, both > 32 → refused, "unrepresentable on the wire — refused, not degraded"). Rust: `refuse/tenant.rs:108,120`, `refuse/mod.rs:201,344,381` (Pass 1). ITF: `intent_itf.rs:770` decode + `dpni_replay` family arm. Frozen trace: `models/traces/families/dpni/scenarioEnvelopeRefusedTest.itf.json` on disk. Ceiling notes: `docs/baseline/dpni.md:379-385` (fence, ADR-0013 §5, bead cite) + `docs/adr/0013…md:384-387` (§5 refusal bullet, bead cite) + ROADMAP `:25` names the fence. Residue: the revisit trigger (tile #10 / board T>32) is bead-only (PASS4-F3). Whether the frozen trace replays the *intent-side* `QueueEnvelopeExceeded` arm (vs the family-side `RangeViolation`) stays Pass 2's OQ1.
+
+## D5/z5z rider — VERIFIED as the bead prescribed
+
+`crates/dpaa2-api/src/contract/mc.rs:116-120` cites the OI-3 measurement (bead am0.2, V-DPRC-13-rev1), states the outcome ("dpmcp census held flat at 203 … NO leak"), and lands the exact branch the mc-backend spec delta's conditional (`specs/mc-backend/spec.md:40-42`) requires: "recorded as a spawn-count/latency fix, not a leak fix". `models/COVERAGE.md:84` carries the matching OI-3 row.
+
+## Design Open Questions — landings
+
+- **OQ1 (num_cgs = num_queues + 8): HALF-LANDED.** Register #3 answered (flag-gating: `docs/baseline/dpni.md:499-509`, V-DPNI-8 rev 2 / V-DPNI-5) and the heuristic is recorded as deployed with rationale unrecorded — but the promised #10 revisit trigger is absent → PASS4-F2.
+- **OQ2 (HAS_REPLICATION): LANDED.** Register #8 answered in the baseline (`:534-541`, V-DPNI-9 rev 2): 0x4000 **accepted and cleared** — a third outcome the model absorbed as `McClearedFlags` (COVERAGE `:386`) and the Rust carries as `RawEscape::HasReplication` with predicted erasure (`dpni.rs:255-260`).
+
+## Promise ledger (for the synthesis judge)
+
+| Promise | Shipped evidence | Status |
+|---|---|---|
+| WC1 — full create surface as typestates (12 live options, refined ranges, flag vocab + raw escape, `dpni_cfg` immutable param, runtime as state within) | `families/dpni.rs` (ranged options `:151-154`; `OptionMask` `:288`; immutable-by-privacy + `compile_fail` `:594`; `RuntimeState` `:582`) | **Delivered** (compile-time-vs-runtime split = Pass 2's verdict; "14-flag" wording = PASS4-F1) |
+| WC2 — 11 dead options + `num_rx_tcs` unrepresentable, parity refusals | `dpni.rs:645-816` (`Unrepresentable`, `DeadOptionRefusal`, spec scenario quoted verbatim `:780,1214`); frozen `scenarioDeadOptionRefusedTest`/`scenarioNumRxTcsRefusedTest` | **Delivered** |
+| WC3 — runtime = primary MAC only; 35 setters a *named deferral row* to #10 | Code half delivered (`RuntimeState`, V-DPNI-10, baseline `:165-169`); the deferral ROW absent from both `docs/baseline/dpni.md` and `COVERAGE.md` | **Partial — doc half breaks task 6.1's checked claim** (PASS1-F1/F2) |
+| WC4 — options purely derived, 2 profiles, no TOML/override surface | `intent/derive.rs:94-118` (`derive_profile`); `dpaa2-config` greps clean of any option surface; `ProfileTotality` apalache row (COVERAGE `:383`) | **Delivered** (`ProfileOutcome::Unpriced → Kernel.cfg()` fallback at `derive.rs:118` — reachability question for Pass 2/3) |
+| WC5 — riders: `observe_container(id)` + OI-3 cite; tenant hazard closure | `contract/mc.rs:111-124`; `engine.rs:227`; COVERAGE `:84`; hazard closure verified Pass 1 (no `Default`, no `TenantName::empty()` call site) | **Delivered** |
+| WC6 — model + invariants, MBT twins, board milestone, probes #3/#6/#8, deferrals #1/#12 | COVERAGE `:360-388` (6 invariants, apalache-marked); 7/7 traces replayed (Pass 1); V-DPNI-5..10 suite dirs; baseline #3 `:499-509`, #6 `:522-530`, #8 `:534-541` amended with verdict tags | **Delivered except the #1→#10 deferral row** (PASS1-F1) |
+| D1 — immutable cfg param, runtime within; drift = destroy+create, MAC = mutation | `dpni.rs:26-31,582-616,911-960`; baseline `:173-175`; ADR-0019 P2 row | **Delivered** |
+| D2 — live typed / dead refused / raw escape first-class | `dpni.rs:156-286,645-816` | **Delivered** (wording drift PASS4-F1) |
+| D3 — pure two-profile derivation, sizing per ADR-0012, num_cgs heuristic | `derive.rs`; intent-compiler spec scenarios matched | **Delivered** (heuristic trigger PASS4-F2) |
+| D4 — `dist_key_size` write-only by construct | `DpniObservation` `:841`+`:944-950`; baseline `:177-184` (V-DPNI-8 rev 2); COVERAGE I12 `:96` + `WriteOnlyDistKeySize` `:385`; frozen `scenarioWriteOnlyDistKeySizeTest` | **Delivered** |
+| D5 — observe_container with OI-3-cited disposition | `contract/mc.rs:116-120` — exact prescribed cite and branch | **Delivered** |
+| D6 — tenant.rs hazards closed by construct | Pass 1 reviewed-clean (ripple complete) | **Delivered** |
+| D7 — board milestone + probe set + deferral rows | Sitting done (V-DPNI-5..10, baseline amended per probe); deferral rows missing/mis-worded | **Partial** (PASS1-F1/F2/F7) |
+| D8 — model first, Apalache-marked, frozen twins, ADR-0002 law | COVERAGE `:360-388`; `stateInvariants` conjunction; 7 traces bidirectionally guarded (Pass 1) | **Delivered** (predicate-identity = Pass 2) |
+
+Also verified: ROADMAP row #5 reads "delivered 2026-09-19" with the correct ADR-0013 §5 / ADR-0011 cites (`docs/ROADMAP.md:25`); ADR-0011's +5 amendment (`:140-144`, V-DPNI-9 rev 2 mcp 203→200 corroboration) sits in its open-questions section, style-conformant.
+
+## Footer
+
+**Read:** review brief + pass1 (full); proposal/design/tasks (full); all six spec deltas (full); ADR-0019 (full, 281 lines); `docs/baseline/dpni.md:140-204,360-403,462-563`; `models/COVERAGE.md:78-107,350-388`; ADR-0011/0013 amendment sites (targeted grep+context); ROADMAP rows 22/25/29; `CHANGELOG.md`; `families/dpni.rs:150-290` + targeted greps (`compile_fail`/`RuntimeState`/`DpniObservation`/`drift_disposition`/dead-option surface); `contract/mc.rs:105-129`; `intent/derive.rs` (grep surface); `models/intent/refuse.qnt` fence sites; trace-corpus listing; `models/board/README.md` V-DPNI-4 rows only + a V-DPNI id histogram (ids, not content).
+
+**Deliberately not read:** `models/board/**` verdict/evidence content (operator-sealed; only directory names and the README's deferral-table rows for the V-DPNI-4 question); `restool.rs`/`parse.rs`/`engine.rs` semantics (Pass 3); typestate/model predicate identity and ITF arm coverage (Pass 2); pre-range yfg surface; archived changes.
+
+**Open questions:** (1) `derive.rs:118` `ProfileOutcome::Unpriced => Profile::Kernel.cfg()` — is this arm unreachable-by-construct (the `UnpricedDataplane` refusal fires upstream)? Ties to Pass 1 F4's dead decoder arm; Pass 2/3 should rule. (2) Commit-message trailers on `9373b40` and the 5.2 trio were not inspected (no shell in this session) — if the synthesis judge wants the BeadId trail checked against the hook contract, it needs one `git log --format=%B` pass. (3) Whether the sealed dprc-encapsulation tasks.md gets the same "cliff at release" wording amend or only the template — a one-line user decision at synthesis.

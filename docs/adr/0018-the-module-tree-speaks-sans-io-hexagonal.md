@@ -144,3 +144,9 @@ payload types live in `families/<f>.rs`, referenced by new top-level
 - Adapter crates do not restructure speculatively; each carries a
   named trigger, recorded here so the decision is not re-litigated
   per tile.
+- The restool shim's `create_dpni` companion-provisioning chain (dpio
+  top-up, the dpbp/dpmcp/dpcon dependencies, rollback) is southbound
+  *policy*, not a 1:1 firmware verb; when tile #10 adds the portal
+  backend the chain lives once — a policy module or trait-default —
+  shared by both backends rather than forked (dpni-typestate review
+  synthesis row 12).

@@ -384,7 +384,8 @@ materialises for such a reference stays owned by the split materialisation trigg
 - `QueueEnvelopeExceeded` — the derived per-dpni queue count (poll T, kernel
   cpus) exceeds the `NumQueues` 1-32 envelope → shed ports or CPUs; the count is
   unrepresentable on the wire, so it is refused, not degraded to the MC default
-  (bead guu.4a).
+  (bead guu.4a); revisited at `mc-portal-backend` (#10), or on any board where
+  the derived T exceeds 32.
 
 *Extras (design D5; ADR-0003)*
 - `ExtraNotCompanion` — an extra on a family that is not one of the four

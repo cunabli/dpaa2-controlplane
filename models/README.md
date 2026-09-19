@@ -177,8 +177,9 @@ models/
 │                         suite is generated from), frozen trace and
 │                         generated suite; RECOVERY-VERIFIED marker
 │                         lands here when task 5.1 passes
-├── traces/               committed frozen ITF traces of the retro runs
-│                         (board suite traces live beside their module)
+├── traces/               committed frozen ITF traces: families/dprc and
+│                         families/dpni (family + board suites) and retro/
+│                         (the reconciler retro runs)
 ├── main.qnt              instantiation of machine with all 16 families;
 │                         directed *Test runs
 ├── COVERAGE.md           the invariant coverage ledger (design D9; ADR-0006)
@@ -210,7 +211,8 @@ pnpm model:replay      # rung 3: frozen ITF traces vs the reconciler (cargo)
 pnpm model:verify      # rung 4: Apalache on the core marked subset (~3 min; JVM)
 pnpm model:validation  # all of the above, cheapest first, stop on failure
 
-pnpm model:freeze      # regenerate models/traces/ from the retro runs
+pnpm model:freeze      # regenerate models/traces/retro/ from the retro runs
+                       # (families/dprc, families/dpni via model:freeze-dprc/-dpni)
 
 # the intent corpus's own directed runs
 pnpm exec quint test models/intent/main.qnt --main=intent_main
@@ -256,4 +258,5 @@ runs off a shared prefix run.
 
 **A discovered divergence (board evidence)** — amend the model and the
 owning baseline document in the same change (ADR-0002 §2), freeze a
-reproducing ITF trace into `traces/`, and settle the ledger row.
+reproducing ITF trace into `traces/families/<f>/` (or `traces/retro/`),
+and settle the ledger row.

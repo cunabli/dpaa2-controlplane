@@ -18,9 +18,11 @@ change proposes against the namespaced `families/` layout.
 - The reconciler's object graph gains the full dpni create surface as
   typestates in `dpaa2-api::families::dpni`: the twelve live create options
   typed with refined ranges (baseline `dpni.md` option inventory), an options
-  flag set typed over the 14-flag MC 10.39 vocabulary plus the raw-mask escape
-  (`0x80000000` PFDR_IN_PEB is deployed and working), and the `dpni_cfg` block
-  as the immutable type parameter of a DPNI — runtime surface is state within
+  flag set typed over the named ten of the 14-flag MC 10.39 vocabulary — the
+  four unnamed flags are a recorded gap with no constructor — plus the raw-mask
+  escape (`HAS_REPLICATION` and `0x80000000` PFDR_IN_PEB ride the escape, not
+  the vocabulary; the latter is deployed and working), and the `dpni_cfg` block
+  as the immutable private create block of a DPNI — runtime surface is state within
   that type (baseline attribute-mutability law), pre-shaping tile #10 without
   rewrite.
 - The eleven dead options and the never-settable `num_rx_tcs` become
@@ -93,7 +95,8 @@ None — the change lands entirely as deltas to existing capabilities.
   `models/traces/families/dpni`.
 - Docs: `docs/baseline/dpni.md` amendments for every probe outcome; ADR for
   any decision that solidifies or dies on the board; roadmap row #5; deferral
-  rows to #10 (runtime setters, TX_CONF v2) and #14 (`num_rx_tcs` via DPL).
+  rows to #10 (runtime setters; TX_CONF — emit v2 with an explicit channel
+  index, probe v1-handler retention, register #1) and #14 (`num_rx_tcs` via DPL).
 - Board: one operator sitting — batch suite + online session; reference pair
   MC 10.39.0 + Linux 6.6.52 asserted by the scripts.
 - Beads: epic + task beads created at propose time; z5z instantiated against

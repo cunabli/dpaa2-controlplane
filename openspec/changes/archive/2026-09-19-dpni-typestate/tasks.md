@@ -14,7 +14,8 @@ shim, verify, board, close-out. One bead at a time through acceptance.
 ## 2. Core typestates
 
 - [x] 2.1 `dpaa2_api::families::dpni` create-surface typestates:
-  `dpni_cfg` as immutable type parameter, refined range types, typed
+  `dpni_cfg` as the immutable private create block behind a shared-ref
+  accessor, refined range types, typed
   option set with provenance-carrying raw-mask constructor; runtime
   state slot holding the primary MAC
 - [x] 2.2 Dead-option and `num_rx_tcs` parity refusals; `dist_key_size`
@@ -27,8 +28,9 @@ shim, verify, board, close-out. One bead at a time through acceptance.
   construct (PMD/kernel profile map, one function, dry-run rule
   provenance); no TOML or vocabulary surface for options
 - [x] 3.2 Close the `intent::tenant` typestate hazards: no zero-value
-  `Default` path on `Isolation`/`Intent`, empty `TenantName`
-  unconstructible outside its sentinel role; frozen-trace replay and
+  `Default` path on `Isolation`/`Intent`, empty `TenantName` with no
+  sentinel mint (`@sentinel` exclusion) and raw-boundary residue rejected
+  by frontend validate; frozen-trace replay and
   public-surface diff green
 
 ## 4. Southbound shim
@@ -54,7 +56,8 @@ shim, verify, board, close-out. One bead at a time through acceptance.
 ## 6. Close-out
 
 - [x] 6.1 Docs close-out: `docs/baseline/dpni.md` amendments for every
-  probe outcome; deferral rows verified (#10 runtime setters + TX_CONF
-  v2, #14 num_rx_tcs-via-DPL, table/traffic items to earliest
+  probe outcome; deferral rows verified (#10 runtime setters + TX_CONF →
+  #10 (emit v2 with explicit channel index; probe v1-handler retention,
+  register #1), #14 num_rx_tcs-via-DPL, table/traffic items to earliest
   reachability); ADR for anything that solidified or died on the board;
   roadmap row #5; CHANGELOG via cliff; full quality floor

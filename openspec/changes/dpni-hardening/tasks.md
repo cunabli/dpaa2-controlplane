@@ -6,7 +6,7 @@ parser-arm-first rule. One bead at a time through acceptance.
 
 ## 0. Review gate
 
-- [ ] 0.1 The amend-at-archive doc pass lands on the dpni-typestate
+- [x] 0.1 The amend-at-archive doc pass lands on the dpni-typestate
   record (synthesis §4: deferral rows in baseline + COVERAGE,
   `NUM_QUEUES_HI` model constant, guu.4a revisit trigger in ADR-0013 +
   baseline, wording amends, trait-doc + ADR-0018 chain-policy note,
