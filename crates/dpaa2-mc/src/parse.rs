@@ -234,12 +234,96 @@ pub struct RawDpniInfo {
     pub endpoint: Option<DpmacId>,
     /// The DPNI primary MAC, from the `mac address:` line.
     pub mac: Option<MacAddr>,
+    /// The `dpni_attr` read-back block, when `dpni info` printed one (`None` when the
+    /// object was not opened or the block was absent — the honest gap,
+    /// dpni-typestate task 4.1).
+    pub attr: Option<RawDpniAttr>,
+}
+
+/// The `dpni_attr` read-back block `restool dpni info` prints, transcribed from
+/// `dpni_commands.c` `print_dpni_attr` (lines ~644-662). The `options` field is the
+/// authoritative mask from `dpni_attr.options value is: 0x…`; the decoded option-name
+/// lines that follow are ignored. Every count is optional so a missing or malformed
+/// line leaves an honest gap. There is **no** `dist_key_size` line and none is ever
+/// synthesized: that create-time value has no read-back (dpni-typestate design D4;
+/// `docs/baseline/dpni.md` "Attribute read-back asymmetry", DPNI-I12).
+///
+/// The read-back spellings differ from the create flags on purpose: `mac_entries` /
+/// `vlan_entries` here vs. `--mac-filter-entries` / `--vlan-filter-entries` on create,
+/// and the single create `--num-tcs` splits into read-back `num_rx_tcs` / `num_tx_tcs`.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct RawDpniAttr {
+    /// The authoritative options mask (`dpni_attr.options value is: 0x…`).
+    pub options: u32,
+    /// `num_queues`.
+    pub num_queues: Option<u16>,
+    /// `num_cgs`.
+    pub num_cgs: Option<u16>,
+    /// `num_rx_tcs` — the never-settable read-back half (`docs/baseline/dpni.md`
+    /// "Never settable"); informational only, never mapped to the domain observation.
+    pub num_rx_tcs: Option<u16>,
+    /// `num_tx_tcs` — the cfg-settable TC half; maps to the domain `num_tcs`.
+    pub num_tx_tcs: Option<u16>,
+    /// `mac_entries` (create flag `--mac-filter-entries`).
+    pub mac_entries: Option<u16>,
+    /// `vlan_entries` (create flag `--vlan-filter-entries`).
+    pub vlan_entries: Option<u16>,
+    /// `qos_entries`.
+    pub qos_entries: Option<u16>,
+    /// `fs_entries`.
+    pub fs_entries: Option<u16>,
+    /// `qos_key_size` — added read-back; informational only, never in the domain
+    /// observation.
+    pub qos_key_size: Option<u16>,
+    /// `fs_key_size` — added read-back; informational only, never in the domain
+    /// observation.
+    pub fs_key_size: Option<u16>,
+    /// `num_channels` — maps to the domain `num_ceetm_ch`.
+    pub num_channels: Option<u16>,
+    /// `num_opr`.
+    pub num_opr: Option<u16>,
+}
+
+impl RawDpniAttr {
+    /// Absorbs one `family_field: N` count line of the attr block, ignoring any line
+    /// that names no attr field (so the statistics pages that follow are dropped).
+    fn absorb(&mut self, line: &str) {
+        let val = |s: &str| s.trim().parse::<u16>().ok();
+        if let Some(r) = line.strip_prefix("num_queues:") {
+            self.num_queues = val(r);
+        } else if let Some(r) = line.strip_prefix("num_cgs:") {
+            self.num_cgs = val(r);
+        } else if let Some(r) = line.strip_prefix("num_rx_tcs:") {
+            self.num_rx_tcs = val(r);
+        } else if let Some(r) = line.strip_prefix("num_tx_tcs:") {
+            self.num_tx_tcs = val(r);
+        } else if let Some(r) = line.strip_prefix("mac_entries:") {
+            self.mac_entries = val(r);
+        } else if let Some(r) = line.strip_prefix("vlan_entries:") {
+            self.vlan_entries = val(r);
+        } else if let Some(r) = line.strip_prefix("qos_entries:") {
+            self.qos_entries = val(r);
+        } else if let Some(r) = line.strip_prefix("fs_entries:") {
+            self.fs_entries = val(r);
+        } else if let Some(r) = line.strip_prefix("qos_key_size:") {
+            self.qos_key_size = val(r);
+        } else if let Some(r) = line.strip_prefix("fs_key_size:") {
+            self.fs_key_size = val(r);
+        } else if let Some(r) = line.strip_prefix("num_channels:") {
+            self.num_channels = val(r);
+        } else if let Some(r) = line.strip_prefix("num_opr:") {
+            self.num_opr = val(r);
+        }
+    }
 }
 
 /// Parses `restool dpni info dpni.N`.
 ///
 /// The endpoint line looks like `endpoint: dpmac.7, link is up`; only the object
-/// reference before the comma is significant (design recipe).
+/// reference before the comma is significant (design recipe). The `dpni_attr` block
+/// (when present) opens on the `dpni_attr.options value is:` line and its count lines
+/// follow in print order (dpni-typestate task 4.1); a `dpni info` that never opened the
+/// object prints no block, so [`RawDpniInfo::attr`] stays `None`.
 #[must_use]
 pub fn parse_dpni_info(stdout: &str) -> RawDpniInfo {
     let mut info = RawDpniInfo::default();
@@ -250,6 +334,14 @@ pub fn parse_dpni_info(stdout: &str) -> RawDpniInfo {
             info.endpoint = parse_indexed(obj, "dpmac.");
         } else if let Some(rest) = line.strip_prefix("mac address:") {
             info.mac = rest.trim().parse::<MacAddr>().ok();
+        } else if let Some(rest) = line.strip_prefix("dpni_attr.options value is:") {
+            // The authoritative mask opens the block; the decoded name lines after are ignored.
+            let hex = rest.trim().trim_start_matches("0x");
+            if let Ok(options) = u32::from_str_radix(hex, 16) {
+                info.attr.get_or_insert_with(RawDpniAttr::default).options = options;
+            }
+        } else if let Some(attr) = info.attr.as_mut() {
+            attr.absorb(line);
         }
     }
     info
@@ -627,5 +719,56 @@ dpni.7          wan0            plugged
         let colon = parse_resources("bp: 63\nswpch.2wq: 112\n");
         assert_eq!(colon.get("bp"), Some(&63));
         assert_eq!(colon.get("swpch.2wq"), Some(&112));
+    }
+
+    /// The `mac address:` line, built from the domain type so no MAC literal appears in
+    /// source text (public-repo leak-scan); `MacAddr` Display renders the canonical form.
+    fn mac_line() -> String {
+        format!("mac address: {}\n", MacAddr::new([2, 0, 0, 0, 0, 7]))
+    }
+
+    #[test]
+    fn dpni_info_parses_the_attr_block_with_split_tcs() {
+        // The split read-back lands on the raw struct (num_rx_tcs distinct from num_tx_tcs).
+        let body = format!(
+            "endpoint: dpmac.7, link is up\n\
+             {}\
+             dpni_attr.options value is: 0x800003d0\n\
+             num_queues: 16\n\
+             num_cgs: 24\n\
+             num_rx_tcs: 8\n\
+             num_tx_tcs: 16\n\
+             mac_entries: 16\n\
+             vlan_entries: 16\n\
+             qos_entries: 64\n\
+             fs_entries: 1\n\
+             qos_key_size: 24\n\
+             fs_key_size: 24\n\
+             num_channels: 1\n\
+             num_opr: 0\n",
+            mac_line()
+        );
+        let info = parse_dpni_info(&body);
+        assert_eq!(info.endpoint, Some(DpmacId::new(7)));
+        assert_eq!(info.mac, Some(MacAddr::new([2, 0, 0, 0, 0, 7])));
+        let attr = info.attr.expect("attr block present");
+        assert_eq!(attr.options, 0x8000_03d0);
+        assert_eq!(attr.num_queues, Some(16));
+        assert_eq!(attr.num_rx_tcs, Some(8));
+        assert_eq!(attr.num_tx_tcs, Some(16));
+        assert_eq!(attr.mac_entries, Some(16));
+        assert_eq!(attr.vlan_entries, Some(16));
+        assert_eq!(attr.num_channels, Some(1));
+        assert_eq!(attr.num_opr, Some(0));
+    }
+
+    #[test]
+    fn dpni_info_without_the_attr_block_leaves_attr_none() {
+        // Endpoint/mac still parse; the absent attr block is an honest None (no synthesis).
+        let body = format!("endpoint: dpmac.7, link is up\n{}", mac_line());
+        let info = parse_dpni_info(&body);
+        assert_eq!(info.endpoint, Some(DpmacId::new(7)));
+        assert_eq!(info.mac, Some(MacAddr::new([2, 0, 0, 0, 0, 7])));
+        assert!(info.attr.is_none());
     }
 }

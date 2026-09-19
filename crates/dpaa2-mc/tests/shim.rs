@@ -8,9 +8,25 @@ use std::collections::HashMap;
 use dpaa2_api::contract::McControl;
 use dpaa2_api::core::model::{DpmacId, DpniId, LinkType, MacAddr};
 use dpaa2_api::core::types::ConstructName;
+use dpaa2_api::families::dpni::{DpniCfg, NumQueues, Profile};
 use dpaa2_mc::RestoolMc;
 use dpaa2_mc::parse::{parse_dpmac_info, parse_dpni_info, parse_dpni_object_id, parse_dprc_show};
 use dpaa2_mc::runner::Runner;
+
+/// The unsized port-only projection's create block (`num_queues` 0 ⇒ host fallback), the
+/// argument the reconciler's `from_ports` path carries into `create_dpni`.
+fn unsized_cfg() -> DpniCfg {
+    DpniCfg::defaults()
+}
+
+/// A create block sized at `n` transmit queues, everything else at its MC default —
+/// what a sized compiled plan carries when only the queue count is pinned.
+fn sized_cfg(n: u16) -> DpniCfg {
+    DpniCfg {
+        num_queues: NumQueues::new(n).expect("in envelope"),
+        ..DpniCfg::defaults()
+    }
+}
 
 const DPRC_SHOW: &str = include_str!("fixtures/dprc_show.txt");
 const DPNI_CONNECTED: &str = include_str!("fixtures/dpni_info_connected.txt");
@@ -110,7 +126,7 @@ fn create_provisions_private_deps_then_creates_dpni_unplugged() {
     // 0 = the unsized port-only projection, so the shim falls back to its host-derived
     // default (here `queues == cores == 1`), keeping this determinism assertion unchanged.
     let id = mc
-        .create_dpni(&ConstructName::from("wan0"), 0)
+        .create_dpni(&ConstructName::from("wan0"), &unsized_cfg())
         .expect("create");
     assert_eq!(id, DpniId::new(7));
 
@@ -183,7 +199,7 @@ fn create_rolls_back_deps_when_dpni_create_fails() {
     let mc =
         RestoolMc::with_runner(FailingRunner::new(("--script", "dpni")), "dprc.1").with_cores(1);
     let err = mc
-        .create_dpni(&ConstructName::from("wan0"), 0)
+        .create_dpni(&ConstructName::from("wan0"), &unsized_cfg())
         .expect_err("dpni create fails");
     assert!(matches!(err, dpaa2_api::core::error::Error::Backend(_)));
 
@@ -202,7 +218,7 @@ fn create_rolls_back_deps_when_dpni_create_fails() {
 fn create_tops_up_dpio_pool_idempotently() {
     // DPRC_SHOW has no dpio; with cores=2 the shim creates two DPIOs (+companion mcp).
     let mc = RestoolMc::with_runner(RecordingRunner::new(), "dprc.1").with_cores(2);
-    mc.create_dpni(&ConstructName::from("wan0"), 0)
+    mc.create_dpni(&ConstructName::from("wan0"), &unsized_cfg())
         .expect("create");
     let calls = mc.runner_calls();
     let dpio_creates = calls
@@ -221,7 +237,7 @@ fn create_honors_compiled_num_queues_over_host_derivation() {
     // Create carrying the compiled num_queues=5 pins `--num-queues=5` and five private
     // dpcons — the compiled attribute is honored exactly, not re-derived from the host.
     let mc = RestoolMc::with_runner(RecordingRunner::new(), "dprc.1").with_cores(16);
-    mc.create_dpni(&ConstructName::from("wan0"), 5)
+    mc.create_dpni(&ConstructName::from("wan0"), &sized_cfg(5))
         .expect("create");
     let calls = mc.runner_calls();
 
@@ -247,6 +263,83 @@ fn create_honors_compiled_num_queues_over_host_derivation() {
     assert_eq!(
         dpcon_creates, 5,
         "one dpcon per compiled queue (min(5, cores))"
+    );
+}
+
+#[test]
+fn create_pmd_profile_emits_the_computed_mask_and_every_nonzero_size() {
+    // The full PMD profile: the runner sees exactly one raw options mask (0x800003d0),
+    // every nonzero sizing flag, and no option-name token (dpni-typestate task 4.1).
+    let mc = RestoolMc::with_runner(RecordingRunner::new(), "dprc.1").with_cores(16);
+    mc.create_dpni(&ConstructName::from("wan0"), &Profile::Pmd.cfg())
+        .expect("create");
+    let calls = mc.runner_calls();
+    let dpni_create = calls
+        .iter()
+        .find(|c| {
+            c.first().map(String::as_str) == Some("--script")
+                && c.get(1).map(String::as_str) == Some("dpni")
+        })
+        .expect("dpni created");
+
+    let opts: Vec<&String> = dpni_create
+        .iter()
+        .filter(|a| a.starts_with("--options="))
+        .collect();
+    assert_eq!(opts.len(), 1, "one options arg");
+    assert_eq!(opts[0], "--options=0x800003d0");
+    for token in [
+        "SingleSender",
+        "CustomCg",
+        "HasKeyMasking",
+        "SINGLE_SENDER",
+        "DPNI_OPT",
+    ] {
+        assert!(
+            !dpni_create.iter().any(|a| a.contains(token)),
+            "no option-name token {token}"
+        );
+    }
+
+    for present in [
+        "--num-queues=16",
+        "--num-tcs=16",
+        "--vlan-filter-entries=16",
+        "--qos-entries=64",
+        "--fs-entries=1",
+        "--num-cgs=24",
+        "--num-channels=1",
+    ] {
+        assert!(
+            dpni_create.iter().any(|a| a == present),
+            "expected {present}"
+        );
+    }
+    for omitted in ["--mac-filter-entries", "--dist-key-size", "--num-opr"] {
+        assert!(
+            !dpni_create.iter().any(|a| a.starts_with(omitted)),
+            "omitted flag {omitted} must not appear (0 ⇒ MC default)"
+        );
+    }
+}
+
+#[test]
+fn create_defaults_emits_only_num_queues() {
+    // A bare create block: only `--num-queues` (host fallback) rides (DPNI-I7).
+    let mc = RestoolMc::with_runner(RecordingRunner::new(), "dprc.1").with_cores(1);
+    mc.create_dpni(&ConstructName::from("wan0"), &unsized_cfg())
+        .expect("create");
+    let dpni_create = mc
+        .runner_calls()
+        .into_iter()
+        .find(|c| {
+            c.first().map(String::as_str) == Some("--script")
+                && c.get(1).map(String::as_str) == Some("dpni")
+        })
+        .expect("dpni created");
+    assert_eq!(
+        dpni_create,
+        vec!["--script", "dpni", "create", "--num-queues=1"]
     );
 }
 

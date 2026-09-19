@@ -17,11 +17,16 @@ use dpaa2_api::core::model::{
     DpmacId, DpniId, DprcId, ObjectRef, ObservedDpmac, ObservedDpni, ObservedTopology,
 };
 use dpaa2_api::core::types::ConstructName;
+use dpaa2_api::families::dpni::{
+    DpniCfg, DpniObservation, DpniOpt, FsEntries, MacFilterEntries, NumCeetmCh, NumCgs, NumOpr,
+    NumQueues, NumTcs, OptionMask, QosEntries, RawEscape, VlanFilterEntries,
+};
 use dpaa2_api::families::dprc;
 use dpaa2_api::intent::compiled::Container;
 use dpaa2_api::plan::dprc as dprc_plan;
 
 use crate::parse;
+use crate::parse::RawDpniAttr;
 use crate::runner::{RestoolRunner, Runner};
 
 /// The default fsl-mc root container.
@@ -73,6 +78,139 @@ fn ceiling_of(family: Family, pools: &BTreeMap<String, i64>) -> Ceiling {
         },
         _ => Ceiling::Unknown,
     }
+}
+
+// Each named MC 10.39 flag's wire bit, from `restool/mc_v10/fsl_dpni.h` (lines ~75-142).
+// Adapter policy stays in the southbound, not on the domain surface (ADR-0018); the
+// wildcard-free match forces a new `DpniOpt` variant to state its bit before it compiles.
+// The four unnamed header flags (0x20/0x400/0x800/0x1000) have no variant by design.
+const fn dpni_opt_bit(opt: DpniOpt) -> u32 {
+    match opt {
+        DpniOpt::TxFrmRelease => 0x0001,
+        DpniOpt::NoMacFilter => 0x0002,
+        DpniOpt::HasPolicing => 0x0004,
+        DpniOpt::SharedCongestion => 0x0008,
+        DpniOpt::HasKeyMasking => 0x0010,
+        DpniOpt::HasOpr => 0x0040,
+        DpniOpt::OprPerTc => 0x0080,
+        DpniOpt::SingleSender => 0x0100,
+        DpniOpt::CustomCg => 0x0200,
+        DpniOpt::StashingDis => 0x2000,
+    }
+}
+
+/// Folds the typed option set into the one raw `u32` the shim emits (`--options=0x…`),
+/// OR-ing each named flag's bit with every escape's raw value (`PFDR_IN_PEB`
+/// `0x80000000`). The arithmetic is `u32` because the escape sets bit 31; restool parses
+/// `--options` via `strtoull`, so hex text is accepted. The shim never emits an
+/// option-name token — restool's token parsing is loose (dpni-typestate design Risks) —
+/// so this computed mask is the single source.
+fn dpni_options_mask(mask: &OptionMask) -> u32 {
+    let mut raw = 0u32;
+    for &flag in mask.flags() {
+        raw |= dpni_opt_bit(flag);
+    }
+    for &escape in mask.escapes() {
+        raw |= escape.raw_value();
+    }
+    raw
+}
+
+/// The inverse of [`dpni_options_mask`]: decodes a raw `dpni_attr.options` mask back into
+/// the typed set. `0x80000000` maps to the `PFDR_IN_PEB` escape; every other set bit that
+/// names no vocabulary flag makes this return `None` — an honest gap, because the typed
+/// set cannot faithfully represent an unnamed bit (dpni-typestate design D2/D4). The four
+/// unnamed header flags fall in that class by design.
+fn decode_dpni_options(raw: u32) -> Option<OptionMask> {
+    let mut mask = OptionMask::empty();
+    let mut consumed = 0u32;
+    for flag in DpniOpt::MC_VOCABULARY {
+        let bit = dpni_opt_bit(flag);
+        if raw & bit != 0 {
+            mask = mask.with_flag(flag);
+            consumed |= bit;
+        }
+    }
+    if raw & RawEscape::PfdrInPeb.raw_value() != 0 {
+        mask = mask.with_escape(RawEscape::PfdrInPeb);
+        consumed |= RawEscape::PfdrInPeb.raw_value();
+    }
+    if raw & !consumed != 0 {
+        return None;
+    }
+    Some(mask)
+}
+
+/// Maps a parsed `dpni_attr` block to the domain [`DpniObservation`]
+/// (dpni-typestate task 4.1; dpni-typestate design D4). The asymmetric read-back is
+/// mapped to domain names: `num_tx_tcs`
+/// is the cfg-settable TC half that becomes `num_tcs` (the baseline's never-settable
+/// `num_rx_tcs` law, `docs/baseline/dpni.md` "Never settable"), and `num_channels`
+/// becomes `num_ceetm_ch`. Write-only `dist_key_size` has no read-back and is never
+/// synthesized; the informational `num_rx_tcs` / `qos_key_size` / `fs_key_size` stay on
+/// the raw struct and never enter the observation. Returns `None` on any missing or
+/// out-of-envelope field, or an unnamed option bit — the honest gap.
+fn map_dpni_observation(attr: &RawDpniAttr) -> Option<DpniObservation> {
+    Some(DpniObservation {
+        options: decode_dpni_options(attr.options)?,
+        num_queues: NumQueues::new(attr.num_queues?).ok()?,
+        num_tcs: NumTcs::new(attr.num_tx_tcs?).ok()?,
+        mac_filter_entries: MacFilterEntries::new(attr.mac_entries?).ok()?,
+        vlan_filter_entries: VlanFilterEntries::new(attr.vlan_entries?).ok()?,
+        qos_entries: QosEntries::new(attr.qos_entries?).ok()?,
+        fs_entries: FsEntries::new(attr.fs_entries?).ok()?,
+        num_cgs: NumCgs::new(attr.num_cgs?).ok()?,
+        num_ceetm_ch: NumCeetmCh::new(attr.num_channels?).ok()?,
+        num_opr: NumOpr::new(attr.num_opr?).ok()?,
+    })
+}
+
+/// Appends `flag=<v>` to `args` only when `v` is nonzero — 0 means "omit ⇒ MC default"
+/// (DPNI-I7, `docs/baseline/dpni.md` "Option inventory": an omitted flag sends literal 0
+/// and the MC applies its own default).
+fn push_dpni_flag(args: &mut Vec<String>, flag: &str, v: u16) {
+    if v != 0 {
+        args.push(format!("{flag}={v}"));
+    }
+}
+
+/// Builds the `restool --script dpni create …` argument vector from the typed create
+/// block (dpni-typestate task 4.1). `--num-queues` always rides with the effective count
+/// (`queues`, host-derived when the block is unsized); every other sizing field is
+/// emitted only when nonzero (DPNI-I7). The flag spellings are verified against restool's
+/// create parser (`restool/dpni_commands.c` lines 202-287): the new `--mac-filter-entries`
+/// / `--vlan-filter-entries` spellings, and `--num-channels` for `num_ceetm_ch`. Options
+/// are one computed raw mask (`--options=0x…`), emitted only when nonzero, never a name
+/// token (dpni-typestate design Risks).
+fn dpni_create_args(cfg: &DpniCfg, queues: usize) -> Vec<String> {
+    let mut args = vec![
+        "--script".to_owned(),
+        "dpni".to_owned(),
+        "create".to_owned(),
+        format!("--num-queues={queues}"),
+    ];
+    push_dpni_flag(&mut args, "--num-tcs", cfg.num_tcs.get());
+    push_dpni_flag(
+        &mut args,
+        "--mac-filter-entries",
+        cfg.mac_filter_entries.get(),
+    );
+    push_dpni_flag(
+        &mut args,
+        "--vlan-filter-entries",
+        cfg.vlan_filter_entries.get(),
+    );
+    push_dpni_flag(&mut args, "--qos-entries", cfg.qos_entries.get());
+    push_dpni_flag(&mut args, "--fs-entries", cfg.fs_entries.get());
+    push_dpni_flag(&mut args, "--num-cgs", cfg.num_cgs.get());
+    push_dpni_flag(&mut args, "--dist-key-size", cfg.dist_key_size.get());
+    push_dpni_flag(&mut args, "--num-channels", cfg.num_ceetm_ch.get());
+    push_dpni_flag(&mut args, "--num-opr", cfg.num_opr.get());
+    let mask = dpni_options_mask(&cfg.options);
+    if mask != 0 {
+        args.push(format!("--options=0x{mask:x}"));
+    }
+    args
 }
 
 /// Renders a child-DPRC option mask into the `--options=` argument for `dprc create`,
@@ -416,6 +554,9 @@ impl<R: Runner> McControl for RestoolMc<R> {
                 // netdev is a kernel concern; the shell enriches it via KernelControl.
                 netdev: None,
                 attributes: BTreeMap::new(),
+                // `None` (honest gap) when the attr block was absent or carried an unnamed
+                // bit (dpni-typestate task 4.1; design D4).
+                cfg_observation: info.attr.as_ref().and_then(map_dpni_observation),
             });
         }
 
@@ -580,15 +721,16 @@ impl<R: Runner> McControl for RestoolMc<R> {
         })
     }
 
-    fn create_dpni(&self, label: &ConstructName, num_queues: u32) -> Result<DpniId, Error> {
-        // The compiled sizing is honored exactly (synthesis L2/B3): a nonzero
-        // `num_queues` is written verbatim, never re-derived; 0 (the unsized port-only
-        // projection) falls back to the host-derived default `self.queues`. The private
-        // DPCON count follows the same effective count (`ls-addni` min(num_queues, nproc)).
-        let queues = if num_queues == 0 {
+    fn create_dpni(&self, label: &ConstructName, cfg: &DpniCfg) -> Result<DpniId, Error> {
+        // The compiled block is rendered verbatim (dpni-typestate task 4.1); only
+        // `num_queues == 0` keeps the host-derived fallback (`self.queues`), which the
+        // private DPCON count follows (`ls-addni` min(num_queues, nproc)). `root_container`
+        // does not retarget the container here — the shim already operates in its own
+        // (dpni-typestate design D1); placement is the assign/move tile's concern.
+        let queues = if cfg.num_queues.get() == 0 {
             self.queues
         } else {
-            num_queues as usize
+            usize::from(cfg.num_queues.get())
         };
         // A DPNI is not usable alone: `dpaa2-eth` allocates a DPBP, a DPMCP, and one
         // DPCON per queue from the container's pool at probe, backed by a per-core
@@ -601,8 +743,9 @@ impl<R: Runner> McControl for RestoolMc<R> {
         // whole chain wears `label`, the owning construct's name (ADR-0015 decision 9).
         self.ensure_dpio(label)?;
         self.provision_chain(&self.dpni_dep_steps(queues), label, |this| {
-            let queues_arg = format!("--num-queues={queues}");
-            let out = this.run_verb(&["--script", "dpni", "create", &queues_arg])?;
+            let create_args = dpni_create_args(cfg, queues);
+            let arg_refs: Vec<&str> = create_args.iter().map(String::as_str).collect();
+            let out = this.run_verb(&arg_refs)?;
             let id = parse::parse_dpni_object_id(&out).ok_or_else(|| {
                 Error::Parse(format!("could not parse created dpni id from `{out}`"))
             })?;
@@ -763,6 +906,9 @@ impl<R: Runner> McControl for RestoolMc<R> {
 mod tests {
     use std::cell::RefCell;
     use std::collections::HashMap;
+
+    use dpaa2_api::core::model::MacAddr;
+    use dpaa2_api::families::dpni::Profile;
 
     use crate::runner::RunOutcome;
 
@@ -1380,6 +1526,181 @@ mod tests {
         assert_eq!(
             inv.dpmacs[&DpmacId::new(7)].avail,
             Availability::Foreign("vendor".to_owned())
+        );
+    }
+
+    /// The `mac address:` line, built from the domain type so no MAC literal appears in
+    /// source text (public-repo leak-scan); `MacAddr` Display renders the canonical form.
+    fn mac_line() -> String {
+        format!("mac address: {}\n", MacAddr::new([2, 0, 0, 0, 0, 7]))
+    }
+
+    /// A faithful `dpni info` body with the full `dpni_attr` block, transcribed from
+    /// `restool/dpni_commands.c` `print_dpni_attr` (the dot-spelled options line, the
+    /// split `num_rx_tcs`/`num_tx_tcs`, the read-back `mac_entries`/`vlan_entries`
+    /// spellings, and the added `qos_key_size`/`fs_key_size` — no `dist_key_size`).
+    fn dpni_info_full_attr() -> String {
+        format!(
+            "dpni version: 8.5\n\
+             dpni id: 7\n\
+             plugged state: plugged\n\
+             endpoint: dpmac.7, link is up\n\
+             {}\
+             max frame length: 1536\n\
+             dpni_attr.options value is: 0x800003d0\n\
+             num_queues: 16\n\
+             num_cgs: 24\n\
+             num_rx_tcs: 8\n\
+             num_tx_tcs: 16\n\
+             mac_entries: 16\n\
+             vlan_entries: 16\n\
+             qos_entries: 64\n\
+             fs_entries: 1\n\
+             qos_key_size: 24\n\
+             fs_key_size: 24\n\
+             num_channels: 1\n\
+             num_opr: 0\n\
+             ingress_all_frames: 3150\n\
+             egress_all_frames: 42\n",
+            mac_line()
+        )
+    }
+
+    #[test]
+    fn options_mask_is_the_computed_pmd_value() {
+        // PMD's five flags + PfdrInPeb: 0x100|0x200|0x10|0x40|0x80|0x80000000 = 0x800003d0.
+        assert_eq!(dpni_options_mask(&Profile::Pmd.mask()), 0x8000_03d0);
+        assert_eq!(dpni_options_mask(&Profile::Kernel.mask()), 0x0010);
+        assert_eq!(dpni_options_mask(&OptionMask::empty()), 0);
+    }
+
+    #[test]
+    fn options_decode_round_trips_and_rejects_unnamed_bits() {
+        assert_eq!(decode_dpni_options(0x8000_03d0), Some(Profile::Pmd.mask()));
+        // A bit with no vocabulary variant (NO_FS 0x20) is an honest gap, not a guess.
+        assert_eq!(decode_dpni_options(0x0020), None);
+        assert_eq!(decode_dpni_options(0), Some(OptionMask::empty()));
+    }
+
+    #[test]
+    fn create_args_render_from_the_typed_block() {
+        // Every nonzero sizing flag rides, omitted ones (0 ⇒ MC default) do not, and
+        // options is one raw mask — never a name token.
+        let args = dpni_create_args(&Profile::Pmd.cfg(), 16);
+        assert_eq!(&args[..3], &["--script", "dpni", "create"]);
+        assert!(args.contains(&"--options=0x800003d0".to_owned()));
+        for present in [
+            "--num-queues=16",
+            "--num-tcs=16",
+            "--vlan-filter-entries=16",
+            "--qos-entries=64",
+            "--fs-entries=1",
+            "--num-cgs=24",
+            "--num-channels=1",
+        ] {
+            assert!(args.iter().any(|a| a == present), "expected {present}");
+        }
+        for omitted in ["--mac-filter-entries", "--dist-key-size", "--num-opr"] {
+            assert!(!args.iter().any(|a| a.starts_with(omitted)), "{omitted}");
+        }
+
+        // The bare block is only --num-queues (host fallback).
+        assert_eq!(
+            dpni_create_args(&DpniCfg::defaults(), 1),
+            vec!["--script", "dpni", "create", "--num-queues=1"]
+        );
+    }
+
+    #[test]
+    fn observation_maps_the_readback_asymmetries() {
+        // The asymmetric read-back resolves: num_tx_tcs ⇒ num_tcs, num_channels ⇒
+        // num_ceetm_ch; DpniObservation has no dist_key_size field (dpni-typestate design D4).
+        let attr = parse::parse_dpni_info(&dpni_info_full_attr())
+            .attr
+            .expect("attr block present");
+        let obs = map_dpni_observation(&attr).expect("maps cleanly");
+
+        assert_eq!(obs.options, Profile::Pmd.mask());
+        assert_eq!(obs.num_queues.get(), 16);
+        assert_eq!(
+            obs.num_tcs.get(),
+            16,
+            "from num_tx_tcs, the cfg-settable half"
+        );
+        assert_eq!(obs.mac_filter_entries.get(), 16, "from mac_entries");
+        assert_eq!(obs.vlan_filter_entries.get(), 16, "from vlan_entries");
+        assert_eq!(obs.qos_entries.get(), 64);
+        assert_eq!(obs.fs_entries.get(), 1);
+        assert_eq!(obs.num_cgs.get(), 24);
+        assert_eq!(obs.num_ceetm_ch.get(), 1, "from num_channels");
+        assert_eq!(obs.num_opr.get(), 0);
+
+        // Split/informational read-back stays on the raw struct (num_rx_tcs distinct from tx).
+        assert_eq!(attr.num_rx_tcs, Some(8));
+        assert_eq!(attr.num_tx_tcs, Some(16));
+        assert_eq!(attr.qos_key_size, Some(24));
+        assert_eq!(attr.fs_key_size, Some(24));
+        assert_eq!(attr.num_channels, Some(1));
+    }
+
+    #[test]
+    fn observe_fills_cfg_observation_from_the_attr_block() {
+        let root = dprc_show(&["dpni.7          wan0            plugged"]);
+        let runner = ScriptedRunner::canned(&[
+            ("dprc show dprc.1", &root),
+            ("dpni info dpni.7", &dpni_info_full_attr()),
+        ]);
+        let mc = RestoolMc::with_runner(runner, DEFAULT_CONTAINER);
+        let topo = mc.observe().expect("observe");
+        let dpni = &topo.dpnis[0];
+        let obs = dpni.cfg_observation.as_ref().expect("cfg observation");
+        assert_eq!(obs.num_tcs.get(), 16);
+        assert_eq!(obs.num_ceetm_ch.get(), 1);
+        assert_eq!(obs.options, Profile::Pmd.mask());
+    }
+
+    #[test]
+    fn observe_leaves_cfg_observation_none_without_an_attr_block() {
+        // No attr block ⇒ cfg_observation None; endpoint/mac parsing unchanged.
+        let root = dprc_show(&["dpni.7          wan0            plugged"]);
+        let info = format!(
+            "dpni version: 8.5\nendpoint: dpmac.7, link is up\n{}",
+            mac_line()
+        );
+        let runner =
+            ScriptedRunner::canned(&[("dprc show dprc.1", &root), ("dpni info dpni.7", &info)]);
+        let mc = RestoolMc::with_runner(runner, DEFAULT_CONTAINER);
+        let topo = mc.observe().expect("observe");
+        let dpni = &topo.dpnis[0];
+        assert!(dpni.cfg_observation.is_none(), "no attr block ⇒ None");
+        assert_eq!(dpni.connected_to, Some(DpmacId::new(7)));
+        assert_eq!(dpni.mac, Some(MacAddr::new([2, 0, 0, 0, 0, 7])));
+    }
+
+    #[test]
+    fn set_mac_round_trips_via_readback() {
+        // Re-observation (parsed mac), not the exit status, is the convergence oracle
+        // (`docs/baseline/dpni.md` "Silent-failure notes": exit 0 is not convergence).
+        let root = dprc_show(&["dpni.7          wan0            plugged"]);
+        let mac = MacAddr::new([2, 0, 0, 0, 0, 7]);
+        let info = format!(
+            "dpni version: 8.5\nendpoint: dpmac.7, link is up\n{}",
+            mac_line()
+        );
+        let update = format!("dpni update dpni.7 --mac-addr={mac}");
+        let runner = ScriptedRunner::new(vec![
+            (update.as_str(), ok("")),
+            ("dprc sync", ok("")),
+            ("dprc show dprc.1", ok(&root)),
+            ("dpni info dpni.7", ok(&info)),
+        ]);
+        let mc = RestoolMc::with_runner(runner, DEFAULT_CONTAINER);
+        mc.set_mac(DpniId::new(7), mac).expect("set mac");
+        let topo = mc.observe().expect("observe");
+        assert_eq!(
+            topo.dpnis[0].mac,
+            Some(mac),
+            "read-back reports the new MAC"
         );
     }
 }
