@@ -338,7 +338,17 @@ fn render_container(c: &Container) -> String {
 fn render_attrs(a: &Attributes) -> String {
     match a {
         Attributes::Unsized => String::new(),
-        Attributes::Dpni { num_queues } => format!(" num_queues={num_queues}"),
+        Attributes::Dpni { cfg } => {
+            // num_queues plus the derived option set (flag then escape names), so dry-run
+            // shows the chosen profile options (dpni-typestate design D3).
+            let mut opts: Vec<&str> = cfg.options.flags().iter().map(|f| f.name()).collect();
+            opts.extend(cfg.options.escapes().iter().map(|e| e.name()));
+            format!(
+                " num_queues={} options=[{}]",
+                cfg.num_queues.get(),
+                opts.join(",")
+            )
+        }
         Attributes::Dpseci { num_queues, has_cg } => {
             format!(" num_queues={num_queues} has_cg={has_cg}")
         }

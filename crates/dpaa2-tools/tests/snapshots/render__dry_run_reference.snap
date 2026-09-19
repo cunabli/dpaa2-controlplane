@@ -204,7 +204,7 @@ plan: 81 object(s), 3 edge(s)
       - dpni-queues request=16 value=16 [measured] anchor: dpni.md line 64/226-236: ls-addni injects nproc; DPCON-I1
         - cpus request=16 value=16 [measured] anchor: ADR-0012: one dpio per online CPU
       - dpnis request=1 value=1 [measured] anchor: object-model.md §2: one dpni per terminated port, link end, fabric membership
-  kernel/dpni/1 label=lan0 @ root num_queues=16
+  kernel/dpni/1 label=lan0 @ root num_queues=16 options=[HasKeyMasking]
     - dpnis request=1 value=1 [measured] anchor: object-model.md §2: one dpni per terminated port, link end, fabric membership
   router/dprc/1 label=router @ root (dprc default options)
     - dprc request=1 value=1 [measured] anchor: dprc.md: restool-default child options
@@ -326,9 +326,9 @@ plan: 81 object(s), 3 edge(s)
         - T request=5 value=5 [unmeasured] anchor: design D3: T = 1 + Σ workers over terminated ports; workers-per-port table (10G⇒2, 25G⇒5), unmeasured
           - ports request=2 value=2 [measured] anchor: design D1: declared port constructs
       - dpnis request=2 value=2 [measured] anchor: object-model.md §2: one dpni per terminated port, link end, fabric membership
-  router/dpni/1 label=wan0 @ child:router num_queues=5
+  router/dpni/1 label=wan0 @ child:router num_queues=5 options=[SingleSender,CustomCg,HasKeyMasking,HasOpr,OprPerTc,PfdrInPeb]
     - dpnis request=2 value=2 [measured] anchor: object-model.md §2: one dpni per terminated port, link end, fabric membership
-  router/dpni/2 label=wan1 @ child:router num_queues=5
+  router/dpni/2 label=wan1 @ child:router num_queues=5 options=[SingleSender,CustomCg,HasKeyMasking,HasOpr,OprPerTc,PfdrInPeb]
     - dpnis request=2 value=2 [measured] anchor: object-model.md §2: one dpni per terminated port, link end, fabric membership
 edges:
   kernel/dpni/1#0 <-> dpmac.4  [port-edge]

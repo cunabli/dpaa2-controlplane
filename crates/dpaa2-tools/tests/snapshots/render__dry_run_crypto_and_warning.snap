@@ -173,9 +173,9 @@ plan: 40 object(s), 2 edge(s)
         - T request=8 value=8 [unmeasured] anchor: design D3: T = 1 + Σ workers over terminated ports; workers-per-port table (10G⇒2, 25G⇒5), unmeasured
           - ports request=2 value=2 [measured] anchor: design D1: declared port constructs
       - dpnis request=2 value=2 [measured] anchor: object-model.md §2: one dpni per terminated port, link end, fabric membership
-  router/dpni/1 label=wan0 @ child:router num_queues=8
+  router/dpni/1 label=wan0 @ child:router num_queues=8 options=[SingleSender,CustomCg,HasKeyMasking,HasOpr,OprPerTc,PfdrInPeb]
     - dpnis request=2 value=2 [measured] anchor: object-model.md §2: one dpni per terminated port, link end, fabric membership
-  router/dpni/2 label=wan1 @ child:router num_queues=8
+  router/dpni/2 label=wan1 @ child:router num_queues=8 options=[SingleSender,CustomCg,HasKeyMasking,HasOpr,OprPerTc,PfdrInPeb]
     - dpnis request=2 value=2 [measured] anchor: object-model.md §2: one dpni per terminated port, link end, fabric membership
   router/dpseci/1 label=router @ child:router num_queues=4 has_cg=true
     - dpseci request=1 value=1 [measured] anchor: dpseci.md: num_queues >= each block's flows, DPSECI_OPT_HAS_CG
