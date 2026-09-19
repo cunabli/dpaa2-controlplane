@@ -2,6 +2,9 @@
 //! intent, raw-surface, edits, and dprc-lifecycle alphabets, and the intent-layer
 //! copy lint (R11–R16).
 
+/// Reader for frozen dpni create-surface ITF traces (dpni-typestate task 5.1); the
+/// stepped-machine twin of [`dprc_itf`], replayed by `tests/dpni_replay.rs`.
+pub mod dpni_itf;
 /// Reader for frozen dprc-lifecycle ITF traces (2026-09-15-dprc-encapsulation task 2.3); the
 /// stepped-machine twin of [`intent_itf`], replayed by `tests/dprc_replay.rs`.
 pub mod dprc_itf;

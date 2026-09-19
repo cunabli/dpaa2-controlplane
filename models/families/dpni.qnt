@@ -516,3 +516,169 @@ module dpni_lifecycle {
   // The write-only law: observation is invariant under dist_key_size.
   run writeOnlyDistKeySizeTest = init.then(check(WriteOnlyDistKeySize))
 }
+
+// The frozen-trace scenario twin (dpni-typestate task 5.1, dpni-typestate design D8): the
+// create/read-back/primary-MAC walk `dpaa2-verify`'s tests/dpni_replay.rs replays
+// against dpaa2_api::families::dpni, board-free. dpni_lifecycle's World carries no
+// primary MAC (the runtime slot the Rust family adds beside the immutable cfg,
+// dpni-typestate design D1), so this scenario module wraps that world with the MAC field and a
+// mac-mutation step, restricting the action set to the create → read-back →
+// mac-mutation scenario the twins pin. It reuses dpni_lifecycle's create semantics
+// verbatim (envelope guard, dead-option parity, profile derivation) and adds nothing
+// to its invariants — the runs are directed, frozen via `pnpm model:freeze-dpni`,
+// and each `.expect` is the freeze-time check.
+//
+// Every directed run's world is one var (`world`), so the frozen ITF is the
+// single-var shape tests/dpni_replay.rs decodes (mirroring dprc_lifecycle).
+module dpni_scenario {
+  import intent_types.* from "../intent/types"
+  import dpni.*
+  // dpni_lifecycle's create surface, reused so the scenario never restates a
+  // semantics the invariants pin (selective imports: the lifecycle `var world`
+  // does not leak into this module's state).
+  import dpni_lifecycle.DpniState
+  import dpni_lifecycle.Absent
+  import dpni_lifecycle.Created
+  import dpni_lifecycle.Outcome
+  import dpni_lifecycle.Accepted
+  import dpni_lifecycle.Refused
+  import dpni_lifecycle.RangeViolation
+  import dpni_lifecycle.DeadOptionRefusal
+  import dpni_lifecycle.UnpricedDataplane
+  import dpni_lifecycle.Unrepresentable
+  import dpni_lifecycle.MaxSenders
+  import dpni_lifecycle.NumRxTcs
+  import dpni_lifecycle.inEnvelope
+
+  // The primary MAC as six bytes — the Rust runtime slot MacAddr([u8;6])
+  // (dpni-typestate design D1). All-zero is the unset MAC (MacAddr::ZERO), the
+  // value create lands until a setter writes it.
+  type MacBytes = List[int]
+  pure val ZERO_MAC: MacBytes = [0, 0, 0, 0, 0, 0]
+
+  // The scenario world: dpni_lifecycle's create state plus the runtime MAC.
+  type World = {
+    dpni: DpniState,
+    primaryMac: MacBytes,
+    lastOutcome: Outcome,
+  }
+
+  var world: World
+
+  action init = world' = { dpni: Absent, primaryMac: ZERO_MAC, lastOutcome: Accepted }
+
+  // The managed create face (dpni_lifecycle.createDerivedAt, carrying the MAC).
+  action createDerivedAt(dp: Dataplane, ic: InterfaceConstruct): bool = all {
+    world.dpni == Absent,
+    match deriveProfile(dp, ic) {
+      | Derived(p) =>
+          world' = world
+            .with("dpni", Created(profileCfg(p)))
+            .with("lastOutcome", Accepted)
+      | Unpriced =>
+          world' = world.with("lastOutcome", Refused(UnpricedDataplane))
+    },
+  }
+
+  // The bare create face (dpni_lifecycle.createRawAt, carrying the MAC): the shared
+  // envelope guard, so refusal semantics never drift from dpni_lifecycle.
+  action createRawAt(cfg: CreateCfg): bool = all {
+    world.dpni == Absent,
+    if (inEnvelope(cfg))
+      world' = world.with("dpni", Created(cfg)).with("lastOutcome", Accepted)
+    else
+      world' = world.with("lastOutcome", Refused(RangeViolation)),
+  }
+
+  // A create carrying a dead option / num_rx_tcs: refused by name, nothing created.
+  action createUnrepresentableAt(u: Unrepresentable): bool = all {
+    world.dpni == Absent,
+    world' = world.with("lastOutcome", Refused(DeadOptionRefusal(u))),
+  }
+
+  // The one runtime mutation in today's create contract (dpni-typestate design D1): the primary
+  // MAC moves, the immutable create block is untouched.
+  action setPrimaryMacTo(mac: MacBytes): bool = all {
+    world.dpni != Absent,
+    world' = world.with("primaryMac", mac).with("lastOutcome", Accepted),
+  }
+
+  // A non-zero primary MAC for the mutation walk (locally administered, last octet 7).
+  pure val SAMPLE_MAC: MacBytes = [2, 0, 0, 0, 0, 7]
+
+  // ---- directed twins (one per task-5.1 deliverable) ----
+
+  // PMD-profile create + read-back: a userspace-poll physical port lands the PMD
+  // block, 16q/16tc; the observation is the read-back.
+  run scenarioPmdCreateReadbackTest =
+    init
+      .then(createDerivedAt(UserspacePoll, PhysicalPort))
+      .expect(and {
+        world.lastOutcome == Accepted,
+        world.dpni == Created(profileCfg(ProfilePmd)),
+        world.primaryMac == ZERO_MAC,
+      })
+
+  // kernel-profile create + read-back: a kernel-netlink injection pair lands the
+  // kernel block, 1q/1tc.
+  run scenarioKernelCreateReadbackTest =
+    init
+      .then(createDerivedAt(KernelNetlink, InjectionPair))
+      .expect(and {
+        world.lastOutcome == Accepted,
+        world.dpni == Created(profileCfg(ProfileKernel)),
+      })
+
+  // envelope refusal: num_queues 33 (> 32) is refused RangeViolation, nothing created.
+  run scenarioEnvelopeRefusedTest =
+    init
+      .then(createRawAt(profileCfg(ProfilePmd).with("numQueues", 33)))
+      .expect(and {
+        world.lastOutcome == Refused(RangeViolation),
+        world.dpni == Absent,
+      })
+
+  // dead-option refusal: create-time --max-senders is refused, named, nothing created.
+  run scenarioDeadOptionRefusedTest =
+    init
+      .then(createUnrepresentableAt(MaxSenders))
+      .expect(and {
+        world.lastOutcome == Refused(DeadOptionRefusal(MaxSenders)),
+        world.dpni == Absent,
+      })
+
+  // num_rx_tcs refusal: the never-settable field shares the parity class.
+  run scenarioNumRxTcsRefusedTest =
+    init
+      .then(createUnrepresentableAt(NumRxTcs))
+      .expect(and {
+        world.lastOutcome == Refused(DeadOptionRefusal(NumRxTcs)),
+        world.dpni == Absent,
+      })
+
+  // write-only dist_key_size: a PMD block with dist_key_size 56 is created; the
+  // read-back (observation) drops dist_key_size, so it equals the plain PMD
+  // observation — the write-only law the replay checks (dpni-typestate design D4).
+  run scenarioWriteOnlyDistKeySizeTest =
+    init
+      .then(createRawAt(profileCfg(ProfilePmd).with("distKeySize", 56)))
+      .expect(and {
+        world.lastOutcome == Accepted,
+        match world.dpni {
+          | Created(cfg) => cfg.distKeySize == 56
+          | Absent => false
+        },
+      })
+
+  // primary-MAC mutation: create the PMD dpni, then set the primary MAC; the
+  // create block is untouched, only the runtime MAC moves (dpni-typestate design D1).
+  run scenarioPrimaryMacMutationTest =
+    init
+      .then(createDerivedAt(UserspacePoll, PhysicalPort))
+      .then(setPrimaryMacTo(SAMPLE_MAC))
+      .expect(and {
+        world.lastOutcome == Accepted,
+        world.dpni == Created(profileCfg(ProfilePmd)),
+        world.primaryMac == SAMPLE_MAC,
+      })
+}
