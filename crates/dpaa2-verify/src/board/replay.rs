@@ -70,6 +70,7 @@ fn project(v: &ModelView) -> ObservedTopology {
                 mac: None,
                 netdev: d.bound.then(|| format!("eth{n}")),
                 attributes: BTreeMap::new(),
+                cfg_observation: None,
             })
             .collect(),
         dpmacs: v
@@ -96,8 +97,9 @@ fn deltas(prev: &ModelView, next: &ModelView, port: u32) -> Option<Transition> {
                     port: anchor,
                     label: ConstructName::from(RETRO_PORT_NAME),
                     // The retro traces replay the port-only projection, whose plan facet
-                    // is unsized (0), matching what `reconcile` emits for a `from_ports`.
-                    num_queues: 0,
+                    // is unsized (`DpniCfg::defaults()`, num_queues 0), matching what
+                    // `reconcile` emits for a `from_ports` (dpni-typestate task 4.1).
+                    cfg: dpaa2_api::families::dpni::DpniCfg::defaults(),
                 });
             }
             Some(p) => {

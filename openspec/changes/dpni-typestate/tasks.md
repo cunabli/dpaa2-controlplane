@@ -33,7 +33,7 @@ shim, verify, board, close-out. One bead at a time through acceptance.
 
 ## 4. Southbound shim
 
-- [ ] 4.1 restool shim dpni create at full option granularity (computed
+- [x] 4.1 restool shim dpni create at full option granularity (computed
   raw mask only), primary-MAC set, observation mapping of the
   `dpni_attr` asymmetries
 - [ ] 4.2 `observe_container(id)` beside the enumerate verb; planning
