@@ -6,4 +6,5 @@
 //! path — `families/dprc.rs` twins `models/families/dprc.qnt` (the ADR-0014
 //! quint mirror).
 
+pub mod dpni;
 pub mod dprc;

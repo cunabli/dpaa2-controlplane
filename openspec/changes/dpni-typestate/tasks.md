@@ -13,7 +13,7 @@ shim, verify, board, close-out. One bead at a time through acceptance.
 
 ## 2. Core typestates
 
-- [ ] 2.1 `dpaa2_api::families::dpni` create-surface typestates:
+- [x] 2.1 `dpaa2_api::families::dpni` create-surface typestates:
   `dpni_cfg` as immutable type parameter, refined range types, typed
   option set with provenance-carrying raw-mask constructor; runtime
   state slot holding the primary MAC
