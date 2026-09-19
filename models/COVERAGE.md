@@ -360,8 +360,12 @@ typestates grow: the twelve live options stay in their restool ranges, the two
 board-verified consumer profiles are total over the intent vocabulary, the
 eleven dead options and `num_rx_tcs` are unrepresentable, and `dist_key_size` is
 write-only. Each is a named invariant in the module header and checked on the
-model ladder; the four are the `stateInvariants` conjunction, Apalache-marked
+model ladder; the six are the `stateInvariants` conjunction, Apalache-marked
 under `pnpm model:verify` per the DoD model gate (dpni-typestate design D8).
+The two observation laws entered at the task-5.2 sitting (bead
+dpaa2-controlplane-guu.8): the MC silently clears two option bits and couples
+the sizing fields to their gating flags, so `observe` predicts the board
+read-back, not the request.
 Anchored to the baseline the module traces (`docs/baseline/dpni.md`) and the
 ADR-0002 structural-isomorphism law — the same honesty mechanism the candidate
 ledger applies to the family invariants. The write-only law is DPNI-I12's model
@@ -372,4 +376,6 @@ face; its candidate row above now reads `modeled`.
 | Create-range refusal | CreateRangeRefusal | apalache | dpni.md "Option inventory" ranges; dpni-typestate design D2 |
 | Profile totality | ProfileTotality | apalache | dpni.md "Intent mapping"; ADR-0012; dpni-typestate design D3 |
 | Dead-option parity | DeadOptionParity | apalache | dpni.md "Dead options"/"Never settable"; dpni-typestate design D2 |
-| Write-only field law | WriteOnlyDistKeySize | apalache | dpni.md "Attribute mutability" (DPNI-I12); dpni-typestate design D4 |
+| Write-only field law | WriteOnlyDistKeySize | apalache | dpni.md "Attribute mutability" (DPNI-I12); dpni-typestate design D4; verified (V-DPNI-8, 2026-09-19) |
+| Cleared-bits observation | McClearedFlags | apalache | dpni.md "Option inventory" (#6/#8 outcomes queued, bead dpaa2-controlplane-guu.9); verified (V-DPNI-7/V-DPNI-9, 2026-09-19) |
+| Sizing-coupling observation | SizingCoupledToFlags | apalache | dpni.md "Option inventory" (#3 outcome queued, bead dpaa2-controlplane-guu.9); verified (V-DPNI-5/V-DPNI-8, 2026-09-19) |

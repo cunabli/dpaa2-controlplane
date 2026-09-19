@@ -254,6 +254,19 @@
       "refusals": []
     }
   },
+  "V-DPNI-10": {
+    "V-DPNI-10": {
+      "pass": true,
+      "date": "2026-09-19",
+      "kind": "batch",
+      "revision": 1,
+      "steps": "2/2",
+      "source_hash": "fnv1a64:e8a2c67c68158f58",
+      "hook": "1/1",
+      "archive": null,
+      "refusals": []
+    }
+  },
   "V-DPNI-2": {
     "V-DPNI-2/probes-rev1": {
       "pass": true,
@@ -277,6 +290,104 @@
       "source_hash": "fnv1a64:2642e5bd2b236f1a",
       "hook": "2/4",
       "archive": "~/dpaa2-board-evidence/verify-foundation-2026-08-30.tar.gz",
+      "refusals": []
+    }
+  },
+  "V-DPNI-5": {
+    "V-DPNI-5": {
+      "pass": true,
+      "date": "2026-09-19",
+      "kind": "batch",
+      "revision": 1,
+      "steps": "2/2",
+      "source_hash": "fnv1a64:4482bc8bf6371756",
+      "hook": "6/6",
+      "archive": null,
+      "refusals": []
+    }
+  },
+  "V-DPNI-6": {
+    "V-DPNI-6": {
+      "pass": true,
+      "date": "2026-09-19",
+      "kind": "batch",
+      "revision": 1,
+      "steps": "2/2",
+      "source_hash": "fnv1a64:f5d3079aa8793971",
+      "hook": "3/3",
+      "archive": null,
+      "refusals": []
+    }
+  },
+  "V-DPNI-7": {
+    "V-DPNI-7-rev2": {
+      "pass": true,
+      "date": "2026-09-19",
+      "kind": "batch",
+      "revision": 2,
+      "steps": "2/2",
+      "source_hash": "fnv1a64:2332cc9d78f21901",
+      "hook": null,
+      "archive": null,
+      "refusals": []
+    },
+    "V-DPNI-7/transcript": {
+      "pass": true,
+      "date": "2026-09-19",
+      "kind": "trace",
+      "revision": 1,
+      "steps": "2/2",
+      "source_hash": "fnv1a64:019ee29b3f85b7e1",
+      "hook": null,
+      "archive": null,
+      "refusals": []
+    }
+  },
+  "V-DPNI-8": {
+    "V-DPNI-8-rev2": {
+      "pass": true,
+      "date": "2026-09-19",
+      "kind": "batch",
+      "revision": 2,
+      "steps": "1/1",
+      "source_hash": "fnv1a64:5cd2f7fdd1cfa3cc",
+      "hook": "3/3",
+      "archive": null,
+      "refusals": []
+    },
+    "V-DPNI-8/transcript": {
+      "pass": true,
+      "date": "2026-09-19",
+      "kind": "trace",
+      "revision": 1,
+      "steps": "1/1",
+      "source_hash": "fnv1a64:11e10aa111c5d997",
+      "hook": null,
+      "archive": null,
+      "refusals": []
+    }
+  },
+  "V-DPNI-9": {
+    "V-DPNI-9-rev2": {
+      "pass": true,
+      "date": "2026-09-19",
+      "kind": "batch",
+      "revision": 2,
+      "steps": "1/1",
+      "source_hash": "fnv1a64:20f45e5edb09f776",
+      "hook": null,
+      "archive": null,
+      "refusals": []
+    },
+    "V-DPNI-9/transcript": {
+      "pass": true,
+      "date": "2026-09-19",
+      "kind": "trace",
+      "revision": 1,
+      "steps": "1/1",
+      "source_hash": "fnv1a64:bd3276cb2f5c349e",
+      "hook": null,
+      "archive": null,
       "refusals": []
     }
   },

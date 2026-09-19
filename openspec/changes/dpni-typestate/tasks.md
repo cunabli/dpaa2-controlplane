@@ -47,7 +47,7 @@ shim, verify, board, close-out. One bead at a time through acceptance.
   probes (#3), `HAS_REPLICATION` accept/reject (#8), unread-flag probes
   (#6), primary-MAC mutation — scratch-first, self-cleaning, reference
   pair asserted
-- [ ] 5.2 Board sitting: batch suite extending the V-DPNI series plus
+- [x] 5.2 Board sitting: batch suite extending the V-DPNI series plus
   the online-MBT per-step learning session; results diffed clean or
   divergences fed back to the model
 

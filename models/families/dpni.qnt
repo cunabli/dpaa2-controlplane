@@ -69,16 +69,23 @@ module dpni {
     Set(SingleSender, CustomCg, HasKeyMasking, HasOpr, OprPerTc,
         TxFrmRelease, HasPolicing, SharedCongestion, NoMacFilter, StashingDis)
 
-  // The raw-mask escape, a first-class provenance-carrying constructor, not a
+  // The raw-mask escapes, first-class provenance-carrying constructors, not a
   // backdoor (dpni-typestate design D2). restool's --options parser falls back to strtoull, so
   // dprc-script passes 0x80000000 (PFDR_IN_PEB) — deployed and working, never
   // named in any header (baseline "Option inventory"/"--options parsing", and
-  // unknown-register #10).
+  // unknown-register #10), and it persists bit-exact on read-back (board-verified
+  // V-DPNI-5, 2026-09-19). 0x4000 (HAS_REPLICATION) rides restool's strtoull map
+  // the same way but the MC silently clears it on create (board-verified V-DPNI-9,
+  // 2026-09-19); it is carried here as an escape, not DpniOpt vocabulary, so a
+  // create can request it and the observation law (McClearedFlags) predicts its
+  // erasure. Clearing is per-bit, not a raw-bits rule: 0x80000000 survives while
+  // 0x4000 does not.
   type RawEscape =
-    | PfdrInPeb           // 0x80000000, deployed [verified in use], unnamed in headers
+    | PfdrInPeb           // 0x80000000, deployed [verified in use], persists on read-back (V-DPNI-5)
+    | HasReplication      // 0x4000, restool-mapped, MC silently clears (V-DPNI-9, 2026-09-19)
 
   pure def rawValue(e: RawEscape): int =
-    match e { | PfdrInPeb => 2147483648 }   // 0x80000000
+    match e { | PfdrInPeb => 2147483648 | HasReplication => 16384 }   // 0x80000000, 0x4000
 
   // The options mask: a typed set over the MC vocabulary plus the raw escapes.
   // The shim emits the raw mask it computed itself, never operator tokens
@@ -198,10 +205,15 @@ module dpni {
 //   DeadOptionParity    the eleven dead options and num_rx_tcs never ride an
 //                       accepted create (unrepresentable by construct, dpni-typestate design D2);
 //   WriteOnlyDistKeySize dist_key_size participates in create, never in
-//                       observation (dpni-typestate design D4; DPNI-I12).
-// Apalache-marked subset: the stateInvariants conjunction — all four
-// (create-range and dead-parity are state-expressible over world; totality
-// and write-only are finite-quantified constants), per the DoD model gate.
+//                       observation (dpni-typestate design D4; DPNI-I12);
+//   McClearedFlags      observation is invariant under the bits the MC silently
+//                       clears — SHARED_CONGESTION and raw 0x4000 (V-DPNI-7/9);
+//   SizingCoupledToFlags without CUSTOM_CG num_cgs observes 1, without HAS_OPR
+//                       num_opr observes 0 (V-DPNI-8).
+// Apalache-marked subset: the stateInvariants conjunction — all six
+// (create-range and dead-parity are state-expressible over world; totality,
+// write-only, cleared-flags and sizing-coupling are finite-quantified
+// constants), per the DoD model gate.
 module dpni_lifecycle {
   import intent_types.* from "../intent/types"
   import dpni.*
@@ -239,22 +251,45 @@ module dpni_lifecycle {
     numCgs: int, numCeetmCh: int, numOpr: int,
   }
 
+  // The bits the MC silently clears on a bare create (board-verified V-DPNI-7 rev 2
+  // + V-DPNI-9 rev 2, 2026-09-19): SHARED_CONGESTION (0x8, a named flag) and the
+  // raw 0x4000 HAS_REPLICATION escape. The create is accepted rc=0 with no refusal,
+  // yet the bits are absent from the dpni_attr.options read-back — so observation
+  // must strip them, not echo them.
+  pure val MC_CLEARED_FLAGS: OptionMask =
+    { flags: Set(SharedCongestion), escapes: Set(HasReplication) }
+
+  pure def clearMcBits(m: OptionMask): OptionMask = {
+    flags: m.flags.exclude(MC_CLEARED_FLAGS.flags),
+    escapes: m.escapes.exclude(MC_CLEARED_FLAGS.escapes),
+  }
+
+  // Observation predicts the board read-back, not the request (board-verified
+  // V-DPNI-5/7/8/9, 2026-09-19): the cleared bits are stripped, num_cgs is honored
+  // only under CUSTOM_CG (else the MC forces 1), and num_opr is observed only under
+  // HAS_OPR (else 0; under HAS_OPR an unset request fills the MC default 8, V-DPNI-5).
   pure def observe(cfg: CreateCfg): Observation = {
-    options: cfg.options,
+    options: clearMcBits(cfg.options),
     numQueues: cfg.numQueues, numTcs: cfg.numTcs,
     macFilterEntries: cfg.macFilterEntries, vlanFilterEntries: cfg.vlanFilterEntries,
     qosEntries: cfg.qosEntries, fsEntries: cfg.fsEntries,
-    numCgs: cfg.numCgs, numCeetmCh: cfg.numCeetmCh, numOpr: cfg.numOpr,
+    numCgs: if (cfg.options.flags.contains(CustomCg)) cfg.numCgs else 1,
+    numCeetmCh: cfg.numCeetmCh,
+    numOpr: if (cfg.options.flags.contains(HasOpr))
+              (if (cfg.numOpr == 0) 8 else cfg.numOpr) else 0,
   }
 
   // ---- the unrepresentable options (dpni-typestate design D2; baseline dead/never-settable) ----
 
   // The eleven dead options — create-time --mac-addr and the ten v9-era --max-*
   // flags (baseline "Dead options") — plus num_rx_tcs, wired into the MC command
-  // but writable by no restool option (baseline "Never settable"). None has a
-  // field in CreateCfg: they are unrepresentable by construct. The enumeration
-  // exists so a refusal names each one and the dpni-typestate design-D11 parity rows stay
-  // two-sided (dpni-typestate design D2, the vocabulary-v2 parity precedent).
+  // but writable by no restool option (baseline "Never settable"). num_rx_tcs is a
+  // read-only echo of num_tcs on the board: 8 on the 16-TC PMD create (V-DPNI-5)
+  // and 1 on the 1q/1tc kernel create (V-DPNI-6), 2026-09-19 — never settable, so
+  // it stays in this parity class. None has a field in CreateCfg: they are
+  // unrepresentable by construct. The enumeration exists so a refusal names each
+  // one and the dpni-typestate design-D11 parity rows stay two-sided (dpni-typestate
+  // design D2, the vocabulary-v2 parity precedent).
   type Unrepresentable =
     | MacAddrCreate
     | MaxSenders
@@ -416,7 +451,8 @@ module dpni_lifecycle {
   // WriteOnlyDistKeySize — dist_key_size participates in create but never in
   // observation: the observation of a create block is invariant under any
   // in-range dist_key_size, so the reconciler cannot detect drift on it
-  // (dpni-typestate design D4; baseline "Attribute mutability", DPNI-I12).
+  // (dpni-typestate design D4; baseline "Attribute mutability", DPNI-I12;
+  // board-verified V-DPNI-5, 2026-09-19 — dpni_attr carries no dist_key_size slot).
   pure val DIST_KEY_SIZES: Set[int] = Set(0, 1, 24, 56)
 
   val WriteOnlyDistKeySize: bool =
@@ -424,14 +460,54 @@ module dpni_lifecycle {
       observe(profileCfg(ProfilePmd).with("distKeySize", a))
         == observe(profileCfg(ProfilePmd).with("distKeySize", b))))
 
+  // McClearedFlags — the MC silently clears SHARED_CONGESTION and the raw 0x4000
+  // HAS_REPLICATION on create (board-verified V-DPNI-7 rev 2: requested 0xd read
+  // back 0x5; V-DPNI-9 rev 2: requested 0x4000 read back 0x0, 2026-09-19). The
+  // observation of a create block is invariant under adding or removing those
+  // bits, so — exactly as with dist_key_size — the reconciler cannot detect drift
+  // on them (mirror of WriteOnlyDistKeySize; dpni-typestate design D2/D4). Base is
+  // the V-DPNI-7 residue TX_FRM_RELEASE + HAS_POLICING (0x5); the four masks differ
+  // only in the two cleared bits.
+  pure val CLEARED_VARIANT_MASKS: Set[OptionMask] = Set(
+    { flags: Set(TxFrmRelease, HasPolicing), escapes: Set() },
+    { flags: Set(TxFrmRelease, HasPolicing, SharedCongestion), escapes: Set() },
+    { flags: Set(TxFrmRelease, HasPolicing), escapes: Set(HasReplication) },
+    { flags: Set(TxFrmRelease, HasPolicing, SharedCongestion), escapes: Set(HasReplication) })
+
+  val McClearedFlags: bool =
+    CLEARED_VARIANT_MASKS.forall(a => CLEARED_VARIANT_MASKS.forall(b =>
+      observe(profileCfg(ProfileKernel).with("options", a))
+        == observe(profileCfg(ProfileKernel).with("options", b))))
+
+  // SizingCoupledToFlags — two sizing fields are silently coupled to their option
+  // flags (board-verified V-DPNI-8 rev 2, 2026-09-19): num_cgs is observed only
+  // under CUSTOM_CG (else the MC forces 1 for every requested 1/8/24/64/128) and
+  // num_opr only under HAS_OPR (else 0/label-absent for every requested 1/16/128).
+  // With the gating flag absent, the observation is invariant under the requested
+  // value — so, like the write-only fields, the reconciler cannot detect drift on
+  // them. The Kernel profile carries neither flag, so it is the without-flag base.
+  pure val NUM_CGS_DRAWS: Set[int] = Set(1, 8, 24, 64, 128)
+  pure val NUM_OPR_DRAWS: Set[int] = Set(1, 16, 128)
+
+  val SizingCoupledToFlags: bool = and {
+    NUM_CGS_DRAWS.forall(a => NUM_CGS_DRAWS.forall(b =>
+      observe(profileCfg(ProfileKernel).with("numCgs", a))
+        == observe(profileCfg(ProfileKernel).with("numCgs", b)))),
+    NUM_OPR_DRAWS.forall(a => NUM_OPR_DRAWS.forall(b =>
+      observe(profileCfg(ProfileKernel).with("numOpr", a))
+        == observe(profileCfg(ProfileKernel).with("numOpr", b)))),
+  }
+
   // The Apalache/simulator conjunction (pnpm model:simulate / model:verify pass
-  // --invariant=stateInvariants): all four named invariants, marked per the DoD
+  // --invariant=stateInvariants): all six named invariants, marked per the DoD
   // model gate (dpni-typestate design D8).
   val stateInvariants: bool = and {
     CreateRangeRefusal,
     ProfileTotality,
     DeadOptionParity,
     WriteOnlyDistKeySize,
+    McClearedFlags,
+    SizingCoupledToFlags,
   }
 
   // A stutter-check step for directed runs.
@@ -515,6 +591,22 @@ module dpni_lifecycle {
 
   // The write-only law: observation is invariant under dist_key_size.
   run writeOnlyDistKeySizeTest = init.then(check(WriteOnlyDistKeySize))
+
+  // The cleared-flags law: observation is invariant under the silently-cleared bits.
+  run mcClearedFlagsTest = init.then(check(McClearedFlags))
+
+  // The sizing-coupling law: without the gating flag, observation is invariant
+  // under the requested num_cgs / num_opr.
+  run sizingCoupledToFlagsTest = init.then(check(SizingCoupledToFlags))
+
+  // The with-flag read-back the coupling gates on (board-verified V-DPNI-5,
+  // 2026-09-19): the PMD block rides CUSTOM_CG and HAS_OPR, so num_cgs is honored
+  // (24) and the unset num_opr fills the MC default 8.
+  run sizingUnderFlagsTest =
+    init.then(check(and {
+      observe(profileCfg(ProfilePmd)).numCgs == 24,
+      observe(profileCfg(ProfilePmd)).numOpr == 8,
+    }))
 }
 
 // The frozen-trace scenario twin (dpni-typestate task 5.1, dpni-typestate design D8): the

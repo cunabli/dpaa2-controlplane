@@ -12,7 +12,7 @@ holding its scenario module, frozen trace and generated
 `.sh`/`.plan.json`, committed together with this ledger; result files
 stay under `results/` (gitignored — operator material).
 
-Online-driver suites (task 5.4 onward) come in a second shape: a
+Online-driver suites (verify-foundation task 5.4 onward) come in a second shape: a
 hand-authored **probe plan** (`probes.json`) beside — or instead of — a
 driven trace, for the steps a trace cannot express (refusals are
 disabled actions, write-only state has no expected observation). Probe
@@ -39,14 +39,14 @@ diff` and read by the ledger lint, so a status cell here or a "verified
 |---|---|---|
 | V-RECOVERY-1 | `recovery.qnt` | **passed** 2026-08-23 — recovery diff clean, all steps conform |
 | V-DPRC-1 | `vdprc1.qnt` | **diverged twice**, model amended each time (ADR-0007). Rev 1 2026-08-23: sibling move refused → single-hop law. Rev 2 2026-08-23: anchored the two-hop route and the `dprc unassign` rendering, but standalone destroy of the moved dpni hit MC "No privilege" (restool exited 0 — read-back caught it) and the container destroy *evicted* its foreign resident instead of cascading → creator-bound destroy authority + release/evict by ownership; rev 2 left an ownerless dpni in dprc.1 that only a reboot clears. Rev 3 (repatriation route) **passed** 2026-08-23, 13/13: both unassign/assign directions exercised twice, repatriation restored destroy authority (ADR-0007 §2's positive anchor), and owned-resident release re-anchored with a dpbp |
-| V-DPNI-1 | `vdpni1.qnt` | **passed** 2026-08-23 — destroy-while-plugged of a child-container dpni succeeded, confirming the in_use-blindness law. The suite probes only `dprc show`, so the bare create's defaults were never read back and DPNI-I7 stays open (ledger pass, task 5.6) |
+| V-DPNI-1 | `vdpni1.qnt` | **passed** 2026-08-23 — destroy-while-plugged of a child-container dpni succeeded, confirming the in_use-blindness law. The suite probes only `dprc show`, so the bare create's defaults were never read back and DPNI-I7 stays open (ledger pass, verify-foundation task 5.6) |
 | V-LIFE-DPNI-1 | `vlife_dpni1.qnt` | **passed** 2026-08-23 — kernel bound the dpni through the §5 canonical order; census draw satisfied (positive face of DPBP-I4) |
 | V-LIFE-DPIO-1 | `vlife_dpio1.qnt` | **passed** 2026-08-23 (rev 2), 6/6 under ADR-0008 — the kernel binds one dpio per CPU and the boot layout fills every seat, so a dpio created at runtime never binds; the probe fails inside the kernel and leaves nothing drawn. Rev 1 diverged only in the harness: the model expected a bind, and the teardown leaked the plugged dpmcp companion because restool refuses to unplug a driver-bound object and the refusal went to /dev/null. Both fixed; rev 2 left no residue and the companion was reclaimed cleanly |
 | V-LIFE-DPSECI-1 | `vlife_dpseci1.qnt` | **passed** 2026-08-23 (rev 2), 6/6 under ADR-0008 — the crypto-API algorithm names are one global namespace and the boot-time dpseci claims them, so every later dpseci is refused its registrations and stays unbound for the rest of that boot. Rev 1 never got that far: `dpseci create` mandates `--num-queues` and `--priorities` together, so the bare create was refused. Regenerated with restool's own example pair, 2 queues at priorities 2,4. Teardown residue fixed with V-LIFE-DPIO-1's; rev 2 clean |
 | V-LIFE-DPDMAI-1 | `vlife_dpdmai1.qnt` | **passed** 2026-08-23 (rev 2), 6/6 under ADR-0008 — the reference kernel registers no qdma driver at all, so nothing ever claims a dpdmai; the unbound read-back is the conforming answer, not a gap in how the kernel handles MC defaults. It settles nothing about the defaults themselves: the suite probes only `dprc show`, so DPDMAI-I5's MC-chosen queue count is unread, and DPDMAI-I3's consumer-shape coupling is unfalsifiable with no consumer (ledger pass, task 5.6). Rev 1 diverged only on the model's bind expectation and leaked its dpmcp companion through the same teardown hole; both fixed, rev 2 clean |
 | V-LIFE-DPDCEI-1 | `vlife_dpdcei1.qnt` | **passed** 2026-08-23 (rev 2), 5/5 — create, plug and destroy of a dpdcei in a scratch container, no driver to await. Rev 1 failed at the restool layer, not the MC: there is no bare `dpdcei create`, since restool mandates `--engine` and `--priority`. Regenerated with an explicit DPDCEI_ENGINE_DECOMPRESSION at priority 1 |
 | V-DPCI-1 | `vdpci1.qnt` | **passed** 2026-08-23 (rev 2), 7/7 — answers dpci.md unknown #2: the MC destroys a connected dpci without demanding a disconnect first, the edge dying with the object as the model assumed, and the connect itself is legal while both endpoints are unplugged. Rev 1 diverged twice over: the connect was issued on the scratch container the pair lives in and the MC refused it with No privilege, which anchored the topology-changes option-bit finding (connects now render against the root ancestor); and the conforming rev-2 connect was then scored wrong by a read-back parser that knew only one family's wording for the peer line |
-| V-DPSW-1 | `vdpsw1.qnt` | **passed** 2026-08-23 (batch 3), 9/9 — the switch driver does take a dpsw created at runtime, but only one built in the shape it accepts: control interface on, flooding and broadcast both scoped per FDB. Those are not restool's silent defaults — the driver code refuses the default shape at probe — so the create carries them explicitly; the refusal itself was never issued on the board and stays a code-derived prediction (ledger pass, task 5.6). The census drew the created dpmcp and dpbp companions rather than any boot resident, and the connect read back through the per-interface dialect |
+| V-DPSW-1 | `vdpsw1.qnt` | **passed** 2026-08-23 (batch 3), 9/9 — the switch driver does take a dpsw created at runtime, but only one built in the shape it accepts: control interface on, flooding and broadcast both scoped per FDB. Those are not restool's silent defaults — the driver code refuses the default shape at probe — so the create carries them explicitly; the refusal itself was never issued on the board and stays a code-derived prediction (ledger pass, verify-foundation task 5.6). The census drew the created dpmcp and dpbp companions rather than any boot resident, and the connect read back through the per-interface dialect |
 | V-DPDMUX-1 | `vdpdmux1.qnt` | **passed** 2026-08-23 (rev 2, batch 3), 7/7 — the evb driver takes a runtime dpdmux and gates only on the object's API version, so no create-time configuration is at stake; the uplink-to-dpmac connect was clean. Rev 1's own face passed too, but its unspaced teardown reproducibly tripped the ADR-0008 rescan race: three boot residents silently unbound in one scan window — the boot dpni among them, which took the management interface down — plus a boot dpmcp fully removed and re-added. A settle after each destroy removed every marker and every casualty in rev 2 |
 | V-LINK-1 | `vlink1.qnt` | **passed** 2026-08-23 (batch 4), 4/4 — answers dpci.md unknown #1 and settles DPCI-I5: a restool-created dpci pair reads `link status: 0 - down` right after the connect, with the peer named and the peer's priorities visible. The edge is up and the link is not; the connect carries no link state and restool, which has no enable verb for this family, can never raise it — link-up is the consumer's to grant |
 | V-LINK-2 | `vlink2.qnt` | **passed** 2026-08-24 (rev 3, batch 4), 16/16 — the first suite to flap a wired dpmac. With a real cable pull, `dpni info`'s `link status:` tracked PHY reality down and back up, and since every kernel link push carries `state_valid=0`, that answers dpmac.md unknown #2 on the kernel path: the `up` bit does take effect, with propagation lag. Revs 1 and 2 both read a stale `up` at the flap-down step, for two causes the bench work separated: an admin-down of the peer's interface never drops the light it transmits, so only pulling the cable is a link-down stimulus on this wiring; and the MC-visible link state lags the local carrier flag, so a probe fired the moment the operator acknowledges reads the old answer. Rev 3's acknowledgments require the carrier flag and the restool read-back to agree before continuing; the post-sitting census was clean at the 97-object baseline, so the teardown reclaimed the full scratch set. Evidence probes also caught both endpoint lines' `, link is up/down` text co-varying with the flap while the connection edge itself persisted — DPMAC-I5's law stands, its assumed independence from link state does not |
@@ -92,6 +92,12 @@ diff` and read by the ledger lint, so a status cell here or a "verified
 | V-DPRC-11 | `probes.json` + `intent-a.toml`/`intent-b.toml` (online driver + `dpaa2ctl`) | **passed** 2026-09-14 (rev 1), 12/12 (dprc-encapsulation task 5.4, bead dpaa2-controlplane-cd3.13) — DPRC-I9 teardown liveness under reconciler-generated plans on a POPULATED remainder (V-DPRC-9 pruned an empty container). A foreign restool dpbp landed in the reconciler's own labelled container; the prune dry-run still classified it `PruneCandidateFull` matched `[Label, OptionsMask, Placement]` with predicted post-state "Destroyed, parent gains 0 residents" — correct under the release law: a CreatedIn resident is released with the container, not evicted (ADR-0007 §3). The prune ensure destroyed it in one cascade (`destroyed undeclared child dprc container id=dprc.2`), no explicit empty leg — consistent with V-DPRC-7 rev 1's cascade-destroy finding; child absent in read-back, censuses identical, `bp` flat 63, `mcp` flat 202 |
 | V-DPRC-12 | `probes.json` + `intent.toml` (online driver, `drive --probes`) | **passed** 2026-09-14 (rev 1), 17/17 (dprc-encapsulation task 5.4, bead dpaa2-controlplane-cd3.13) — DPRC-I11 restool-reachable lock remainder beyond V-DPRC-3 rev 2. Under `set-locked 1` from the root portal: a dpbp create into the locked child is refused **No privilege (0x4)** — the status the register had no create-under-lock row for, now on record (baseline row carried to task 6.1 with dprc-encapsulation) — and `assign --plugged=1` on the pre-lock dpbp is refused No privilege (0x4) as predicted (`dprc.qnt` `lockStripsCreateTest`/`lockRefusesPlugTest`). The locked fingerprint read back through the shipped `dpaa2ctl dry-run --prune` (`PruneCandidateFull` matched `[Label, OptionsMask, Placement]`, commit 0b07112's real mask read-back) — reads survive the lock, and noteworthy: lock state is no part of the prune fingerprint, so a locked candidate still plans its destroy. `set-locked 0` restored both classes (create and plug succeeded, `unlockRestoresTest`); censuses clean; `mcp` 203 → 202 across this sitting's create/destroy cycle (the known one-portal ADR-0011 datum, recorded not judged; it then stayed flat at 202 through V-DPRC-11 and V-DPRC-10). The child-portal unlock face stayed #10-deferred, never probed (session-log grep clean) |
 | V-DPRC-13 | `V-DPRC-13.sh` (hand-authored) | **passed** 2026-09-15 (rev 1) (dprc-hardening task 2.1, bead dpaa2-controlplane-am0.2) — OI-3 / PASS3-F13-OQ, the prune-scan dpmcp-budget question. All five `mcp` censuses read **203**: baseline, after each of the three trivial read-only `restool dprc show` spawns, and post-settle — flat everywhere, including across the census spawns themselves (the stronger no-leak reading), dmesg quiet (start marker only). Verdict: **no per-boot budget draw** — a serial restool spawn returns its portal, so the observation seam's 1+2N spawns per `ensure` (review synthesis M12/OI-3) are latency, not resource exhaustion; the tile-#5 seam bead's leak contingency did not fire. Consistent with the recorded knowledge: `docs/baseline/dprc.md`'s opener-draw fact is scoped to *concurrent* openers, and V-DPDBG-2 already saw `mcp` flat 203 → 203 on a boot with no container cycle. The sitting created and destroyed nothing (no scratch child, no lock), so the ADR-0011 one-portal-per-container-cycle confound (mcp 203 → 202) had no trigger. Evidence in the operator archive (results dir `V-DPRC-13-rev1`, gitignored; board git-rev 959c634, MC 10.39.0, kernel 6.6.52). OI-1 (the duplicate-id-under-lock ordering, PASS2-F5) rode this task but was adjudicated **off-board**: a duplicate id is not constructible through restool — no create verb pins an object id and ids mint lowest-free in one global namespace per family (ADR-0010), so the MC's duplicate check is never reached — resolved by quint directed evidence plus a note on ADR-0002 (2026-09-15) rather than a sitting |
+| V-DPNI-5 | `vdpni5.qnt` + `readback.sh` (suite hook) | **passed** 2026-09-19 (rev 1), 2/2 + hook 7 PASS / 3 RECORD (dpni-typestate task 5.2, bead dpaa2-controlplane-guu.8) — the PMD option profile at full granularity: the requested mask read back **bit-exact at 0x800003d0**, the undefined raw 0x80000000 bit included — an undefined bit *persists*, and restool's `dpni info` prints "Unrecognized options found..." for it, a label for the unnameable bit, not an error. `num_cgs=24` honored under CUSTOM_CG, 16 queues / 16 tx TCs, vlan/qos/fs entries as requested. RECORDed: `num_rx_tcs` reads **8** against 16 requested TCs — the never-settable asymmetry board-witnessed (dpni.md #12, DPL route #14); `num_opr` defaults to 8 under HAS_OPR with no request; `mac_entries` 16, corroborating V-READBACK-1's bare-dpni finding |
+| V-DPNI-6 | `vdpni6.qnt` + `readback.sh` (suite hook) | **passed** 2026-09-19 (rev 1), 2/2 + hook (dpni-typestate task 5.2, bead dpaa2-controlplane-guu.8) — the kernel option profile: mask 0x10 (HAS_KEY_MASKING only), 1 queue / 1 tx TC / 1 rx TC as requested, `num_cgs` 1 bare. The second of the two production profiles round-trips exactly (dpni-typestate design D3) |
+| V-DPNI-7 | `vdpni7.qnt` + `readback.sh` (suite hook) | rev 1 (online `drive --trace`) **vacuous for the probe** 2026-09-19: both trace steps passed, but suite hooks are batch-only — the driver never ran `readback.sh`, so unknown #6's observation half went unasked, and `drive --trace` has no teardown phase, leaving the scratch standing (bead dpaa2-controlplane-4nx; operator cascade-destroy reclaimed it, V-DPRC-7's cascade shape re-confirmed in passing). **passed** 2026-09-19 (rev 2, batch), 2/2 + hook — dpni.md unknown #6 answered: requested 0xd (TX_FRM_RELEASE, HAS_POLICING, SHARED_CONGESTION) reads back **0x5** — the MC silently **clears SHARED_CONGESTION (0x8)** on a bare create; restool passed the named flag (dpni_commands.c option map, exit 0, stderr empty), so the clearing is the MC's. TX_FRM_RELEASE and HAS_POLICING persist. Model amended: cleared-flags observation law (dpni-typestate task 5.2) |
+| V-DPNI-8 | `vdpni8.qnt` + `sizing.sh` (suite hook) | rev 1 (online) **vacuous** as V-DPNI-7's. **passed** 2026-09-19 (rev 2, batch), 1/1 + hook walks — dpni.md unknown #3's semantics: without CUSTOM_CG, `num_cgs` is **silently forced to 1** at every requested value 1/8/24/64/128 — no refusal anywhere, even at restool's ceiling — while V-DPNI-5 shows 24 honored under CUSTOM_CG: the flag gates the field. `num_opr` reads 0/label-absent without HAS_OPR at 1/16/128 — HAS_OPR gates it (V-DPNI-5: default 8 under the flag). `dist_key_size` absent from `dpni info` at 1/24/56 — DPNI-I12's write-only law board-confirmed. Model amended: sizing-coupling observation law |
+| V-DPNI-9 | `vdpni9.qnt` + `replication.sh` (suite hook) | rev 1 (online) **vacuous** as V-DPNI-7's. **passed** 2026-09-19 (rev 2, batch), 1/1 + hook — dpni.md unknown #8 answered: raw 0x4000 (the manual's HAS_REPLICATION) is **accepted and cleared** — create rc 0, object present, mask reads back **0** — not refused. Contrast V-DPNI-5's persisting 0x80000000: the MC clears per-bit, not by any raw-bits rule; 0x4000 joins SHARED_CONGESTION in the cleared set (model's cleared-flags law). Sitting-wide: `mcp` 203 → 200 across the sitting, three online-session container cycles standing until reboot — the third corroboration of ADR-0011's one-portal-per-container-cycle shape; the closing snapshot's only delta against the opener (board otherwise clean) |
+| V-DPNI-10 | `vdpni10.qnt` + `mac.sh` (suite hook) | **passed** 2026-09-19 (rev 1), 2/2 + hook (dpni-typestate task 5.2, bead dpaa2-controlplane-guu.8) — the primary-MAC mutation, the one runtime setter restool drives (design D1): the bare create's primary MAC reads all-zeros; the update to the suite's locally-administered test address reads back exact. MAC-only drift is board-mutable in place, corroborating the reconciler's mutate-vs-recreate split (task 2.2) |
 
 V-LIFE-DPNI-1 carries the "per-family lifecycle scenarios" of design
 D7 (ADR-0005) step 2 for the dpni family: the §5 canonical order through the
@@ -111,20 +117,20 @@ design D9; ADR-0006):
 
 | Scenario | Why deferred | Where it goes |
 |---|---|---|
-| V-DPNI-2 | attribute read-back (num_queues ceiling) and the dead-option *exit-shape* probe (DPNI-I6 inversion) | landed as `V-DPNI-2/probes.json` (task 5.9), ran 2026-08-29 |
-| V-DPNI-4 | raw command via `/dev/dprc.N` | kernel patch or VFIO transport (#10): the command is outside the `/dev/dprc.N` whitelist (`docs/baseline/mc-ioctl-policy.md` §3, task 6.5) |
+| V-DPNI-2 | attribute read-back (num_queues ceiling) and the dead-option *exit-shape* probe (DPNI-I6 inversion) | landed as `V-DPNI-2/probes.json` (verify-foundation task 5.9), ran 2026-08-29 |
+| V-DPNI-4 | raw command via `/dev/dprc.N` | kernel patch or VFIO transport (#10): the command is outside the `/dev/dprc.N` whitelist (`docs/baseline/mc-ioctl-policy.md` §3, verify-foundation task 6.5) |
 | V-DPMAC-2 | the model forbids dpmac create (DPMAC-I1) — the probe deliberately tests an unknown against a model law; a board answer amends the model | online driver |
-| V-DPSECI-1 | create-validation refusals (priority range, count-vs-num-queues); the positive lifecycle face is V-LIFE-DPSECI-1 | landed as `V-DPSECI-1/probes.json` (task 5.9), ran 2026-08-29 |
+| V-DPSECI-1 | create-validation refusals (priority range, count-vs-num-queues); the positive lifecycle face is V-LIFE-DPSECI-1 | landed as `V-DPSECI-1/probes.json` (verify-foundation task 5.9), ran 2026-08-29 |
 | V-DPSECI-2 | raw GET_ATTR attribute read-back | online driver |
 | V-DPSW-2..3 | V-DPSW-2 is a raw-reset probe; V-DPSW-3 needs per-scenario endpoint counts. The positive create+connect face landed as V-DPSW-1 | online driver |
-| V-DPDMUX-2 | the dpni-uplink refusal is model-forbidden (like V-DPMAC-2) so it cannot be traced; carried in a suite hook instead. The positive uplink connect landed as V-DPDMUX-1 | landed as `V-DPDMUX-2/` (task 5.9), ran 2026-08-29, final (rev 5) |
+| V-DPDMUX-2 | the dpni-uplink refusal is model-forbidden (like V-DPMAC-2) so it cannot be traced; carried in a suite hook instead. The positive uplink connect landed as V-DPDMUX-1 | landed as `V-DPDMUX-2/` (verify-foundation task 5.9), ran 2026-08-29, final (rev 5) |
 | V-DPDMUX-3 | cross-regime reset probe | online driver |
 | V-DPCI-2's OPR face | options-discard hardware probe (OPR config, dpci.md unknown 6); the generated V-DPCI-2 carries the connect and ceiling faces (unknowns 3–5), not this one | online driver |
-| V-LINK-3 | raw `SET_LINK_STATE` commands through `/dev/dprc.N` that no crate code drives; its kernel-path half is already answered by V-LINK-2 (dpmac.md unknown #2) | kernel patch or VFIO transport (#10): the command is outside the `/dev/dprc.N` whitelist (`docs/baseline/mc-ioctl-policy.md` §3, task 6.5) |
+| V-LINK-3 | raw `SET_LINK_STATE` commands through `/dev/dprc.N` that no crate code drives; its kernel-path half is already answered by V-LINK-2 (dpmac.md unknown #2) | kernel patch or VFIO transport (#10): the command is outside the `/dev/dprc.N` whitelist (`docs/baseline/mc-ioctl-policy.md` §3, verify-foundation task 6.5) |
 | V-DPDCEI-1 probes | GET_API_VERSION / dce_version reads; the create face is V-LIFE-DPDCEI-1 | online driver |
 
 Which roadmap change owns each deferred scenario is recorded per
-invariant in `models/COVERAGE.md` (task 5.6): the family's own change
+invariant in `models/COVERAGE.md` (verify-foundation task 5.6): the family's own change
 for its probes, `mc-portal-backend` for the raw-command ones,
 `dpl-tape-out` for the `generate-dpl` audit.
 
@@ -201,20 +207,23 @@ finishing. On the live bare boot that step is vacuous, since the boot
 pair the reference capture shows is a provisioned-moment artifact and
 no such edge exists to restore (reference-environment.md).
 
-## dpni option-walk suites (generated, awaiting the sitting)
+## dpni option-walk suites
 
 The `dpni-typestate` change (task 5.1, bead dpaa2-controlplane-guu.7)
 renders six dpni suites that probe the create-option surface the family
-model now types (`models/families/dpni.qnt`); they are generated,
-envelope-clear and offline-gated here, and run at the task-5.2
-learning-mode sitting (dpni-typestate design D7). They carry no ledger
-row or verdict until then — an unrun suite settles nothing. Each is
-scratch-first and self-cleaning, asserts the reference pair, and takes
-read-back as its only observation. The option masks and sizes ride the
-generator's `--create-args` (options are not a lifecycle attribute the
-object machine tracks); the `dpni info` attribute read-back is a suite
-hook, the V-READBACK-1 shape, because the adapter's observation surface
-is present/plugged/endpoint/driver-bound only.
+model types (`models/families/dpni.qnt`); they ran at the task-5.2
+sitting (2026-09-19, bead dpaa2-controlplane-guu.8) and their verdicts
+live in the suite ledger above. Each is scratch-first and self-cleaning,
+asserts the reference pair, and takes read-back as its only observation.
+The option masks and sizes ride the generator's `--create-args` (options
+are not a lifecycle attribute the object machine tracks); the `dpni
+info` attribute read-back is a suite hook, the V-READBACK-1 shape,
+because the adapter's observation surface is
+present/plugged/endpoint/driver-bound only. The hooks are also why the
+per-step learning half of that sitting moved back to batch: `drive
+--trace` replays trace steps only, so a hook-borne probe never runs
+online and trace-created objects outlive the session (bead
+dpaa2-controlplane-4nx).
 
 | dpni suite | Probes |
 |---|---|
@@ -273,7 +282,7 @@ trace transcript carries no suite id, so it takes `--id <ID>`. The
 postboot halves index under their own suite id (`V-DPRTC-3-postboot`).
 
 The index was back-filled once from every results directory on disk
-(task 6.2). Two caveats travel with those entries: a revision that
+(verify-foundation task 6.2). Two caveats travel with those entries: a revision that
 predates a plan regeneration is judged against the *current* plan, so
 an early V-LIFE revision whose divergence was the model's bind
 expectation now conforms — the entry's plan hash is the tell, and the
@@ -296,7 +305,7 @@ family — including the `dprc` container create — and the plan records
 them, while the model stays free of the create detail.
 
 A step the board is expected to refuse names the status it must be
-refused with (`docs/baseline/mc-status.md`, task 6.4). In a probe plan
+refused with (`docs/baseline/mc-status.md`, verify-foundation task 6.4). In a probe plan
 that is `"refusal": "No privilege"` beside the step's `cmd`; for a
 generated suite it is `--expect-refusal <step>=<status>` at
 generation, which records the status on the plan step and drops that
@@ -309,7 +318,7 @@ row — or a register row without a verdict — fails `cargo test`.
 Every restool verb a generated suite, a probe plan or the adapter can
 issue crosses the kernel's `/dev/dprc.N` command whitelist before the
 firmware sees it; `docs/baseline/mc-ioctl-policy.md` is that whitelist
-as a table (task 6.5), regenerated by `models/helpers/mc-ioctl-policy.py`
+as a table (verify-foundation task 6.5), regenerated by `models/helpers/mc-ioctl-policy.py`
 from the reference kernel and restool trees whose commits it records,
 together with `models/core/ioctl_policy.qnt`, the same list as a Quint
 module. The model is where the law lives: every action records the §2
@@ -372,7 +381,7 @@ This is the last board sitting of the change and the first whose
 scenarios touch the kernel from the outside: binding a container by
 hand, holding portals open, rewriting a netdev's state, draining MC
 pools, racing two writers, and a reboot. Each scenario below therefore
-got a design note *before* any suite was generated (task 5.11's
+got a design note *before* any suite was generated (verify-foundation task 5.11's
 condition), stating what it observes, how, what it can break, and when
 it stops. The notes are the plan; the generated suites implement them
 and the fold judges against them.
@@ -880,7 +889,7 @@ capture, so every later diff compares them.
 
 ### Sitting 5.12: the companion draw, measured — design note before generation
 
-Task 5.12 puts one sentence to the board — "one dpmcp per
+The verify-foundation task 5.12 puts one sentence to the board — "one dpmcp per
 portal-consuming object, including each dpio" — and ADR-0012's open
 question 1 hangs on it: the poll-mode child carries 3 dpmcps as a
 script constant, and the rule would derive a different number. The
