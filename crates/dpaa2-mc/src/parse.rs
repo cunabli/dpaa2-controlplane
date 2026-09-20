@@ -282,6 +282,11 @@ pub struct RawDpniAttr {
     pub num_channels: Option<u16>,
     /// `num_opr`.
     pub num_opr: Option<u16>,
+    /// `wriop_version` (0xC00 = WRIOP 3.0.0 = LX2160, `docs/baseline/dpni.md`
+    /// "Attribute read-back asymmetry"); informational only, kept off the domain
+    /// observation and out of drift — the mc-portal-backend num_queues-ceiling
+    /// question anchors on it (#10).
+    pub wriop_version: Option<u16>,
 }
 
 impl RawDpniAttr {
@@ -313,6 +318,12 @@ impl RawDpniAttr {
             self.num_channels = val(r);
         } else if let Some(r) = line.strip_prefix("num_opr:") {
             self.num_opr = val(r);
+        } else if let Some(r) = line.strip_prefix("wriop_version:") {
+            let t = r.trim();
+            self.wriop_version = t
+                .strip_prefix("0x")
+                .and_then(|h| u16::from_str_radix(h, 16).ok())
+                .or_else(|| t.parse().ok());
         }
     }
 }
@@ -745,7 +756,8 @@ dpni.7          wan0            plugged
              qos_key_size: 24\n\
              fs_key_size: 24\n\
              num_channels: 1\n\
-             num_opr: 0\n",
+             num_opr: 0\n\
+             wriop_version: 0xc00\n",
             mac_line()
         );
         let info = parse_dpni_info(&body);
@@ -760,6 +772,8 @@ dpni.7          wan0            plugged
         assert_eq!(attr.vlan_entries, Some(16));
         assert_eq!(attr.num_channels, Some(1));
         assert_eq!(attr.num_opr, Some(0));
+        // Informational read-back kept off the domain observation (baseline: 0xC00 = WRIOP 3.0.0).
+        assert_eq!(attr.wriop_version, Some(0xc00));
     }
 
     #[test]

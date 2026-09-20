@@ -335,8 +335,7 @@ impl<R: Runner> RestoolMc<R> {
     /// locked container (V-DPRC-3). The name is bounded to the MC's 15-char cap by
     /// ADR-0015 decision 13, so it is never truncated.
     fn stamp_label(&self, obj: &str, label: &ConstructName) -> Result<(), Error> {
-        self.runner
-            .run(&["dprc", "set-label", obj, &format!("--label={label}")])?;
+        self.run_verb(&["dprc", "set-label", obj, &format!("--label={label}")])?;
         Ok(())
     }
 
@@ -716,9 +715,7 @@ impl<R: Runner> McControl for RestoolMc<R> {
         }
 
         // Ceilings: the MC-level resource listing, mapped per ADR-0011's policy.
-        let res = self
-            .runner
-            .run(&["dprc", "show", MC_GLOBAL, "--resources"])?;
+        let res = self.run_verb(&["dprc", "show", MC_GLOBAL, "--resources"])?;
         let pools = parse::parse_resources(&res);
         let ceilings = DERIVED_FAMILIES
             .iter()

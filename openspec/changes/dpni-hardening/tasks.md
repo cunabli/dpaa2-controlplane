@@ -54,7 +54,14 @@ parser-arm-first rule. One bead at a time through acceptance.
 
 ## 3. Shim/engine hardening (bead C; synthesis rows 7-9)
 
-- [ ] 3.1 `stamp_label` and `read_inventory` route through `run_verb`;
+- [x] 3.1 `stamp_label` and `read_inventory` route through `run_verb`;
   the engine convergence zip gains a length check with a
   mismatched-lengths unit test; `RawDpniAttr` captures `wriop_version`
   as `Option<u16>`
+  Landed: both shim verbs now route through `run_verb`, whose sole raw
+  read is `run_capture` (restool.rs:501), so `rg 'self.runner.run\b'`
+  returns zero matches — the `\b` excludes `run_capture`; the invariant
+  "only `run_verb` touches the raw runner" holds. The zip guard is
+  extracted to `pair_containers` (engine.rs) for the unit test. Skipped
+  the optional `TenantName` `TryFrom` carve-out: the wording amend covers
+  it and no concrete failure surfaced.
