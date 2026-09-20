@@ -29,30 +29,19 @@ use dpaa2_api::core::family::Family;
 use dpaa2_api::core::inventory::Ceiling;
 use dpaa2_api::core::model::{DprcId, ObjectRef};
 use dpaa2_api::core::types::ConstructName;
-use dpaa2_api::families::dpio::{ChannelMode, DpioCfg, Priorities, derived_seats};
+use dpaa2_api::families::dpio::derived_seats;
 use dpaa2_api::families::dprc::VfioBind;
 use dpaa2_api::families::pool_lifecycle::{
     PoolCensus, PoolFamily, RawDriver, census_of, derived_requirement, drift_disposition,
 };
 use dpaa2_api::intent::compiled::{Attributes, CompiledPlan, Container};
 
-use crate::pool::dispatch_pool_deltas;
+use crate::pool::{default_dpio_cfg, dispatch_pool_deltas};
 
 /// The trio traversal a child population converges in: dpmcp→dpbp→dpcon, dependency
 /// bottom first (everything draws a dpmcp; pool-objects design D8). dpio is not here — it
 /// is a seat, converged separately below (pool-objects design D4).
 const TRIO: [PoolFamily; 3] = [PoolFamily::Dpmcp, PoolFamily::Dpbp, PoolFamily::Dpcon];
-
-/// The plain dpio create-cfg a child seat takes — the `ensure_dpio` defaults
-/// (`DPIO_LOCAL_CHANNEL`, 8 priorities; `docs/baseline/dpio.md` "Option inventory"). The
-/// compiled dpio companion is [`Attributes::Unsized`], so a cfg drawn from the plan is a
-/// later tile — this is the deliberate stand-in until then.
-fn child_dpio_cfg() -> DpioCfg {
-    DpioCfg {
-        mode: ChannelMode::LocalChannel,
-        priorities: Priorities::new(8).expect("the ensure_dpio default 8 is in the MC range 1..=8"),
-    }
-}
 
 /// The observed outcome of populating a child container — every field a read-back census,
 /// never a driven state (mc-backend spec requirement 3: "observable as a census of the
@@ -160,7 +149,7 @@ pub fn populate_child<M: McControl>(
     let observed =
         i64::try_from(mc.observe_pool(Some(child), Family::Dpio)?.len()).unwrap_or(i64::MAX);
     for _ in 0..(required - observed).max(0) {
-        mc.dpio_create(Some(child), child_dpio_cfg(), label)?;
+        mc.dpio_create(Some(child), default_dpio_cfg(), label)?;
     }
     let observed_after =
         i64::try_from(mc.observe_pool(Some(child), Family::Dpio)?.len()).unwrap_or(i64::MAX);

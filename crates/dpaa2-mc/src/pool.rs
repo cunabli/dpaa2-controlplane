@@ -33,7 +33,7 @@ use dpaa2_api::contract::McControl;
 use dpaa2_api::core::error::Error;
 use dpaa2_api::core::model::{DprcId, ObjectRef};
 use dpaa2_api::core::types::ConstructName;
-use dpaa2_api::families::dpio::{DpioCfg, Priorities};
+use dpaa2_api::families::dpio::{ChannelMode, DpioCfg, Priorities};
 use dpaa2_api::families::pool_lifecycle::{
     ObservedPoolObject, PoolDeltas, PoolFamily, PoolMembership,
 };
@@ -43,6 +43,22 @@ use dpaa2_api::families::pool_lifecycle::{
 /// baseline default; a plan-carried priorities value is a later phase's concern.
 fn dpcon_default_priorities() -> Priorities {
     Priorities::new(2).expect("the dpcon baseline default 2 is within the MC create range 1..=8")
+}
+
+/// The plain dpio create-cfg a grown seat takes — the `ensure_dpio` defaults
+/// (`DPIO_LOCAL_CHANNEL`, 8 priorities; `docs/baseline/dpio.md` "Option inventory"). The
+/// compiled dpio companion is [`Attributes::Unsized`](dpaa2_api::intent::compiled::Attributes),
+/// so a cfg drawn from the plan is a later tile — this is the deliberate stand-in until then,
+/// shared by the child population and the root pool convergence (pool-objects design D4).
+///
+/// # Panics
+/// Never in practice: the fixed priority count 8 is within the MC create range 1..=8.
+#[must_use]
+pub fn default_dpio_cfg() -> DpioCfg {
+    DpioCfg {
+        mode: ChannelMode::LocalChannel,
+        priorities: Priorities::new(8).expect("the ensure_dpio default 8 is in the MC range 1..=8"),
+    }
 }
 
 /// The outcome of dispatching one (container, pool-family) delta: the concrete objects
