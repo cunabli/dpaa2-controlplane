@@ -38,11 +38,16 @@ If the required subsection does not exist yet under **Unreleased**, create it!
 ## Commit hooks
 
 The tracked hooks in `.githooks/` enforce commit mechanics and two repo rules.
-Point git at them once per clone:
+Point git at them once per clone, and register the ITF trace clean filter so
+volatile `#meta` timestamps stay out of `git status`/`git add`:
 
 ```shell
 git config core.hooksPath .githooks
+git config filter.itfmask.clean "node scripts/hooks/mask-itf.mjs"
 ```
+
+Both settings, like `core.hooksPath`, live in the clone's local config and are
+not checked in — every clone and CI runner registers them from this block.
 
 The `commit-msg` hook checks each commit message:
 

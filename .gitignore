@@ -16,6 +16,9 @@ output
 !/scripts/checks/
 /scripts/checks/*
 !/scripts/checks/*.sh
+!/scripts/hooks/
+/scripts/hooks/*
+!/scripts/hooks/*.mjs
 
 # Apalache scratch output (quint verify)
 _apalache-out/

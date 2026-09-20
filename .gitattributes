@@ -1,0 +1,5 @@
+# quint ITF traces carry volatile `#meta` timestamp/description fields that
+# churn on every re-freeze; the itfmask clean filter masks them so the stored
+# blob is stable and git ignores timestamp-only churn. Register once per clone
+# (see CONTRIBUTING.md): git config filter.itfmask.clean "node scripts/hooks/mask-itf.mjs"
+*.itf.json filter=itfmask
