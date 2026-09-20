@@ -234,6 +234,29 @@ mod tests {
     }
 
     #[test]
+    fn vfio_handoff_sets_override_binds_and_classifies_the_driver_link() {
+        // pool-objects task 3.3: the composing handoff writes driver_override + the bind
+        // node, then classifies the read-back driver link (the core judges, not the write).
+        let fx = Fixture::new("handoff");
+        let dprc = DprcId::new(2);
+        // The kernel's post-bind links are present when the handoff reads them back.
+        fx.link_bound();
+
+        let bind = crate::vfio_handoff(&fx.kernel, dprc).expect("handoff");
+
+        // The override was written and the bind node carries the child id.
+        assert_eq!(
+            fx.kernel.driver_override(dprc).expect("override"),
+            Some(VFIO_FSL_MC_DRIVER.to_owned())
+        );
+        assert_eq!(
+            std::fs::read_to_string(fx.drivers.join(VFIO_FSL_MC_DRIVER).join("bind")).unwrap(),
+            "dprc.2"
+        );
+        assert_eq!(bind, VfioBind::BoundVfioFslMc);
+    }
+
+    #[test]
     fn unbind_scenario_clears_the_override_and_reads_back_unbound() {
         // Spec scenario "Unbind restores the unbound state": unbind + clear override ⇒
         // observed unbound (no driver), override cleared, eligible for fsl_mc_dprc again.

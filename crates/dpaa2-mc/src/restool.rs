@@ -333,12 +333,13 @@ impl<R: Runner> RestoolMc<R> {
         &self,
         create_args: &[&str],
         label: &ConstructName,
+        container: Option<DprcId>,
     ) -> Result<String, Error> {
         let out = self.run_verb(create_args)?;
         let obj = parse::parse_object_ref(&out)
             .ok_or_else(|| Error::Parse(format!("no object id in `{}`", out.trim())))?
             .to_owned();
-        self.assign_plugged(&obj)?;
+        self.assign_plugged(&obj, &self.container_name(container))?;
         self.stamp_label(&obj, label)?;
         Ok(obj)
     }
@@ -360,8 +361,9 @@ impl<R: Runner> RestoolMc<R> {
         family: Family,
         create_args: &[&str],
         label: &ConstructName,
+        container: Option<DprcId>,
     ) -> Result<ObjectRef, Error> {
-        let obj = self.create_and_plug(create_args, label)?;
+        let obj = self.create_and_plug(create_args, label, container)?;
         let ordinal = obj
             .rsplit_once('.')
             .and_then(|(_, n)| n.parse::<u32>().ok())
@@ -378,12 +380,15 @@ impl<R: Runner> RestoolMc<R> {
         Ok(())
     }
 
-    /// `restool dprc assign <container> --object=<obj> --plugged=1`.
-    fn assign_plugged(&self, obj: &str) -> Result<(), Error> {
+    /// `restool dprc assign <container> --object=<obj> --plugged=1`: plugs `obj` in the
+    /// container it was created in — `container` is the explicit child a pool/dpni create
+    /// carried, else the shim's own root. A child-targeted create must plug in that child,
+    /// not the root (pool-objects task 3.3; DPRC-I3: allocation never crosses a container).
+    fn assign_plugged(&self, obj: &str, container: &str) -> Result<(), Error> {
         self.run_verb(&[
             "dprc",
             "assign",
-            &self.container,
+            container,
             &format!("--object={obj}"),
             "--plugged=1",
         ])?;
@@ -412,9 +417,10 @@ impl<R: Runner> RestoolMc<R> {
                     "--num-priorities=8",
                 ],
                 label,
+                None,
             )?;
             // Each DPIO also needs a companion DPMCP.
-            self.create_and_plug(&["--script", "dpmcp", "create", &container], label)?;
+            self.create_and_plug(&["--script", "dpmcp", "create", &container], label, None)?;
             tracing::debug!(%dpio, "provisioned dpio");
         }
         Ok(())
@@ -481,7 +487,7 @@ impl<R: Runner> RestoolMc<R> {
         let mut created: Vec<(&'static str, String)> = Vec::new();
         for step in steps {
             let args: Vec<&str> = step.args.iter().map(String::as_str).collect();
-            match self.create_and_plug(&args, label) {
+            match self.create_and_plug(&args, label, None) {
                 Ok(obj) => created.push((step.kind, obj)),
                 Err(e) => {
                     self.rollback_chain(&created);
@@ -814,11 +820,40 @@ impl<R: Runner> McControl for RestoolMc<R> {
         // any actuate-mode `set_mac` — matching the design recipe's ordering.
     }
 
+    fn create_dpni_in(
+        &self,
+        container: DprcId,
+        cfg: &DpniCfg,
+        label: &ConstructName,
+    ) -> Result<DpniId, Error> {
+        // A BARE dpni create in the child: the same rendered cfg block as `create_dpni`
+        // plus `--container=<child>`, but NO `provision_chain` dependency set and NO
+        // connect. A child's companions are converged separately from the pool disposition
+        // (pool-objects design D2), not this dpni's private chain — the deliberate
+        // divergence from `create_dpni`'s root chain (its dpni-typestate design D1 note).
+        let queues = if cfg.num_queues.get() == 0 {
+            self.queues
+        } else {
+            usize::from(cfg.num_queues.get())
+        };
+        let mut create_args = dpni_create_args(cfg, queues);
+        create_args.push(format!("--container={container}"));
+        let arg_refs: Vec<&str> = create_args.iter().map(String::as_str).collect();
+        let out = self.run_verb(&arg_refs)?;
+        let id = parse::parse_dpni_object_id(&out)
+            .ok_or_else(|| Error::Parse(format!("could not parse created dpni id from `{out}`")))?;
+        // Stamp before plug so no read-back window shows the object unlabelled (ADR-0010 §4
+        // ABA guard); then plug it in the child, never the root.
+        self.stamp_label(&id.to_string(), label)?;
+        self.assign_plugged(&id.to_string(), &container.to_string())?;
+        Ok(id)
+    }
+
     fn connect(&self, dpni: DpniId, dpmac: DpmacId) -> Result<(), Error> {
         // Plug the DPNI in here, not at create time, so actuate-mode `set_mac`
         // always runs against an unplugged DPNI (design recipe: create -> [set-mac]
-        // -> plug+connect -> sync).
-        self.assign_plugged(&dpni.to_string())?;
+        // -> plug+connect -> sync). A root dpni plugs in the shim's own container.
+        self.assign_plugged(&dpni.to_string(), &self.container)?;
         self.run_verb(&[
             "dprc",
             "connect",
@@ -962,11 +997,12 @@ impl<R: Runner> McControl for RestoolMc<R> {
     ) -> Result<ObjectRef, Error> {
         // dpbp has zero create options (`docs/baseline/dpbp.md` "Option inventory": the
         // `dpbp_cfg.options` placeholder is discarded by the flib) — only `--container`.
-        let container = format!("--container={}", self.container_name(container));
+        let arg = format!("--container={}", self.container_name(container));
         self.pool_create(
             Family::Dpbp,
-            &["--script", "dpbp", "create", &container],
+            &["--script", "dpbp", "create", &arg],
             label,
+            container,
         )
     }
 
@@ -978,11 +1014,12 @@ impl<R: Runner> McControl for RestoolMc<R> {
         // dpmcp takes no create option the reconciler sets (`docs/baseline/dpmcp.md`
         // "Option inventory"): its one option token and pool-assigned portal id are left
         // at restool defaults, so the create is bare but for `--container`.
-        let container = format!("--container={}", self.container_name(container));
+        let arg = format!("--container={}", self.container_name(container));
         self.pool_create(
             Family::Dpmcp,
-            &["--script", "dpmcp", "create", &container],
+            &["--script", "dpmcp", "create", &arg],
             label,
+            container,
         )
     }
 
@@ -995,12 +1032,13 @@ impl<R: Runner> McControl for RestoolMc<R> {
         // `--num-priorities` is dpcon's sole create option (`docs/baseline/dpcon.md`
         // "Option inventory": 1–8, default 2), rendered ahead of `--container` as the
         // dprc-script recipe does.
-        let container = format!("--container={}", self.container_name(container));
+        let arg = format!("--container={}", self.container_name(container));
         let prio = format!("--num-priorities={}", priorities.get());
         self.pool_create(
             Family::Dpcon,
-            &["--script", "dpcon", "create", &prio, &container],
+            &["--script", "dpcon", "create", &prio, &arg],
             label,
+            container,
         )
     }
 
@@ -1013,13 +1051,14 @@ impl<R: Runner> McControl for RestoolMc<R> {
         // `--channel-mode` + `--num-priorities` (`docs/baseline/dpio.md` "Option
         // inventory"); the mode is dead in the kernel (DPIO-I3) but restool still needs
         // it, and the argument order mirrors `ensure_dpio`/the dprc-script recipe.
-        let container = format!("--container={}", self.container_name(container));
+        let arg = format!("--container={}", self.container_name(container));
         let mode = format!("--channel-mode={}", channel_mode_arg(cfg.mode));
         let prio = format!("--num-priorities={}", cfg.priorities.get());
         self.pool_create(
             Family::Dpio,
-            &["--script", "dpio", "create", &mode, &container, &prio],
+            &["--script", "dpio", "create", &mode, &arg, &prio],
             label,
+            container,
         )
     }
 
@@ -1950,6 +1989,74 @@ mod tests {
             vec!["dprc", "assign", "dprc.1", "--object=dpbp.0", "--plugged=1"]
         );
         assert_eq!(calls[2], vec!["dprc", "set-label", "dpbp.0", "--label=vpp"]);
+    }
+
+    #[test]
+    fn pool_create_in_a_child_plugs_in_that_child_not_the_root() {
+        // pool-objects task 3.3: a create carrying an explicit child targets both the create
+        // AND the plug at that child — allocation never crosses a container (DPRC-I3).
+        let runner = ScriptedRunner::new(vec![
+            ("--script dpbp create --container=dprc.5", ok("dpbp.0\n")),
+            ("dprc assign dprc.5 --object=dpbp.0 --plugged=1", ok("")),
+            ("dprc set-label dpbp.0 --label=vpp", ok("")),
+        ]);
+        let mc = RestoolMc::with_runner(runner, DEFAULT_CONTAINER);
+        let obj = mc
+            .dpbp_create(Some(DprcId::new(5)), &ConstructName::from("vpp"))
+            .expect("create dpbp in child");
+        assert_eq!(obj, ObjectRef::new(Family::Dpbp, 0));
+        let calls = mc.runner().calls();
+        assert_eq!(
+            calls[0],
+            vec!["--script", "dpbp", "create", "--container=dprc.5"]
+        );
+        assert_eq!(
+            calls[1],
+            vec!["dprc", "assign", "dprc.5", "--object=dpbp.0", "--plugged=1"],
+            "the plug targets the child, not dprc.1"
+        );
+        assert_eq!(calls[2], vec!["dprc", "set-label", "dpbp.0", "--label=vpp"]);
+    }
+
+    #[test]
+    fn create_dpni_in_renders_cfg_container_stamp_then_child_plug() {
+        // pool-objects task 3.3: a bare child dpni — the rendered cfg block + `--container`,
+        // stamp before plug (ABA guard), plug in the child; no dependency chain, no connect.
+        let cfg = DpniCfg {
+            num_queues: NumQueues::new(4).expect("4 is in range"),
+            ..DpniCfg::defaults()
+        };
+        let runner = ScriptedRunner::new(vec![
+            (
+                "--script dpni create --num-queues=4 --container=dprc.5",
+                ok("dpni.9\n"),
+            ),
+            ("dprc set-label dpni.9 --label=vpp", ok("")),
+            ("dprc assign dprc.5 --object=dpni.9 --plugged=1", ok("")),
+        ]);
+        let mc = RestoolMc::with_runner(runner, DEFAULT_CONTAINER);
+        let id = mc
+            .create_dpni_in(DprcId::new(5), &cfg, &ConstructName::from("vpp"))
+            .expect("bare child dpni");
+        assert_eq!(id, DpniId::new(9));
+        let calls = mc.runner().calls();
+        // Exactly three verbs: create, stamp, plug — no dpbp/dpmcp/dpcon chain, no connect.
+        assert_eq!(calls.len(), 3, "no dependency chain and no connect");
+        assert_eq!(
+            calls[0],
+            vec![
+                "--script",
+                "dpni",
+                "create",
+                "--num-queues=4",
+                "--container=dprc.5"
+            ]
+        );
+        assert_eq!(calls[1], vec!["dprc", "set-label", "dpni.9", "--label=vpp"]);
+        assert_eq!(
+            calls[2],
+            vec!["dprc", "assign", "dprc.5", "--object=dpni.9", "--plugged=1"]
+        );
     }
 
     #[test]

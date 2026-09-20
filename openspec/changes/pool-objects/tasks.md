@@ -50,7 +50,7 @@ opus48-developer parcel.
       only observation (mc-backend req 1).
 - [x] 3.2 Kernel root-bind face: dpaa2-eth bind, per-target probe
       read-back, typed -EPROBE_DEFER observation (mc-backend req 2).
-- [ ] 3.3 Child population + VFIO handoff over the dprc-encapsulation
+- [x] 3.3 Child population + VFIO handoff over the dprc-encapsulation
       typestates (mc-backend req 3).
 
 ## 4. Suites
