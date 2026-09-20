@@ -34,7 +34,7 @@ opus48-developer parcel.
       FamilyParams, three instantiations, isomorphic to the phase-1
       sums; ADR-0019 gains its P3 reference-implementation line when
       this lands (reconciler req 1).
-- [ ] 2.2 The count-drift disposition: grow/shrink/refuse + prune
+- [x] 2.2 The count-drift disposition: grow/shrink/refuse + prune
       deltas at the count level, dispatch-edge boundary documented
       (design D2); unit tests from the phase-1 laws (reconciler
       req 2).
