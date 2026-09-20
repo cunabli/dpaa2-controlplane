@@ -25,7 +25,7 @@ use crate::core::types::ConstructName;
 use crate::families::dpio::{DpioCfg, Priorities};
 use crate::families::dpni::{DpniCfg, DpniObservation};
 use crate::families::dprc::ContainerState;
-use crate::families::pool_lifecycle::{ObservedPoolObject, RawLabel};
+use crate::families::pool_lifecycle::{ObservedPoolObject, RawDriver, RawLabel};
 use crate::intent::compiled::Container;
 use crate::plan::dprc::ObservedContainer;
 
@@ -519,6 +519,18 @@ impl KernelControl for FakeBackend {
         Ok(Self::visible_netdev(&st, obj))
     }
 
+    // One honest source: the fake reports fsl_dpaa2_eth bound exactly when its netdev is
+    // visible, so dpni_driver and netdev_of never disagree (DPNI-I4 read-back).
+    fn dpni_driver(&self, dpni: DpniId) -> Result<Option<RawDriver>, Error> {
+        let st = self.state.borrow();
+        Ok(st
+            .dpnis
+            .iter()
+            .find(|d| d.id == dpni)
+            .and_then(|obj| Self::visible_netdev(&st, obj))
+            .map(|_| RawDriver::from("fsl_dpaa2_eth")))
+    }
+
     // The reconcile/convergence tests never bind VFIO (that face is board-only, design
     // D6; ADR-0004), so the fake reports an unbound, group-less, override-clear child and accepts
     // the actuations as no-ops.
@@ -534,7 +546,7 @@ impl KernelControl for FakeBackend {
         Ok(())
     }
 
-    fn bound_driver(&self, _dprc: DprcId) -> Result<Option<String>, Error> {
+    fn bound_driver(&self, _dprc: DprcId) -> Result<Option<RawDriver>, Error> {
         Ok(None)
     }
 

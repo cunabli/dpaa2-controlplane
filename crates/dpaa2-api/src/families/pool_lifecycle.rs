@@ -476,6 +476,24 @@ impl RawLabel {
     }
 }
 
+raw_capture! {
+    /// A sysfs driver-link basename bound to a device, captured verbatim — the kernel-face
+    /// capture, colocated with [`RawLabel`] as the two `raw_capture!` mints; its judges live
+    /// in `core::model`.
+    ///
+    /// Deliberately NOT a [`ConstructName`]: a bound driver is
+    /// an *observation to be judged*, not a declared name to be reified — its invariant is
+    /// verbatim capture. Presence is consulted by
+    /// [`judge_bind_probe`](crate::core::model::judge_bind_probe) (a bound driver plus a netdev
+    /// is [`BindProbe::Live`](crate::core::model::BindProbe::Live)); content is compared by
+    /// [`VfioBind::classify`](crate::families::dprc::VfioBind::classify) against
+    /// [`VFIO_FSL_MC_DRIVER`](crate::families::dprc::VFIO_FSL_MC_DRIVER). It validates nothing at
+    /// construction — absence is `None` at the contract, so there is no empty-sentinel role — and
+    /// is never namespaced. Minted through the shared [`raw_capture!`](crate::core::types)
+    /// capture contract it shares with [`RawLabel`].
+    RawDriver
+}
+
 /// One pool object as the adapter observed it — the raw `dprc show` row a pool family
 /// contributes, reported verbatim (pool-objects task 3.1; the adapter reports, the core
 /// judges — PASS5-F1/ADR-0010 §4).
@@ -586,6 +604,21 @@ pub fn census_of(rows: &[ObservedPoolObject], declared: &BTreeSet<ConstructName>
         }
     }
     PoolCensus::new(population, free, drawn, born, foreign_free)
+}
+
+/// The kernel-poolable count of an observed pool family — the plugged rows only. A pool
+/// entry is kernel-poolable exactly when it is plugged AND the `fsl_mc_allocator` has bound
+/// it, and the allocator binds only plugged objects (an unplugged pool object is visible in
+/// `dprc show` but invisible to the allocator; DPBP-I2, `docs/baseline/dpbp.md` :74-77). So
+/// the plugged count is the kernel-poolable census the bind-satisfiability judgment reads
+/// (ADR-0011: judge against the census) — the count-level twin of the model's `freePool`
+/// size in `core/pools.qnt` `drawSatisfiable`, which [`judge_bind_probe`] compares against a
+/// family's draw.
+///
+/// [`judge_bind_probe`]: crate::core::model::judge_bind_probe
+#[must_use]
+pub fn poolable(rows: &[ObservedPoolObject]) -> i64 {
+    i64::try_from(rows.iter().filter(|r| r.plugged).count()).unwrap_or(i64::MAX)
 }
 
 #[cfg(test)]
@@ -1022,6 +1055,18 @@ mod tests {
         assert_eq!(c.foreign_free(), 0);
         assert_eq!(c.managed(), 2);
         assert!(c.converged(2));
+    }
+
+    // poolable counts the plugged rows only — the allocator-bound census (DPBP-I2).
+    #[test]
+    fn poolable_counts_plugged_only() {
+        let rows = vec![
+            pool_row(0, "vpp", true),  // plugged ⇒ allocator-bound ⇒ poolable
+            pool_row(1, "vpp", false), // unplugged ⇒ invisible to the allocator
+            pool_row(2, "", true),     // plugged DPL-born ⇒ still poolable
+        ];
+        assert_eq!(poolable(&rows), 2);
+        assert_eq!(poolable(&[]), 0);
     }
 
     // membership reuses judge_label: an empty label ⇒ DPL, declared ⇒ ours, else foreign.

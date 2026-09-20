@@ -298,6 +298,80 @@ pub enum Lifecycle {
     Bound,
 }
 
+/// The typed outcome of a per-target `dpaa2-eth` bind probe read-back (mc-backend spec
+/// requirement 2): what the kernel state SAYS about a root dpni's bind, judged from two
+/// observed facts — the bound driver-name link and the netdev presence — never inferred
+/// from the bind write's exit (`docs/baseline/dpio.md` DPIO-I5: the write is not the
+/// judgment). A deferral for want of pool companions is a typed observation here, not a
+/// swallowed error (`docs/baseline/dpni.md` DPNI-I4, the C1 silent `-EPROBE_DEFER`
+/// exhaustion class).
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub enum BindProbe {
+    /// Driver link present AND a netdev present — the probe brought the interface fully
+    /// alive. Both facts are read back per-target, never the bind write (DPIO-I5).
+    Live {
+        /// The Linux netdev name the probe produced.
+        netdev: String,
+    },
+    /// Driver link present but no netdev — the legitimate [`LinkType::Fixed`] absence (no
+    /// netdev ever appears), and equally the DPIO-I5 loudness gap where a bound probe need
+    /// not be fully functional. The judgment cannot tell those apart; both read as
+    /// bound-without-a-netdev.
+    BoundNoNetdev,
+    /// No driver link, and at least one companion family's kernel-poolable count is 0 — the
+    /// probe cannot complete for want of companions. The C1 silent `-EPROBE_DEFER`
+    /// exhaustion class (DPNI-I4) made observable through the census, the count-level twin
+    /// of the model's disabled `drawSatisfiable` (`core/pools.qnt`). `shortfall` names the
+    /// dry families in the traversal order the caller supplied them.
+    Deferred {
+        /// The families whose kernel-poolable census cannot satisfy the draw, in order.
+        shortfall: Vec<Family>,
+    },
+    /// No driver link and no dry family — the bind is nudged or in flight. Indistinguishable
+    /// from merely slow by design; the retry deadline is the engine's policy, not this
+    /// judgment's.
+    Pending,
+}
+
+/// Judges a per-target bind probe from its observed facts — pure, dispatches nothing, and
+/// destroys or creates no object (mc-backend spec requirement 2: "no object is destroyed or
+/// created in response"). The core judges; the adapter only reported the `driver`, the
+/// `netdev`, and the per-family kernel-`poolable` counts (design D5; ADR-0003).
+///
+/// Rules, each read-back never the bind write:
+/// - driver present ∧ netdev present ⇒ [`BindProbe::Live`] — both facts per-target (DPIO-I5).
+/// - driver present ∧ netdev absent ⇒ [`BindProbe::BoundNoNetdev`] — the [`LinkType::Fixed`]
+///   legitimate no-netdev case, and the DPIO-I5 probe-success-≠-full-function loudness gap.
+/// - driver absent ∧ some family `poolable` 0 ⇒ [`BindProbe::Deferred`] naming the dry
+///   families in the given traversal order — the C1 silent `-EPROBE_DEFER` exhaustion
+///   (DPNI-I4; the model's disabled-action twin `drawSatisfiable` in `core/pools.qnt`).
+/// - driver absent ∧ no dry family ⇒ [`BindProbe::Pending`] — nudged or in flight.
+#[must_use]
+pub fn judge_bind_probe(
+    driver: Option<&str>,
+    netdev: Option<&str>,
+    poolable: &[(Family, i64)],
+) -> BindProbe {
+    if driver.is_some() {
+        return match netdev {
+            Some(name) => BindProbe::Live {
+                netdev: name.to_owned(),
+            },
+            None => BindProbe::BoundNoNetdev,
+        };
+    }
+    let shortfall: Vec<Family> = poolable
+        .iter()
+        .filter(|(_, count)| *count == 0)
+        .map(|(family, _)| *family)
+        .collect();
+    if shortfall.is_empty() {
+        BindProbe::Pending
+    } else {
+        BindProbe::Deferred { shortfall }
+    }
+}
+
 /// Physical link type of a DPMAC (design E1).
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
 pub enum LinkType {
@@ -605,6 +679,53 @@ mod tests {
         plan.objects.insert(dpni);
         plan.edges.insert(iface.into_port_edge(dpmac));
         plan
+    }
+
+    #[test]
+    fn judge_bind_probe_live_when_driver_and_netdev_present() {
+        let probe = judge_bind_probe(Some("fsl_dpaa2_eth"), Some("eth7"), &[]);
+        assert_eq!(
+            probe,
+            BindProbe::Live {
+                netdev: "eth7".to_owned()
+            }
+        );
+    }
+
+    #[test]
+    fn judge_bind_probe_bound_no_netdev_when_driver_present_netdev_absent() {
+        // The LinkType::Fixed legitimate absence, and the DPIO-I5 loudness gap.
+        let probe = judge_bind_probe(Some("fsl_dpaa2_eth"), None, &[(Family::Dpbp, 1)]);
+        assert_eq!(probe, BindProbe::BoundNoNetdev);
+    }
+
+    #[test]
+    fn judge_bind_probe_deferred_names_the_dry_families_in_traversal_order() {
+        // Two dry families among the four; the shortfall keeps the caller's order.
+        let poolable = [
+            (Family::Dpmcp, 0),
+            (Family::Dpbp, 1),
+            (Family::Dpcon, 0),
+            (Family::Dpio, 2),
+        ];
+        let probe = judge_bind_probe(None, None, &poolable);
+        assert_eq!(
+            probe,
+            BindProbe::Deferred {
+                shortfall: vec![Family::Dpmcp, Family::Dpcon]
+            }
+        );
+    }
+
+    #[test]
+    fn judge_bind_probe_pending_when_driver_absent_and_no_dry_family() {
+        let poolable = [(Family::Dpmcp, 1), (Family::Dpbp, 2), (Family::Dpcon, 1)];
+        assert_eq!(judge_bind_probe(None, None, &poolable), BindProbe::Pending);
+        // A netdev without a driver link is still not live — the driver link is the gate.
+        assert_eq!(
+            judge_bind_probe(None, Some("eth7"), &poolable),
+            BindProbe::Pending
+        );
     }
 
     #[test]
