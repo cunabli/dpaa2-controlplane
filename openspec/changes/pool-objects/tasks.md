@@ -38,7 +38,7 @@ opus48-developer parcel.
       deltas at the count level, dispatch-edge boundary documented
       (design D2); unit tests from the phase-1 laws (reconciler
       req 2).
-- [ ] 2.3 dpio seat variant — carries the ADR-0019 judgment marker:
+- [x] 2.3 dpio seat variant — carries the ADR-0019 judgment marker:
       acceptance includes judging the cfg hazard class against a
       concrete refusal or probe and amending ADR-0019 with a cfg
       facet only if earned (design D4; marker bead).

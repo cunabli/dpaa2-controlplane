@@ -116,7 +116,8 @@ identity by name; companions wear their consumer's name).
 - **Members:** dpio, dpbp, dpmcp, dpcon.
 - **Reference implementation:** `families/pool_lifecycle.rs` — one generic
   shape over the family tag + `Ceiling` for the allocator trio; census/sizing
-  types and convergence predicates isomorphic to `pool_lifecycle.qnt`.
+  types and convergence predicates isomorphic to `pool_lifecycle.qnt`; the
+  seat-typed dpio variant is `families/dpio.rs`.
 - **Idioms:** plain counts and sizing functions; pool custody as
   membership for the allocator trio (dpbp/dpmcp/dpcon, `pooled: true`);
   regime-typed per-CPU seats for dpio (`pooled: false` — DPIO-I1/I2:
@@ -174,7 +175,7 @@ cross-checking every row against `FamilyParams`).
 | dpdmai | P2 configured object (degenerate) | `creatable`, `draw.dpmcp: 1` | |
 | dprtc  | P2 configured object (degenerate) | `creatable`, `singleton: true` (DPRTC-I1) | singleton refusal is part of its P2 refusal surface |
 | dpdbg  | P2 configured object (degenerate) | `creatable`, `singleton: true`, `placement: RootOnly` (DPDBG-I1) | singleton + placement refusals |
-| dpio   | P3 counted companion | `pooled: false`, regime-typed (DPIO-I1/I2), per-CPU seats | seat arithmetic, not pool custody |
+| dpio   | P3 counted companion | `pooled: false`, regime-typed (DPIO-I1/I2), per-CPU seats | seat arithmetic, not pool custody; no cfg facet — `channel_mode` is kernel-dead (DPIO-I3) and immutable-cfg repair is count-level destroy+create; a DPDK-regime cfg refusal or probe reopens the judgment |
 | dpbp   | P3 counted companion | `pooled: true`, allocator custody | reference implementation; pool free is no reset (DPBP-I3) |
 | dpmcp  | P3 counted companion | `pooled: true`, allocator custody | reference implementation |
 | dpcon  | P3 counted companion | `pooled: true`, allocator custody | reference implementation |
