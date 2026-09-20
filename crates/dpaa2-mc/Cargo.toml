@@ -12,5 +12,9 @@ dpaa2-api.workspace = true
 dpaa2-hal.workspace = true
 tracing.workspace = true
 
+[dev-dependencies]
+# The probe tests drive the shared `testkit` FakeBackend as both southbound seam.
+dpaa2-api = { workspace = true, features = ["testkit"] }
+
 [lints]
 workspace = true

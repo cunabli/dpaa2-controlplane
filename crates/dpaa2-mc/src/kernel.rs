@@ -13,6 +13,7 @@ use dpaa2_api::contract::KernelControl;
 use dpaa2_api::core::error::Error;
 use dpaa2_api::core::model::{DpniId, DprcId};
 use dpaa2_api::families::dprc;
+use dpaa2_api::families::pool_lifecycle::RawDriver;
 use dpaa2_hal::FslMcSysfs;
 
 /// Reads DPAA2 netdev state from sysfs under a given root container.
@@ -46,6 +47,12 @@ impl SysfsKernel {
 }
 
 impl KernelControl for SysfsKernel {
+    /// A tolerant nudge, never the judgment. Binding `dpaa2-eth` is usually automatic on
+    /// plug, so this attempts an explicit bind only where the driver's bind attribute
+    /// exists and treats an already-bound device (`EBUSY`) as success. The write's outcome
+    /// is NOT the probe verdict — bind liveness is judged per-target by read-back
+    /// (`docs/baseline/dpio.md` DPIO-I5; mc-backend spec requirement 2), through
+    /// [`observe_bind_probe`](crate::probe::observe_bind_probe), not from this write.
     fn bind(&self, dpni: DpniId) -> Result<(), Error> {
         // Binding is usually automatic; only attempt an explicit bind if the driver
         // bind attribute exists, and treat "already bound" as success.
@@ -65,6 +72,13 @@ impl KernelControl for SysfsKernel {
 
     fn netdev_of(&self, dpni: DpniId) -> Result<Option<String>, Error> {
         self.bus.netdev_of(&dpni.to_string()).map_err(Error::Io)
+    }
+
+    fn dpni_driver(&self, dpni: DpniId) -> Result<Option<RawDriver>, Error> {
+        self.bus
+            .device_driver(&dpni.to_string())
+            .map(|d| d.map(RawDriver::from))
+            .map_err(Error::Io)
     }
 
     // ---- child-DPRC VFIO binding (dprc-encapsulation task 3.2) ----
@@ -99,8 +113,11 @@ impl KernelControl for SysfsKernel {
         self.bus.set_driver_override(&dprc, "").map_err(Error::Io)
     }
 
-    fn bound_driver(&self, dprc: DprcId) -> Result<Option<String>, Error> {
-        self.bus.bound_driver(&dprc.to_string()).map_err(Error::Io)
+    fn bound_driver(&self, dprc: DprcId) -> Result<Option<RawDriver>, Error> {
+        self.bus
+            .bound_driver(&dprc.to_string())
+            .map(|d| d.map(RawDriver::from))
+            .map_err(Error::Io)
     }
 
     fn driver_override(&self, dprc: DprcId) -> Result<Option<String>, Error> {
@@ -164,6 +181,17 @@ mod tests {
             )
             .unwrap();
         }
+
+        /// Fabricate the NESTED dpni `driver` link (`devices/dprc.1/dpni.7/driver` ->
+        /// the dpaa2-eth driver dir), unlike [`link_bound`](Self::link_bound)'s flat dprc
+        /// path — the layout `device_driver` reads.
+        fn link_dpni_driver(&self) {
+            let dev = self.devices.join("dprc.1/dpni.7");
+            std::fs::create_dir_all(&dev).unwrap();
+            let driver = self.drivers.join("fsl_dpaa2_eth");
+            std::fs::create_dir_all(&driver).unwrap();
+            std::os::unix::fs::symlink(&driver, dev.join("driver")).unwrap();
+        }
     }
 
     impl Drop for Fixture {
@@ -193,10 +221,13 @@ mod tests {
 
         fx.link_bound();
         let bound = fx.kernel.bound_driver(dprc).expect("bound driver");
-        assert_eq!(bound.as_deref(), Some(VFIO_FSL_MC_DRIVER));
+        assert_eq!(
+            bound.as_ref().map(RawDriver::as_str),
+            Some(VFIO_FSL_MC_DRIVER)
+        );
         // The core judges the raw name into the plugged-face bind state.
         assert_eq!(
-            VfioBind::classify(bound.as_deref()),
+            VfioBind::classify(bound.as_ref().map(RawDriver::as_str)),
             VfioBind::BoundVfioFslMc
         );
         assert_eq!(fx.kernel.iommu_group(dprc).expect("group"), Some(11));
@@ -223,7 +254,10 @@ mod tests {
         // No `driver` link ⇒ no bound driver ⇒ the core reads it Unbound.
         let bound = fx.kernel.bound_driver(dprc).expect("bound");
         assert_eq!(bound, None);
-        assert_eq!(VfioBind::classify(bound.as_deref()), VfioBind::Unbound);
+        assert_eq!(
+            VfioBind::classify(bound.as_ref().map(RawDriver::as_str)),
+            VfioBind::Unbound
+        );
     }
 
     #[test]
@@ -235,6 +269,24 @@ mod tests {
         assert_eq!(fx.kernel.driver_override(dprc).unwrap(), None);
         assert_eq!(fx.kernel.bound_driver(dprc).unwrap(), None);
         assert_eq!(fx.kernel.iommu_group(dprc).unwrap(), None);
+    }
+
+    #[test]
+    fn dpni_driver_reads_the_nested_driver_link() {
+        // The per-target probe read-back (DPNI-I4): the nested dpni driver link, absent
+        // then present, reported verbatim — the core judges the name, not this face.
+        let fx = Fixture::new("dpni-driver");
+        let dpni = DpniId::new(7);
+        assert_eq!(fx.kernel.dpni_driver(dpni).unwrap(), None);
+        fx.link_dpni_driver();
+        assert_eq!(
+            fx.kernel
+                .dpni_driver(dpni)
+                .unwrap()
+                .as_ref()
+                .map(RawDriver::as_str),
+            Some("fsl_dpaa2_eth")
+        );
     }
 
     #[test]

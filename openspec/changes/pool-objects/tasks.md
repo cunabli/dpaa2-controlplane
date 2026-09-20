@@ -48,7 +48,7 @@ opus48-developer parcel.
 - [x] 3.1 Create/destroy verbs for the four families; delta→id
       resolution with free-only victim selection; read-back as the
       only observation (mc-backend req 1).
-- [ ] 3.2 Kernel root-bind face: dpaa2-eth bind, per-target probe
+- [x] 3.2 Kernel root-bind face: dpaa2-eth bind, per-target probe
       read-back, typed -EPROBE_DEFER observation (mc-backend req 2).
 - [ ] 3.3 Child population + VFIO handoff over the dprc-encapsulation
       typestates (mc-backend req 3).
