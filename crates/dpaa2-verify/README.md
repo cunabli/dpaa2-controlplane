@@ -12,8 +12,9 @@ The **ITF trace replayer** (phase 3): frozen model traces in
 `models/traces/<aspect>/*.itf.json` replay against the pure reconciler
 (`dpaa2_api::plan::reconcile`) on every `cargo test`, no board attached.
 The retro reconciler runs replay in `tests/retro_replay.rs`; the family
-suites replay beside them in `tests/dprc_replay.rs` and
-`tests/dpni_replay.rs`.
+suites replay beside them in `tests/dprc_replay.rs`,
+`tests/dpni_replay.rs`, `tests/pool_replay.rs` (the P3 allocator trio,
+dpbp as representative) and `tests/dpio_replay.rs` (the seat-typed dpio).
 This is rung 3 of the model validation (`pnpm model:replay`); the
 full run is `pnpm model:validation` — see `models/README.md` for the
 other rungs.

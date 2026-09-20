@@ -114,8 +114,8 @@ Tally: 59 modeled, 43 deferred, 7 board-settled, 0 board-pending — 109 candida
 | DPBP-I6 | deferred | `pool-objects` (#6): per-consumer dpbp count below core scope | — | verified (ADR-0012) |
 | DPBP-I7 | board-settled | V-CEIL-1 (the dpbp pool floor of `dprc show mc.global --resources`) + `families/dpbp.qnt` `dpbp_lifecycle` `POOL_CENSUS`/`censusRefusesAtCeilingTest` (inherited from `pool_lifecycle`; the census-floor refusal modeled as a disabled create) → `pool-objects` (#6) | — | board-settled at the pool floor, V-CEIL-1 rev 1 (2026-08-29): a dpbp create is refused with No resources exactly when the buffer-pool free count reaches zero (63 created, the 64th refused, the count read zero at the ceiling), and every destroy returned its unit — the census predicts the refusal to the object (the suite's overall FAIL was the unrelated dpmcp-portal ambivalence, ADR-0011) |
 | DPIO-I1 | modeled | `core/invariants.qnt` `DPIO_I1` + `main.qnt` `DPMCP_I1Test` (the dpio→dpmcp arrow) | apalache | — |
-| DPIO-I2 | modeled | `families/dpio.qnt` `dpio_lifecycle` `DPIO_I2_seatBound` + `seatBoundRefusedTest` (regime-typed seat ceilings: ≤1 dpio/CPU kernel with the -ERANGE refusal, 2/thread DPDK) | apalache | verified (ADR-0012; board 16 + 10) |
-| DPIO-I3 | modeled | `families/dpio.qnt` `dpio_lifecycle` `DPIO_I3_modeDead` + `noChannelReportsPrioritiesTest` (capability from reported `num_priorities` alone, `channel_mode` mode-independent) | apalache | open: the reported half is settled — V-READBACK-1 (2026-08-25) created a NO_CHANNEL dpio at 8 priorities and `dpio info` reports `0x8`, the mode does not fold them away; the kernel half (what the driver does with a NO_CHANNEL dpio's priorities) → #6, since a runtime dpio cannot bind on this pair (ADR-0008) |
+| DPIO-I2 | modeled | `families/dpio.qnt` `dpio_lifecycle` `DPIO_I2_seatBound` + `seatBoundRefusedTest` (regime-typed seat ceilings: ≤1 dpio/CPU kernel with the -ERANGE refusal, 2/thread DPDK; frozen for ITF-replay as a conformance twin in `crates/dpaa2-verify/tests/dpio_replay.rs`, pool-objects task 4.1) | apalache + itf-replay | verified (ADR-0012; board 16 + 10) |
+| DPIO-I3 | modeled | `families/dpio.qnt` `dpio_lifecycle` `DPIO_I3_modeDead` + `noChannelReportsPrioritiesTest` (capability from reported `num_priorities` alone, `channel_mode` mode-independent; frozen for ITF-replay as a conformance twin in `crates/dpaa2-verify/tests/dpio_replay.rs`, pool-objects task 4.1) | apalache + itf-replay | open: the reported half is settled — V-READBACK-1 (2026-08-25) created a NO_CHANNEL dpio at 8 priorities and `dpio info` reports `0x8`, the mode does not fold them away; the kernel half (what the driver does with a NO_CHANNEL dpio's priorities) → #6, since a runtime dpio cannot bind on this pair (ADR-0008) |
 | DPIO-I4 | modeled | structural — the state carries no dpio↔CPU pairing to key on | typecheck | — |
 | DPIO-I5 | deferred | this change ph.4 adapter: probe success ≠ full function; per-target read-back | — | — |
 | DPCON-I1 | deferred | `pool-objects` (#6): min(CPUs, queues) coupling abstracted to draw=1 | — | verified (C1 + shortfall path) |
@@ -193,18 +193,22 @@ checked through the trio instantiations (representative: `dpbp_lifecycle`,
 they carry their own section here rather than a row in the 109-candidate table
 above (the same convention the Intent/Raw/Identity law sections follow). The
 five laws ride the `stateInvariants` conjunction (Apalache-marked); the
-accept/refuse shapes are directed runs in the same module.
+accept/refuse shapes are directed runs in the same module. The nine runs are
+frozen for ITF-replay (`pnpm model:freeze-pool`) and replayed as conformance
+twins against the `dpaa2-api` P3 count surface in
+`crates/dpaa2-verify/tests/pool_replay.rs` (pool-objects task 4.1), so a Rust
+predicate that drifts from the model census fails CI.
 
 | Law | Name | CI rung | Anchors / ties |
 |-----|------|---------|----------------|
-| Census floor | POOL_CENSUS + `censusRefusesAtCeilingTest` | simulate + apalache | object-model.md §4; ADR-0011 census-first; DPBP-I7 |
-| Custody edge | POOL_CUSTODY | simulate + apalache | object-model.md §3; DPBP-I2 pool-entry precondition |
-| DPL-born survive | POOL_DPL_SURVIVES + `prunePreservesDplBornTest` | simulate + apalache | pool-objects design D3; roadmap #14 (boot objects foreign); formal-models req 2 |
-| Managed honesty | POOL_MANAGED_LIVE | simulate + apalache | pool-objects design D2 (count↔individual boundary) |
-| Idempotent converge | POOL_IDEMPOTENT + `idempotentReconvergeTest` | simulate + apalache | pool-objects design D3; formal-models req 2 (level-triggered) |
-| Free-only shrink | `freeOnlyShrinkTest` / `drawnNeverShrunkTest` | simulate | pool-objects design D3; formal-models req 2 (surplus destroys free only) |
-| ShrinkBelowDraw | `shrinkBelowDrawRefusedTest` | simulate | pool-objects design D3; formal-models req 2 (refusal, not a teardown) |
-| Grow to count | `convergenceGrowTest` | simulate | pool-objects design D3 (deficit → create to the derived count) |
+| Census floor | POOL_CENSUS + `censusRefusesAtCeilingTest` | simulate + apalache + itf-replay | object-model.md §4; ADR-0011 census-first; DPBP-I7 |
+| Custody edge | POOL_CUSTODY | simulate + apalache + itf-replay | object-model.md §3; DPBP-I2 pool-entry precondition |
+| DPL-born survive | POOL_DPL_SURVIVES + `prunePreservesDplBornTest` | simulate + apalache + itf-replay | pool-objects design D3; roadmap #14 (boot objects foreign); formal-models req 2 |
+| Managed honesty | POOL_MANAGED_LIVE | simulate + apalache + itf-replay | pool-objects design D2 (count↔individual boundary) |
+| Idempotent converge | POOL_IDEMPOTENT + `idempotentReconvergeTest` | simulate + apalache + itf-replay | pool-objects design D3; formal-models req 2 (level-triggered) |
+| Free-only shrink | `freeOnlyShrinkTest` / `drawnNeverShrunkTest` | simulate + itf-replay | pool-objects design D3; formal-models req 2 (surplus destroys free only) |
+| ShrinkBelowDraw | `shrinkBelowDrawRefusedTest` | simulate + itf-replay | pool-objects design D3; formal-models req 2 (refusal, not a teardown) |
+| Grow to count | `convergenceGrowTest` | simulate + itf-replay | pool-objects design D3 (deficit → create to the derived count) |
 
 ## Intent invariants (task 5.1)
 

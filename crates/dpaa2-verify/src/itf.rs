@@ -122,8 +122,44 @@ pub(crate) fn family_of_tag(tag: &str) -> Option<Family> {
 }
 
 /// Family tag and object number of an ITF-encoded `ObjId`.
-fn obj_id(v: &Value) -> Result<(&str, u32), String> {
+pub(crate) fn obj_id(v: &Value) -> Result<(&str, u32), String> {
     Ok((tag(&v["fam"])?, num(&v["num"])?))
+}
+
+/// An ITF-encoded `ObjId` (`{fam, num}`) as a corpus [`Family`] and ordinal — the strict decode
+/// the `CoreState`-carrying readers ([`crate::intent::pool_itf`], [`crate::intent::dpio_itf`])
+/// share. An unknown family tag fails, so the reader's types mirror the qnt `Family` sum rather
+/// than flattening tags to strings (ADR-0002 §3).
+pub(crate) fn obj_ref(v: &Value) -> Result<(Family, u32), String> {
+    let (t, n) = obj_id(v)?;
+    Ok((
+        family_of_tag(t).ok_or_else(|| format!("unknown family tag `{t}`"))?,
+        n,
+    ))
+}
+
+/// An ITF-encoded `Option[ObjId]` (`{tag: Some|None}`) as an optional [`Family`]/ordinal —
+/// the `ObjState` `parent`/`allocatedBy` custody edges the pool and dpio readers walk.
+pub(crate) fn opt_obj_ref(v: &Value) -> Result<Option<(Family, u32)>, String> {
+    match tag(v)? {
+        "None" => Ok(None),
+        "Some" => Ok(Some(obj_ref(&v["value"])?)),
+        other => Err(format!("not an Option tag: `{other}`")),
+    }
+}
+
+/// The value of machine variable `name` in a frozen state, matching the bare name or a
+/// module-qualified `<module>::…::<name>` key. A run inheriting its vars from an imported
+/// module qualifies them (`dpbp_lifecycle::pool_lifecycle::s`); a run owning them does not
+/// (`s`). A value-less state (a `.fail()` step froze only `#meta`) has no match and errors —
+/// the caller reads that as the disabled-guard sentinel.
+pub(crate) fn state_var<'a>(state: &'a Value, name: &str) -> Result<&'a Value, String> {
+    let obj = state.as_object().ok_or("state is not an object")?;
+    let suffix = format!("::{name}");
+    obj.iter()
+        .find(|(k, _)| k.as_str() == name || k.ends_with(&suffix))
+        .map(|(_, v)| v)
+        .ok_or_else(|| format!("state has no `{name}` variable"))
 }
 
 /// Reduces one ITF-encoded `CoreState` to its observable view.
