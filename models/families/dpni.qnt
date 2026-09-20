@@ -646,6 +646,7 @@ module dpni_scenario {
   import dpni_lifecycle.MaxSenders
   import dpni_lifecycle.NumRxTcs
   import dpni_lifecycle.inEnvelope
+  import dpni_lifecycle.MC_CLEARED_FLAGS
 
   // The primary MAC as six bytes — the Rust runtime slot MacAddr([u8;6])
   // (dpni-typestate design D1). All-zero is the unset MAC (MacAddr::ZERO), the
@@ -777,5 +778,40 @@ module dpni_scenario {
         world.lastOutcome == Accepted,
         world.dpni == Created(profileCfg(ProfilePmd)),
         world.primaryMac == SAMPLE_MAC,
+      })
+
+  // A PMD block augmented with the MC-cleared bits (SHARED_CONGESTION flag + raw
+  // 0x4000 HAS_REPLICATION escape, MC_CLEARED_FLAGS): the create keeps them
+  // verbatim, the read-back strips both (dpni-hardening bead B; V-DPNI-7/9 rev 2).
+  pure val PMD_WITH_MC_CLEARED: CreateCfg =
+    profileCfg(ProfilePmd).with("options",
+      { flags: PMD_PROFILE.flags.union(MC_CLEARED_FLAGS.flags),
+        escapes: PMD_PROFILE.escapes.union(MC_CLEARED_FLAGS.escapes) })
+
+  // McClearedFlags create/read-back: the augmented block is created carrying both
+  // cleared bits, so the replay decodes HAS_REPLICATION and checks the observation
+  // strips them (dpni-hardening bead B).
+  run scenarioMcClearedCreateReadbackTest =
+    init
+      .then(createRawAt(PMD_WITH_MC_CLEARED))
+      .expect(and {
+        world.lastOutcome == Accepted,
+        match world.dpni {
+          | Created(cfg) => and {
+              cfg.options.flags.contains(SharedCongestion),
+              cfg.options.escapes.contains(HasReplication),
+            }
+          | Absent => false
+        },
+      })
+
+  // Unpriced refusal: a UserspaceEvent dataplane derives no dpni profile, so the
+  // create is refused UnpricedDataplane and nothing is created (ADR-0012; bead B).
+  run scenarioUnpricedRefusedTest =
+    init
+      .then(createDerivedAt(UserspaceEvent, Loopback))
+      .expect(and {
+        world.lastOutcome == Refused(UnpricedDataplane),
+        world.dpni == Absent,
       })
 }

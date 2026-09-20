@@ -20,6 +20,7 @@ const TRACES: &[(&str, Arm)] = &[
     ("vwireAcceptedTrace", Arm::Ok),
     ("vwireRefusedTrace", Arm::Refused),
     ("referenceAcceptedTrace", Arm::Ok),
+    ("queueEnvelopeRefusedTrace", Arm::Refused),
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]

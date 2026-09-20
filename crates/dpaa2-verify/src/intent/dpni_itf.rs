@@ -98,6 +98,7 @@ fn dpni_opt(v: &Value) -> Result<DpniOpt, String> {
 fn raw_escape(v: &Value) -> Result<RawEscape, String> {
     match tag(v)? {
         "PfdrInPeb" => Ok(RawEscape::PfdrInPeb),
+        "HasReplication" => Ok(RawEscape::HasReplication),
         other => Err(format!("unknown RawEscape tag `{other}`")),
     }
 }

@@ -28,6 +28,7 @@ module intent_replay {
   import router as router from "./scenarios/router"
   import vwire as vwire from "./scenarios/vwire"
   import reference as reference from "./scenarios/reference"
+  import intent_main as main from "./main"       // queueEnvelopeIntent, invSeven25G (bead guu.4a)
 
   // The two `compile` inputs and the model's frozen outcome. One state per
   // trace suffices — `compile` is pure, so the replayer needs no transitions.
@@ -53,4 +54,8 @@ module intent_replay {
   run vwireAcceptedTrace     = feed(vwire::accepted, REF_INVENTORY)
   run vwireRefusedTrace      = feed(vwire::twin, REF_INVENTORY)
   run referenceAcceptedTrace = feed(reference::accepted, REF_INVENTORY)
+  // The intent-side queue-envelope fence (bead guu.4a; dpni-hardening bead B): a
+  // poll tenant terminating seven 25G ports derives T = 36 numQueues past the
+  // dpni.qnt envelope, so compile refuses QueueEnvelopeExceeded.
+  run queueEnvelopeRefusedTrace = feed(main::queueEnvelopeIntent, main::invSeven25G)
 }

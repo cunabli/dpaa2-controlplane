@@ -43,11 +43,14 @@ parser-arm-first rule. One bead at a time through acceptance.
 
 ## 2. Close the replay blind faces (bead B; synthesis row 6)
 
-- [ ] 2.1 `raw_escape()` decodes `HasReplication`; then
+- [x] 2.1 `raw_escape()` decodes `HasReplication`; then
   `scenarioMcClearedCreateReadbackTest` + the queue-envelope
   RefusedTrace twin in `models/intent/replay.qnt` + the frozen
   `scenarioUnpricedRefusedTest` land with their `package.json` match
   entries and TRACES rows; `cargo test -p dpaa2-verify` green
+  Landed: only `dpni_itf.rs` gains the arm (row 6 names it); the
+  `queueEnvelopeRefusedTrace` reuses `intent_main`'s `queueEnvelopeIntent`
+  /`invSeven25G` rather than restating the literal.
 
 ## 3. Shim/engine hardening (bead C; synthesis rows 7-9)
 

@@ -22,8 +22,8 @@ use std::collections::BTreeSet;
 
 use dpaa2_api::core::model::MacAddr;
 use dpaa2_api::families::dpni::{
-    DistKeySize, Dpni, DpniDisposition, DpniObservation, InterfaceConstruct, NumQueues,
-    ProfileOutcome, derive_profile, drift_disposition,
+    DistKeySize, Dpni, DpniDisposition, DpniObservation, DpniOpt, InterfaceConstruct, NumQueues,
+    ProfileOutcome, RawEscape, derive_profile, drift_disposition,
 };
 use dpaa2_api::intent::Dataplane;
 use dpaa2_verify::intent::dpni_itf::{
@@ -60,6 +60,14 @@ const TRACES: &[(&str, &str)] = &[
     (
         "scenarioPrimaryMacMutationTest",
         "primary-MAC mutation: runtime slot moves, create block untouched",
+    ),
+    (
+        "scenarioMcClearedCreateReadbackTest",
+        "MC-cleared create: HAS_REPLICATION + SHARED_CONGESTION requested, read-back strips both",
+    ),
+    (
+        "scenarioUnpricedRefusedTest",
+        "Unpriced refusal: UserspaceEvent derives no profile, nothing created",
     ),
 ];
 
@@ -284,6 +292,29 @@ fn replay_detects_a_diverging_world() {
         from_core(handle.as_ref(), mac, last),
         tampered,
         "a flipped num_queues must diverge from the driven world"
+    );
+}
+
+/// The MC-cleared trace decodes its `HasReplication` escape (dpni-hardening bead B, D2) and
+/// the read-back strips both cleared bits: the create block keeps them verbatim, the
+/// observation drops `SHARED_CONGESTION` and raw 0x4000 (V-DPNI-7/9 rev 2).
+#[test]
+fn mc_cleared_trace_decodes_and_readback_strips_both() {
+    let states =
+        parse_dpni_trace(&load("scenarioMcClearedCreateReadbackTest")).expect("decode with escape");
+    let DpniPhase::Created(cfg) = &states[1].dpni else {
+        panic!("state 1 is a created dpni");
+    };
+    assert!(
+        cfg.options.contains(DpniOpt::SharedCongestion)
+            && cfg.options.contains_escape(RawEscape::HasReplication),
+        "the create block keeps both cleared bits verbatim"
+    );
+    let readback = DpniObservation::project(cfg).options;
+    assert!(
+        !readback.contains(DpniOpt::SharedCongestion)
+            && !readback.contains_escape(RawEscape::HasReplication),
+        "the read-back strips both MC-cleared bits"
     );
 }
 
