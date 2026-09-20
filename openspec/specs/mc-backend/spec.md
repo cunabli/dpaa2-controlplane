@@ -108,25 +108,24 @@ first reaches pool machinery — earliest reachability wins (review PASS4-F4).
 - **WHEN** KernelControl unbinds the scratch child and clears the override
 - **THEN** the container is observed unbound and eligible for fsl_mc_dprc again
 
-### Requirement: The restool shim drives dpni create at full option granularity
-The `dpaa2-mc` restool shim SHALL grow the dpni create verb carrying
-every live create option from the typed create block, emitting the
-options mask it computed itself as a raw numeric value — never
-operator-supplied tokens — so restool's loose token parsing
-(case-sensitive match with silent numeric fallback) is bypassed as an
-input path. The shim SHALL also drive the primary-MAC mutation, the only
-restool-reachable runtime setter.
+### Requirement: Every restool exit on the create chain is classified through the typed funnel
+The restool shim SHALL route `stamp_label` and `read_inventory` through
+`run_verb` so their refusals carry the typed McStatus/RestoolGuard
+classification instead of an untyped backend error; no shim verb SHALL
+call the raw `Runner::run` directly. The dpni observation mapping SHALL
+capture `wriop_version` from the read-back (the board emits it and the
+tile #10 num_queues-ceiling question anchors on it). (Review synthesis
+rows 7-8.)
 
-#### Scenario: Create emits the computed mask
-- **WHEN** the reconciler dispatches a dpni create with any typed option
-  set
-- **THEN** the shim passes one raw mask value it computed from the typed
-  set, and every sizing field the block carries
+#### Scenario: A set-label refusal on the create chain is attributable
+- **WHEN** the MC refuses the `dprc set-label` step of a dpni create
+- **THEN** the rollback fires on a typed classification naming the
+  refusing verb and status, not on an untyped backend error
 
-#### Scenario: Primary MAC set round-trips
-- **WHEN** the shim sets a dpni primary MAC and re-observes the object
-- **THEN** the read-back reports the new MAC (exit status is not the
-  observation)
+#### Scenario: The read-back keeps the WRIOP revision
+- **WHEN** the shim maps a `dpni info` read-back
+- **THEN** `wriop_version` is captured on the raw attribute struct as an
+  informational field, outside the pure core's equality
 
 ### Requirement: dpni observation maps the read-back asymmetries
 The shim's dpni observation SHALL map `dpni_attr`'s asymmetric read-back

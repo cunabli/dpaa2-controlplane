@@ -85,15 +85,31 @@ SHALL be left untouched.
 - **WHEN** the root holds an unlabeled child container (bare restool create) absent from intent
 - **THEN** the ownership fence holds and no plan step targets it, regardless of flags
 
-### Requirement: Unsafe drift is reported, not silently repaired
-Reconciliation SHALL report drift and refuse the change when observed differs from
-desired on an immutable (create-time-only) attribute, rather than plan a
-destroy-and-recreate of a live interface.
+### Requirement: The dpni cfg-drift decision is consumed by the planner
+The planner SHALL judge dpni cfg drift through the typed
+`drift_disposition` surface (`families::dpni`): `plan_present` SHALL
+consume `ObservedDpni.cfg_observation` and plan destroy + create on any
+cfg divergence, never repair (ADR-0001 §4). The unsized-create sizing
+seam SHALL be resolved so a port-only dpni created without an explicit
+`num_queues` does not read back as drifted: either the effective queue
+count derives core-side from `Inventory.cpus` (retiring the shim
+fallback and amending its recorded contract in the same commit) or
+unsized cfgs are fenced out of drift comparison by construct — the
+landed choice is recorded in the task. The fake backend SHALL project
+`Some(DpniObservation::project(cfg))` at create so fake-vs-reconcile
+tests cover cfg drift. (Review synthesis rows 1-3.)
 
-#### Scenario: Immutable attribute mismatch
-- **WHEN** desired requires an immutable DPNI attribute value that differs from the
-  live object
-- **THEN** reconcile reports drift for that object and plans no destructive change
+#### Scenario: Cfg drift plans destroy-and-create in production
+- **WHEN** an observed dpni's read-back projection differs from the
+  desired cfg's projection on any compared field
+- **THEN** `plan_present` emits the destroy + create disposition through
+  `drift_disposition`, not the legacy attribute map
+
+#### Scenario: An unsized port-only dpni does not false-drift
+- **WHEN** a dpni created through the port-only path (no explicit
+  `num_queues`) is re-observed
+- **THEN** the plan reports convergence, not a permanent
+  destroy-then-create loop
 
 ### Requirement: Assert-only intent is verified, not actuated
 Fields declared assert-only (e.g. link speed, board-burned MAC) SHALL be compared
