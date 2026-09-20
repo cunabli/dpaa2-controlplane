@@ -1,0 +1,39 @@
+{
+  "id": "V-POOL-5",
+  "class": "object-lifecycle-only",
+  "flagged": false,
+  "trace_file": "models/board/V-POOL-5/vpool5.itf.json",
+  "steps": [
+    {
+      "index": 0,
+      "title": "CreateObject { fam: Dpbp, container: ObjRef { fam: Dprc, num: 1 } }",
+      "driven": true,
+      "probes": [
+        {
+          "Restool": [
+            "dprc",
+            "show",
+            "dprc.1"
+          ]
+        }
+      ],
+      "created": {
+        "fam": "Dpbp",
+        "num": 0
+      },
+      "expected": {
+        "object": {
+          "fam": "Dpbp",
+          "num": 0
+        },
+        "present": true,
+        "plugged": false,
+        "endpoint": null,
+        "driver_bound": null,
+        "link_up": null
+      }
+    }
+  ],
+  "hook": "models/board/V-POOL-5/ceiling.sh",
+  "pool_record": true
+}

@@ -1,0 +1,44 @@
+{
+  "id": "V-DPIO-1",
+  "class": "object-lifecycle-only",
+  "flagged": false,
+  "trace_file": "models/board/V-DPIO-1/vdpio1.itf.json",
+  "steps": [
+    {
+      "index": 0,
+      "title": "CreateObject { fam: Dpio, container: ObjRef { fam: Dprc, num: 1 } }",
+      "driven": true,
+      "probes": [
+        {
+          "Restool": [
+            "dprc",
+            "show",
+            "dprc.1"
+          ]
+        }
+      ],
+      "created": {
+        "fam": "Dpio",
+        "num": 0
+      },
+      "expected": {
+        "object": {
+          "fam": "Dpio",
+          "num": 0
+        },
+        "present": true,
+        "plugged": false,
+        "endpoint": null,
+        "driver_bound": null,
+        "link_up": null
+      }
+    }
+  ],
+  "hook": "models/board/V-DPIO-1/seats.sh",
+  "create_args": {
+    "Dpio": [
+      "--channel-mode=DPIO_NO_CHANNEL",
+      "--num-priorities=8"
+    ]
+  }
+}
