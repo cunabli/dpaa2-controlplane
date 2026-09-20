@@ -6,6 +6,7 @@ use crate::core::inventory::Inventory;
 use crate::core::model::{DpmacId, DpniId, DprcId, MacAddr, ObjectRef, ObservedTopology};
 use crate::core::types::ConstructName;
 use crate::families::dpio::{DpioCfg, Priorities};
+use crate::families::dpni::DpniCfg;
 use crate::families::dprc;
 use crate::families::pool_lifecycle::ObservedPoolObject;
 use crate::plan::dprc::ObservedContainer;
@@ -46,16 +47,35 @@ pub trait McControl {
     /// `cfg` is the compiled, in-envelope create block the plan carries
     /// (dpni-typestate task 4.1; design D3): the backend renders it verbatim, never
     /// re-deriving an option or a size. Sizing rides inside as
-    /// [`DpniCfg::num_queues`](crate::families::dpni::DpniCfg::num_queues); 0 means
+    /// [`DpniCfg::num_queues`]; 0 means
     /// unsized and the backend applies its host-derived default (synthesis L2/B3),
     /// preserving the prior contract.
     ///
     /// # Errors
     /// Returns an error if creation fails.
-    fn create_dpni(
+    fn create_dpni(&self, label: &ConstructName, cfg: &DpniCfg) -> Result<DpniId, Error>;
+
+    /// Creates a **bare** DPNI in a child container `container`, stamped `label` and
+    /// plugged in that child — the child-population create (pool-objects design D2), the
+    /// deliberate divergence from [`create_dpni`](Self::create_dpni)'s root path. Unlike
+    /// that root create, this issues **no** private dependency chain and **no** connect:
+    /// a child's companions come from the pool disposition the reconciler converges
+    /// separately (`dpaa2_mc::populate::populate_child`), not from a consumer's own
+    /// transactional chain, and a VFIO-consumed child is never kernel-connected here.
+    ///
+    /// `cfg` is the same compiled, in-envelope create block [`create_dpni`](Self::create_dpni)
+    /// renders verbatim; sizing rides inside as
+    /// [`DpniCfg::num_queues`] (0 ⇒ the
+    /// backend's host-derived default).
+    ///
+    /// # Errors
+    /// Returns [`Error::McStatus`], [`Error::RestoolGuard`], [`Error::Backend`], or
+    /// [`Error::Parse`] if the created id cannot be read back.
+    fn create_dpni_in(
         &self,
+        container: DprcId,
+        cfg: &DpniCfg,
         label: &ConstructName,
-        cfg: &crate::families::dpni::DpniCfg,
     ) -> Result<DpniId, Error>;
 
     /// Connects a single DPNI↔DPMAC edge.

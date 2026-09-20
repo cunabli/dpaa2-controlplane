@@ -47,6 +47,8 @@
 //! not legislate it.
 
 use crate::core::error::Error;
+use crate::core::family::Family;
+use crate::intent::compiled::{CompiledPlan, Container};
 
 // ---- the two create-cfg sums (model `dpio` types) ----
 
@@ -284,6 +286,25 @@ pub fn seat_count(seats: &[DpioSeat], regime: SeatRegime) -> i64 {
     i64::try_from(seats.iter().filter(|s| s.regime == regime).count()).unwrap_or(i64::MAX)
 }
 
+/// The intent-derived dpio seat count for one container — the count of planned dpio
+/// objects the plan places there, consumed unchanged from the compiled plan (ADR-0012
+/// regime draws: `2·T` per userspace-poll consumer, one per online CPU for the kernel).
+/// This is the seat twin of
+/// [`pool_lifecycle::derived_requirement`](crate::families::pool_lifecycle::derived_requirement):
+/// dpio is `pooled: false`, so its convergence target is a seat count, not a pool census,
+/// but the plan population read is the same shape — a plain filter of the plan, never a
+/// re-derivation (the sizing rules already ran in the intent compiler).
+#[must_use]
+pub fn derived_seats(plan: &CompiledPlan, container: &Container) -> i64 {
+    i64::try_from(
+        plan.objects
+            .iter()
+            .filter(|o| o.container() == container && o.key().family == Family::Dpio)
+            .count(),
+    )
+    .unwrap_or(i64::MAX)
+}
+
 /// The typed refusal a create past the regime's seat ceiling raises — the Rust twin of the
 /// disabled `dpio.qnt` `createDpioAt` guard (`dpioSeatCount < seatCeiling`), the `-ERANGE`
 /// shape (`docs/baseline/dpio.md` "Kernel-side behavior": "Number of DPIOs exceeds
@@ -449,6 +470,51 @@ mod tests {
         assert_eq!(seat_count(&seats, SeatRegime::KernelSeat), 2);
         assert_eq!(seat_count(&seats, SeatRegime::DpdkSeat), 1);
         assert_eq!(seat_count(&[], SeatRegime::KernelSeat), 0);
+    }
+
+    // ---- derived_seats: the plan population of dpio in a container (ADR-0012 2·T) ----
+
+    #[test]
+    fn derived_seats_counts_dpio_by_container() {
+        use crate::core::model::{DpmacId, MacMode};
+        use crate::intent::refuse::compile;
+        use crate::intent::{Dataplane, Intent, Isolation, Port, Tenant, TenantRef};
+        use crate::testkit::ref_inventory;
+
+        // A userspace-poll consumer terminating one 10G port (T = 1 + 2 = 3) draws 2·T
+        // dpio into its own child, read straight off the plan (ADR-0012, not re-derived).
+        let intent = Intent {
+            tenants: vec![Tenant {
+                name: "vpp".into(),
+                dataplane: Dataplane::UserspacePoll,
+                max_cores: 16,
+                isolation: Isolation::Isolated,
+                renamed: None,
+            }],
+            ports: vec![Port {
+                name: "wan0".into(),
+                dpmac: DpmacId::new(7),
+                rate: 10_000,
+                tenant: TenantRef::from_name("vpp".into()),
+                mac: None,
+                mac_mode: MacMode::Assert,
+                renamed: None,
+            }],
+            ..Intent::empty()
+        };
+        let compiled = compile(&intent, &ref_inventory(16)).expect("intent compiles");
+        let child = Container::Child("vpp".into());
+        let expected = i64::try_from(
+            compiled
+                .plan
+                .objects
+                .iter()
+                .filter(|o| o.container() == &child && o.key().family == Family::Dpio)
+                .count(),
+        )
+        .unwrap();
+        assert_eq!(derived_seats(&compiled.plan, &child), expected);
+        assert_eq!(derived_seats(&compiled.plan, &child), 6); // 2·T, T = 3
     }
 
     // ---- seatBoundRefusedTest: kernel seats top out at the ceiling, next is -ERANGE ----

@@ -69,9 +69,11 @@ struct FakeState {
     /// the backend verbatim (dpni-typestate task 4.1).
     created_cfgs: Vec<(DpniId, DpniCfg)>,
     /// The pool objects [`McControl::dpbp_create`] and friends have minted, observed by
-    /// [`McControl::observe_pool`] — a single flat list (the fake models one container),
-    /// each created object stamped and plugged (pool-objects task 3.1).
-    pool_objects: Vec<ObservedPoolObject>,
+    /// [`McControl::observe_pool`] — each paired with the container it was created in
+    /// (`None` ⇒ [`DprcId::ROOT`], the shim default), so a child population is observable
+    /// scoped to its own child (pool-objects task 3.3). Each created object is stamped and
+    /// plugged (pool-objects task 3.1).
+    pool_objects: Vec<(DprcId, ObservedPoolObject)>,
     /// Next pool-object ordinal, shared across families — unique enough for the fake.
     next_pool: u32,
 }
@@ -104,18 +106,44 @@ impl FakeBackend {
         }
     }
 
-    /// Mints one plugged, stamped pool object of `family` and records it so a later
-    /// [`McControl::observe_pool`] reads it back (create → stamp → plug; pool-objects task 3.1).
-    fn push_pool_object(&self, family: Family, label: &ConstructName) -> ObjectRef {
+    /// Mints one plugged, stamped pool object of `family` in `container` (`None` ⇒
+    /// [`DprcId::ROOT`], the shim default) and records it so a later
+    /// [`McControl::observe_pool`] of that container reads it back (create → stamp → plug;
+    /// pool-objects task 3.1).
+    fn push_pool_object(
+        &self,
+        container: Option<DprcId>,
+        family: Family,
+        label: &ConstructName,
+    ) -> ObjectRef {
         let mut st = self.state.borrow_mut();
         let object = ObjectRef::new(family, st.next_pool);
         st.next_pool += 1;
-        st.pool_objects.push(ObservedPoolObject {
-            object,
-            label: RawLabel::from(label.as_str()),
-            plugged: true,
-        });
+        st.pool_objects.push((
+            container.unwrap_or(DprcId::ROOT),
+            ObservedPoolObject {
+                object,
+                label: RawLabel::from(label.as_str()),
+                plugged: true,
+            },
+        ));
         object
+    }
+
+    /// Seeds a pool object into `container` as if a prior run or bare restool had left it,
+    /// so a test can inject an orphan the create verbs cannot mint — an unplugged foreign
+    /// row a child population then prunes (pool-objects task 3.3). The ordinal advances the
+    /// next-pool counter so a later create never collides.
+    #[must_use]
+    pub fn with_pool_object(self, container: DprcId, object: ObservedPoolObject) -> Self {
+        {
+            let mut st = self.state.borrow_mut();
+            if object.object.ordinal() >= st.next_pool {
+                st.next_pool = object.object.ordinal() + 1;
+            }
+            st.pool_objects.push((container, object));
+        }
+        self
     }
 
     /// The create blocks handed to [`McControl::create_dpni`], in call order, so a test
@@ -296,6 +324,20 @@ impl McControl for FakeBackend {
         Ok(id)
     }
 
+    // A bare child dpni is modeled as a plugged, stamped pool row in `container`, so
+    // `observe_pool(Some(child), Dpni)` reads it back — the dpni half of a child
+    // population (pool-objects task 3.3). No dependency chain and no connect, matching
+    // the shim's bare create; the id follows the pool ordinal.
+    fn create_dpni_in(
+        &self,
+        container: DprcId,
+        _cfg: &DpniCfg,
+        label: &ConstructName,
+    ) -> Result<DpniId, Error> {
+        let obj = self.push_pool_object(Some(container), Family::Dpni, label);
+        Ok(DpniId::new(obj.ordinal()))
+    }
+
     fn connect(&self, dpni: DpniId, dpmac: DpmacId) -> Result<(), Error> {
         let mut st = self.state.borrow_mut();
         let tick = st.tick;
@@ -445,62 +487,63 @@ impl McControl for FakeBackend {
         Ok(())
     }
 
-    // The pool verbs model one container (`container` ignored); each create stamps and plugs
-    // so `observe_pool` reads it back drawn (pool-objects task 3.1; engine-test fake only).
+    // The pool verbs record the create's `container` (None ⇒ root); each create stamps and
+    // plugs so `observe_pool` of that container reads it back drawn (pool-objects task 3.1).
     fn dpbp_create(
         &self,
-        _container: Option<DprcId>,
+        container: Option<DprcId>,
         label: &ConstructName,
     ) -> Result<ObjectRef, Error> {
-        Ok(self.push_pool_object(Family::Dpbp, label))
+        Ok(self.push_pool_object(container, Family::Dpbp, label))
     }
 
     fn dpmcp_create(
         &self,
-        _container: Option<DprcId>,
+        container: Option<DprcId>,
         label: &ConstructName,
     ) -> Result<ObjectRef, Error> {
-        Ok(self.push_pool_object(Family::Dpmcp, label))
+        Ok(self.push_pool_object(container, Family::Dpmcp, label))
     }
 
     fn dpcon_create(
         &self,
-        _container: Option<DprcId>,
+        container: Option<DprcId>,
         _priorities: Priorities,
         label: &ConstructName,
     ) -> Result<ObjectRef, Error> {
-        Ok(self.push_pool_object(Family::Dpcon, label))
+        Ok(self.push_pool_object(container, Family::Dpcon, label))
     }
 
     fn dpio_create(
         &self,
-        _container: Option<DprcId>,
+        container: Option<DprcId>,
         _cfg: DpioCfg,
         label: &ConstructName,
     ) -> Result<ObjectRef, Error> {
-        Ok(self.push_pool_object(Family::Dpio, label))
+        Ok(self.push_pool_object(container, Family::Dpio, label))
     }
 
     fn pool_destroy(&self, object: &ObjectRef) -> Result<(), Error> {
         self.state
             .borrow_mut()
             .pool_objects
-            .retain(|o| &o.object != object);
+            .retain(|(_, o)| &o.object != object);
         Ok(())
     }
 
     fn observe_pool(
         &self,
-        _container: Option<DprcId>,
+        container: Option<DprcId>,
         family: Family,
     ) -> Result<Vec<ObservedPoolObject>, Error> {
+        let want = container.unwrap_or(DprcId::ROOT);
         Ok(self
             .state
             .borrow()
             .pool_objects
             .iter()
-            .filter(|o| o.object.family() == family)
-            .cloned()
+            .filter(|(c, o)| *c == want && o.object.family() == family)
+            .map(|(_, o)| o.clone())
             .collect())
     }
 }
