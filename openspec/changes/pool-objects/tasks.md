@@ -7,14 +7,14 @@ opus48-developer parcel.
 
 ## 1. Models
 
-- [ ] 1.1 Stand up `models/families/pool_lifecycle.qnt` (design D7;
+- [x] 1.1 Stand up `models/families/pool_lifecycle.qnt` (design D7;
       ADR-0019 Quint module architecture): the pattern-owned machine
       with the allocator-custody cycle for the trio — free-pool
       membership, draw, return with DPBP-I3 dirty return, ceiling
       refusal at the census; trio family modules gain only family
       types + invariant index pointing at it (formal-models req 1);
       Apalache-mark the invariants.
-- [ ] 1.2 dpio joins pool_lifecycle: seat arithmetic and the
+- [x] 1.2 dpio joins pool_lifecycle: seat arithmetic and the
       probe-time dpmcp draw (DPIO-I1/DPMCP-I1) as machine
       transitions, seat-regime vocabulary and the DPCON-I4
       notification-edge type as family types,
