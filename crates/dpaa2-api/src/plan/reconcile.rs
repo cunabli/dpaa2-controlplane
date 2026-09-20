@@ -12,10 +12,10 @@
 //! configured ports, so foreign objects are never enumerated, let alone deleted.
 
 use crate::core::model::{
-    DesiredPort, DesiredTopology, Lifecycle, LinkType, MacMode, ObservedTopology, Presence,
+    DesiredPort, DesiredTopology, Lifecycle, LinkType, MacAddr, MacMode, ObservedTopology, Presence,
 };
-use crate::families::dpni::DpniCfg;
-use crate::plan::{AssertMismatch, DriftReport, Plan, Transition};
+use crate::families::dpni::{DpniCfg, DpniDisposition, drift_disposition};
+use crate::plan::{AssertMismatch, Plan, Transition};
 
 /// Options controlling reconciliation policy.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
@@ -72,49 +72,27 @@ fn plan_present(port: &DesiredPort, observed: &ObservedTopology, cfg: DpniCfg, p
     let needs_netdev = link_type == LinkType::Phy;
 
     let Some(dpni) = observed.dpni_connected_to(port.dpmac) else {
-        // Absent -> Create, (optionally set MAC), Connect, and wait-to-bind. The
-        // create carries the construct name so the object is stamped the moment it is
-        // minted (ADR-0010 §4 ABA guard; ADR-0015 decisions 9 + 13).
-        plan.transitions.push(Transition::Create {
-            port: port.dpmac,
-            label: port.name.clone(),
-            cfg,
-        });
-        if port.mac_mode == MacMode::Actuate
-            && let Some(mac) = port.mac
-        {
-            plan.transitions.push(Transition::SetMac {
-                port: port.dpmac,
-                mac,
-            });
-        }
-        plan.transitions
-            .push(Transition::Connect { port: port.dpmac });
-        if needs_netdev {
-            plan.transitions.push(Transition::Bind { port: port.dpmac });
-        }
+        plan_create(port, cfg, needs_netdev, plan);
         return;
     };
 
-    // A DPNI is already connected to this DPMAC. Refuse immutable drift before
-    // planning any further mutation of the live object (design D8; restool-baseline).
-    let mut drifted = false;
-    for (attr, want) in &port.immutable {
-        let got = dpni.attributes.get(attr);
-        if got.map(String::as_str) != Some(want.as_str()) {
-            plan.drift.push(DriftReport {
-                dpni: dpni.id,
-                attribute: attr.clone(),
-                detail: format!(
-                    "desired {attr}={want}, observed {}",
-                    got.map_or("<absent>", String::as_str)
-                ),
-            });
-            drifted = true;
+    // Typed cfg drift on the read-back projection (ADR-0001 §4; not the legacy attribute
+    // map; MAC held equal to isolate cfg). An unsized block (`num_queues` 0) has no sizing
+    // intent, so it is fenced by construct — its 0 sentinel never reads back (7fv.2, row 2).
+    if cfg.num_queues.get() != 0
+        && let Some(observed_cfg) = dpni.cfg_observation.as_ref()
+    {
+        let mac = dpni.mac.unwrap_or(MacAddr::ZERO);
+        if drift_disposition(&cfg, mac, observed_cfg, mac) == DpniDisposition::DestroyThenCreate {
+            if dpni.netdev.is_some() {
+                plan.transitions.push(Transition::Unbind { dpni: dpni.id });
+            }
+            plan.transitions
+                .push(Transition::Disconnect { dpni: dpni.id });
+            plan.transitions.push(Transition::Destroy { dpni: dpni.id });
+            plan_create(port, cfg, needs_netdev, plan);
+            return;
         }
-    }
-    if drifted {
-        return;
     }
 
     // Label repair (ADR-0015 decision 9): a port dpni whose observed label differs from
@@ -154,6 +132,28 @@ fn plan_present(port: &DesiredPort, observed: &ObservedTopology, cfg: DpniCfg, p
 
     // Wait-to-bind: a PHY port that has not yet produced a netdev is not converged.
     if needs_netdev && dpni.lifecycle() != Lifecycle::Bound {
+        plan.transitions.push(Transition::Bind { port: port.dpmac });
+    }
+}
+
+/// Emits the create sequence, shared by the absent branch and the cfg-drift rebuild (ADR-0001 §4).
+fn plan_create(port: &DesiredPort, cfg: DpniCfg, needs_netdev: bool, plan: &mut Plan) {
+    plan.transitions.push(Transition::Create {
+        port: port.dpmac,
+        label: port.name.clone(),
+        cfg,
+    });
+    if port.mac_mode == MacMode::Actuate
+        && let Some(mac) = port.mac
+    {
+        plan.transitions.push(Transition::SetMac {
+            port: port.dpmac,
+            mac,
+        });
+    }
+    plan.transitions
+        .push(Transition::Connect { port: port.dpmac });
+    if needs_netdev {
         plan.transitions.push(Transition::Bind { port: port.dpmac });
     }
 }
@@ -387,25 +387,123 @@ mod tests {
         assert!(plan.is_converged(), "foreign dpni.9 must not be touched");
     }
 
-    #[test]
-    fn immutable_drift_is_reported_and_refused() {
-        let mut port = DesiredPort::new(DpmacId::new(3), "wan0");
-        port.immutable.insert("num_tcs".to_owned(), "8".to_owned());
-        let desired = DesiredTopology::from_ports([port]);
+    /// An `ObservedDpni` carrying the read-back projection of `cfg` (the typed `cfg_observation`).
+    fn observed_with_cfg(
+        id: u32,
+        connected: Option<u32>,
+        mac: Option<MacAddr>,
+        netdev: Option<&str>,
+        label: Option<&str>,
+        cfg: &DpniCfg,
+    ) -> ObservedDpni {
+        ObservedDpni {
+            cfg_observation: Some(crate::families::dpni::DpniObservation::project(cfg)),
+            ..labelled(id, connected, mac, netdev, label)
+        }
+    }
 
-        let mut attrs = BTreeMap::new();
-        attrs.insert("num_tcs".to_owned(), "1".to_owned()); // create-time mismatch
+    /// A sized create block differing from another only in `num_queues`.
+    fn sized_cfg(num_queues: u16) -> DpniCfg {
+        DpniCfg {
+            num_queues: crate::families::dpni::NumQueues::new(num_queues).unwrap(),
+            ..DpniCfg::defaults()
+        }
+    }
+
+    /// A sized (`num_queues` = `n`) desired topology anchored at dpmac.3 via the compiled path.
+    fn sized_desired(n: u32) -> DesiredTopology {
+        use crate::intent::compiled::CompiledPlan;
+        use crate::intent::kernel_tenant;
+
+        let kernel = kernel_tenant(i64::from(n));
+        let (obj, iface) = kernel.dpni(1, n, "wan0".into());
+        let mut compiled = CompiledPlan::default();
+        compiled.order.push(obj.key().clone());
+        compiled.objects.insert(obj);
+        compiled.edges.insert(iface.into_port_edge(DpmacId::new(3)));
+        DesiredTopology::from_parts(compiled, vec![DesiredPort::new(DpmacId::new(3), "wan0")])
+            .expect("plan port-edge and port agree on dpmac.3")
+    }
+
+    #[test]
+    fn cfg_drift_plans_destroy_then_create() {
+        // Spec "Cfg drift plans destroy-and-create": a differing read-back is destroy + create.
+        let backend = FakeBackend::new().with_dpmac(DpmacId::new(3), LinkType::Phy, MAC_3);
+        let id = backend
+            .create_dpni(&"wan0".into(), &sized_cfg(4))
+            .expect("create observed-side dpni");
+        backend.connect(id, DpmacId::new(3)).expect("connect");
+        let observed = backend.observe().expect("observe");
+
+        let plan = reconcile(&sized_desired(8), &observed);
+        assert!(
+            plan.transitions
+                .iter()
+                .any(|t| matches!(t, Transition::Destroy { .. })),
+            "cfg drift destroys the drifted object: {:?}",
+            plan.transitions
+        );
+        assert!(
+            plan.transitions
+                .iter()
+                .any(|t| matches!(t, Transition::Create { .. })),
+            "cfg drift recreates from the desired block: {:?}",
+            plan.transitions
+        );
+        assert!(plan.drift.is_empty(), "drift is planned, not reported");
+    }
+
+    #[test]
+    fn cfg_drift_suppresses_the_relabel() {
+        // The cfg-drift rebuild wins over a stale-label repair: destroy + create, no SetLabel.
         let observed = ObservedTopology {
-            dpnis: vec![ObservedDpni {
-                attributes: attrs,
-                ..dpni(7, Some(3), Some(MAC_3), Some("eth7"))
-            }],
+            dpnis: vec![observed_with_cfg(
+                7,
+                Some(3),
+                Some(MAC_3),
+                Some("eth7"),
+                Some("stale"),
+                &sized_cfg(4),
+            )],
             dpmacs: vec![phy(3, MAC_3)],
         };
+        let plan = reconcile(&sized_desired(8), &observed);
+        assert!(
+            !plan
+                .transitions
+                .iter()
+                .any(|t| matches!(t, Transition::SetLabel { .. })),
+            "cfg drift suppresses the relabel: {:?}",
+            plan.transitions
+        );
+        assert!(
+            plan.transitions
+                .iter()
+                .any(|t| matches!(t, Transition::Destroy { .. })),
+        );
+    }
+
+    #[test]
+    fn unsized_port_only_dpni_does_not_false_drift() {
+        // Spec "An unsized port-only dpni does not false-drift": re-observe converges, no loop.
+        let backend = FakeBackend::new().with_dpmac(DpmacId::new(3), LinkType::Phy, MAC_3);
+        let desired = DesiredTopology::from_ports([DesiredPort::new(DpmacId::new(3), "wan0")]);
+        let id = backend
+            .create_dpni(&"wan0".into(), &DpniCfg::defaults())
+            .expect("create port-only dpni");
+        backend.connect(id, DpmacId::new(3)).expect("connect");
+        let observed = backend.observe().expect("observe");
+
         let plan = reconcile(&desired, &observed);
-        assert!(plan.transitions.is_empty(), "no destructive change");
-        assert_eq!(plan.drift.len(), 1);
-        assert_eq!(plan.drift[0].attribute, "num_tcs");
+        assert!(
+            !plan
+                .transitions
+                .iter()
+                .any(|t| matches!(t, Transition::Destroy { .. } | Transition::Create { .. })),
+            "unsized create must not re-destroy/recreate: {:?}",
+            plan.transitions
+        );
+        assert!(plan.is_converged(), "unsized create converges");
     }
 
     #[test]
@@ -561,28 +659,6 @@ mod tests {
             dpmacs: vec![phy(3, MAC_3)],
         };
         assert!(reconcile(&desired, &observed).is_converged());
-    }
-
-    #[test]
-    fn immutable_drift_suppresses_the_relabel() {
-        // The drift gate wins: an immutable mismatch refuses before any relabel is
-        // emitted, even when the label is also stale (design D8, ADR-0015 decision 9).
-        let mut port = DesiredPort::new(DpmacId::new(3), "wan0");
-        port.immutable.insert("num_tcs".to_owned(), "8".to_owned());
-        let desired = DesiredTopology::from_ports([port]);
-
-        let mut attrs = BTreeMap::new();
-        attrs.insert("num_tcs".to_owned(), "1".to_owned());
-        let observed = ObservedTopology {
-            dpnis: vec![ObservedDpni {
-                attributes: attrs,
-                ..labelled(7, Some(3), Some(MAC_3), Some("eth7"), Some("stale"))
-            }],
-            dpmacs: vec![phy(3, MAC_3)],
-        };
-        let plan = reconcile(&desired, &observed);
-        assert!(plan.transitions.is_empty(), "drift gate suppresses relabel");
-        assert_eq!(plan.drift.len(), 1);
     }
 
     #[test]

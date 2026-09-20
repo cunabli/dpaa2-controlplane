@@ -15,7 +15,7 @@ parser-arm-first rule. One bead at a time through acceptance.
 
 ## 1. Wire cfg drift end-to-end (bead A; synthesis rows 1-3)
 
-- [ ] 1.1 `plan_present` consumes `ObservedDpni.cfg_observation` via
+- [x] 1.1 `plan_present` consumes `ObservedDpni.cfg_observation` via
   `drift_disposition` and emits destroy + create per D1; unsized-create
   sizing resolved core-side from `Inventory.cpus` (shim fallback
   retired, `contract/mc.rs` contract amended in the same commit) OR
@@ -23,6 +23,23 @@ parser-arm-first rule. One bead at a time through acceptance.
   `contract/fake.rs` projects `Some(DpniObservation::project(cfg))` at
   create; a reconcile test proves an unsized-created dpni does not
   drift
+
+  Landed: choice (b) — unsized cfgs fenced out of drift by construct.
+  `plan_present` skips the typed `drift_disposition` comparison when the
+  desired block is unsized (`num_queues == 0`, the `ls-addni`/port-only
+  marker), because `project()` echoes that `0` sentinel while the board
+  reads back a host-derived count — so an unsized create would false-drift
+  on `num_queues` (and every other sentinel-`0` field) forever. Chosen over
+  (a) core-side sizing from `Inventory.cpus` because (a) has the larger,
+  less type-honest diff: it forces `Inventory` into the pure `reconcile`
+  signature and, sizing only `num_queues`, would still leave the other
+  sentinel-`0` fields false-drifting. The recorded shim contract
+  (`contract/mc.rs:42-48`, `self.queues` fallback in `restool.rs`) therefore
+  stands unchanged (synthesis row 2 "the recorded shim contract stands");
+  the legacy attribute-string-map drift loop was removed from `plan_present`.
+  The optional `NumQueues`-in-signature hardening (design Open Question /
+  synthesis row 11) is skipped: it is gated to "if the sizing seam lands
+  core-side", i.e. choice (a).
 
 ## 2. Close the replay blind faces (bead B; synthesis row 6)
 

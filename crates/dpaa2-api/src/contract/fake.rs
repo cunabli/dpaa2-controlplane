@@ -20,7 +20,7 @@ use crate::core::model::{
     DpmacId, DpniId, DprcId, LinkType, MacAddr, ObjectRef, ObservedDpmac, ObservedDpni,
     ObservedTopology,
 };
-use crate::families::dpni::DpniCfg;
+use crate::families::dpni::{DpniCfg, DpniObservation};
 use crate::families::dprc::ContainerState;
 use crate::intent::compiled::Container;
 use crate::plan::dprc::ObservedContainer;
@@ -264,7 +264,8 @@ impl McControl for FakeBackend {
             mac: None,
             netdev: None,
             attributes: BTreeMap::new(),
-            cfg_observation: None,
+            // Project the create's read-back so fake-vs-reconcile tests exercise cfg drift (7fv.2).
+            cfg_observation: Some(DpniObservation::project(cfg)),
         });
         Ok(id)
     }
