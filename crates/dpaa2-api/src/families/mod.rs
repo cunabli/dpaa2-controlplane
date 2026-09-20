@@ -8,3 +8,4 @@
 
 pub mod dpni;
 pub mod dprc;
+pub mod pool_lifecycle;

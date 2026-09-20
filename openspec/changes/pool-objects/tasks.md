@@ -30,7 +30,7 @@ opus48-developer parcel.
 
 ## 2. dpaa2-api (P3 implementation)
 
-- [ ] 2.1 The generic P3 shape for the trio: census/sizing types over
+- [x] 2.1 The generic P3 shape for the trio: census/sizing types over
       FamilyParams, three instantiations, isomorphic to the phase-1
       sums; ADR-0019 gains its P3 reference-implementation line when
       this lands (reconciler req 1).
