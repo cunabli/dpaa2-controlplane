@@ -183,6 +183,29 @@ Tally: 59 modeled, 43 deferred, 7 board-settled, 0 board-pending — 109 candida
 | DPDBG-I3 | deferred | this change ph.4 adapter (LAW 2: dump verified by artifact, never exit) | — | anchored 2026-08-24 (V-DPDBG-1): both dumps exit 0 with the artifact only in the MC log |
 | DPDBG-I4 | modeled | `main.qnt` `DPDBG_I4Test` (bus-visible, driver-less, never kernel-bindable) | simulate | verified — `dprc show` face 2026-08-24 (V-DPDBG-1 trace 4/4); sysfs face 2026-09-14 (V-DPDBG-2 rev 1, 8/8, dprc-encapsulation task 6.1): bus node present at create via root autorescan, driver-less both unplugged and plugged, absent after destroy |
 
+## Pool convergence laws (pool-objects task 1.3)
+
+The `pool-objects` change's count-convergence and prune laws for anonymous P3
+capacity (object-model.md §4; pool-objects design D3; formal-models req 2). They
+live in the const-parameterized `families/pool_lifecycle.qnt` substrate and are
+checked through the trio instantiations (representative: `dpbp_lifecycle`,
+`families/dpbp.qnt`); `POOL_*` names are not baseline invariant candidates, so
+they carry their own section here rather than a row in the 109-candidate table
+above (the same convention the Intent/Raw/Identity law sections follow). The
+five laws ride the `stateInvariants` conjunction (Apalache-marked); the
+accept/refuse shapes are directed runs in the same module.
+
+| Law | Name | CI rung | Anchors / ties |
+|-----|------|---------|----------------|
+| Census floor | POOL_CENSUS + `censusRefusesAtCeilingTest` | simulate + apalache | object-model.md §4; ADR-0011 census-first; DPBP-I7 |
+| Custody edge | POOL_CUSTODY | simulate + apalache | object-model.md §3; DPBP-I2 pool-entry precondition |
+| DPL-born survive | POOL_DPL_SURVIVES + `prunePreservesDplBornTest` | simulate + apalache | pool-objects design D3; roadmap #14 (boot objects foreign); formal-models req 2 |
+| Managed honesty | POOL_MANAGED_LIVE | simulate + apalache | pool-objects design D2 (count↔individual boundary) |
+| Idempotent converge | POOL_IDEMPOTENT + `idempotentReconvergeTest` | simulate + apalache | pool-objects design D3; formal-models req 2 (level-triggered) |
+| Free-only shrink | `freeOnlyShrinkTest` / `drawnNeverShrunkTest` | simulate | pool-objects design D3; formal-models req 2 (surplus destroys free only) |
+| ShrinkBelowDraw | `shrinkBelowDrawRefusedTest` | simulate | pool-objects design D3; formal-models req 2 (refusal, not a teardown) |
+| Grow to count | `convergenceGrowTest` | simulate | pool-objects design D3 (deficit → create to the derived count) |
+
 ## Intent invariants (task 5.1)
 
 These are the `intent-layer` change's own plan invariants

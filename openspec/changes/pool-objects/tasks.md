@@ -21,7 +21,7 @@ opus48-developer parcel.
       NO_CHANNEL/priority surface for DPIO-I3; a divergence earning a
       dpio_lifecycle module of its own is recorded as D4 facet
       evidence.
-- [ ] 1.3 Encode the convergence and prune laws in pool_lifecycle
+- [x] 1.3 Encode the convergence and prune laws in pool_lifecycle
       with its directed runs, baseline-id runs in main.qnt
       (formal-models req 2): idempotence, free-only shrink,
       ShrinkBelowDraw refusal, DPL-born exemption; resolve the open
