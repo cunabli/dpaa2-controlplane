@@ -12,9 +12,17 @@ use std::time::{Duration, Instant};
 
 use dpaa2_api::contract::{KernelControl, McControl};
 use dpaa2_api::core::error::Error;
+use dpaa2_api::core::family::Family;
+use dpaa2_api::core::inventory::{Ceiling, Inventory};
 use dpaa2_api::core::model::{DesiredTopology, DpmacId, DpniId, DprcId, ObservedTopology};
 use dpaa2_api::core::types::ConstructName;
+use dpaa2_api::families::dpio::derived_seats;
 use dpaa2_api::families::dprc::Options;
+use dpaa2_api::families::pool_lifecycle::{
+    PoolCensus, PoolDeltas, PoolFamily, ShrinkBelowDraw, census_of, derived_requirement,
+    drift_disposition,
+};
+use dpaa2_api::intent::KERNEL;
 use dpaa2_api::intent::compiled::{Attributes, CompiledPlan, Container, PlannedObject};
 use dpaa2_api::plan::dprc::{
     Attribution, ConsumerConvergence, ContainerPlan, ContainerStep, ContainerVerdict, PruneBucket,
@@ -23,6 +31,7 @@ use dpaa2_api::plan::dprc::{
 };
 use dpaa2_api::plan::reconcile::{ReconcileOptions, reconcile_with};
 use dpaa2_api::plan::{Class, Plan, Transition};
+use dpaa2_mc::{default_dpio_cfg, dispatch_pool_deltas};
 
 /// Policy for a convergence run.
 #[derive(Clone, Copy, Debug)]
@@ -458,6 +467,265 @@ fn dispatch_container_step<M: McControl>(
     }
 }
 
+/// The pool families a root convergence pass visits, in dependency order
+/// (dpmcp→dpbp→dpcon; everything draws a dpmcp — pool-objects design D8). dpio is a seat,
+/// converged after the trio (pool-objects design D4), so it is not in this array.
+const POOL_TRIO: [PoolFamily; 3] = [PoolFamily::Dpmcp, PoolFamily::Dpbp, PoolFamily::Dpcon];
+
+/// The outcome of the root-scope pool convergence pass (pool-objects task 3.4) — the pool
+/// analog of [`ContainerOutcome`]. Kept distinct because a pool refusal is a typed
+/// [`ShrinkBelowDraw`] (pool-objects design D3), not a container [`Attribution`] nor a DPMAC deadline.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PoolOutcome {
+    /// Every root pool family meets its derived requirement by post-dispatch read-back, and
+    /// the dpio seats equal their derived count (the idempotence witness reproduces it).
+    Converged,
+    /// The pool deltas' headline exceeded the run's `--allow` gate (ADR-0015 decision 12);
+    /// nothing was actuated. A pool create/destroy/prune is [`Class::Disruptive`].
+    DisruptionRefused {
+        /// The headline the pool convergence would have actuated.
+        headline: Class,
+        /// The maximum class the run allowed.
+        allowed: Class,
+    },
+    /// A family's derived requirement fell below its drawn count: a free-only shrink cannot
+    /// reach a live consumer, so it surfaces to the operator and nothing is torn down
+    /// (pool-objects design D3). Never a forced teardown.
+    ShrinkRefused {
+        /// The typed below-draw refusal, naming the family and the two counts.
+        refusal: ShrinkBelowDraw,
+    },
+}
+
+/// One root pool family's drift — its observed census, derived requirement, and the
+/// count-level disposition [`drift_disposition`] would take (pool-objects task 3.4). The
+/// read seam `dry-run`/`status` render, carried as data (the frontend owns its text;
+/// restool-baseline design D11).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PoolFamilyDrift {
+    /// The pooled family.
+    pub family: PoolFamily,
+    /// The observed census folded from the root's rows (the conservative restool proxy).
+    pub census: PoolCensus,
+    /// The plan-derived requirement (ADR-0012 counts, consumed unchanged).
+    pub required: i64,
+    /// The disposition the family would take, or the below-draw refusal (pool-objects design D3).
+    pub disposition: Result<PoolDeltas, ShrinkBelowDraw>,
+}
+
+/// The root-scope pool drift across the trio plus the dpio seats — the read the pool
+/// convergence phase and the `dry-run`/`status` surfaces share (pool-objects task 3.4).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PoolDrift {
+    /// Per-trio-family drift, in traversal order (dpmcp→dpbp→dpcon; pool-objects design D8).
+    pub families: Vec<PoolFamilyDrift>,
+    /// The derived dpio seat count for the root (`derived_seats`).
+    pub dpio_required: i64,
+    /// The observed dpio seat count in the root.
+    pub dpio_observed: i64,
+}
+
+impl PoolDrift {
+    /// The pass headline (ADR-0015 decision 12): [`Class::Disruptive`] when any trio family
+    /// needs a create/destroy/prune or a dpio seat is short, else [`Class::Hitless`] — the
+    /// class the run gates on. A pool create/destroy is disruptive, matching the container
+    /// steps' class-gating.
+    #[must_use]
+    pub fn headline(&self) -> Class {
+        let trio_work = self
+            .families
+            .iter()
+            .any(|f| f.disposition.is_ok_and(|d| !d.is_empty()));
+        if trio_work || self.dpio_required > self.dpio_observed {
+            Class::Disruptive
+        } else {
+            Class::Hitless
+        }
+    }
+
+    /// The first below-draw refusal, if any (pool-objects design D3): a requirement under the drawn count
+    /// surfaces to the operator by name and count, never a teardown of a live consumer.
+    #[must_use]
+    pub fn shrink_refusal(&self) -> Option<ShrinkBelowDraw> {
+        self.families.iter().find_map(|f| f.disposition.err())
+    }
+}
+
+/// The declared-name recognition set the root census and dispatch judge custody against —
+/// every planned object's label (companions wear their consumer's name, ADR-0015). The same
+/// label-fingerprint declaredness the inventory and the `plan::dprc` prune use (ADR-0010 §4
+/// refined by ADR-0015), so a reconciler-grown companion reads back managed.
+fn root_declared(plan: &CompiledPlan) -> BTreeSet<ConstructName> {
+    plan.objects.iter().map(|o| o.label().clone()).collect()
+}
+
+/// The label a root grow of `family` stamps — the label of a planned root object of that
+/// family (companions wear their consumer's name, ADR-0015; at root that is the kernel or a
+/// restricted drawer pooling it). Anonymity is the pattern's truth (pool-objects design D2), so the pick
+/// is not a policy surface as long as it is a declared name — the census recognizes any
+/// declared name as managed. A grow only fires when the requirement is positive, so a
+/// planned object always exists then; the [`KERNEL`] fallback covers the grow-free case
+/// (destroy/prune ignore the label), root being the kernel's own container.
+fn root_family_label(plan: &CompiledPlan, family: Family) -> ConstructName {
+    plan.objects
+        .iter()
+        .find(|o| o.container() == &Container::Root && o.key().family == family)
+        .map_or_else(|| ConstructName::from(KERNEL), |o| o.label().clone())
+}
+
+/// The runtime ceiling for `family`, threaded the way the fit-check reads it — the
+/// inventory's listed ceiling, or [`Ceiling::Unknown`] (admit-and-warn) where the family's
+/// ceiling is unlistable (ADR-0011; consistent with the `populate_child` gap, bead
+/// dpaa2-controlplane-amt).
+fn ceiling_of(inventory: &Inventory, family: PoolFamily) -> Ceiling {
+    inventory
+        .ceilings
+        .get(&family.family())
+        .cloned()
+        .unwrap_or(Ceiling::Unknown)
+}
+
+/// Reads the root's pool drift without dispatching — the seam `dry-run` and `status` render
+/// (pool-objects task 3.4). For each trio family it censuses the root
+/// ([`McControl::observe_pool`] with `None` for the shim root), folds with [`census_of`]
+/// against the plan's declared set, and takes the count-level [`drift_disposition`] against
+/// [`derived_requirement`] and the inventory ceiling; it also reads the dpio seat count
+/// versus [`derived_seats`]. Pure of any mutation: the adapter reads, the core judges.
+///
+/// # Errors
+/// Propagates a backend read failure.
+pub fn plan_pools<M: McControl>(plan: &CompiledPlan, mc: &M) -> Result<PoolDrift, Error> {
+    let declared = root_declared(plan);
+    let inventory = mc.read_inventory()?;
+    let mut families = Vec::with_capacity(POOL_TRIO.len());
+    for family in POOL_TRIO {
+        let rows = mc.observe_pool(None, family.family())?;
+        let census = census_of(&rows, &declared);
+        let required = derived_requirement(plan, &Container::Root, family);
+        let disposition =
+            drift_disposition(family, census, required, &ceiling_of(&inventory, family));
+        families.push(PoolFamilyDrift {
+            family,
+            census,
+            required,
+            disposition,
+        });
+    }
+    let dpio_required = derived_seats(plan, &Container::Root);
+    let dpio_observed =
+        i64::try_from(mc.observe_pool(None, Family::Dpio)?.len()).unwrap_or(i64::MAX);
+    Ok(PoolDrift {
+        families,
+        dpio_required,
+        dpio_observed,
+    })
+}
+
+/// Converges the root's pool families toward the compiled plan's derived counts (pool-objects
+/// task 3.4; pool-objects design D3), mirroring [`populate_child`](dpaa2_mc::populate_child) at root scope:
+/// census → disposition → dispatch → read-back verdict, composing only the phase-2/3 pure
+/// functions and the [`dispatch_pool_deltas`] edge (no new policy).
+///
+/// The pass, in order:
+/// - Reads the whole drift ([`plan_pools`]). A family whose requirement fell below its drawn
+///   count surfaces as [`PoolOutcome::ShrinkRefused`] before anything is dispatched — a
+///   free-only shrink never tears down a live consumer (pool-objects design D3).
+/// - Gates the deltas' headline against `cfg.allow` (ADR-0015 decision 12): a pool
+///   create/destroy/prune is [`Class::Disruptive`], so a hitless run refuses it, matching the
+///   container steps' class-gating.
+/// - Dispatches each trio family in traversal order (dpmcp→dpbp→dpcon; pool-objects design D8) through
+///   [`dispatch_pool_deltas`] — free-only victim selection, prune riding `PoolDeltas::prune`
+///   as the disposition emits it — and judges convergence by the post-dispatch census
+///   read-back ([`PoolCensus::converged`]).
+/// - Grows the dpio seat deficit plain (`dpio_create`, NOT `create_dpio_seat`): the
+///   dpio→dpmcp probe pairing is the kernel dpio driver's own draw, and the dpmcp pool the
+///   trio just converged supplies it (pool-objects design D4). Seats are grown, never shrunk,
+///   as [`populate_child`](dpaa2_mc::populate_child) does.
+///
+/// Idempotent and level-triggered: a converged root yields an empty-headline drift and
+/// returns [`PoolOutcome::Converged`] without dispatching, and a second pass over it does too.
+///
+/// # Errors
+/// Propagates a backend read/dispatch error, and reports a family that failed to reach its
+/// requirement after dispatch as an [`Error::Backend`] (the container-convergence precedent;
+/// the operator re-runs, level-triggered — e.g. after a ceiling-capped grow).
+pub fn converge_pools<M: McControl>(
+    plan: &CompiledPlan,
+    mc: &M,
+    cfg: ConvergeConfig,
+) -> Result<PoolOutcome, Error> {
+    let drift = plan_pools(plan, mc)?;
+
+    // A below-draw requirement is the one refusal, surfaced before any dispatch (pool-objects design D3).
+    if let Some(refusal) = drift.shrink_refusal() {
+        tracing::error!(
+            family = refusal.family.name(),
+            requirement = refusal.requirement,
+            drawn = refusal.drawn,
+            "root pool requirement below drawn count"
+        );
+        return Ok(PoolOutcome::ShrinkRefused { refusal });
+    }
+
+    // Gate on the headline before touching the board (ADR-0015 decision 12).
+    let headline = drift.headline();
+    if headline > cfg.allow {
+        tracing::error!(%headline, allowed = %cfg.allow, "root pool convergence exceeds allowed disruption class");
+        return Ok(PoolOutcome::DisruptionRefused {
+            headline,
+            allowed: cfg.allow,
+        });
+    }
+    if headline == Class::Hitless {
+        // Nothing to do: a converged root (or one only awaiting kernel-side draw).
+        return Ok(PoolOutcome::Converged);
+    }
+
+    let declared = root_declared(plan);
+
+    // trio: dispatch each family's deltas and judge by post-dispatch read-back.
+    for f in &drift.families {
+        // Every disposition is Ok here: shrink_refusal ruled out every Err above.
+        let Ok(deltas) = f.disposition else {
+            continue;
+        };
+        if deltas.is_empty() {
+            continue;
+        }
+        let label = root_family_label(plan, f.family.family());
+        let dispatch = dispatch_pool_deltas(mc, None, f.family, deltas, &label, &declared)?;
+        let after = census_of(&dispatch.after, &declared);
+        if !after.converged(f.required) {
+            return Err(Error::Backend(format!(
+                "root {} pool did not converge after dispatch: managed {} of required {}",
+                f.family.name(),
+                after.managed(),
+                f.required
+            )));
+        }
+    }
+
+    // dpio seats: grow the deficit plain (the dpmcp probe pairing is the kernel driver's own
+    // draw; pool-objects design D4). Grown, never shrunk — the populate_child convention.
+    let deficit = (drift.dpio_required - drift.dpio_observed).max(0);
+    if deficit > 0 {
+        let label = root_family_label(plan, Family::Dpio);
+        for _ in 0..deficit {
+            mc.dpio_create(None, default_dpio_cfg(), &label)?;
+        }
+        let observed_after =
+            i64::try_from(mc.observe_pool(None, Family::Dpio)?.len()).unwrap_or(i64::MAX);
+        if observed_after != drift.dpio_required {
+            return Err(Error::Backend(format!(
+                "root dpio seats did not converge after dispatch: {observed_after} of required {}",
+                drift.dpio_required
+            )));
+        }
+    }
+
+    Ok(PoolOutcome::Converged)
+}
+
 /// Reads MC state and enriches each DPNI with its kernel netdev name.
 ///
 /// # Errors
@@ -688,5 +956,207 @@ mod tests {
         let err = pair_containers(&[], std::slice::from_ref(&convergence))
             .expect_err("mismatched lengths must be a loud error");
         assert!(matches!(err, Error::Backend(_)));
+    }
+
+    /// Root-scope pool convergence at the engine seam, driven through the in-memory fake
+    /// (pool-objects task 3.4): the phase-1 laws — grow, free-only shrink, prune,
+    /// shrink-below-draw refusal, the disruption gate, and idempotence — exercised offline.
+    mod pool {
+        use dpaa2_api::contract::fake::FakeBackend;
+        use dpaa2_api::core::model::{MacMode, ObjectRef};
+        use dpaa2_api::families::pool_lifecycle::{ObservedPoolObject, RawLabel};
+        use dpaa2_api::intent::refuse::{Compiled, compile};
+        use dpaa2_api::intent::{Intent, Port, TenantRef, kernel_tenant};
+        use dpaa2_api::testkit::ref_inventory;
+
+        use super::*;
+
+        // The reserved kernel tenant terminating one 25G port: its dpni and pool companions
+        // compile into the root container (Tenant::container ⇒ Root), so the plan carries a
+        // real per-family root requirement to converge.
+        fn compiled_kernel() -> Compiled {
+            let intent = Intent {
+                tenants: vec![kernel_tenant(16)],
+                ports: vec![Port {
+                    name: "lan0".into(),
+                    dpmac: DpmacId::new(4),
+                    rate: 25_000,
+                    tenant: TenantRef::from_name("kernel".into()),
+                    mac: None,
+                    mac_mode: MacMode::Assert,
+                    renamed: None,
+                }],
+                ..Intent::empty()
+            };
+            compile(&intent, &ref_inventory(16)).expect("kernel intent compiles")
+        }
+
+        fn pool_cfg() -> ConvergeConfig {
+            ConvergeConfig {
+                deadline: Duration::from_secs(5),
+                poll_interval: Duration::ZERO,
+                prune: false,
+                // Pool creates/destroys are disruptive; the convergence tests allow it.
+                allow: Class::Disruptive,
+            }
+        }
+
+        fn count(mc: &FakeBackend, family: Family) -> i64 {
+            i64::try_from(mc.observe_pool(None, family).unwrap().len()).unwrap()
+        }
+
+        fn seeded(ord: u32, label: RawLabel, plugged: bool) -> ObservedPoolObject {
+            ObservedPoolObject {
+                object: ObjectRef::new(Family::Dpbp, ord),
+                label,
+                plugged,
+            }
+        }
+
+        #[test]
+        fn converge_pools_grows_root_to_the_derived_counts_and_is_idempotent() {
+            let compiled = compiled_kernel();
+            let mc = FakeBackend::new().with_inventory(ref_inventory(16));
+
+            assert_eq!(
+                converge_pools(&compiled.plan, &mc, pool_cfg()).unwrap(),
+                PoolOutcome::Converged
+            );
+            // Each trio family reads back its derived count; dpio reads back its seat count.
+            for family in POOL_TRIO {
+                let req = derived_requirement(&compiled.plan, &Container::Root, family);
+                assert_eq!(count(&mc, family.family()), req, "{}", family.name());
+            }
+            assert_eq!(
+                count(&mc, Family::Dpio),
+                derived_seats(&compiled.plan, &Container::Root)
+            );
+
+            // A second pass over the converged root creates nothing (idempotent).
+            let before: Vec<i64> = [Family::Dpmcp, Family::Dpbp, Family::Dpcon, Family::Dpio]
+                .map(|f| count(&mc, f))
+                .to_vec();
+            assert_eq!(
+                converge_pools(&compiled.plan, &mc, pool_cfg()).unwrap(),
+                PoolOutcome::Converged
+            );
+            let after: Vec<i64> = [Family::Dpmcp, Family::Dpbp, Family::Dpcon, Family::Dpio]
+                .map(|f| count(&mc, f))
+                .to_vec();
+            assert_eq!(before, after, "a converged root is not grown a second time");
+        }
+
+        #[test]
+        fn converge_pools_prunes_a_foreign_free_root_object() {
+            let compiled = compiled_kernel();
+            let foreign = seeded(99, RawLabel::from("vendor"), false); // undeclared, unplugged ⇒ prune target
+            let mc = FakeBackend::new()
+                .with_inventory(ref_inventory(16))
+                .with_pool_object(DprcId::ROOT, foreign.clone());
+
+            assert_eq!(
+                converge_pools(&compiled.plan, &mc, pool_cfg()).unwrap(),
+                PoolOutcome::Converged
+            );
+            let dpbps = mc.observe_pool(None, Family::Dpbp).unwrap();
+            assert!(
+                !dpbps.iter().any(|o| o.object == foreign.object),
+                "the foreign-free dpbp is reclaimed"
+            );
+            assert_eq!(
+                count(&mc, Family::Dpbp),
+                derived_requirement(&compiled.plan, &Container::Root, PoolFamily::Dpbp)
+            );
+        }
+
+        #[test]
+        fn converge_pools_shrinks_a_free_managed_surplus() {
+            let compiled = compiled_kernel();
+            let req = derived_requirement(&compiled.plan, &Container::Root, PoolFamily::Dpbp);
+            // Seed req+2 free (unplugged) dpbp wearing the kernel name ⇒ a surplus of 2 free
+            // managed the shrink reclaims through free individuals only.
+            let mut mc = FakeBackend::new().with_inventory(ref_inventory(16));
+            for ord in 0..u32::try_from(req + 2).unwrap() {
+                mc = mc.with_pool_object(DprcId::ROOT, seeded(ord, RawLabel::from(KERNEL), false));
+            }
+
+            assert_eq!(
+                converge_pools(&compiled.plan, &mc, pool_cfg()).unwrap(),
+                PoolOutcome::Converged
+            );
+            assert_eq!(count(&mc, Family::Dpbp), req, "shrunk to the derived count");
+        }
+
+        #[test]
+        fn converge_pools_refuses_a_requirement_below_draw() {
+            let compiled = compiled_kernel();
+            let req = derived_requirement(&compiled.plan, &Container::Root, PoolFamily::Dpbp);
+            // Seed req+1 drawn (plugged) managed dpbp ⇒ the requirement sits below the draw, a
+            // free-only shrink cannot reach it, so it refuses and tears nothing down.
+            let mut mc = FakeBackend::new().with_inventory(ref_inventory(16));
+            for ord in 0..u32::try_from(req + 1).unwrap() {
+                mc = mc.with_pool_object(DprcId::ROOT, seeded(ord, RawLabel::from(KERNEL), true));
+            }
+
+            match converge_pools(&compiled.plan, &mc, pool_cfg()).unwrap() {
+                PoolOutcome::ShrinkRefused { refusal } => {
+                    assert_eq!(refusal.family, PoolFamily::Dpbp);
+                    assert_eq!(refusal.requirement, req);
+                    assert_eq!(refusal.drawn, req + 1);
+                }
+                other => panic!("expected a below-draw refusal, got {other:?}"),
+            }
+            // Nothing was actuated: the drawn rows survive and no other family was grown.
+            assert_eq!(count(&mc, Family::Dpbp), req + 1);
+            assert_eq!(
+                count(&mc, Family::Dpmcp),
+                0,
+                "no dispatch before the refusal"
+            );
+
+            // The dry-run seam renders the refusal (the REFUSED branch).
+            let drift = plan_pools(&compiled.plan, &mc).unwrap();
+            let text = crate::render::render_pool_drift(&compiled.plan, &drift);
+            assert!(text.contains("REFUSED"), "{text}");
+        }
+
+        #[test]
+        fn converge_pools_refuses_a_disruptive_pass_on_a_hitless_run() {
+            let compiled = compiled_kernel();
+            let mc = FakeBackend::new().with_inventory(ref_inventory(16));
+            let cfg = ConvergeConfig {
+                allow: Class::Hitless,
+                ..pool_cfg()
+            };
+            assert_eq!(
+                converge_pools(&compiled.plan, &mc, cfg).unwrap(),
+                PoolOutcome::DisruptionRefused {
+                    headline: Class::Disruptive,
+                    allowed: Class::Hitless,
+                }
+            );
+            assert!(
+                mc.observe_pool(None, Family::Dpbp).unwrap().is_empty(),
+                "a refused run actuates nothing"
+            );
+        }
+
+        #[test]
+        fn plan_pools_reports_drift_read_only() {
+            let compiled = compiled_kernel();
+            let mc = FakeBackend::new().with_inventory(ref_inventory(16));
+            let drift = plan_pools(&compiled.plan, &mc).unwrap();
+
+            assert_eq!(drift.families.len(), POOL_TRIO.len());
+            // A fresh board needs grows, so the headline is disruptive.
+            assert_eq!(drift.headline(), Class::Disruptive);
+            assert!(drift.shrink_refusal().is_none());
+            // Read-only: the census dispatched nothing.
+            assert!(mc.observe_pool(None, Family::Dpbp).unwrap().is_empty());
+            // The render names the pass and the families.
+            let text = crate::render::render_pool_drift(&compiled.plan, &drift);
+            assert!(text.contains("root pool convergence"), "{text}");
+            assert!(text.contains("dpio seats"), "{text}");
+        }
     }
 }

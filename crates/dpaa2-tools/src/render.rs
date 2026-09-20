@@ -18,7 +18,9 @@ use dpaa2_api::intent::compiled::{
 };
 use dpaa2_api::intent::refuse::{Refusal, Warning};
 use dpaa2_api::plan::dprc::{ConsumerConvergence, ContainerVerdict, FingerprintField, PruneItem};
-use dpaa2_api::plan::{Plan, Transition};
+use dpaa2_api::plan::{Class, Plan, Transition};
+
+use crate::engine::PoolDrift;
 
 /// Renders the whole dry-run text: the compiled objects with their provenance trees
 /// and edges, the transitions `reconcile` would execute, the plan-only report, and
@@ -224,6 +226,87 @@ pub fn render_container_convergence(
         }
     }
     out
+}
+
+/// Renders the root-scope pool convergence the run would drive (pool-objects task 3.4;
+/// pool-objects design D3): a header with the pass headline, then per trio family its
+/// observed-vs-derived counts, the class-tagged disposition (create/destroy/prune, or the
+/// [`ShrinkBelowDraw`](dpaa2_api::families::pool_lifecycle::ShrinkBelowDraw) refusal), and the
+/// family's provenance node resolved to its baseline anchor — the same class-gating and
+/// per-object provenance conventions the container steps use. The dpio seats follow as a
+/// grow-only line. A converged root shows an all-hitless headline and empty dispositions:
+/// the idempotent second run's zero-action proof, printed.
+#[must_use]
+pub fn render_pool_drift(plan: &CompiledPlan, drift: &PoolDrift) -> String {
+    let mut out = String::new();
+    let _ = writeln!(
+        out,
+        "root pool convergence ({} famil(ies) + dpio seats) [headline: {}]:",
+        drift.families.len(),
+        drift.headline(),
+    );
+    for f in &drift.families {
+        match f.disposition {
+            Ok(deltas) => {
+                let class = if deltas.is_empty() {
+                    Class::Hitless
+                } else {
+                    Class::Disruptive
+                };
+                let _ = writeln!(
+                    out,
+                    "  {} observed managed={}/{} required={} [{class}] create={} destroy={} prune={}",
+                    f.family.name(),
+                    f.census.managed(),
+                    f.census.population(),
+                    f.required,
+                    deltas.create,
+                    deltas.destroy,
+                    deltas.prune,
+                );
+            }
+            // A requirement below the drawn count is surfaced, never a teardown (pool-objects design D3).
+            Err(refusal) => {
+                let _ = writeln!(
+                    out,
+                    "  {} observed managed={}/{} required={} REFUSED: {refusal}",
+                    f.family.name(),
+                    f.census.managed(),
+                    f.census.population(),
+                    f.required,
+                );
+            }
+        }
+        render_root_provenance(plan, f.family.family(), &mut out);
+    }
+    // dpio is a seat, grown never shrunk (pool-objects design D4).
+    let dpio_class = if drift.dpio_required > drift.dpio_observed {
+        Class::Disruptive
+    } else {
+        Class::Hitless
+    };
+    let _ = writeln!(
+        out,
+        "  dpio seats observed={} required={} [{dpio_class}]",
+        drift.dpio_observed, drift.dpio_required,
+    );
+    render_root_provenance(plan, Family::Dpio, &mut out);
+    out
+}
+
+/// Renders the provenance node of a planned root object of `family`, when one exists — the
+/// operator's trace down to the declared construct and the ADR/baseline it cites, matching
+/// the container-convergence provenance render (ADR-0004 design D6).
+fn render_root_provenance(plan: &CompiledPlan, family: Family, out: &mut String) {
+    let Some(obj) = plan
+        .objects
+        .iter()
+        .find(|o| o.container() == &Container::Root && o.key().family == family)
+    else {
+        return;
+    };
+    let mut path = BTreeSet::new();
+    render_prov_tree(plan, obj.provenance(), 2, &mut path, out);
 }
 
 /// Renders a container verdict as a short operator token.

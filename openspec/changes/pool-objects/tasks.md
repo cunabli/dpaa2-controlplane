@@ -52,6 +52,14 @@ opus48-developer parcel.
       read-back, typed -EPROBE_DEFER observation (mc-backend req 2).
 - [x] 3.3 Child population + VFIO handoff over the dprc-encapsulation
       typestates (mc-backend req 3).
+- [x] 3.4 Root-scope pool convergence joins the operator surfaces
+      (discovered at 4.1: V-POOL-6 found engine::ensure container-only,
+      the engine's own tile-#6 deferral): ensure/dry-run/status census
+      the root per family against the compiled plan's derived counts
+      and drive drift_disposition→dispatch_pool_deltas — grow,
+      free-only shrink, prune, ShrinkBelowDraw surfaced as a refusal
+      (design D3); prerequisite for the 4.2 convergence walk and 4.3
+      (bead 960.16).
 
 ## 4. Suites
 

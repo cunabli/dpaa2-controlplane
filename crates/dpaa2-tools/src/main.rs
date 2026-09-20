@@ -16,7 +16,9 @@ use dpaa2_api::intent::{Intent, kernel_tenant};
 use dpaa2_api::plan::Class;
 use dpaa2_api::plan::reconcile::{ReconcileOptions, reconcile_with};
 use dpaa2_mc::{RestoolMc, SysfsKernel};
-use dpaa2_tools::engine::{self, ContainerOutcome, ConvergeConfig, Outcome, PruneOutcome};
+use dpaa2_tools::engine::{
+    self, ContainerOutcome, ConvergeConfig, Outcome, PoolOutcome, PruneOutcome,
+};
 use dpaa2_tools::{StatusReport, link, render};
 
 /// Declarative DPAA2 (DPNI↔DPMAC) provisioning for the LX2160A.
@@ -146,6 +148,11 @@ fn run(cli: &Cli) -> Result<ExitCode, Error> {
             let observed = engine::observe(&mc, &kernel)?;
             let report = StatusReport::compute(&desired, &observed);
             print!("{report}");
+            // The root-scope pool drift per family, read-only off the board (pool-objects task
+            // 3.4): observed-vs-derived counts and the disposition convergence would take.
+            // Reported alongside the port lifecycle; the exit code stays port-driven.
+            let pools = engine::plan_pools(&compiled.plan, &mc)?;
+            print!("{}", render::render_pool_drift(&compiled.plan, &pools));
             Ok(if report.has_diverged() {
                 ExitCode::FAILURE
             } else {
@@ -175,6 +182,11 @@ fn run(cli: &Cli) -> Result<ExitCode, Error> {
             // classified read-only off the board — a dry-run dispatches nothing.
             let prune = engine::plan_prune_report(&compiled.plan, &mc)?;
             print!("{}", render::render_prune(&prune));
+            // The root-scope pool convergence the same run would drive, censused read-only off
+            // the board (pool-objects task 3.4): per-family observed-vs-derived counts, the
+            // class-gated disposition, and each family's provenance — a dry-run dispatches nothing.
+            let pools = engine::plan_pools(&compiled.plan, &mc)?;
+            print!("{}", render::render_pool_drift(&compiled.plan, &pools));
             Ok(ExitCode::SUCCESS)
         }
         Command::Ensure {
@@ -217,6 +229,27 @@ fn ensure(
         allow: allow.into(),
         ..ConvergeConfig::default()
     };
+
+    // Converge the root's shared pool capacity first (pool-objects task 3.4; design D3): the
+    // kernel interface's dpaa2-eth bind draws dpbp/dpio/dpcon and a dpmcp from the root pool,
+    // so the companions must exist before the port loop binds. A below-draw or over-allow
+    // refusal exits non-zero, changing nothing (the container-refusal convention).
+    match engine::converge_pools(&compiled.plan, mc, cfg)? {
+        PoolOutcome::Converged => {}
+        PoolOutcome::DisruptionRefused { headline, allowed } => {
+            println!(
+                "refused: root pool convergence is `{headline}`, but the run allows only up to \
+                 `{allowed}`.\nre-run with `--allow={headline}` to actuate it (disruptive is \
+                 never implied)."
+            );
+            return Ok(ExitCode::FAILURE);
+        }
+        PoolOutcome::ShrinkRefused { refusal } => {
+            println!("refused: {refusal}");
+            return Ok(ExitCode::FAILURE);
+        }
+    }
+
     let outcome = engine::ensure(&desired, mc, kernel, cfg)?;
 
     // A refused run changed nothing, so write no `.link` files either.
