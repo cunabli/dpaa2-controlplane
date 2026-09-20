@@ -144,6 +144,40 @@ pub enum PruneOutcome {
     },
 }
 
+/// Pairs each declared child-DPRC object with its convergence by position, guarding both
+/// list lengths and per-pair label identity. The two lists filter `plan.objects`
+/// independently, so a count drift means an undispatched declared container the bare
+/// `zip` would silently truncate — a loud [`Error::Backend`], never a container that
+/// passes as Converged (synthesis row 9; dpni-typestate design D5; ADR-0015).
+fn pair_containers<'a>(
+    desired: &[&'a PlannedObject],
+    convergences: &'a [ConsumerConvergence],
+) -> Result<Vec<(&'a PlannedObject, &'a ConsumerConvergence)>, Error> {
+    if desired.len() != convergences.len() {
+        return Err(Error::Backend(format!(
+            "container convergence count {} does not match {} declared containers: \
+             an undispatched declared container",
+            convergences.len(),
+            desired.len()
+        )));
+    }
+    desired
+        .iter()
+        .copied()
+        .zip(convergences)
+        .map(|(object, c)| {
+            if *object.label() != c.container.label {
+                return Err(Error::Backend(format!(
+                    "container pairing misaligned: object `{}` vs convergence `{}`",
+                    object.label(),
+                    c.container.label
+                )));
+            }
+            Ok((object, c))
+        })
+        .collect()
+}
+
 /// Reconciles every declared consumer's child container toward the compiled intent
 /// (design D2; ADR-0002; reconciler delta "Consumer convergence is container-only").
 ///
@@ -196,15 +230,7 @@ pub fn converge_containers<M: McControl>(
         .collect();
 
     let mut touched: Vec<(&PlannedObject, DprcId)> = Vec::new();
-    for (object, c) in desired.iter().copied().zip(&convergences) {
-        // Pair on name identity, not position: the two lists filter `plan.objects` independently, so a divergence must be a loud error, never a silent misjudgement (dpni-typestate design D5; ADR-0015).
-        if *object.label() != c.container.label {
-            return Err(Error::Backend(format!(
-                "container pairing misaligned: object `{}` vs convergence `{}`",
-                object.label(),
-                c.container.label
-            )));
-        }
+    for (object, c) in pair_containers(&desired, &convergences)? {
         for step in &c.plan.steps {
             match dispatch_container_step(step, mc) {
                 Ok(Some(id)) => touched.push((object, id)),
@@ -632,5 +658,35 @@ fn log_plan(observed: &ObservedTopology, plan: &Plan) {
     }
     for a in &plan.assertions {
         tracing::warn!(port = %a.port, field = %a.field, detail = %a.detail, "assert-only mismatch");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use dpaa2_api::families::dprc::Options;
+    use dpaa2_api::intent::compiled::{Container, ProvenanceKey};
+    use dpaa2_api::plan::dprc::{ConsumerContainer, ContainerPlan, ContainerVerdict};
+
+    use super::*;
+
+    /// A declared container with no matching convergence (count drift) is a loud
+    /// `Error::Backend`, not a silent zip truncation (synthesis row 9).
+    #[test]
+    fn pair_containers_rejects_mismatched_lengths() {
+        let convergence = ConsumerConvergence {
+            container: ConsumerContainer {
+                tenant: "router".into(),
+                label: "router".into(),
+                options: Options::DEFAULT,
+                placement: Container::Root,
+                provenance: ProvenanceKey::new("router", "dprc", ""),
+            },
+            plan: ContainerPlan::new(),
+            verdict: ContainerVerdict::Converged,
+        };
+        // One declared convergence, zero paired objects: the undispatched-container drift.
+        let err = pair_containers(&[], std::slice::from_ref(&convergence))
+            .expect_err("mismatched lengths must be a loud error");
+        assert!(matches!(err, Error::Backend(_)));
     }
 }
