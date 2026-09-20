@@ -2,7 +2,13 @@
 
 - **Status:** Accepted — grilling session 2026-09-19 (bead
   dpaa2-controlplane-chi; no openspec change — a modeling-vocabulary
-  agreement, it prescribes shape and changes no behavior)
+  agreement, it prescribes shape and changes no behavior); amended
+  2026-09-20 with the Quint module architecture (bead
+  dpaa2-controlplane-12g, pool-objects proposal grilling); re-amended
+  2026-09-20 during pool-objects phase 1 (bead dpaa2-controlplane-960.3
+  review): pattern files own shared mechanisms, family files own their
+  `_lifecycle`/`_scenario` machines — one shared file accreting
+  per-family blocks does not scale to sixteen families
 - **Date:** 2026-09-19
 - **Supersedes / relates to:** ADR-0018 (the module tree this catalog
   fills: 0018 names where a family's pieces live, this record names what
@@ -199,6 +205,56 @@ and future families use the same idiom vocabulary. No bespoke
 mechanisms: a reader who knows the standard idioms reads any family; a
 macro or trait system invented for one family is the per-object style
 this record exists to refuse.
+
+### Quint module architecture (the model-side projection)
+
+The catalog's model side carries the same discipline as its Rust side:
+the module tree is three tiers, and pattern ownership decides where a
+focused machine lives.
+
+- **Tier 1 — `models/core/`**: the corpus-wide machine and its views
+  (containment, pool census, connect, ioctl policy). Core carries the
+  predicates and transitions every family's reasoning passes through —
+  `drawSatisfiable` lives here because every consumer draws. Core never
+  carries one family's, or one pattern's, focused depth.
+- **Tier 2 — `models/families/`**: the encapsulation boundary for
+  focused depth. A family file holds `module <f>` (the `FamilyParams`
+  record and family-specific types) and, where the family's dynamics
+  warrant a deep machine, `module <f>_lifecycle` (state, transitions,
+  named invariants, directed runs) and optionally `module <f>_scenario`.
+- **Tier 3 — `models/main.qnt`**: the baseline-id test surface over the
+  corpus machine.
+
+**Pattern ownership.** Mechanisms belong to the pattern; machines
+belong to the family. Every family — whatever its pattern — owns its
+stateful modules in its own file: `module <f>_lifecycle` (state,
+transitions, named invariants, directed runs) and optionally
+`module <f>_scenario`, the `dprc_lifecycle`/`dpni_lifecycle` shape.
+When a pattern's members share one state shape — P3's counted
+companions — the shared substance is **pattern-owned mechanisms**: one
+`families/<pattern>_lifecycle.qnt` module carrying what is genuinely
+common (parameterized predicates, transforms, laws, and the
+const-parameterized machine core), which each member's `_lifecycle`
+module imports or instantiates contextualized to that family. The
+member's own file is where its particulars live — a seat record, an
+extra action, a family-specific run never lands in the pattern file.
+The review defect is **re-deriving pattern mechanisms locally**: a
+member module that re-implements the shared custody cycle instead of
+instantiating it is the per-family copy this record refuses, exactly
+as a bespoke Rust shape is. Thin instantiation is the desired shape;
+substantial family-specific dynamics on top of it are facet evidence
+under the promotion triggers above.
+
+The reading rule: core answers *how does the board behave*; a
+`families/<f>.qnt` file answers *how does this family behave*, and a
+`families/<pattern>_lifecycle.qnt` file answers *what does this
+pattern's shape guarantee* — shared mechanisms in one place, each
+family's machine with the family. File organization binds
+nothing across the isomorphism — ADR-0002 §3 relates each family's
+Quint sums to its Rust shape, so the model tree and the Rust module
+tree (ADR-0018) may generalize along different axes, each by its own
+purpose: the model over board-wide interleavings, the Rust over
+per-family hazards.
 
 ## HAL projection (forward-looking; revisit trigger: mc-portal-backend, roadmap #10)
 
