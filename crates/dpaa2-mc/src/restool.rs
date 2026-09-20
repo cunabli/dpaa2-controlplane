@@ -17,11 +17,13 @@ use dpaa2_api::core::model::{
     DpmacId, DpniId, DprcId, ObjectRef, ObservedDpmac, ObservedDpni, ObservedTopology,
 };
 use dpaa2_api::core::types::ConstructName;
+use dpaa2_api::families::dpio::{ChannelMode, DpioCfg, Priorities};
 use dpaa2_api::families::dpni::{
     DpniCfg, DpniObservation, DpniOpt, FsEntries, MacFilterEntries, NumCeetmCh, NumCgs, NumOpr,
     NumQueues, NumTcs, OptionMask, QosEntries, RawEscape, VlanFilterEntries,
 };
 use dpaa2_api::families::dprc;
+use dpaa2_api::families::pool_lifecycle::{ObservedPoolObject, RawLabel};
 use dpaa2_api::intent::compiled::Container;
 use dpaa2_api::plan::dprc as dprc_plan;
 
@@ -233,6 +235,17 @@ fn render_options(options: dprc::Options) -> Option<String> {
     Some(format!("--options={}", bits.join(",")))
 }
 
+/// The restool `--channel-mode` token for a [`ChannelMode`] (`docs/baseline/dpio.md`
+/// "Option inventory": `DPIO_LOCAL_CHANNEL` | `DPIO_NO_CHANNEL`, case-sensitive). Adapter
+/// policy — the token spelling stays in the southbound (ADR-0018), never on the domain
+/// surface; the mode is dead in the kernel (DPIO-I3) but restool still requires it.
+const fn channel_mode_arg(mode: ChannelMode) -> &'static str {
+    match mode {
+        ChannelMode::LocalChannel => "DPIO_LOCAL_CHANNEL",
+        ChannelMode::NoChannel => "DPIO_NO_CHANNEL",
+    }
+}
+
 /// One step in a transactional provisioning chain (see
 /// [`RestoolMc::provision_chain`]): the object kind (for rollback destroy) and the
 /// `restool --script <kind> create ...` arguments.
@@ -328,6 +341,32 @@ impl<R: Runner> RestoolMc<R> {
         self.assign_plugged(&obj)?;
         self.stamp_label(&obj, label)?;
         Ok(obj)
+    }
+
+    /// The `dprc.N` name a pool verb targets: the explicit child when given, else the
+    /// shim's own root container — the create-verb default, mirroring how the rest of the
+    /// shim operates in `self.container` (pool-objects task 3.1).
+    fn container_name(&self, container: Option<DprcId>) -> String {
+        container.map_or_else(|| self.container.clone(), |id| id.to_string())
+    }
+
+    /// `restool --script <family> create …` → stamp `label` → plug (via
+    /// [`Self::create_and_plug`]), recovering the created object as a typed [`ObjectRef`]
+    /// of `family`. The delta→id dispatch edge calls this N times for a grow
+    /// (pool-objects design D2); `create_and_plug` returns the raw `family.N` token, and
+    /// the family is known at the call site, so only the ordinal is parsed back.
+    fn pool_create(
+        &self,
+        family: Family,
+        create_args: &[&str],
+        label: &ConstructName,
+    ) -> Result<ObjectRef, Error> {
+        let obj = self.create_and_plug(create_args, label)?;
+        let ordinal = obj
+            .rsplit_once('.')
+            .and_then(|(_, n)| n.parse::<u32>().ok())
+            .ok_or_else(|| Error::Parse(format!("no ordinal in created `{obj}`")))?;
+        Ok(ObjectRef::new(family, ordinal))
     }
 
     /// `restool dprc set-label <obj> --label=<name>` (ADR-0010 §4; ADR-0015 decision 9):
@@ -914,6 +953,107 @@ impl<R: Runner> McControl for RestoolMc<R> {
             &format!("--locked={}", u8::from(locked)),
         ])?;
         Ok(())
+    }
+
+    fn dpbp_create(
+        &self,
+        container: Option<DprcId>,
+        label: &ConstructName,
+    ) -> Result<ObjectRef, Error> {
+        // dpbp has zero create options (`docs/baseline/dpbp.md` "Option inventory": the
+        // `dpbp_cfg.options` placeholder is discarded by the flib) — only `--container`.
+        let container = format!("--container={}", self.container_name(container));
+        self.pool_create(
+            Family::Dpbp,
+            &["--script", "dpbp", "create", &container],
+            label,
+        )
+    }
+
+    fn dpmcp_create(
+        &self,
+        container: Option<DprcId>,
+        label: &ConstructName,
+    ) -> Result<ObjectRef, Error> {
+        // dpmcp takes no create option the reconciler sets (`docs/baseline/dpmcp.md`
+        // "Option inventory"): its one option token and pool-assigned portal id are left
+        // at restool defaults, so the create is bare but for `--container`.
+        let container = format!("--container={}", self.container_name(container));
+        self.pool_create(
+            Family::Dpmcp,
+            &["--script", "dpmcp", "create", &container],
+            label,
+        )
+    }
+
+    fn dpcon_create(
+        &self,
+        container: Option<DprcId>,
+        priorities: Priorities,
+        label: &ConstructName,
+    ) -> Result<ObjectRef, Error> {
+        // `--num-priorities` is dpcon's sole create option (`docs/baseline/dpcon.md`
+        // "Option inventory": 1–8, default 2), rendered ahead of `--container` as the
+        // dprc-script recipe does.
+        let container = format!("--container={}", self.container_name(container));
+        let prio = format!("--num-priorities={}", priorities.get());
+        self.pool_create(
+            Family::Dpcon,
+            &["--script", "dpcon", "create", &prio, &container],
+            label,
+        )
+    }
+
+    fn dpio_create(
+        &self,
+        container: Option<DprcId>,
+        cfg: DpioCfg,
+        label: &ConstructName,
+    ) -> Result<ObjectRef, Error> {
+        // `--channel-mode` + `--num-priorities` (`docs/baseline/dpio.md` "Option
+        // inventory"); the mode is dead in the kernel (DPIO-I3) but restool still needs
+        // it, and the argument order mirrors `ensure_dpio`/the dprc-script recipe.
+        let container = format!("--container={}", self.container_name(container));
+        let mode = format!("--channel-mode={}", channel_mode_arg(cfg.mode));
+        let prio = format!("--num-priorities={}", cfg.priorities.get());
+        self.pool_create(
+            Family::Dpio,
+            &["--script", "dpio", "create", &mode, &container, &prio],
+            label,
+        )
+    }
+
+    fn pool_destroy(&self, object: &ObjectRef) -> Result<(), Error> {
+        // `<family> destroy <obj>` then a bus `sync`, mirroring the dpni `destroy`
+        // precedent (the family is a projection of the ref, ADR-0010). One verb serves all
+        // four pool families — a pool object is anonymous, so the family on the ref is the
+        // only per-family datum destroy needs (pool-objects design D2). A driver-bound
+        // object bounces as a typed `McStatus` through `run_verb` (the free-only shrink
+        // backstop; `docs/baseline/dpbp.md`).
+        self.run_verb(&[object.family().as_str(), "destroy", &object.to_string()])?;
+        self.sync()
+    }
+
+    fn observe_pool(
+        &self,
+        container: Option<DprcId>,
+        family: Family,
+    ) -> Result<Vec<ObservedPoolObject>, Error> {
+        // One `dprc show <c>` (read-back is the only observation; exit status never is,
+        // mc-backend spec). Each `family` row becomes an ObservedPoolObject with its raw
+        // label captured verbatim — the empty column stays empty (the DPL sentinel the core
+        // judges). The adapter reports; `census_of` judges custody (pool-objects task 3.1;
+        // PASS5-F1).
+        let show = self.run_verb(&["dprc", "show", &self.container_name(container)])?;
+        Ok(parse::parse_dprc_rows(&show)
+            .into_iter()
+            .filter(|r| r.family == family)
+            .map(|r| ObservedPoolObject {
+                object: ObjectRef::new(r.family, r.num),
+                label: RawLabel::from(r.label.as_str()),
+                plugged: r.plugged,
+            })
+            .collect())
     }
 }
 
@@ -1782,5 +1922,234 @@ mod tests {
             Some(mac),
             "read-back reports the new MAC"
         );
+    }
+
+    // ---- pool-family create/destroy/observe verbs (pool-objects task 3.1) ----
+
+    #[test]
+    fn dpbp_create_renders_bare_container_stamps_and_plugs() {
+        // dpbp create is `--container` only (zero options); create → plug → stamp is the
+        // create_and_plug sequence, and the created ref comes back typed.
+        let runner = ScriptedRunner::new(vec![
+            ("--script dpbp create --container=dprc.1", ok("dpbp.0\n")),
+            ("dprc assign dprc.1 --object=dpbp.0 --plugged=1", ok("")),
+            ("dprc set-label dpbp.0 --label=vpp", ok("")),
+        ]);
+        let mc = RestoolMc::with_runner(runner, DEFAULT_CONTAINER);
+        let obj = mc
+            .dpbp_create(None, &ConstructName::from("vpp"))
+            .expect("create dpbp");
+        assert_eq!(obj, ObjectRef::new(Family::Dpbp, 0));
+        let calls = mc.runner().calls();
+        assert_eq!(
+            calls[0],
+            vec!["--script", "dpbp", "create", "--container=dprc.1"]
+        );
+        assert_eq!(
+            calls[1],
+            vec!["dprc", "assign", "dprc.1", "--object=dpbp.0", "--plugged=1"]
+        );
+        assert_eq!(calls[2], vec!["dprc", "set-label", "dpbp.0", "--label=vpp"]);
+    }
+
+    #[test]
+    fn dpmcp_create_renders_bare_container() {
+        let runner = ScriptedRunner::new(vec![
+            ("--script dpmcp create --container=dprc.1", ok("dpmcp.0\n")),
+            ("dprc assign dprc.1 --object=dpmcp.0 --plugged=1", ok("")),
+            ("dprc set-label dpmcp.0 --label=vpp", ok("")),
+        ]);
+        let mc = RestoolMc::with_runner(runner, DEFAULT_CONTAINER);
+        let obj = mc
+            .dpmcp_create(None, &ConstructName::from("vpp"))
+            .expect("create dpmcp");
+        assert_eq!(obj, ObjectRef::new(Family::Dpmcp, 0));
+        assert_eq!(
+            mc.runner().calls()[0],
+            vec!["--script", "dpmcp", "create", "--container=dprc.1"]
+        );
+    }
+
+    #[test]
+    fn dpcon_create_renders_num_priorities() {
+        // dpcon's sole option is `--num-priorities` (default 2), ahead of `--container`.
+        let runner = ScriptedRunner::new(vec![
+            (
+                "--script dpcon create --num-priorities=2 --container=dprc.1",
+                ok("dpcon.0\n"),
+            ),
+            ("dprc assign dprc.1 --object=dpcon.0 --plugged=1", ok("")),
+            ("dprc set-label dpcon.0 --label=vpp", ok("")),
+        ]);
+        let mc = RestoolMc::with_runner(runner, DEFAULT_CONTAINER);
+        let obj = mc
+            .dpcon_create(
+                None,
+                Priorities::new(2).expect("2 is in 1..=8"),
+                &ConstructName::from("vpp"),
+            )
+            .expect("create dpcon");
+        assert_eq!(obj, ObjectRef::new(Family::Dpcon, 0));
+        assert_eq!(
+            mc.runner().calls()[0],
+            vec![
+                "--script",
+                "dpcon",
+                "create",
+                "--num-priorities=2",
+                "--container=dprc.1"
+            ]
+        );
+    }
+
+    #[test]
+    fn dpio_create_renders_channel_mode_and_priorities() {
+        // dpio carries `--channel-mode` + `--num-priorities`; the mode is dead in the
+        // kernel (DPIO-I3) but still rendered.
+        let runner = ScriptedRunner::new(vec![
+            (
+                "--script dpio create --channel-mode=DPIO_LOCAL_CHANNEL --container=dprc.1 \
+                 --num-priorities=8",
+                ok("dpio.0\n"),
+            ),
+            ("dprc assign dprc.1 --object=dpio.0 --plugged=1", ok("")),
+            ("dprc set-label dpio.0 --label=vpp", ok("")),
+        ]);
+        let mc = RestoolMc::with_runner(runner, DEFAULT_CONTAINER);
+        let cfg = DpioCfg {
+            mode: ChannelMode::LocalChannel,
+            priorities: Priorities::new(8).expect("8 is in 1..=8"),
+        };
+        let obj = mc
+            .dpio_create(None, cfg, &ConstructName::from("vpp"))
+            .expect("create dpio");
+        assert_eq!(obj, ObjectRef::new(Family::Dpio, 0));
+        assert_eq!(
+            mc.runner().calls()[0],
+            vec![
+                "--script",
+                "dpio",
+                "create",
+                "--channel-mode=DPIO_LOCAL_CHANNEL",
+                "--container=dprc.1",
+                "--num-priorities=8"
+            ]
+        );
+    }
+
+    #[test]
+    fn dpio_create_renders_no_channel_mode() {
+        // DPIO_NO_CHANNEL still sends `--num-priorities` (the baseline quirk; DPIO-I3).
+        let runner = ScriptedRunner::new(vec![
+            (
+                "--script dpio create --channel-mode=DPIO_NO_CHANNEL --container=dprc.1 \
+                 --num-priorities=8",
+                ok("dpio.0\n"),
+            ),
+            ("dprc assign dprc.1 --object=dpio.0 --plugged=1", ok("")),
+            ("dprc set-label dpio.0 --label=vpp", ok("")),
+        ]);
+        let mc = RestoolMc::with_runner(runner, DEFAULT_CONTAINER);
+        let cfg = DpioCfg {
+            mode: ChannelMode::NoChannel,
+            priorities: Priorities::new(8).expect("8 is in 1..=8"),
+        };
+        mc.dpio_create(None, cfg, &ConstructName::from("vpp"))
+            .expect("create dpio");
+        assert!(mc.runner().calls()[0].contains(&"--channel-mode=DPIO_NO_CHANNEL".to_owned()));
+    }
+
+    #[test]
+    fn pool_destroy_renders_family_destroy_then_sync() {
+        // `<family> destroy <obj>` then a bus sync — the dpni destroy precedent.
+        let runner =
+            ScriptedRunner::new(vec![("dpbp destroy dpbp.3", ok("")), ("dprc sync", ok(""))]);
+        let mc = RestoolMc::with_runner(runner, DEFAULT_CONTAINER);
+        mc.pool_destroy(&ObjectRef::new(Family::Dpbp, 3))
+            .expect("destroy");
+        let calls = mc.runner().calls();
+        assert_eq!(calls[0], vec!["dpbp", "destroy", "dpbp.3"]);
+        assert_eq!(calls[1], vec!["dprc", "sync"]);
+    }
+
+    #[test]
+    fn observe_pool_filters_to_family_and_reports_raw_labels() {
+        // Read-back is the only observation: each `family` row surfaces verbatim, empty
+        // label ⇒ None (DPL), a set label ⇒ Some(raw); other families are filtered out.
+        let show = dprc_show(&[
+            "dpbp.0                          unplugged",
+            "dpbp.1          vpp             plugged",
+            "dpcon.2         vpp             plugged",
+            "dpmac.7                         plugged",
+        ]);
+        let runner = ScriptedRunner::canned(&[("dprc show dprc.1", &show)]);
+        let mc = RestoolMc::with_runner(runner, DEFAULT_CONTAINER);
+        let rows = mc.observe_pool(None, Family::Dpbp).expect("observe pool");
+        assert_eq!(
+            rows,
+            vec![
+                ObservedPoolObject {
+                    object: ObjectRef::new(Family::Dpbp, 0),
+                    label: RawLabel::from(""),
+                    plugged: false,
+                },
+                ObservedPoolObject {
+                    object: ObjectRef::new(Family::Dpbp, 1),
+                    label: RawLabel::from("vpp"),
+                    plugged: true,
+                },
+            ]
+        );
+    }
+
+    // The typed funnel comes free on every pool verb through `run_verb` — the three
+    // refusal shapes stay distinct (mirrors the dpni-chain funnel tests).
+    #[test]
+    fn pool_verb_mc_status_refusal_carries_the_raw_status() {
+        // A driver-bound dpbp destroy bounces with an MC status (`docs/baseline/dpbp.md`).
+        let runner = ScriptedRunner::new(vec![(
+            "dpbp destroy dpbp.3",
+            refused("error: dpbp_destroy() failed: Device is busy (0x10)"),
+        )]);
+        let mc = RestoolMc::with_runner(runner, DEFAULT_CONTAINER);
+        assert!(matches!(
+            mc.pool_destroy(&ObjectRef::new(Family::Dpbp, 3))
+                .expect_err("busy"),
+            Error::McStatus { status: 0x10 }
+        ));
+    }
+
+    #[test]
+    fn pool_verb_client_guard_is_a_distinct_typed_error() {
+        let runner = ScriptedRunner::new(vec![(
+            "dpbp destroy dpbp.3",
+            refused("error: cannot destroy dpbp.3 because it is currently in plugged state"),
+        )]);
+        let mc = RestoolMc::with_runner(runner, DEFAULT_CONTAINER);
+        match mc
+            .pool_destroy(&ObjectRef::new(Family::Dpbp, 3))
+            .expect_err("guard")
+        {
+            Error::RestoolGuard { detail } => assert!(detail.contains("plugged state")),
+            other => panic!("expected RestoolGuard, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn pool_verb_signal_death_is_a_backend_error() {
+        let killed = RunOutcome {
+            stdout: String::new(),
+            stderr: String::new(),
+            code: None,
+        };
+        let mc = RestoolMc::with_runner(
+            ScriptedRunner::new(vec![("dpbp destroy dpbp.3", killed)]),
+            DEFAULT_CONTAINER,
+        );
+        assert!(matches!(
+            mc.pool_destroy(&ObjectRef::new(Family::Dpbp, 3))
+                .expect_err("signal death"),
+            Error::Backend(_)
+        ));
     }
 }
