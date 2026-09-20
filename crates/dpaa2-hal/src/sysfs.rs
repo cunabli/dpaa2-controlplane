@@ -154,6 +154,27 @@ impl FslMcSysfs {
         Self::link_basename(&self.devices_root.join(dprc).join("driver"))
     }
 
+    /// The name of the driver bound to a NESTED bus device — the basename of the `driver`
+    /// symlink at `<devices_root>/<container>/<device>/driver`, or `Ok(None)` when it has
+    /// no driver. A dpni sits nested under its container (the netdev path's layout), unlike
+    /// the flat `<devices_root>/<dprc>` a [`bound_driver`](Self::bound_driver) reads. A raw
+    /// report — a present `fsl_dpaa2_eth` link is the per-target probe read-back the caller
+    /// judges bind liveness by, never the bind write itself (`docs/baseline/dpni.md`
+    /// DPNI-I4 the probe precondition; `docs/baseline/dpio.md` DPIO-I5 the write-is-not-the-
+    /// judgment). Missing link ⇒ `Ok(None)`, sysfs layout, not policy.
+    ///
+    /// # Errors
+    /// Propagates any I/O error other than a missing link.
+    pub fn device_driver(&self, device: &str) -> io::Result<Option<String>> {
+        Self::link_basename(
+            &self
+                .devices_root
+                .join(&self.container)
+                .join(device)
+                .join("driver"),
+        )
+    }
+
     /// The IOMMU-group id of `<dprc>` — the basename of the `iommu_group` symlink,
     /// parsed — or `Ok(None)` when the device has no group (or a non-numeric one).
     ///
@@ -192,6 +213,24 @@ mod tests {
         let bus = FslMcSysfs::new("dprc.1").with_devices_root(&root);
         assert_eq!(bus.netdev_of("dpni.7").unwrap(), Some("eth1".to_owned()));
         assert_eq!(bus.netdev_of("dpni.8").unwrap(), None);
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn device_driver_reads_fixture_tree() {
+        let root = std::env::temp_dir().join("dpaa2-hal-driver-test");
+        let _ = std::fs::remove_dir_all(&root);
+        let dev = root.join("dprc.1/dpni.7");
+        std::fs::create_dir_all(&dev).unwrap();
+        let driver = root.join("drivers/fsl_dpaa2_eth");
+        std::fs::create_dir_all(&driver).unwrap();
+        std::os::unix::fs::symlink(&driver, dev.join("driver")).unwrap();
+        let bus = FslMcSysfs::new("dprc.1").with_devices_root(&root);
+        assert_eq!(
+            bus.device_driver("dpni.7").unwrap(),
+            Some("fsl_dpaa2_eth".to_owned())
+        );
+        assert_eq!(bus.device_driver("dpni.8").unwrap(), None);
         std::fs::remove_dir_all(&root).unwrap();
     }
 
