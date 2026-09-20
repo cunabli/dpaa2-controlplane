@@ -1,0 +1,22 @@
+# The shrink operand of suite V-POOL-6 (pool-objects task 4.1, bead
+# dpaa2-controlplane-960.10): the same reserved-kernel interface as intent-a
+# but WITHOUT the `[extra.kernel]` surplus, so the derived ROOT trio counts
+# sit below intent-a's by exactly those extras. Under `dpaa2ctl ensure --allow
+# disruptive` the reconciler shrinks the surplus through a free-only shrink
+# (pool-objects design D3: destroy free managed individuals only, never a
+# drawn one) and prunes any undeclared non-DPL-born free root pool object; the
+# DPL-born boot pool (dpbp.0, dpcon.*, dpmcp.*, dpio.*) is structurally exempt
+# (roadmap #14).
+#
+# The port/dpni is identical to intent-a's, so the a->b delta is pure pool
+# trio: no port teardown, no dpni churn. dpio is unchanged (grow-only, equal
+# across the pair). Derivation pinned offline by
+# crates/dpaa2-tools/tests/vpool6_intents.rs.
+
+[intent]
+schema = 1
+
+[port.kern0]
+dpmac = "dpmac.4"
+rate = 25000
+tenant = "kernel"

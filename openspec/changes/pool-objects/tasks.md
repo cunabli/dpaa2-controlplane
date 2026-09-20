@@ -63,7 +63,7 @@ opus48-developer parcel.
 
 ## 4. Suites
 
-- [ ] 4.1 Offline: suite generation for the pool walks; frozen ITF
+- [x] 4.1 Offline: suite generation for the pool walks; frozen ITF
       traces replay in cargo test as conformance twins (mbt-harness
       req 1).
 - [ ] 4.2 Board: census/ceiling and convergence walks at root scope;
