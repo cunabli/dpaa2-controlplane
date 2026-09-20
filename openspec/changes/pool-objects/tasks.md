@@ -45,7 +45,7 @@ opus48-developer parcel.
 
 ## 3. dpaa2-mc (adapter)
 
-- [ ] 3.1 Create/destroy verbs for the four families; delta→id
+- [x] 3.1 Create/destroy verbs for the four families; delta→id
       resolution with free-only victim selection; read-back as the
       only observation (mc-backend req 1).
 - [ ] 3.2 Kernel root-bind face: dpaa2-eth bind, per-target probe

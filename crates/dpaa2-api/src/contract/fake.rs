@@ -15,13 +15,17 @@ use std::collections::HashMap;
 
 use crate::contract::{KernelControl, McControl};
 use crate::core::error::Error;
+use crate::core::family::Family;
 use crate::core::inventory::Inventory;
 use crate::core::model::{
     DpmacId, DpniId, DprcId, LinkType, MacAddr, ObjectRef, ObservedDpmac, ObservedDpni,
     ObservedTopology,
 };
+use crate::core::types::ConstructName;
+use crate::families::dpio::{DpioCfg, Priorities};
 use crate::families::dpni::{DpniCfg, DpniObservation};
 use crate::families::dprc::ContainerState;
+use crate::families::pool_lifecycle::{ObservedPoolObject, RawLabel};
 use crate::intent::compiled::Container;
 use crate::plan::dprc::ObservedContainer;
 
@@ -64,6 +68,12 @@ struct FakeState {
     /// records what it was told to build so a test can assert the compiled cfg reached
     /// the backend verbatim (dpni-typestate task 4.1).
     created_cfgs: Vec<(DpniId, DpniCfg)>,
+    /// The pool objects [`McControl::dpbp_create`] and friends have minted, observed by
+    /// [`McControl::observe_pool`] — a single flat list (the fake models one container),
+    /// each created object stamped and plugged (pool-objects task 3.1).
+    pool_objects: Vec<ObservedPoolObject>,
+    /// Next pool-object ordinal, shared across families — unique enough for the fake.
+    next_pool: u32,
 }
 
 /// In-memory fake implementing both southbound ports over a shared state.
@@ -88,8 +98,24 @@ impl FakeBackend {
                 containers: BTreeMap::new(),
                 refuse_dprc_create: None,
                 created_cfgs: Vec::new(),
+                pool_objects: Vec::new(),
+                next_pool: 0,
             }),
         }
+    }
+
+    /// Mints one plugged, stamped pool object of `family` and records it so a later
+    /// [`McControl::observe_pool`] reads it back (create → stamp → plug; pool-objects task 3.1).
+    fn push_pool_object(&self, family: Family, label: &ConstructName) -> ObjectRef {
+        let mut st = self.state.borrow_mut();
+        let object = ObjectRef::new(family, st.next_pool);
+        st.next_pool += 1;
+        st.pool_objects.push(ObservedPoolObject {
+            object,
+            label: RawLabel::from(label.as_str()),
+            plugged: true,
+        });
+        object
     }
 
     /// The create blocks handed to [`McControl::create_dpni`], in call order, so a test
@@ -417,6 +443,65 @@ impl McControl for FakeBackend {
 
     fn dprc_set_locked(&self, _child: DprcId, _locked: bool) -> Result<(), Error> {
         Ok(())
+    }
+
+    // The pool verbs model one container (`container` ignored); each create stamps and plugs
+    // so `observe_pool` reads it back drawn (pool-objects task 3.1; engine-test fake only).
+    fn dpbp_create(
+        &self,
+        _container: Option<DprcId>,
+        label: &ConstructName,
+    ) -> Result<ObjectRef, Error> {
+        Ok(self.push_pool_object(Family::Dpbp, label))
+    }
+
+    fn dpmcp_create(
+        &self,
+        _container: Option<DprcId>,
+        label: &ConstructName,
+    ) -> Result<ObjectRef, Error> {
+        Ok(self.push_pool_object(Family::Dpmcp, label))
+    }
+
+    fn dpcon_create(
+        &self,
+        _container: Option<DprcId>,
+        _priorities: Priorities,
+        label: &ConstructName,
+    ) -> Result<ObjectRef, Error> {
+        Ok(self.push_pool_object(Family::Dpcon, label))
+    }
+
+    fn dpio_create(
+        &self,
+        _container: Option<DprcId>,
+        _cfg: DpioCfg,
+        label: &ConstructName,
+    ) -> Result<ObjectRef, Error> {
+        Ok(self.push_pool_object(Family::Dpio, label))
+    }
+
+    fn pool_destroy(&self, object: &ObjectRef) -> Result<(), Error> {
+        self.state
+            .borrow_mut()
+            .pool_objects
+            .retain(|o| &o.object != object);
+        Ok(())
+    }
+
+    fn observe_pool(
+        &self,
+        _container: Option<DprcId>,
+        family: Family,
+    ) -> Result<Vec<ObservedPoolObject>, Error> {
+        Ok(self
+            .state
+            .borrow()
+            .pool_objects
+            .iter()
+            .filter(|o| o.object.family() == family)
+            .cloned()
+            .collect())
     }
 }
 

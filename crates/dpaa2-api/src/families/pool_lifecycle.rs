@@ -41,9 +41,13 @@
 //! create/destroy verbs against concrete ids is the adapter's job, and any
 //! plan/`Transition` wiring is phase 3's (pool-objects design D2).
 
+use std::collections::BTreeSet;
+
 use crate::core::error::Error;
 use crate::core::family::Family;
-use crate::core::inventory::Ceiling;
+use crate::core::inventory::{Availability, Ceiling, judge_label};
+use crate::core::model::ObjectRef;
+use crate::core::types::{ConstructName, raw_capture};
 use crate::intent::compiled::{CompiledPlan, Container};
 
 /// The three pooled families that instantiate the one P3 allocator shape (`pooled:
@@ -447,6 +451,143 @@ pub fn drift_disposition(
     })
 }
 
+// ---- the observation surface: raw rows in, a pure census out (pool-objects design D2/D3) ----
+
+raw_capture! {
+    /// The MC label column of a pool row, captured verbatim — any content is valid, the empty
+    /// string included (the empty column is the DPL sentinel
+    /// [`judge_label`](crate::core::inventory) reads as `"dpl"`).
+    ///
+    /// Deliberately NOT a [`ConstructName`]: a raw label is an *observation to be judged*, not
+    /// a declared name to be reified — its invariant is verbatim capture, and it is judged
+    /// through [`judge_label`](crate::core::inventory) (via
+    /// [`ObservedPoolObject::membership`]), never validated or namespaced. Minted through the
+    /// shared [`raw_capture!`](crate::core::types) capture contract it shares with
+    /// [`RawDriver`].
+    RawLabel
+}
+
+impl RawLabel {
+    /// Whether the label column was empty — the DPL sentinel's shape. Family-specific, not
+    /// part of the shared capture contract, so it stays a hand impl.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+}
+
+/// One pool object as the adapter observed it — the raw `dprc show` row a pool family
+/// contributes, reported verbatim (pool-objects task 3.1; the adapter reports, the core
+/// judges — PASS5-F1/ADR-0010 §4).
+///
+/// `label` is the MC label column exactly as read (a [`RawLabel`]): the empty string is
+/// the empty column, which [`judge_label`](crate::core::inventory) reads as the DPL
+/// sentinel `"dpl"` — never pre-judged into ours/foreign here. `plugged` is the trailing
+/// `plugged`/`unplugged` state token.
+///
+/// # The custody proxy is conservative and restool-bound (DPBP-I2/I3/I4)
+///
+/// Kernel free/drawn custody is NOT restool-observable: an object enters its container's
+/// kernel pool only once the `fsl_mc_allocator` binds it, and the allocator's free/drawn
+/// split has no `dprc show` column (`docs/baseline/dpbp.md` "Kernel-side behavior";
+/// DPBP-I2's kernel-pool half is root-only until the raw command path, #10). So
+/// [`census_of`] uses the one custody signal restool DOES surface — the plugged state —
+/// as a conservative proxy: **plugged ⇒ counted drawn** (it may merely be kernel-held,
+/// not consumer-drawn), **unplugged ⇒ free**. `born` and `foreign_free` are then the
+/// unplugged rows the DPL / a foreign owner labels.
+///
+/// The consequence, stated plainly (pool-objects design D3): a plugged *surplus* the
+/// reconciler could in principle reclaim surfaces as a [`ShrinkBelowDraw`] refusal rather
+/// than a teardown, because the proxy counts it drawn. That is the safe direction — never
+/// tear down something that might be kernel-held — and MC's own driver-bound destroy
+/// refusal (a typed `McStatus`; `docs/baseline/dpbp.md`: `destroy` refuses driver-bound
+/// objects) is the enforcement backstop. The phase-4 kernel-face probes refine the proxy.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ObservedPoolObject {
+    /// The concrete `family.ordinal` reference the destroy/prune verbs address.
+    pub object: ObjectRef,
+    /// The raw MC label column, verbatim (empty for the empty column ⇒ the DPL sentinel).
+    pub label: RawLabel,
+    /// Whether the row's trailing state token was `plugged` (the drawn proxy) vs
+    /// `unplugged` (free).
+    pub plugged: bool,
+}
+
+/// Pool-custody membership of one observed object, judged by its label against the
+/// declared-name set — the individual-level twin of the count-level `born`/`foreign_free`
+/// split (pool-objects design D3). It reuses [`judge_label`](crate::core::inventory), the
+/// single home of the empty-label⇒DPL idiom, so the classification never drifts from the
+/// inventory's (ADR-0010 §4 refined by ADR-0015).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PoolMembership {
+    /// Reconciler-owned: the label is a declared consumer name (the model's `managed`
+    /// set) — a free one is a shrink victim, a drawn one counts toward the requirement.
+    Managed,
+    /// DPL-born boot baseline (the empty-label ⇒ `"dpl"` sentinel; roadmap #14) —
+    /// structurally prune-exempt and never a shrink victim.
+    DplBorn,
+    /// Undeclared and non-DPL-born — the prune target when free (pool-objects design D3).
+    Foreign,
+}
+
+impl ObservedPoolObject {
+    /// Whether the object reads as free — the unplugged proxy for undrawn custody (see the
+    /// type-level DPBP-I2 note).
+    #[must_use]
+    pub fn is_free(&self) -> bool {
+        !self.plugged
+    }
+
+    /// Judges this object's custody membership against the declared-name set, reusing the
+    /// inventory's [`judge_label`](crate::core::inventory) so the empty-label⇒DPL and
+    /// declared⇒ours idioms are single-sourced (ADR-0010 §4 refined by ADR-0015). An empty
+    /// label is the empty column, judged as the DPL sentinel.
+    #[must_use]
+    pub fn membership(&self, declared: &BTreeSet<ConstructName>) -> PoolMembership {
+        let judged = judge_label(self.label.as_str(), declared);
+        // Compare against judge_label's own empty⇒DPL verdict, never re-spelling "dpl" here.
+        if judged == judge_label("", declared) {
+            PoolMembership::DplBorn
+        } else if matches!(judged, Availability::Free) {
+            PoolMembership::Managed
+        } else {
+            PoolMembership::Foreign
+        }
+    }
+}
+
+/// Assembles the count-level [`PoolCensus`] from the raw observed rows of one (container,
+/// pool-family) pair — the pure boundary between the adapter's verbatim observation and
+/// the model's count vocabulary (pool-objects task 3.1; pool-objects design D2/D3).
+///
+/// The custody split is the conservative restool proxy (see [`ObservedPoolObject`]):
+/// every `plugged` row counts `drawn`, every `unplugged` row `free`; a free row then adds
+/// to `born` (DPL) or `foreign_free` (undeclared) per its [`membership`](ObservedPoolObject::membership),
+/// or to neither when it is the reconciler's own managed-free. `declared` is the same
+/// declared-name recognition set the inventory judges labels against (ADR-0015), so the
+/// count-level `born`/`foreign_free` match the inventory's per-object verdicts exactly.
+#[must_use]
+pub fn census_of(rows: &[ObservedPoolObject], declared: &BTreeSet<ConstructName>) -> PoolCensus {
+    let population = i64::try_from(rows.len()).unwrap_or(i64::MAX);
+    let mut free = 0i64;
+    let mut drawn = 0i64;
+    let mut born = 0i64;
+    let mut foreign_free = 0i64;
+    for row in rows {
+        if row.plugged {
+            drawn += 1; // conservative proxy: plugged ⇒ drawn (see ObservedPoolObject; DPBP-I2/I3/I4)
+        } else {
+            free += 1;
+            match row.membership(declared) {
+                PoolMembership::DplBorn => born += 1,
+                PoolMembership::Foreign => foreign_free += 1,
+                PoolMembership::Managed => {}
+            }
+        }
+    }
+    PoolCensus::new(population, free, drawn, born, foreign_free)
+}
+
 #[cfg(test)]
 mod tests {
     //! Parity of the census/sizing/convergence surface with
@@ -833,5 +974,71 @@ mod tests {
                 }
             }
         }
+    }
+
+    // ---- census_of: raw rows fold into the count vocabulary (pool-objects design D3) ----
+
+    fn declared_set(names: &[&str]) -> BTreeSet<ConstructName> {
+        names.iter().map(|n| ConstructName::from(*n)).collect()
+    }
+
+    fn pool_row(ord: u32, raw: &str, plugged: bool) -> ObservedPoolObject {
+        ObservedPoolObject {
+            object: ObjectRef::new(Family::Dpbp, ord),
+            label: RawLabel::from(raw),
+            plugged,
+        }
+    }
+
+    // The observation mapping (DPBP-I2/I3/I4), one row per case (see the trailing labels).
+    #[test]
+    fn census_of_maps_born_foreign_free_and_the_custody_proxy() {
+        let declared = declared_set(&["vpp"]);
+        let rows = vec![
+            pool_row(0, "", false),       // empty ⇒ DPL, free ⇒ born
+            pool_row(1, "vpp", false),    // declared ⇒ ours, free ⇒ managed-free
+            pool_row(2, "vpp", true),     // declared ⇒ ours, plugged ⇒ drawn
+            pool_row(3, "vendor", false), // foreign, free ⇒ foreign_free
+            pool_row(4, "vendor", true),  // foreign, plugged ⇒ drawn (proxy)
+        ];
+        let c = census_of(&rows, &declared);
+        assert_eq!(c.population(), 5);
+        assert_eq!(c.free(), 3); // rows 0, 1, 3
+        assert_eq!(c.drawn(), 2); // rows 2, 4
+        assert_eq!(c.born(), 1); // row 0
+        assert_eq!(c.foreign_free(), 1); // row 3
+        assert_eq!(c.managed_free(), 1); // row 1: free 3 - born 1 - foreign_free 1
+        assert_eq!(c.managed(), 3); // population 5 - born 1 - foreign_free 1
+        assert_eq!(c.free() + c.drawn(), c.population());
+    }
+
+    #[test]
+    fn census_of_over_an_all_free_managed_pool_is_convergeable() {
+        // All rows ours and free ⇒ born/foreign_free zero, so it converges at the managed count.
+        let declared = declared_set(&["vpp"]);
+        let rows = vec![pool_row(0, "vpp", false), pool_row(1, "vpp", false)];
+        let c = census_of(&rows, &declared);
+        assert_eq!(c.born(), 0);
+        assert_eq!(c.foreign_free(), 0);
+        assert_eq!(c.managed(), 2);
+        assert!(c.converged(2));
+    }
+
+    // membership reuses judge_label: an empty label ⇒ DPL, declared ⇒ ours, else foreign.
+    #[test]
+    fn membership_reuses_the_label_judgment() {
+        let declared = declared_set(&["wan0"]);
+        assert_eq!(
+            pool_row(0, "", false).membership(&declared),
+            PoolMembership::DplBorn
+        );
+        assert_eq!(
+            pool_row(0, "wan0", false).membership(&declared),
+            PoolMembership::Managed
+        );
+        assert_eq!(
+            pool_row(0, "vendor", false).membership(&declared),
+            PoolMembership::Foreign
+        );
     }
 }

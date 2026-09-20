@@ -1,10 +1,13 @@
 use std::collections::BTreeMap;
 
 use crate::core::error::Error;
+use crate::core::family::Family;
 use crate::core::inventory::Inventory;
 use crate::core::model::{DpmacId, DpniId, DprcId, MacAddr, ObjectRef, ObservedTopology};
 use crate::core::types::ConstructName;
+use crate::families::dpio::{DpioCfg, Priorities};
 use crate::families::dprc;
+use crate::families::pool_lifecycle::ObservedPoolObject;
 use crate::plan::dprc::ObservedContainer;
 
 /// Southbound MC-portal control at MC-command granularity.
@@ -192,4 +195,105 @@ pub trait McControl {
     /// # Errors
     /// Returns [`Error::McStatus`] or [`Error::RestoolGuard`].
     fn dprc_set_locked(&self, child: DprcId, locked: bool) -> Result<(), Error>;
+
+    // ---- pool-family create/destroy verbs (pool-objects task 3.1) ----
+    // The delta→id dispatch edge (pool-objects design D2) resolves a count to N creates; each
+    // stamps its consumer's label and plugs (ADR-0015; ADR-0010 §4 ABA guard). `container` is
+    // `None` for the shim root. Per-verb create options are from the baselines (rustdoc below).
+
+    /// Creates one dpbp (buffer pool) in `container`, stamped `label` and plugged, and
+    /// returns its [`ObjectRef`]. dpbp has zero create options (`docs/baseline/dpbp.md`
+    /// "Option inventory": the `dpbp_cfg.options` placeholder is discarded by the flib).
+    ///
+    /// # Errors
+    /// Returns [`Error::McStatus`] (e.g. `0x8` No resources at the pool floor, DPBP-I7),
+    /// [`Error::RestoolGuard`], [`Error::Backend`], or [`Error::Parse`] if the created id
+    /// cannot be read back.
+    fn dpbp_create(
+        &self,
+        container: Option<DprcId>,
+        label: &ConstructName,
+    ) -> Result<ObjectRef, Error>;
+
+    /// Creates one dpmcp (MC command portal) in `container`, stamped `label` and plugged,
+    /// and returns its [`ObjectRef`]. dpmcp takes no create option the reconciler sets
+    /// (`docs/baseline/dpmcp.md` "Option inventory": the one option token and the
+    /// pool-assigned portal id are both left at their restool defaults).
+    ///
+    /// # Errors
+    /// Returns [`Error::McStatus`], [`Error::RestoolGuard`], [`Error::Backend`], or
+    /// [`Error::Parse`].
+    fn dpmcp_create(
+        &self,
+        container: Option<DprcId>,
+        label: &ConstructName,
+    ) -> Result<ObjectRef, Error>;
+
+    /// Creates one dpcon (concentrator) with `priorities` channel priority levels in
+    /// `container`, stamped `label` and plugged, and returns its [`ObjectRef`].
+    ///
+    /// `--num-priorities` is dpcon's sole create option (`docs/baseline/dpcon.md` "Option
+    /// inventory": 1–8, **default 2** — unlike dpio's default of 8). The `1..=8` range and
+    /// meaning are identical to dpio's, so the same [`Priorities`] newtype carries it (the
+    /// shared MC create-range refinement, `families::dpio`); nothing in the corpus drives
+    /// priority > 0 today (DPCON-I3), so the level count is opaque capacity.
+    ///
+    /// # Errors
+    /// Returns [`Error::McStatus`], [`Error::RestoolGuard`], [`Error::Backend`], or
+    /// [`Error::Parse`].
+    fn dpcon_create(
+        &self,
+        container: Option<DprcId>,
+        priorities: Priorities,
+        label: &ConstructName,
+    ) -> Result<ObjectRef, Error>;
+
+    /// Creates one dpio (`QBMan` software portal) with the create-cfg `cfg` in `container`,
+    /// stamped `label` and plugged, and returns its [`ObjectRef`]. dpio takes
+    /// `--channel-mode` and `--num-priorities` (`docs/baseline/dpio.md` "Option
+    /// inventory"); the mode is dead in the kernel (DPIO-I3) but is still rendered.
+    ///
+    /// This is the raw create only. The dpio→dpmcp probe-draw ordering (a dpmcp must
+    /// exist before a consumer probes the dpio, DPIO-I1/DPMCP-I1) is procedural in the
+    /// adapter, not a verb obligation (mc-backend spec; the set-MAC-before-plug
+    /// precedent) — the `dpaa2_mc::pool::create_dpio_seat` helper sequences the pair.
+    ///
+    /// # Errors
+    /// Returns [`Error::McStatus`] (e.g. `-ERANGE` past the online-CPU seat ceiling,
+    /// DPIO-I2), [`Error::RestoolGuard`], [`Error::Backend`], or [`Error::Parse`].
+    fn dpio_create(
+        &self,
+        container: Option<DprcId>,
+        cfg: DpioCfg,
+        label: &ConstructName,
+    ) -> Result<ObjectRef, Error>;
+
+    /// Destroys one pool object, addressed by its [`ObjectRef`] (which carries the
+    /// family). Renders `<family> destroy <object>` then a bus `sync`, mirroring the dpni
+    /// [`destroy`](Self::destroy) precedent. The one destroy verb serves all four families
+    /// — a pool object is anonymous, so its family (on the ref) is the only per-family
+    /// datum a destroy needs (pool-objects design D2).
+    ///
+    /// A driver-bound object is refused by the MC (`docs/baseline/dpbp.md`: `destroy`
+    /// refuses driver-bound objects) as a typed [`Error::McStatus`] — the enforcement
+    /// backstop behind the free-only shrink discipline (pool-objects design D3). The
+    /// caller selects only free victims; this verb never checks custody itself.
+    ///
+    /// # Errors
+    /// Returns [`Error::McStatus`], [`Error::RestoolGuard`], or [`Error::Backend`].
+    fn pool_destroy(&self, object: &ObjectRef) -> Result<(), Error>;
+
+    /// Observes one pool family's objects in `container` through a single `dprc show`,
+    /// filtered to `family`, each row reported verbatim as an [`ObservedPoolObject`] —
+    /// read-back is the only observation, exit status never is (pool-objects task 3.1;
+    /// mc-backend spec requirement 1). The adapter reports raw labels; the core judges
+    /// custody ([`census_of`](crate::families::pool_lifecycle::census_of); PASS5-F1).
+    ///
+    /// # Errors
+    /// Returns an error if the backend cannot be queried.
+    fn observe_pool(
+        &self,
+        container: Option<DprcId>,
+        family: Family,
+    ) -> Result<Vec<ObservedPoolObject>, Error>;
 }

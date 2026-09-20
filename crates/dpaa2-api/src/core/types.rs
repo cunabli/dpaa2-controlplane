@@ -117,6 +117,46 @@ macro_rules! resource_name {
     };
 }
 
+/// Defines a string newtype for one *observed capture* — a raw fact read back off the
+/// hardware, the judged-not-declared dual of [`resource_name!`].
+///
+/// The generated type wraps a [`String`] and derives only `Debug, Clone, PartialEq, Eq`,
+/// plus by hand an `as_str` accessor and `From<&str>`/`From<String>`. It deliberately omits
+/// everything `resource_name!` adds — no `Display`/`AsRef`, no `Ord`/`Hash`, no
+/// `validate`/`is_empty`, no sentinel constructor: a capture is *judged*, never validated,
+/// keyed into an ordered collection, or displayed. Its whole invariant is verbatim capture;
+/// a bare `String` field would let an observation slot go unnewtyped, so the capture wears
+/// this thin wrapper instead.
+macro_rules! raw_capture {
+    ($(#[$meta:meta])* $name:ident) => {
+        $(#[$meta])*
+        #[derive(Debug, Clone, PartialEq, Eq)]
+        pub struct $name(String);
+
+        impl $name {
+            /// The captured value as read, verbatim — the `&str` a judge consumes.
+            #[must_use]
+            pub fn as_str(&self) -> &str {
+                &self.0
+            }
+        }
+
+        impl From<&str> for $name {
+            fn from(s: &str) -> Self {
+                Self(s.to_owned())
+            }
+        }
+
+        impl From<String> for $name {
+            fn from(s: String) -> Self {
+                Self(s)
+            }
+        }
+    };
+}
+
+pub(crate) use raw_capture;
+
 resource_name! {
     /// A tenant's name: the key namespace of every object a tenant draws, and the
     /// thing a port, link end, fabric owner, crypto block, extra or `pool` names
