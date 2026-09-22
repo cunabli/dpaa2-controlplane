@@ -121,7 +121,10 @@ impl PoolFamily {
 /// consumer); `born` is the DPL-born, free, structurally prune-exempt count (the model
 /// anchor `born`, seeded free — a boot-baseline object is foreign, roadmap #14);
 /// `foreign_free` is the free count whose label names neither a declared consumer nor the
-/// DPL — undeclared capacity the prune reclaims.
+/// DPL — undeclared capacity the prune reclaims; `born_drawn` is the DPL-born count that
+/// reads *drawn* under the custody proxy — the board's plugged boot pool (V-POOL-6,
+/// 2026-09-22), netted out of the draw guard so the DPL-born pool never masquerades as a
+/// live consumer blocking a managed grow (pool-objects design D3: DPL-born stays untouched).
 ///
 /// The label judgment is the count-level realization of the model's `managed` ghost set.
 /// The model tracks each companion the reconciler grew in a `Set[ObjId]`; the count level
@@ -130,16 +133,19 @@ impl PoolFamily {
 /// marks the DPL-born, and anything else is foreign — the same label-fingerprint
 /// declaredness the [`plan::dprc`](crate::plan::dprc) `PruneBucket` decides prune candidacy
 /// with. So the free pool splits three ways — `born`, `foreign_free`, and the reconciler's
-/// own free managed — and `managed = population - born - foreign_free` counts only the
-/// reconciler's companions (the model's `managedCount`), drawn ones included. A *drawn*
+/// own free managed — and `managed = population - born - foreign_free - born_drawn` counts
+/// only the reconciler's companions (the model's `managedCount`), drawn ones included,
+/// with BOTH DPL-born subsets (free `born` and plugged `born_drawn`) netted out. A *drawn*
 /// foreign individual is count-indistinguishable from a drawn managed one and folds into
 /// `drawn`/`managed`: conservative, biasing toward the [`ShrinkBelowDraw`] refusal, never
-/// toward a teardown (pool-objects design D2).
+/// toward a teardown (pool-objects design D2). A *drawn* DPL-born is NOT folded in — it is
+/// judged (empty label ⇒ DPL sentinel) and netted into `born_drawn`, so the model's
+/// `drawnManaged` guard base is `drawn - born_drawn` (V-POOL-6; pool-objects design D3).
 ///
-/// The invariant arithmetic (`free + drawn == population`, `0 <= born + foreign_free <= free`) is a
-/// debug assertion in [`PoolCensus::new`]: the adapter is the trust boundary counting
-/// its own observation, so a violated invariant is a miscount to catch in test/debug,
-/// not untrusted input to reject at runtime.
+/// The invariant arithmetic (`free + drawn == population`, `0 <= born + foreign_free <= free`,
+/// `0 <= born_drawn <= drawn`) is a debug assertion in [`PoolCensus::new`]: the adapter is the
+/// trust boundary counting its own observation, so a violated invariant is a miscount to catch
+/// in test/debug, not untrusted input to reject at runtime.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct PoolCensus {
     population: i64,
@@ -147,20 +153,35 @@ pub struct PoolCensus {
     drawn: i64,
     born: i64,
     foreign_free: i64,
+    born_drawn: i64,
 }
 
 impl PoolCensus {
     /// Builds a census from an observation. `population` is every plugged member of the
     /// family in the container, split into `free` (undrawn, in the pool) and `drawn`
-    /// (claimed by a consumer); `born` is the free DPL-born, prune-exempt subset.
+    /// (claimed by a consumer); `born` is the free DPL-born, prune-exempt subset; `born_drawn`
+    /// is the DPL-born subset the custody proxy reads drawn (the board's plugged boot pool).
     ///
-    /// The custody split (`free + drawn == population`) and the free subsets
-    /// (`0 <= born + foreign_free <= free`) are debug-asserted — a miscount is an adapter
-    /// bug, not a runtime condition (see the type-level note).
+    /// The custody split (`free + drawn == population`), the free subsets
+    /// (`0 <= born + foreign_free <= free`) and the drawn DPL-born subset
+    /// (`0 <= born_drawn <= drawn`) are debug-asserted — a miscount is an adapter bug, not a
+    /// runtime condition (see the type-level note).
     #[must_use]
-    pub fn new(population: i64, free: i64, drawn: i64, born: i64, foreign_free: i64) -> Self {
+    pub fn new(
+        population: i64,
+        free: i64,
+        drawn: i64,
+        born: i64,
+        foreign_free: i64,
+        born_drawn: i64,
+    ) -> Self {
         debug_assert!(
-            population >= 0 && free >= 0 && drawn >= 0 && born >= 0 && foreign_free >= 0,
+            population >= 0
+                && free >= 0
+                && drawn >= 0
+                && born >= 0
+                && foreign_free >= 0
+                && born_drawn >= 0,
             "census counts are non-negative"
         );
         debug_assert!(
@@ -171,12 +192,17 @@ impl PoolCensus {
             born + foreign_free <= free,
             "the born and foreign-free subsets are free and disjoint (born + foreign_free <= free); a drawn one folds into drawn"
         );
+        debug_assert!(
+            born_drawn <= drawn,
+            "the drawn DPL-born subset is drawn (born_drawn <= drawn)"
+        );
         Self {
             population,
             free,
             drawn,
             born,
             foreign_free,
+            born_drawn,
         }
     }
 
@@ -193,11 +219,27 @@ impl PoolCensus {
         self.free
     }
 
-    /// The drawn count (members a consumer holds) — the model's `drawnManaged` at the
-    /// count level, since DPL-born members are seeded free.
+    /// The total drawn count (every plugged member under the custody proxy) — the accounting
+    /// half of `free + drawn == population`. The model's `drawnManaged` guard base nets the
+    /// plugged DPL-born out of this: see [`PoolCensus::drawn_managed`].
     #[must_use]
     pub const fn drawn(self) -> i64 {
         self.drawn
+    }
+
+    /// The drawn count the plugged DPL-born boot pool occupies (the board's V-POOL-6 pool) —
+    /// netted out of the draw guard so the DPL-born never reads as a live consumer.
+    #[must_use]
+    pub const fn born_drawn(self) -> i64 {
+        self.born_drawn
+    }
+
+    /// The drawn count that counts toward the draw guard — the model's `drawnManaged`
+    /// (`drawn - born_drawn`). A drawn foreign folds in (conservative, biasing to the refusal);
+    /// a drawn DPL-born does not (it is the board's boot pool, not a live consumer; V-POOL-6).
+    #[must_use]
+    pub const fn drawn_managed(self) -> i64 {
+        self.drawn - self.born_drawn
     }
 
     /// The free DPL-born, prune-exempt count (the model anchor `born`; roadmap #14).
@@ -215,12 +257,12 @@ impl PoolCensus {
         self.foreign_free
     }
 
-    /// The reconciler-owned count — the model's `managedCount`: the population minus the
-    /// foreign DPL-born and the undeclared foreign-free, so neither the boot object nor an
-    /// out-of-band create ever counts toward the requirement.
+    /// The reconciler-owned count — the model's `managedCount`: the population minus both
+    /// DPL-born subsets (free `born` and plugged `born_drawn`) and the undeclared foreign-free,
+    /// so neither the boot pool nor an out-of-band create ever counts toward the requirement.
     #[must_use]
     pub const fn managed(self) -> i64 {
-        self.population - self.born - self.foreign_free
+        self.population - self.born - self.foreign_free - self.born_drawn
     }
 
     /// The free reconciler-owned count — the free pool minus the free DPL-born and the
@@ -275,14 +317,16 @@ impl PoolCensus {
         self.managed() == requirement && self.foreign_free == 0
     }
 
-    /// Whether the requirement has fallen below the drawn count — the refusal
+    /// Whether the requirement has fallen below the managed drawn count — the refusal
     /// precondition a free-only shrink cannot meet (the model's `shrinkBelowDrawAt`
-    /// guard `derivedReq < drawnManaged`; pool-objects design D3). A requirement below
-    /// draw surfaces to the operator, never a teardown of a live consumer; emitting the
-    /// typed refusal is the disposition's (pool-objects task 2.2).
+    /// guard `derivedReq < drawnManaged`; pool-objects design D3). The DPL-born boot pool is
+    /// netted out ([`drawn_managed`](Self::drawn_managed)), so a plugged DPL-born pool never
+    /// forces this refusal (V-POOL-6). A requirement below draw surfaces to the operator, never
+    /// a teardown of a live consumer; emitting the typed refusal is the disposition's
+    /// (pool-objects task 2.2).
     #[must_use]
     pub fn shrinks_below_draw(self, requirement: i64) -> bool {
-        requirement < self.drawn
+        requirement < self.drawn_managed()
     }
 }
 
@@ -321,8 +365,9 @@ pub struct ShrinkBelowDraw {
     pub family: PoolFamily,
     /// The derived requirement (the model's `derivedReq`).
     pub requirement: i64,
-    /// The currently drawn count the requirement fell below (the model's `drawnManaged`; a
-    /// drawn foreign folds in, biasing conservative — see [`drift_disposition`]).
+    /// The managed drawn count the requirement fell below (the model's `drawnManaged`; a drawn
+    /// foreign folds in, biasing conservative, but the DPL-born boot pool is netted out — see
+    /// [`drift_disposition`] and [`PoolCensus::drawn_managed`]).
     pub drawn: i64,
 }
 
@@ -431,7 +476,7 @@ pub fn drift_disposition(
         return Err(ShrinkBelowDraw {
             family,
             requirement,
-            drawn: census.drawn(),
+            drawn: census.drawn_managed(),
         });
     }
     let deficit = (requirement - census.managed()).max(0);
@@ -512,11 +557,15 @@ raw_capture! {
 /// [`census_of`] uses the one custody signal restool DOES surface — the plugged state —
 /// as a conservative proxy: **plugged ⇒ counted drawn** (it may merely be kernel-held,
 /// not consumer-drawn), **unplugged ⇒ free**. `born` and `foreign_free` are then the
-/// unplugged rows the DPL / a foreign owner labels.
+/// unplugged rows the DPL / a foreign owner labels; a *plugged* DPL-born row is judged the
+/// same way (empty label ⇒ DPL sentinel) into `born_drawn` and netted back out of the draw
+/// guard, so the board's plugged boot pool never reads as a live consumer (V-POOL-6;
+/// pool-objects design D3: DPL-born stays untouched).
 ///
-/// The consequence, stated plainly (pool-objects design D3): a plugged *surplus* the
-/// reconciler could in principle reclaim surfaces as a [`ShrinkBelowDraw`] refusal rather
-/// than a teardown, because the proxy counts it drawn. That is the safe direction — never
+/// The consequence, stated plainly (pool-objects design D3): the conservative fold now
+/// applies to *foreign*-drawn only — a plugged foreign *surplus* the reconciler could in
+/// principle reclaim surfaces as a [`ShrinkBelowDraw`] refusal rather than a teardown,
+/// because the proxy cannot tell it from a live draw. That is the safe direction — never
 /// tear down something that might be kernel-held — and MC's own driver-bound destroy
 /// refusal (a typed `McStatus`; `docs/baseline/dpbp.md`: `destroy` refuses driver-bound
 /// objects) is the enforcement backstop. The phase-4 kernel-face probes refine the proxy.
@@ -581,9 +630,11 @@ impl ObservedPoolObject {
 /// The custody split is the conservative restool proxy (see [`ObservedPoolObject`]):
 /// every `plugged` row counts `drawn`, every `unplugged` row `free`; a free row then adds
 /// to `born` (DPL) or `foreign_free` (undeclared) per its [`membership`](ObservedPoolObject::membership),
-/// or to neither when it is the reconciler's own managed-free. `declared` is the same
-/// declared-name recognition set the inventory judges labels against (ADR-0015), so the
-/// count-level `born`/`foreign_free` match the inventory's per-object verdicts exactly.
+/// or to neither when it is the reconciler's own managed-free. A *plugged* DPL-born row
+/// additionally adds to `born_drawn`, netting the board's boot pool out of the draw guard
+/// (V-POOL-6; pool-objects design D3). `declared` is the same declared-name recognition set
+/// the inventory judges labels against (ADR-0015), so the count-level `born`/`born_drawn`/
+/// `foreign_free` match the inventory's per-object verdicts exactly.
 #[must_use]
 pub fn census_of(rows: &[ObservedPoolObject], declared: &BTreeSet<ConstructName>) -> PoolCensus {
     let population = i64::try_from(rows.len()).unwrap_or(i64::MAX);
@@ -591,9 +642,13 @@ pub fn census_of(rows: &[ObservedPoolObject], declared: &BTreeSet<ConstructName>
     let mut drawn = 0i64;
     let mut born = 0i64;
     let mut foreign_free = 0i64;
+    let mut born_drawn = 0i64;
     for row in rows {
         if row.plugged {
             drawn += 1; // conservative proxy: plugged ⇒ drawn (see ObservedPoolObject; DPBP-I2/I3/I4)
+            if row.membership(declared) == PoolMembership::DplBorn {
+                born_drawn += 1; // a plugged DPL-born nets out of the draw guard (V-POOL-6; pool-objects design D3)
+            }
         } else {
             free += 1;
             match row.membership(declared) {
@@ -603,7 +658,7 @@ pub fn census_of(rows: &[ObservedPoolObject], declared: &BTreeSet<ConstructName>
             }
         }
     }
-    PoolCensus::new(population, free, drawn, born, foreign_free)
+    PoolCensus::new(population, free, drawn, born, foreign_free, born_drawn)
 }
 
 /// The kernel-poolable count of an observed pool family — the plugged rows only. A pool
@@ -669,7 +724,7 @@ mod tests {
     fn managed_excludes_the_free_born_and_the_split_holds() {
         // population = free + drawn; managed = population - born - foreign_free;
         // managed_free = free - born - foreign_free.
-        let c = PoolCensus::new(5, 4, 1, 1, 1);
+        let c = PoolCensus::new(5, 4, 1, 1, 1, 0);
         assert_eq!(c.population(), 5);
         assert_eq!(c.free(), 4);
         assert_eq!(c.drawn(), 1);
@@ -686,11 +741,11 @@ mod tests {
         // At the ceiling a create is disabled; below it is admitted (born + 2 == CEILING 3).
         let ceiling = Ceiling::Counted(3);
         assert!(
-            PoolCensus::new(2, 2, 0, 0, 0).admits_create(&ceiling),
+            PoolCensus::new(2, 2, 0, 0, 0, 0).admits_create(&ceiling),
             "below admits"
         );
         assert!(
-            !PoolCensus::new(3, 3, 0, 0, 0).admits_create(&ceiling),
+            !PoolCensus::new(3, 3, 0, 0, 0, 0).admits_create(&ceiling),
             "at ceiling refuses"
         );
         // An Observed ceiling gates the same way.
@@ -698,14 +753,14 @@ mod tests {
             n: 3,
             provenance: "test".to_owned(),
         };
-        assert!(PoolCensus::new(2, 2, 0, 0, 0).admits_create(&obs));
-        assert!(!PoolCensus::new(3, 3, 0, 0, 0).admits_create(&obs));
+        assert!(PoolCensus::new(2, 2, 0, 0, 0, 0).admits_create(&obs));
+        assert!(!PoolCensus::new(3, 3, 0, 0, 0, 0).admits_create(&obs));
     }
 
     #[test]
     fn unknown_ceiling_admits_with_no_refusal() {
         // Ceiling::Unknown has no model counterpart: admit-and-warn, never refuse.
-        let c = PoolCensus::new(99, 99, 0, 0, 0);
+        let c = PoolCensus::new(99, 99, 0, 0, 0, 0);
         assert!(c.admits_create(&Ceiling::Unknown));
         assert!(
             c.grow_enabled(200, &Ceiling::Unknown),
@@ -719,38 +774,38 @@ mod tests {
     fn grow_enabled_at_a_deficit_the_ceiling_admits() {
         let ceiling = Ceiling::Counted(3);
         // Deficit (managed 0 < req 2) and below ceiling ⇒ grow.
-        assert!(PoolCensus::new(1, 1, 0, 1, 0).grow_enabled(2, &ceiling));
+        assert!(PoolCensus::new(1, 1, 0, 1, 0, 0).grow_enabled(2, &ceiling));
         // At the requirement ⇒ no grow.
-        assert!(!PoolCensus::new(3, 3, 0, 1, 0).grow_enabled(2, &ceiling)); // managed 2 == req 2
+        assert!(!PoolCensus::new(3, 3, 0, 1, 0, 0).grow_enabled(2, &ceiling)); // managed 2 == req 2
         // Deficit but at ceiling ⇒ no grow (the census gate wins).
-        assert!(!PoolCensus::new(3, 3, 0, 0, 0).grow_enabled(5, &ceiling));
+        assert!(!PoolCensus::new(3, 3, 0, 0, 0, 0).grow_enabled(5, &ceiling));
     }
 
     #[test]
     fn shrink_enabled_only_with_a_free_managed_individual() {
         // Surplus (managed 2 > req 1) with a free managed ⇒ shrink.
-        assert!(PoolCensus::new(2, 2, 0, 0, 0).shrink_enabled(1));
+        assert!(PoolCensus::new(2, 2, 0, 0, 0, 0).shrink_enabled(1));
         // Surplus but every managed is drawn (free is born only) ⇒ no free victim.
-        assert!(!PoolCensus::new(3, 1, 2, 1, 0).shrink_enabled(1)); // managed 2 > 1, managed_free 0
+        assert!(!PoolCensus::new(3, 1, 2, 1, 0, 0).shrink_enabled(1)); // managed 2 > 1, managed_free 0
         // At the requirement ⇒ no shrink.
-        assert!(!PoolCensus::new(2, 2, 0, 0, 0).shrink_enabled(2));
+        assert!(!PoolCensus::new(2, 2, 0, 0, 0, 0).shrink_enabled(2));
     }
 
     #[test]
     fn converged_when_managed_meets_the_requirement() {
         // Idempotent target: managed == req, and neither grow nor shrink fires.
-        let c = PoolCensus::new(2, 2, 0, 1, 0); // managed 1
+        let c = PoolCensus::new(2, 2, 0, 1, 0, 0); // managed 1
         assert!(c.converged(1));
         assert!(!c.grow_enabled(1, &Ceiling::Counted(3)));
         assert!(!c.shrink_enabled(1));
-        assert!(!PoolCensus::new(2, 2, 0, 0, 0).converged(1)); // managed 2 != 1
+        assert!(!PoolCensus::new(2, 2, 0, 0, 0, 0).converged(1)); // managed 2 != 1
     }
 
     #[test]
     fn shrink_below_draw_is_requirement_under_drawn() {
         // req below the drawn count surfaces the refusal precondition.
-        assert!(PoolCensus::new(2, 0, 2, 0, 0).shrinks_below_draw(1)); // 1 < drawn 2
-        assert!(!PoolCensus::new(2, 1, 1, 0, 0).shrinks_below_draw(1)); // 1 == drawn 1, not below
+        assert!(PoolCensus::new(2, 0, 2, 0, 0, 0).shrinks_below_draw(1)); // 1 < drawn 2
+        assert!(!PoolCensus::new(2, 1, 1, 0, 0, 0).shrinks_below_draw(1)); // 1 == drawn 1, not below
     }
 
     // ---- trio symmetry: one shape, three tags ----
@@ -762,13 +817,13 @@ mod tests {
         let ceiling = Ceiling::Counted(3);
         for f in PoolFamily::POOL_FAMILIES {
             assert_eq!(f.family().as_str(), f.name().to_lowercase());
-            let deficit = PoolCensus::new(1, 1, 0, 1, 0); // managed 0, req 2
+            let deficit = PoolCensus::new(1, 1, 0, 1, 0, 0); // managed 0, req 2
             assert!(deficit.grow_enabled(2, &ceiling), "{}", f.name());
-            let surplus = PoolCensus::new(2, 2, 0, 0, 0); // managed 2, req 1
+            let surplus = PoolCensus::new(2, 2, 0, 0, 0, 0); // managed 2, req 1
             assert!(surplus.shrink_enabled(1), "{}", f.name());
-            let converged = PoolCensus::new(1, 1, 0, 0, 0); // managed 1
+            let converged = PoolCensus::new(1, 1, 0, 0, 0, 0); // managed 1
             assert!(converged.converged(1), "{}", f.name());
-            let over_draw = PoolCensus::new(2, 0, 2, 0, 0);
+            let over_draw = PoolCensus::new(2, 0, 2, 0, 0, 0);
             assert!(over_draw.shrinks_below_draw(1), "{}", f.name());
         }
     }
@@ -836,7 +891,7 @@ mod tests {
     // the same census emits nothing again (idempotent + level-triggered).
     #[test]
     fn drift_disposition_is_empty_over_a_converged_census() {
-        let c = PoolCensus::new(2, 2, 0, 0, 0); // managed 2, no foreign
+        let c = PoolCensus::new(2, 2, 0, 0, 0, 0); // managed 2, no foreign
         let d = drift_disposition(PoolFamily::Dpbp, c, 2, &Ceiling::Counted(3)).expect("converged");
         assert!(d.is_empty(), "{d:?}");
         let d2 =
@@ -848,7 +903,7 @@ mod tests {
     // convergenceGrowTest: a deficit emits creates to the derived count, nothing else.
     #[test]
     fn drift_disposition_grows_to_the_deficit() {
-        let c = PoolCensus::new(0, 0, 0, 0, 0); // managed 0
+        let c = PoolCensus::new(0, 0, 0, 0, 0, 0); // managed 0
         let d = drift_disposition(PoolFamily::Dpbp, c, 2, &Ceiling::Counted(3)).expect("grows");
         assert_eq!(
             d,
@@ -864,7 +919,7 @@ mod tests {
     // (admit-and-warn). A capped grow leaves the remainder for a later pass.
     #[test]
     fn drift_disposition_caps_grow_at_headroom_and_unknown_is_uncapped() {
-        let c = PoolCensus::new(1, 1, 0, 0, 0); // managed 1, population 1
+        let c = PoolCensus::new(1, 1, 0, 0, 0, 0); // managed 1, population 1
         // Counted(3): deficit 4, headroom 3-1=2 ⇒ create 2.
         let capped = drift_disposition(PoolFamily::Dpbp, c, 5, &Ceiling::Counted(3)).expect("caps");
         assert_eq!(capped.create, 2);
@@ -887,7 +942,7 @@ mod tests {
     // freeOnlyShrinkTest: a surplus emits destroys, bounded by the free managed count.
     #[test]
     fn drift_disposition_shrinks_the_surplus() {
-        let c = PoolCensus::new(3, 3, 0, 0, 0); // managed 3, all free
+        let c = PoolCensus::new(3, 3, 0, 0, 0, 0); // managed 3, all free
         let d = drift_disposition(PoolFamily::Dpbp, c, 2, &Ceiling::Counted(9)).expect("shrinks");
         assert_eq!(
             d,
@@ -903,7 +958,7 @@ mod tests {
     // through free individuals — destroy never exceeds the free managed count.
     #[test]
     fn drift_disposition_destroy_is_bounded_by_free_managed() {
-        let c = PoolCensus::new(4, 3, 1, 0, 0); // managed 4, free 3, drawn 1
+        let c = PoolCensus::new(4, 3, 1, 0, 0, 0); // managed 4, free 3, drawn 1
         let d = drift_disposition(PoolFamily::Dpbp, c, 2, &Ceiling::Counted(9)).expect("shrinks");
         assert_eq!(d.destroy, 2); // surplus 2, and 2 <= managed_free 3
         assert!(
@@ -916,7 +971,7 @@ mod tests {
     // count, emits no deltas, renders, and folds to Error::Config.
     #[test]
     fn drift_disposition_refuses_below_draw() {
-        let c = PoolCensus::new(2, 0, 2, 0, 0); // drawn 2
+        let c = PoolCensus::new(2, 0, 2, 0, 0, 0); // drawn 2
         let err = drift_disposition(PoolFamily::Dpcon, c, 1, &Ceiling::Counted(3)).unwrap_err();
         assert_eq!(
             err,
@@ -940,7 +995,7 @@ mod tests {
     // not counted foreign, so it never enters the prune emission).
     #[test]
     fn drift_disposition_prunes_foreign_never_born() {
-        let c = PoolCensus::new(3, 3, 0, 1, 1); // managed 1, born 1, foreign 1
+        let c = PoolCensus::new(3, 3, 0, 1, 1, 0); // managed 1, born 1, foreign 1
         let d = drift_disposition(PoolFamily::Dpbp, c, 1, &Ceiling::Counted(9)).expect("prunes");
         assert_eq!(
             d,
@@ -958,7 +1013,7 @@ mod tests {
     // in one pass — why the emission is a deltas struct, not a single verdict.
     #[test]
     fn drift_disposition_grows_and_prunes_together() {
-        let c = PoolCensus::new(2, 2, 0, 0, 1); // managed 1, one foreign-free
+        let c = PoolCensus::new(2, 2, 0, 0, 1, 0); // managed 1, one foreign-free
         let d =
             drift_disposition(PoolFamily::Dpbp, c, 3, &Ceiling::Counted(5)).expect("grow+prune");
         assert_eq!(
@@ -975,7 +1030,7 @@ mod tests {
     // every pooled family (pool-objects design D1).
     #[test]
     fn drift_disposition_is_tag_invariant() {
-        let c = PoolCensus::new(2, 2, 0, 0, 1); // managed 1, one foreign-free
+        let c = PoolCensus::new(2, 2, 0, 0, 1, 0); // managed 1, one foreign-free
         let mut seen = None;
         for f in PoolFamily::POOL_FAMILIES {
             let d = drift_disposition(f, c, 3, &Ceiling::Counted(5)).expect("ok");
@@ -991,10 +1046,10 @@ mod tests {
     #[test]
     fn drift_disposition_is_total_over_edge_censuses() {
         let edges = [
-            PoolCensus::new(0, 0, 0, 0, 0), // all zeros
-            PoolCensus::new(2, 0, 2, 0, 0), // requirement 0 with drawn > 0 ⇒ refusal
-            PoolCensus::new(2, 2, 0, 0, 2), // foreign-only pool
-            PoolCensus::new(3, 3, 0, 1, 1), // born + foreign together
+            PoolCensus::new(0, 0, 0, 0, 0, 0), // all zeros
+            PoolCensus::new(2, 0, 2, 0, 0, 0), // requirement 0 with drawn > 0 ⇒ refusal
+            PoolCensus::new(2, 2, 0, 0, 2, 0), // foreign-only pool
+            PoolCensus::new(3, 3, 0, 1, 1, 0), // born + foreign together
         ];
         for c in edges {
             for ceiling in [Ceiling::Counted(2), Ceiling::Unknown] {
@@ -1040,9 +1095,63 @@ mod tests {
         assert_eq!(c.drawn(), 2); // rows 2, 4
         assert_eq!(c.born(), 1); // row 0
         assert_eq!(c.foreign_free(), 1); // row 3
+        assert_eq!(c.born_drawn(), 0); // no plugged DPL-born row here
         assert_eq!(c.managed_free(), 1); // row 1: free 3 - born 1 - foreign_free 1
-        assert_eq!(c.managed(), 3); // population 5 - born 1 - foreign_free 1
+        assert_eq!(c.managed(), 3); // population 5 - born 1 - foreign_free 1 - born_drawn 0
         assert_eq!(c.free() + c.drawn(), c.population());
+    }
+
+    // V-POOL-6 (board sitting 2026-09-22): the root container's plugged DPL-born boot pool
+    // (empty label, plugged) must NOT count toward the draw guard — the managed requirement
+    // grows on TOP of it (pool-objects design D3). A census of 52 plugged DPL-born rows with a
+    // requirement of 19 plans a grow of 19 and raises NO ShrinkBelowDraw refusal.
+    #[test]
+    fn plugged_dpl_born_nets_out_of_the_draw_guard() {
+        let declared = declared_set(&[]); // the DPL boot pool wears no declared consumer name
+        let rows: Vec<ObservedPoolObject> = (0..52).map(|n| pool_row(n, "", true)).collect();
+        let c = census_of(&rows, &declared);
+        assert_eq!(c.population(), 52);
+        assert_eq!(c.drawn(), 52); // the custody proxy still counts every plugged row drawn
+        assert_eq!(c.born_drawn(), 52); // ...but all 52 are judged DPL-born and netted out
+        assert_eq!(c.drawn_managed(), 0); // so the draw guard sees no live consumer
+        assert_eq!(c.managed(), 0); // and the boot pool counts nothing toward the requirement
+        assert!(
+            !c.shrinks_below_draw(19),
+            "the DPL-born pool never forces the refusal"
+        );
+        let d = drift_disposition(PoolFamily::Dpmcp, c, 19, &Ceiling::Counted(80))
+            .expect("a grow, not a refusal");
+        assert_eq!(
+            d,
+            PoolDeltas {
+                create: 19,
+                destroy: 0,
+                prune: 0
+            }
+        );
+    }
+
+    // Companion to V-POOL-6: a plugged FOREIGN pool (undeclared, non-empty label) is NOT netted
+    // — count-indistinguishable from a live draw, it stays folded into the draw guard and still
+    // biases to the ShrinkBelowDraw refusal (the conservative direction; pool-objects design D2).
+    #[test]
+    fn plugged_foreign_still_biases_to_the_refusal() {
+        let declared = declared_set(&["vpp"]);
+        let rows: Vec<ObservedPoolObject> = (0..52).map(|n| pool_row(n, "vendor", true)).collect();
+        let c = census_of(&rows, &declared);
+        assert_eq!(c.drawn(), 52);
+        assert_eq!(c.born_drawn(), 0); // a foreign label is not the DPL sentinel
+        assert_eq!(c.drawn_managed(), 52); // foreign-drawn folds in, conservatively
+        assert!(c.shrinks_below_draw(19));
+        let err = drift_disposition(PoolFamily::Dpmcp, c, 19, &Ceiling::Counted(80)).unwrap_err();
+        assert_eq!(
+            err,
+            ShrinkBelowDraw {
+                family: PoolFamily::Dpmcp,
+                requirement: 19,
+                drawn: 52
+            }
+        );
     }
 
     #[test]
