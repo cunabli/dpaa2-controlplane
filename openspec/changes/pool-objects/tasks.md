@@ -73,7 +73,7 @@ opus48-developer parcel.
       create+stamp; port teardown stops destroying companions; the
       disconnect --endpoint flag fix rides along (design D9;
       bead 960.18).
-- [ ] 3.7 Derivation: per-declared-port draws fold into the pool
+- [x] 3.7 Derivation: per-declared-port draws fold into the pool
       requirement (+1 dpmcp, +1 dpbp, +num_queues dpcon per port;
       dpio seats unchanged per design D4); vpool6_intents re-pins the
       operands and V-POOL-6 expectations follow (design D9;

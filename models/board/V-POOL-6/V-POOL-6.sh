@@ -26,9 +26,11 @@
 # covered (shrink_below_draw_refuses_by_name_and_count in pool_replay).
 #
 # 4.2 operator, READ FIRST: the grow leg creates the reserved kernel's full
-# root pool — on a 16-CPU board that is ~16 dpio seats + ~16 dpcon + ~17 dpmcp
-# + a few dpbp MANAGED on top of the DPL-born boot pool, plus a kernel dpni on
-# dpmac.4. dpio seats are grow-only (pool-objects design D4), so the teardown
+# root pool — on a 16-CPU board that is ~16 dpio seats + ~32 dpcon + ~18 dpmcp
+# base (20 with the +2 extra) + a few dpbp MANAGED on top of the DPL-born boot
+# pool, plus a kernel dpni on dpmac.4 (the port's dpaa2-eth probe draw folds
+# into the pool, pool-objects design D9). dpio seats are grow-only
+# (pool-objects design D4), so the teardown
 # reconciles the trio and the dpni away but CANNOT reclaim the grown dpio
 # seats: run V-POOL-6 LAST in a sitting and REBOOT after (ADR-0003 §7 recovery
 # guarantee is the backstop). The post-suite census will show the leaked dpio

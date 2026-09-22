@@ -12,6 +12,13 @@
 //! `[extra.kernel]` surplus), while the derived dpio seat count is EQUAL across
 //! the pair (dpio is grow-only, pool-objects design D4) — so the a->b delta is a
 //! pure free-only trio shrink (pool-objects design D3).
+//!
+//! The base counts fold the kernel port's dpaa2-eth probe draw into the pool
+//! (pool-objects design D9, task 3.7): the one terminated kernel port adds +1
+//! dpbp, +1 dpmcp, +`num_queues` dpcon on top of the ADR-0012 companion draw. On
+//! the 16-CPU snapshot intent-b derives root dpmcp 18, dpbp 2, dpcon 32, 16 dpio
+//! seats; intent-a's `[extra.kernel]` +2 per trio lifts dpmcp to 20 (the
+//! board-suite headline, bead: V-POOL-6 intent-a converges dpmcp to 20).
 
 use dpaa2_api::families::dpio::derived_seats;
 use dpaa2_api::families::pool_lifecycle::{PoolFamily, derived_requirement};
@@ -78,4 +85,13 @@ fn intent_a_derives_more_trio_capacity_than_intent_b() {
         derived_seats(&b.plan, &Container::Root),
         "dpio seat count is equal across the operand pair"
     );
+
+    // Absolute operands on the 16-CPU snapshot (pool-objects design D9 per-port
+    // fold, pool-objects task 3.7): intent-b is the folded base, intent-a lifts
+    // dpmcp by the +2 extra to the board-suite headline 20.
+    assert_eq!(root_req(&b, PoolFamily::Dpmcp), 18);
+    assert_eq!(root_req(&b, PoolFamily::Dpbp), 2);
+    assert_eq!(root_req(&b, PoolFamily::Dpcon), 32);
+    assert_eq!(derived_seats(&b.plan, &Container::Root), 16);
+    assert_eq!(root_req(&a, PoolFamily::Dpmcp), 20);
 }

@@ -2,7 +2,7 @@
 source: crates/dpaa2-tools/tests/render.rs
 expression: "render_dry_run(&compiled.plan, &compiled.warnings, &plan)"
 ---
-plan: 81 object(s), 3 edge(s)
+plan: 99 object(s), 3 edge(s)
   kernel/dprtc/1 label=kernel @ root
     - dprtc request=1 value=1 [measured] anchor: DPRTC-I1 singleton, DPRTC-I2 kernel-owned
   kernel/dpio/1 label=kernel @ root
@@ -54,156 +54,295 @@ plan: 81 object(s), 3 edge(s)
     - dpio request=16 value=16 [measured] anchor: ADR-0012 (companions.qnt companionDraw)
       - cpus request=16 value=16 [measured] anchor: ADR-0012: one dpio per online CPU
   kernel/dpmcp/1 label=kernel @ root
-    - dpmcp request=17 value=17 [measured] anchor: ADR-0012 (companions.qnt companionDraw); families/dpsw.qnt + dpseci.qnt draw
+    - dpmcp request=18 value=18 [measured] anchor: ADR-0012 (companions.qnt companionDraw); families/dpsw.qnt + dpseci.qnt draw; pool-objects design D9 per-port probe draw
       - cpus request=16 value=16 [measured] anchor: ADR-0012: one dpio per online CPU
       - dpnis request=1 value=1 [measured] anchor: object-model.md §2: one dpni per terminated port, link end, fabric membership
+      - ports request=1 value=1 [measured] anchor: design D1: declared port constructs
   kernel/dpmcp/2 label=kernel @ root
-    - dpmcp request=17 value=17 [measured] anchor: ADR-0012 (companions.qnt companionDraw); families/dpsw.qnt + dpseci.qnt draw
+    - dpmcp request=18 value=18 [measured] anchor: ADR-0012 (companions.qnt companionDraw); families/dpsw.qnt + dpseci.qnt draw; pool-objects design D9 per-port probe draw
       - cpus request=16 value=16 [measured] anchor: ADR-0012: one dpio per online CPU
       - dpnis request=1 value=1 [measured] anchor: object-model.md §2: one dpni per terminated port, link end, fabric membership
+      - ports request=1 value=1 [measured] anchor: design D1: declared port constructs
   kernel/dpmcp/3 label=kernel @ root
-    - dpmcp request=17 value=17 [measured] anchor: ADR-0012 (companions.qnt companionDraw); families/dpsw.qnt + dpseci.qnt draw
+    - dpmcp request=18 value=18 [measured] anchor: ADR-0012 (companions.qnt companionDraw); families/dpsw.qnt + dpseci.qnt draw; pool-objects design D9 per-port probe draw
       - cpus request=16 value=16 [measured] anchor: ADR-0012: one dpio per online CPU
       - dpnis request=1 value=1 [measured] anchor: object-model.md §2: one dpni per terminated port, link end, fabric membership
+      - ports request=1 value=1 [measured] anchor: design D1: declared port constructs
   kernel/dpmcp/4 label=kernel @ root
-    - dpmcp request=17 value=17 [measured] anchor: ADR-0012 (companions.qnt companionDraw); families/dpsw.qnt + dpseci.qnt draw
+    - dpmcp request=18 value=18 [measured] anchor: ADR-0012 (companions.qnt companionDraw); families/dpsw.qnt + dpseci.qnt draw; pool-objects design D9 per-port probe draw
       - cpus request=16 value=16 [measured] anchor: ADR-0012: one dpio per online CPU
       - dpnis request=1 value=1 [measured] anchor: object-model.md §2: one dpni per terminated port, link end, fabric membership
+      - ports request=1 value=1 [measured] anchor: design D1: declared port constructs
   kernel/dpmcp/5 label=kernel @ root
-    - dpmcp request=17 value=17 [measured] anchor: ADR-0012 (companions.qnt companionDraw); families/dpsw.qnt + dpseci.qnt draw
+    - dpmcp request=18 value=18 [measured] anchor: ADR-0012 (companions.qnt companionDraw); families/dpsw.qnt + dpseci.qnt draw; pool-objects design D9 per-port probe draw
       - cpus request=16 value=16 [measured] anchor: ADR-0012: one dpio per online CPU
       - dpnis request=1 value=1 [measured] anchor: object-model.md §2: one dpni per terminated port, link end, fabric membership
+      - ports request=1 value=1 [measured] anchor: design D1: declared port constructs
   kernel/dpmcp/6 label=kernel @ root
-    - dpmcp request=17 value=17 [measured] anchor: ADR-0012 (companions.qnt companionDraw); families/dpsw.qnt + dpseci.qnt draw
+    - dpmcp request=18 value=18 [measured] anchor: ADR-0012 (companions.qnt companionDraw); families/dpsw.qnt + dpseci.qnt draw; pool-objects design D9 per-port probe draw
       - cpus request=16 value=16 [measured] anchor: ADR-0012: one dpio per online CPU
       - dpnis request=1 value=1 [measured] anchor: object-model.md §2: one dpni per terminated port, link end, fabric membership
+      - ports request=1 value=1 [measured] anchor: design D1: declared port constructs
   kernel/dpmcp/7 label=kernel @ root
-    - dpmcp request=17 value=17 [measured] anchor: ADR-0012 (companions.qnt companionDraw); families/dpsw.qnt + dpseci.qnt draw
+    - dpmcp request=18 value=18 [measured] anchor: ADR-0012 (companions.qnt companionDraw); families/dpsw.qnt + dpseci.qnt draw; pool-objects design D9 per-port probe draw
       - cpus request=16 value=16 [measured] anchor: ADR-0012: one dpio per online CPU
       - dpnis request=1 value=1 [measured] anchor: object-model.md §2: one dpni per terminated port, link end, fabric membership
+      - ports request=1 value=1 [measured] anchor: design D1: declared port constructs
   kernel/dpmcp/8 label=kernel @ root
-    - dpmcp request=17 value=17 [measured] anchor: ADR-0012 (companions.qnt companionDraw); families/dpsw.qnt + dpseci.qnt draw
+    - dpmcp request=18 value=18 [measured] anchor: ADR-0012 (companions.qnt companionDraw); families/dpsw.qnt + dpseci.qnt draw; pool-objects design D9 per-port probe draw
       - cpus request=16 value=16 [measured] anchor: ADR-0012: one dpio per online CPU
       - dpnis request=1 value=1 [measured] anchor: object-model.md §2: one dpni per terminated port, link end, fabric membership
+      - ports request=1 value=1 [measured] anchor: design D1: declared port constructs
   kernel/dpmcp/9 label=kernel @ root
-    - dpmcp request=17 value=17 [measured] anchor: ADR-0012 (companions.qnt companionDraw); families/dpsw.qnt + dpseci.qnt draw
+    - dpmcp request=18 value=18 [measured] anchor: ADR-0012 (companions.qnt companionDraw); families/dpsw.qnt + dpseci.qnt draw; pool-objects design D9 per-port probe draw
       - cpus request=16 value=16 [measured] anchor: ADR-0012: one dpio per online CPU
       - dpnis request=1 value=1 [measured] anchor: object-model.md §2: one dpni per terminated port, link end, fabric membership
+      - ports request=1 value=1 [measured] anchor: design D1: declared port constructs
   kernel/dpmcp/10 label=kernel @ root
-    - dpmcp request=17 value=17 [measured] anchor: ADR-0012 (companions.qnt companionDraw); families/dpsw.qnt + dpseci.qnt draw
+    - dpmcp request=18 value=18 [measured] anchor: ADR-0012 (companions.qnt companionDraw); families/dpsw.qnt + dpseci.qnt draw; pool-objects design D9 per-port probe draw
       - cpus request=16 value=16 [measured] anchor: ADR-0012: one dpio per online CPU
       - dpnis request=1 value=1 [measured] anchor: object-model.md §2: one dpni per terminated port, link end, fabric membership
+      - ports request=1 value=1 [measured] anchor: design D1: declared port constructs
   kernel/dpmcp/11 label=kernel @ root
-    - dpmcp request=17 value=17 [measured] anchor: ADR-0012 (companions.qnt companionDraw); families/dpsw.qnt + dpseci.qnt draw
+    - dpmcp request=18 value=18 [measured] anchor: ADR-0012 (companions.qnt companionDraw); families/dpsw.qnt + dpseci.qnt draw; pool-objects design D9 per-port probe draw
       - cpus request=16 value=16 [measured] anchor: ADR-0012: one dpio per online CPU
       - dpnis request=1 value=1 [measured] anchor: object-model.md §2: one dpni per terminated port, link end, fabric membership
+      - ports request=1 value=1 [measured] anchor: design D1: declared port constructs
   kernel/dpmcp/12 label=kernel @ root
-    - dpmcp request=17 value=17 [measured] anchor: ADR-0012 (companions.qnt companionDraw); families/dpsw.qnt + dpseci.qnt draw
+    - dpmcp request=18 value=18 [measured] anchor: ADR-0012 (companions.qnt companionDraw); families/dpsw.qnt + dpseci.qnt draw; pool-objects design D9 per-port probe draw
       - cpus request=16 value=16 [measured] anchor: ADR-0012: one dpio per online CPU
       - dpnis request=1 value=1 [measured] anchor: object-model.md §2: one dpni per terminated port, link end, fabric membership
+      - ports request=1 value=1 [measured] anchor: design D1: declared port constructs
   kernel/dpmcp/13 label=kernel @ root
-    - dpmcp request=17 value=17 [measured] anchor: ADR-0012 (companions.qnt companionDraw); families/dpsw.qnt + dpseci.qnt draw
+    - dpmcp request=18 value=18 [measured] anchor: ADR-0012 (companions.qnt companionDraw); families/dpsw.qnt + dpseci.qnt draw; pool-objects design D9 per-port probe draw
       - cpus request=16 value=16 [measured] anchor: ADR-0012: one dpio per online CPU
       - dpnis request=1 value=1 [measured] anchor: object-model.md §2: one dpni per terminated port, link end, fabric membership
+      - ports request=1 value=1 [measured] anchor: design D1: declared port constructs
   kernel/dpmcp/14 label=kernel @ root
-    - dpmcp request=17 value=17 [measured] anchor: ADR-0012 (companions.qnt companionDraw); families/dpsw.qnt + dpseci.qnt draw
+    - dpmcp request=18 value=18 [measured] anchor: ADR-0012 (companions.qnt companionDraw); families/dpsw.qnt + dpseci.qnt draw; pool-objects design D9 per-port probe draw
       - cpus request=16 value=16 [measured] anchor: ADR-0012: one dpio per online CPU
       - dpnis request=1 value=1 [measured] anchor: object-model.md §2: one dpni per terminated port, link end, fabric membership
+      - ports request=1 value=1 [measured] anchor: design D1: declared port constructs
   kernel/dpmcp/15 label=kernel @ root
-    - dpmcp request=17 value=17 [measured] anchor: ADR-0012 (companions.qnt companionDraw); families/dpsw.qnt + dpseci.qnt draw
+    - dpmcp request=18 value=18 [measured] anchor: ADR-0012 (companions.qnt companionDraw); families/dpsw.qnt + dpseci.qnt draw; pool-objects design D9 per-port probe draw
       - cpus request=16 value=16 [measured] anchor: ADR-0012: one dpio per online CPU
       - dpnis request=1 value=1 [measured] anchor: object-model.md §2: one dpni per terminated port, link end, fabric membership
+      - ports request=1 value=1 [measured] anchor: design D1: declared port constructs
   kernel/dpmcp/16 label=kernel @ root
-    - dpmcp request=17 value=17 [measured] anchor: ADR-0012 (companions.qnt companionDraw); families/dpsw.qnt + dpseci.qnt draw
+    - dpmcp request=18 value=18 [measured] anchor: ADR-0012 (companions.qnt companionDraw); families/dpsw.qnt + dpseci.qnt draw; pool-objects design D9 per-port probe draw
       - cpus request=16 value=16 [measured] anchor: ADR-0012: one dpio per online CPU
       - dpnis request=1 value=1 [measured] anchor: object-model.md §2: one dpni per terminated port, link end, fabric membership
+      - ports request=1 value=1 [measured] anchor: design D1: declared port constructs
   kernel/dpmcp/17 label=kernel @ root
-    - dpmcp request=17 value=17 [measured] anchor: ADR-0012 (companions.qnt companionDraw); families/dpsw.qnt + dpseci.qnt draw
+    - dpmcp request=18 value=18 [measured] anchor: ADR-0012 (companions.qnt companionDraw); families/dpsw.qnt + dpseci.qnt draw; pool-objects design D9 per-port probe draw
       - cpus request=16 value=16 [measured] anchor: ADR-0012: one dpio per online CPU
       - dpnis request=1 value=1 [measured] anchor: object-model.md §2: one dpni per terminated port, link end, fabric membership
+      - ports request=1 value=1 [measured] anchor: design D1: declared port constructs
+  kernel/dpmcp/18 label=kernel @ root
+    - dpmcp request=18 value=18 [measured] anchor: ADR-0012 (companions.qnt companionDraw); families/dpsw.qnt + dpseci.qnt draw; pool-objects design D9 per-port probe draw
+      - cpus request=16 value=16 [measured] anchor: ADR-0012: one dpio per online CPU
+      - dpnis request=1 value=1 [measured] anchor: object-model.md §2: one dpni per terminated port, link end, fabric membership
+      - ports request=1 value=1 [measured] anchor: design D1: declared port constructs
   kernel/dpbp/1 label=kernel @ root
-    - dpbp request=1 value=1 [measured] anchor: ADR-0012 (companions.qnt companionDraw); families/dpsw.qnt + dpseci.qnt draw
+    - dpbp request=2 value=2 [measured] anchor: ADR-0012 (companions.qnt companionDraw); families/dpsw.qnt + dpseci.qnt draw; pool-objects design D9 per-port probe draw
       - dpnis request=1 value=1 [measured] anchor: object-model.md §2: one dpni per terminated port, link end, fabric membership
+      - ports request=1 value=1 [measured] anchor: design D1: declared port constructs
+  kernel/dpbp/2 label=kernel @ root
+    - dpbp request=2 value=2 [measured] anchor: ADR-0012 (companions.qnt companionDraw); families/dpsw.qnt + dpseci.qnt draw; pool-objects design D9 per-port probe draw
+      - dpnis request=1 value=1 [measured] anchor: object-model.md §2: one dpni per terminated port, link end, fabric membership
+      - ports request=1 value=1 [measured] anchor: design D1: declared port constructs
   kernel/dpcon/1 label=kernel @ root
-    - dpcon request=16 value=16 [measured] anchor: dpcon.md DPCON-I1: one dpcon per polled queue
+    - dpcon request=32 value=32 [measured] anchor: dpcon.md DPCON-I1: one dpcon per polled queue; pool-objects design D9 per-port probe draw
       - dpni-queues request=16 value=16 [measured] anchor: dpni.md line 64/226-236: ls-addni injects nproc; DPCON-I1
         - cpus request=16 value=16 [measured] anchor: ADR-0012: one dpio per online CPU
       - dpnis request=1 value=1 [measured] anchor: object-model.md §2: one dpni per terminated port, link end, fabric membership
+      - ports request=1 value=1 [measured] anchor: design D1: declared port constructs
   kernel/dpcon/2 label=kernel @ root
-    - dpcon request=16 value=16 [measured] anchor: dpcon.md DPCON-I1: one dpcon per polled queue
+    - dpcon request=32 value=32 [measured] anchor: dpcon.md DPCON-I1: one dpcon per polled queue; pool-objects design D9 per-port probe draw
       - dpni-queues request=16 value=16 [measured] anchor: dpni.md line 64/226-236: ls-addni injects nproc; DPCON-I1
         - cpus request=16 value=16 [measured] anchor: ADR-0012: one dpio per online CPU
       - dpnis request=1 value=1 [measured] anchor: object-model.md §2: one dpni per terminated port, link end, fabric membership
+      - ports request=1 value=1 [measured] anchor: design D1: declared port constructs
   kernel/dpcon/3 label=kernel @ root
-    - dpcon request=16 value=16 [measured] anchor: dpcon.md DPCON-I1: one dpcon per polled queue
+    - dpcon request=32 value=32 [measured] anchor: dpcon.md DPCON-I1: one dpcon per polled queue; pool-objects design D9 per-port probe draw
       - dpni-queues request=16 value=16 [measured] anchor: dpni.md line 64/226-236: ls-addni injects nproc; DPCON-I1
         - cpus request=16 value=16 [measured] anchor: ADR-0012: one dpio per online CPU
       - dpnis request=1 value=1 [measured] anchor: object-model.md §2: one dpni per terminated port, link end, fabric membership
+      - ports request=1 value=1 [measured] anchor: design D1: declared port constructs
   kernel/dpcon/4 label=kernel @ root
-    - dpcon request=16 value=16 [measured] anchor: dpcon.md DPCON-I1: one dpcon per polled queue
+    - dpcon request=32 value=32 [measured] anchor: dpcon.md DPCON-I1: one dpcon per polled queue; pool-objects design D9 per-port probe draw
       - dpni-queues request=16 value=16 [measured] anchor: dpni.md line 64/226-236: ls-addni injects nproc; DPCON-I1
         - cpus request=16 value=16 [measured] anchor: ADR-0012: one dpio per online CPU
       - dpnis request=1 value=1 [measured] anchor: object-model.md §2: one dpni per terminated port, link end, fabric membership
+      - ports request=1 value=1 [measured] anchor: design D1: declared port constructs
   kernel/dpcon/5 label=kernel @ root
-    - dpcon request=16 value=16 [measured] anchor: dpcon.md DPCON-I1: one dpcon per polled queue
+    - dpcon request=32 value=32 [measured] anchor: dpcon.md DPCON-I1: one dpcon per polled queue; pool-objects design D9 per-port probe draw
       - dpni-queues request=16 value=16 [measured] anchor: dpni.md line 64/226-236: ls-addni injects nproc; DPCON-I1
         - cpus request=16 value=16 [measured] anchor: ADR-0012: one dpio per online CPU
       - dpnis request=1 value=1 [measured] anchor: object-model.md §2: one dpni per terminated port, link end, fabric membership
+      - ports request=1 value=1 [measured] anchor: design D1: declared port constructs
   kernel/dpcon/6 label=kernel @ root
-    - dpcon request=16 value=16 [measured] anchor: dpcon.md DPCON-I1: one dpcon per polled queue
+    - dpcon request=32 value=32 [measured] anchor: dpcon.md DPCON-I1: one dpcon per polled queue; pool-objects design D9 per-port probe draw
       - dpni-queues request=16 value=16 [measured] anchor: dpni.md line 64/226-236: ls-addni injects nproc; DPCON-I1
         - cpus request=16 value=16 [measured] anchor: ADR-0012: one dpio per online CPU
       - dpnis request=1 value=1 [measured] anchor: object-model.md §2: one dpni per terminated port, link end, fabric membership
+      - ports request=1 value=1 [measured] anchor: design D1: declared port constructs
   kernel/dpcon/7 label=kernel @ root
-    - dpcon request=16 value=16 [measured] anchor: dpcon.md DPCON-I1: one dpcon per polled queue
+    - dpcon request=32 value=32 [measured] anchor: dpcon.md DPCON-I1: one dpcon per polled queue; pool-objects design D9 per-port probe draw
       - dpni-queues request=16 value=16 [measured] anchor: dpni.md line 64/226-236: ls-addni injects nproc; DPCON-I1
         - cpus request=16 value=16 [measured] anchor: ADR-0012: one dpio per online CPU
       - dpnis request=1 value=1 [measured] anchor: object-model.md §2: one dpni per terminated port, link end, fabric membership
+      - ports request=1 value=1 [measured] anchor: design D1: declared port constructs
   kernel/dpcon/8 label=kernel @ root
-    - dpcon request=16 value=16 [measured] anchor: dpcon.md DPCON-I1: one dpcon per polled queue
+    - dpcon request=32 value=32 [measured] anchor: dpcon.md DPCON-I1: one dpcon per polled queue; pool-objects design D9 per-port probe draw
       - dpni-queues request=16 value=16 [measured] anchor: dpni.md line 64/226-236: ls-addni injects nproc; DPCON-I1
         - cpus request=16 value=16 [measured] anchor: ADR-0012: one dpio per online CPU
       - dpnis request=1 value=1 [measured] anchor: object-model.md §2: one dpni per terminated port, link end, fabric membership
+      - ports request=1 value=1 [measured] anchor: design D1: declared port constructs
   kernel/dpcon/9 label=kernel @ root
-    - dpcon request=16 value=16 [measured] anchor: dpcon.md DPCON-I1: one dpcon per polled queue
+    - dpcon request=32 value=32 [measured] anchor: dpcon.md DPCON-I1: one dpcon per polled queue; pool-objects design D9 per-port probe draw
       - dpni-queues request=16 value=16 [measured] anchor: dpni.md line 64/226-236: ls-addni injects nproc; DPCON-I1
         - cpus request=16 value=16 [measured] anchor: ADR-0012: one dpio per online CPU
       - dpnis request=1 value=1 [measured] anchor: object-model.md §2: one dpni per terminated port, link end, fabric membership
+      - ports request=1 value=1 [measured] anchor: design D1: declared port constructs
   kernel/dpcon/10 label=kernel @ root
-    - dpcon request=16 value=16 [measured] anchor: dpcon.md DPCON-I1: one dpcon per polled queue
+    - dpcon request=32 value=32 [measured] anchor: dpcon.md DPCON-I1: one dpcon per polled queue; pool-objects design D9 per-port probe draw
       - dpni-queues request=16 value=16 [measured] anchor: dpni.md line 64/226-236: ls-addni injects nproc; DPCON-I1
         - cpus request=16 value=16 [measured] anchor: ADR-0012: one dpio per online CPU
       - dpnis request=1 value=1 [measured] anchor: object-model.md §2: one dpni per terminated port, link end, fabric membership
+      - ports request=1 value=1 [measured] anchor: design D1: declared port constructs
   kernel/dpcon/11 label=kernel @ root
-    - dpcon request=16 value=16 [measured] anchor: dpcon.md DPCON-I1: one dpcon per polled queue
+    - dpcon request=32 value=32 [measured] anchor: dpcon.md DPCON-I1: one dpcon per polled queue; pool-objects design D9 per-port probe draw
       - dpni-queues request=16 value=16 [measured] anchor: dpni.md line 64/226-236: ls-addni injects nproc; DPCON-I1
         - cpus request=16 value=16 [measured] anchor: ADR-0012: one dpio per online CPU
       - dpnis request=1 value=1 [measured] anchor: object-model.md §2: one dpni per terminated port, link end, fabric membership
+      - ports request=1 value=1 [measured] anchor: design D1: declared port constructs
   kernel/dpcon/12 label=kernel @ root
-    - dpcon request=16 value=16 [measured] anchor: dpcon.md DPCON-I1: one dpcon per polled queue
+    - dpcon request=32 value=32 [measured] anchor: dpcon.md DPCON-I1: one dpcon per polled queue; pool-objects design D9 per-port probe draw
       - dpni-queues request=16 value=16 [measured] anchor: dpni.md line 64/226-236: ls-addni injects nproc; DPCON-I1
         - cpus request=16 value=16 [measured] anchor: ADR-0012: one dpio per online CPU
       - dpnis request=1 value=1 [measured] anchor: object-model.md §2: one dpni per terminated port, link end, fabric membership
+      - ports request=1 value=1 [measured] anchor: design D1: declared port constructs
   kernel/dpcon/13 label=kernel @ root
-    - dpcon request=16 value=16 [measured] anchor: dpcon.md DPCON-I1: one dpcon per polled queue
+    - dpcon request=32 value=32 [measured] anchor: dpcon.md DPCON-I1: one dpcon per polled queue; pool-objects design D9 per-port probe draw
       - dpni-queues request=16 value=16 [measured] anchor: dpni.md line 64/226-236: ls-addni injects nproc; DPCON-I1
         - cpus request=16 value=16 [measured] anchor: ADR-0012: one dpio per online CPU
       - dpnis request=1 value=1 [measured] anchor: object-model.md §2: one dpni per terminated port, link end, fabric membership
+      - ports request=1 value=1 [measured] anchor: design D1: declared port constructs
   kernel/dpcon/14 label=kernel @ root
-    - dpcon request=16 value=16 [measured] anchor: dpcon.md DPCON-I1: one dpcon per polled queue
+    - dpcon request=32 value=32 [measured] anchor: dpcon.md DPCON-I1: one dpcon per polled queue; pool-objects design D9 per-port probe draw
       - dpni-queues request=16 value=16 [measured] anchor: dpni.md line 64/226-236: ls-addni injects nproc; DPCON-I1
         - cpus request=16 value=16 [measured] anchor: ADR-0012: one dpio per online CPU
       - dpnis request=1 value=1 [measured] anchor: object-model.md §2: one dpni per terminated port, link end, fabric membership
+      - ports request=1 value=1 [measured] anchor: design D1: declared port constructs
   kernel/dpcon/15 label=kernel @ root
-    - dpcon request=16 value=16 [measured] anchor: dpcon.md DPCON-I1: one dpcon per polled queue
+    - dpcon request=32 value=32 [measured] anchor: dpcon.md DPCON-I1: one dpcon per polled queue; pool-objects design D9 per-port probe draw
       - dpni-queues request=16 value=16 [measured] anchor: dpni.md line 64/226-236: ls-addni injects nproc; DPCON-I1
         - cpus request=16 value=16 [measured] anchor: ADR-0012: one dpio per online CPU
       - dpnis request=1 value=1 [measured] anchor: object-model.md §2: one dpni per terminated port, link end, fabric membership
+      - ports request=1 value=1 [measured] anchor: design D1: declared port constructs
   kernel/dpcon/16 label=kernel @ root
-    - dpcon request=16 value=16 [measured] anchor: dpcon.md DPCON-I1: one dpcon per polled queue
+    - dpcon request=32 value=32 [measured] anchor: dpcon.md DPCON-I1: one dpcon per polled queue; pool-objects design D9 per-port probe draw
       - dpni-queues request=16 value=16 [measured] anchor: dpni.md line 64/226-236: ls-addni injects nproc; DPCON-I1
         - cpus request=16 value=16 [measured] anchor: ADR-0012: one dpio per online CPU
       - dpnis request=1 value=1 [measured] anchor: object-model.md §2: one dpni per terminated port, link end, fabric membership
+      - ports request=1 value=1 [measured] anchor: design D1: declared port constructs
+  kernel/dpcon/17 label=kernel @ root
+    - dpcon request=32 value=32 [measured] anchor: dpcon.md DPCON-I1: one dpcon per polled queue; pool-objects design D9 per-port probe draw
+      - dpni-queues request=16 value=16 [measured] anchor: dpni.md line 64/226-236: ls-addni injects nproc; DPCON-I1
+        - cpus request=16 value=16 [measured] anchor: ADR-0012: one dpio per online CPU
+      - dpnis request=1 value=1 [measured] anchor: object-model.md §2: one dpni per terminated port, link end, fabric membership
+      - ports request=1 value=1 [measured] anchor: design D1: declared port constructs
+  kernel/dpcon/18 label=kernel @ root
+    - dpcon request=32 value=32 [measured] anchor: dpcon.md DPCON-I1: one dpcon per polled queue; pool-objects design D9 per-port probe draw
+      - dpni-queues request=16 value=16 [measured] anchor: dpni.md line 64/226-236: ls-addni injects nproc; DPCON-I1
+        - cpus request=16 value=16 [measured] anchor: ADR-0012: one dpio per online CPU
+      - dpnis request=1 value=1 [measured] anchor: object-model.md §2: one dpni per terminated port, link end, fabric membership
+      - ports request=1 value=1 [measured] anchor: design D1: declared port constructs
+  kernel/dpcon/19 label=kernel @ root
+    - dpcon request=32 value=32 [measured] anchor: dpcon.md DPCON-I1: one dpcon per polled queue; pool-objects design D9 per-port probe draw
+      - dpni-queues request=16 value=16 [measured] anchor: dpni.md line 64/226-236: ls-addni injects nproc; DPCON-I1
+        - cpus request=16 value=16 [measured] anchor: ADR-0012: one dpio per online CPU
+      - dpnis request=1 value=1 [measured] anchor: object-model.md §2: one dpni per terminated port, link end, fabric membership
+      - ports request=1 value=1 [measured] anchor: design D1: declared port constructs
+  kernel/dpcon/20 label=kernel @ root
+    - dpcon request=32 value=32 [measured] anchor: dpcon.md DPCON-I1: one dpcon per polled queue; pool-objects design D9 per-port probe draw
+      - dpni-queues request=16 value=16 [measured] anchor: dpni.md line 64/226-236: ls-addni injects nproc; DPCON-I1
+        - cpus request=16 value=16 [measured] anchor: ADR-0012: one dpio per online CPU
+      - dpnis request=1 value=1 [measured] anchor: object-model.md §2: one dpni per terminated port, link end, fabric membership
+      - ports request=1 value=1 [measured] anchor: design D1: declared port constructs
+  kernel/dpcon/21 label=kernel @ root
+    - dpcon request=32 value=32 [measured] anchor: dpcon.md DPCON-I1: one dpcon per polled queue; pool-objects design D9 per-port probe draw
+      - dpni-queues request=16 value=16 [measured] anchor: dpni.md line 64/226-236: ls-addni injects nproc; DPCON-I1
+        - cpus request=16 value=16 [measured] anchor: ADR-0012: one dpio per online CPU
+      - dpnis request=1 value=1 [measured] anchor: object-model.md §2: one dpni per terminated port, link end, fabric membership
+      - ports request=1 value=1 [measured] anchor: design D1: declared port constructs
+  kernel/dpcon/22 label=kernel @ root
+    - dpcon request=32 value=32 [measured] anchor: dpcon.md DPCON-I1: one dpcon per polled queue; pool-objects design D9 per-port probe draw
+      - dpni-queues request=16 value=16 [measured] anchor: dpni.md line 64/226-236: ls-addni injects nproc; DPCON-I1
+        - cpus request=16 value=16 [measured] anchor: ADR-0012: one dpio per online CPU
+      - dpnis request=1 value=1 [measured] anchor: object-model.md §2: one dpni per terminated port, link end, fabric membership
+      - ports request=1 value=1 [measured] anchor: design D1: declared port constructs
+  kernel/dpcon/23 label=kernel @ root
+    - dpcon request=32 value=32 [measured] anchor: dpcon.md DPCON-I1: one dpcon per polled queue; pool-objects design D9 per-port probe draw
+      - dpni-queues request=16 value=16 [measured] anchor: dpni.md line 64/226-236: ls-addni injects nproc; DPCON-I1
+        - cpus request=16 value=16 [measured] anchor: ADR-0012: one dpio per online CPU
+      - dpnis request=1 value=1 [measured] anchor: object-model.md §2: one dpni per terminated port, link end, fabric membership
+      - ports request=1 value=1 [measured] anchor: design D1: declared port constructs
+  kernel/dpcon/24 label=kernel @ root
+    - dpcon request=32 value=32 [measured] anchor: dpcon.md DPCON-I1: one dpcon per polled queue; pool-objects design D9 per-port probe draw
+      - dpni-queues request=16 value=16 [measured] anchor: dpni.md line 64/226-236: ls-addni injects nproc; DPCON-I1
+        - cpus request=16 value=16 [measured] anchor: ADR-0012: one dpio per online CPU
+      - dpnis request=1 value=1 [measured] anchor: object-model.md §2: one dpni per terminated port, link end, fabric membership
+      - ports request=1 value=1 [measured] anchor: design D1: declared port constructs
+  kernel/dpcon/25 label=kernel @ root
+    - dpcon request=32 value=32 [measured] anchor: dpcon.md DPCON-I1: one dpcon per polled queue; pool-objects design D9 per-port probe draw
+      - dpni-queues request=16 value=16 [measured] anchor: dpni.md line 64/226-236: ls-addni injects nproc; DPCON-I1
+        - cpus request=16 value=16 [measured] anchor: ADR-0012: one dpio per online CPU
+      - dpnis request=1 value=1 [measured] anchor: object-model.md §2: one dpni per terminated port, link end, fabric membership
+      - ports request=1 value=1 [measured] anchor: design D1: declared port constructs
+  kernel/dpcon/26 label=kernel @ root
+    - dpcon request=32 value=32 [measured] anchor: dpcon.md DPCON-I1: one dpcon per polled queue; pool-objects design D9 per-port probe draw
+      - dpni-queues request=16 value=16 [measured] anchor: dpni.md line 64/226-236: ls-addni injects nproc; DPCON-I1
+        - cpus request=16 value=16 [measured] anchor: ADR-0012: one dpio per online CPU
+      - dpnis request=1 value=1 [measured] anchor: object-model.md §2: one dpni per terminated port, link end, fabric membership
+      - ports request=1 value=1 [measured] anchor: design D1: declared port constructs
+  kernel/dpcon/27 label=kernel @ root
+    - dpcon request=32 value=32 [measured] anchor: dpcon.md DPCON-I1: one dpcon per polled queue; pool-objects design D9 per-port probe draw
+      - dpni-queues request=16 value=16 [measured] anchor: dpni.md line 64/226-236: ls-addni injects nproc; DPCON-I1
+        - cpus request=16 value=16 [measured] anchor: ADR-0012: one dpio per online CPU
+      - dpnis request=1 value=1 [measured] anchor: object-model.md §2: one dpni per terminated port, link end, fabric membership
+      - ports request=1 value=1 [measured] anchor: design D1: declared port constructs
+  kernel/dpcon/28 label=kernel @ root
+    - dpcon request=32 value=32 [measured] anchor: dpcon.md DPCON-I1: one dpcon per polled queue; pool-objects design D9 per-port probe draw
+      - dpni-queues request=16 value=16 [measured] anchor: dpni.md line 64/226-236: ls-addni injects nproc; DPCON-I1
+        - cpus request=16 value=16 [measured] anchor: ADR-0012: one dpio per online CPU
+      - dpnis request=1 value=1 [measured] anchor: object-model.md §2: one dpni per terminated port, link end, fabric membership
+      - ports request=1 value=1 [measured] anchor: design D1: declared port constructs
+  kernel/dpcon/29 label=kernel @ root
+    - dpcon request=32 value=32 [measured] anchor: dpcon.md DPCON-I1: one dpcon per polled queue; pool-objects design D9 per-port probe draw
+      - dpni-queues request=16 value=16 [measured] anchor: dpni.md line 64/226-236: ls-addni injects nproc; DPCON-I1
+        - cpus request=16 value=16 [measured] anchor: ADR-0012: one dpio per online CPU
+      - dpnis request=1 value=1 [measured] anchor: object-model.md §2: one dpni per terminated port, link end, fabric membership
+      - ports request=1 value=1 [measured] anchor: design D1: declared port constructs
+  kernel/dpcon/30 label=kernel @ root
+    - dpcon request=32 value=32 [measured] anchor: dpcon.md DPCON-I1: one dpcon per polled queue; pool-objects design D9 per-port probe draw
+      - dpni-queues request=16 value=16 [measured] anchor: dpni.md line 64/226-236: ls-addni injects nproc; DPCON-I1
+        - cpus request=16 value=16 [measured] anchor: ADR-0012: one dpio per online CPU
+      - dpnis request=1 value=1 [measured] anchor: object-model.md §2: one dpni per terminated port, link end, fabric membership
+      - ports request=1 value=1 [measured] anchor: design D1: declared port constructs
+  kernel/dpcon/31 label=kernel @ root
+    - dpcon request=32 value=32 [measured] anchor: dpcon.md DPCON-I1: one dpcon per polled queue; pool-objects design D9 per-port probe draw
+      - dpni-queues request=16 value=16 [measured] anchor: dpni.md line 64/226-236: ls-addni injects nproc; DPCON-I1
+        - cpus request=16 value=16 [measured] anchor: ADR-0012: one dpio per online CPU
+      - dpnis request=1 value=1 [measured] anchor: object-model.md §2: one dpni per terminated port, link end, fabric membership
+      - ports request=1 value=1 [measured] anchor: design D1: declared port constructs
+  kernel/dpcon/32 label=kernel @ root
+    - dpcon request=32 value=32 [measured] anchor: dpcon.md DPCON-I1: one dpcon per polled queue; pool-objects design D9 per-port probe draw
+      - dpni-queues request=16 value=16 [measured] anchor: dpni.md line 64/226-236: ls-addni injects nproc; DPCON-I1
+        - cpus request=16 value=16 [measured] anchor: ADR-0012: one dpio per online CPU
+      - dpnis request=1 value=1 [measured] anchor: object-model.md §2: one dpni per terminated port, link end, fabric membership
+      - ports request=1 value=1 [measured] anchor: design D1: declared port constructs
   kernel/dpni/1 label=lan0 @ root num_queues=16 options=[HasKeyMasking]
     - dpnis request=1 value=1 [measured] anchor: object-model.md §2: one dpni per terminated port, link end, fabric membership
   router/dprc/1 label=router @ root (dprc default options)
@@ -344,14 +483,14 @@ edges:
   [disruptive] Create { port: dpmac.4, label: ConstructName("lan0"), num_queues: 16, options: [HasKeyMasking] }
   [disruptive] Connect { port: dpmac.4 }
   [hitless] Bind { port: dpmac.4 }
-plan-only (78) [no port-facet executor; reported, not drift or error]:
+plan-only (96) [no port-facet executor; reported, not drift or error]:
   dprc x1
-  dpbp x3
+  dpbp x4
   dpio x29
-  dpcon x26
-  dpmcp x18
+  dpcon x42
+  dpmcp x19
   dprtc x1
 warnings (3):
   UnknownCeiling { family: Dprc, needed: 1 }
   UnknownCeiling { family: Dpio, needed: 29 }
-  UnknownCeiling { family: Dpcon, needed: 26 }
+  UnknownCeiling { family: Dpcon, needed: 42 }
