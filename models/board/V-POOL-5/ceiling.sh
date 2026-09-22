@@ -24,15 +24,15 @@ resources() { restool dprc show mc.global --resources > "$RESULTS/ceiling-res-$1
 status_of() { grep -oE '\(status 0x[0-9a-fA-F]+\)|No resources|No memory available|No privilege|does not exist' "$1" 2>/dev/null | head -1; }
 # bp_free FILE: the free count restool prints on the `bp:` line of --resources.
 bp_free() { awk '$1=="bp:"{print $2}' "$1"; }
-# field FAM FILE KEY: the value restool prints after "KEY: " in an info dump.
+# field FILE KEY: the value restool prints after "KEY: " in an info dump.
 field() { awk -F': ' -v k="$2" '$1 == k {print $2; exit}' "$1"; }
 
 residents_pre
 
 # DPBP-I5: read OBJ_dpbp_0 back and compare its object id to its buffer pool id.
 restool dpbp info "$OBJ_dpbp_0" > "$RESULTS/ceiling-dpbp-info.txt" 2>&1 || true
-id="$(field dpbp "$RESULTS/ceiling-dpbp-info.txt" 'dpbp id')"
-bpid="$(field dpbp "$RESULTS/ceiling-dpbp-info.txt" 'buffer pool id')"
+id="$(field "$RESULTS/ceiling-dpbp-info.txt" 'dpbp id')"
+bpid="$(field "$RESULTS/ceiling-dpbp-info.txt" 'buffer pool id')"
 log "RECORD (I5) OBJ_dpbp_0 dpbp id=$id buffer pool id=$bpid bpid-equals-id=$([ "$id" = "$bpid" ] && echo yes || echo no)"
 
 # DPBP-I7: read the census, then create dpbp in the ROOT until refused; the

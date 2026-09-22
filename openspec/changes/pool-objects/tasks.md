@@ -66,7 +66,7 @@ opus48-developer parcel.
 - [x] 4.1 Offline: suite generation for the pool walks; frozen ITF
       traces replay in cargo test as conformance twins (mbt-harness
       req 1).
-- [ ] 4.2 Board: census/ceiling and convergence walks at root scope;
+- [x] 4.2 Board: census/ceiling and convergence walks at root scope;
       free/drain observed through the kernel face; record COVERAGE
       row advances (pre-run record commit per board protocol).
 - [ ] 4.3 Board: the two MVP scenarios — live kernel interface in

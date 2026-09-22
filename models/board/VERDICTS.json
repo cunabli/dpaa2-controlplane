@@ -228,6 +228,19 @@
       "refusals": []
     }
   },
+  "V-DPIO-1": {
+    "V-DPIO-1-rev1": {
+      "pass": true,
+      "date": "2026-09-22",
+      "kind": "batch",
+      "revision": 1,
+      "steps": "1/1",
+      "source_hash": "fnv1a64:1baad6709ef2ee59",
+      "hook": "4/4",
+      "archive": null,
+      "refusals": []
+    }
+  },
   "V-DPMAC-1": {
     "V-DPMAC-1/probes-rev1": {
       "pass": true,
@@ -1128,6 +1141,32 @@
       "source_hash": "fnv1a64:cdec97a879f49ed4",
       "hook": "8/8",
       "archive": "~/dpaa2-board-evidence/verify-foundation-2026-08-30.tar.gz",
+      "refusals": []
+    }
+  },
+  "V-POOL-5": {
+    "V-POOL-5-rev1": {
+      "pass": true,
+      "date": "2026-09-22",
+      "kind": "batch",
+      "revision": 1,
+      "steps": "1/1",
+      "source_hash": "fnv1a64:4d397b7892319e3e",
+      "hook": "4/4",
+      "archive": null,
+      "refusals": []
+    }
+  },
+  "V-POOL-7": {
+    "V-POOL-7-rev1": {
+      "pass": true,
+      "date": "2026-09-22",
+      "kind": "batch",
+      "revision": 1,
+      "steps": "9/9",
+      "source_hash": "fnv1a64:ffdfeffdd2fca8aa",
+      "hook": "5/5",
+      "archive": null,
       "refusals": []
     }
   },
