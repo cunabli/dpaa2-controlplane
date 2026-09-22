@@ -91,8 +91,15 @@ fn census_of(s: &Value, managed: &BTreeSet<(Family, u32)>) -> Result<(PoolCensus
     let entries = field(s, "objs")?["#map"]
         .as_array()
         .ok_or("objs is not a #map")?;
-    let (mut population, mut free, mut drawn, mut born, mut foreign_free, mut foreign_drawn) =
-        (0i64, 0i64, 0i64, 0i64, 0i64, 0i64);
+    let (
+        mut population,
+        mut free,
+        mut drawn,
+        mut born,
+        mut foreign_free,
+        mut foreign_drawn,
+        mut born_drawn,
+    ) = (0i64, 0i64, 0i64, 0i64, 0i64, 0i64, 0i64);
     for entry in entries {
         let pair = entry.as_array().ok_or("objs entry is not a pair")?;
         let (fam, n) = obj_ref(&pair[0])?;
@@ -108,7 +115,9 @@ fn census_of(s: &Value, managed: &BTreeSet<(Family, u32)>) -> Result<(PoolCensus
         let is_managed = managed.contains(&(fam, n));
         if is_drawn {
             drawn += 1;
-            if !is_managed && n != BORN_ORDINAL {
+            if n == BORN_ORDINAL {
+                born_drawn += 1; // a drawn DPL-born nets out of the draw guard (V-POOL-6; pool-objects design D3)
+            } else if !is_managed {
                 foreign_drawn += 1;
             }
         } else {
@@ -126,7 +135,7 @@ fn census_of(s: &Value, managed: &BTreeSet<(Family, u32)>) -> Result<(PoolCensus
         ));
     }
     Ok((
-        PoolCensus::new(population, free, drawn, born, foreign_free),
+        PoolCensus::new(population, free, drawn, born, foreign_free, born_drawn),
         foreign_drawn,
     ))
 }

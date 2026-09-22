@@ -300,6 +300,7 @@ fn replay_detects_a_diverging_world() {
         c.drawn(),
         c.born(),
         c.foreign_free() + 1,
+        c.born_drawn(),
     );
     assert_ne!(
         frozen,
