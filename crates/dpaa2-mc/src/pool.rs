@@ -10,16 +10,14 @@
 //! surface). Read-back is the observation returned, never an exit status (mc-backend spec
 //! requirement 1).
 //!
-//! # Fail-fast, no rollback chain (deliberate divergence from `provision_chain`)
+//! # Fail-fast, no rollback chain
 //!
 //! A verb error returns immediately and the objects already created this pass are left in
-//! place — there is no reverse-order teardown. This is intentional and the opposite of
-//! [`RestoolMc::provision_chain`](crate::restool): that chain guards one consumer's
-//! private, transactional dependency set, where a half-built dpni must not leave orphans.
-//! Pool capacity is anonymous and level-triggered: a partial grow is simply fewer
-//! companions than the requirement, which the next converge pass tops up from the observed
-//! census. Rolling a partial grow back would destroy capacity another consumer may already
-//! be drawing, so the pass heals forward, it never unwinds.
+//! place — there is no reverse-order teardown, unlike a transactional rollback chain. Pool
+//! capacity is anonymous and level-triggered: a partial grow is simply fewer companions
+//! than the requirement, which the next converge pass tops up from the observed census.
+//! Rolling a partial grow back would destroy capacity another consumer may already be
+//! drawing, so the pass heals forward, it never unwinds.
 //!
 //! # dpio is not a pooled delta (pool-objects design D4)
 //!
@@ -45,7 +43,7 @@ fn dpcon_default_priorities() -> Priorities {
     Priorities::new(2).expect("the dpcon baseline default 2 is within the MC create range 1..=8")
 }
 
-/// The plain dpio create-cfg a grown seat takes — the `ensure_dpio` defaults
+/// The plain dpio create-cfg a grown seat takes — the ls-addni dpio defaults
 /// (`DPIO_LOCAL_CHANNEL`, 8 priorities; `docs/baseline/dpio.md` "Option inventory"). The
 /// compiled dpio companion is [`Attributes::Unsized`](dpaa2_api::intent::compiled::Attributes),
 /// so a cfg drawn from the plan is a later tile — this is the deliberate stand-in until then,
@@ -57,7 +55,8 @@ fn dpcon_default_priorities() -> Priorities {
 pub fn default_dpio_cfg() -> DpioCfg {
     DpioCfg {
         mode: ChannelMode::LocalChannel,
-        priorities: Priorities::new(8).expect("the ensure_dpio default 8 is in the MC range 1..=8"),
+        priorities: Priorities::new(8)
+            .expect("the ls-addni dpio default 8 is in the MC range 1..=8"),
     }
 }
 
@@ -150,10 +149,10 @@ pub fn dispatch_pool_deltas<M: McControl>(
 /// hidden dependency behind ls-addni's dpmcp-per-dpio rule (`docs/baseline/dpio.md`
 /// "Kernel-side behavior"). An exhausted dpmcp pool does not fail loudly; the probe defers
 /// on a silent `-EPROBE_DEFER` loop. So the portal must exist before the dpio is probed,
-/// and this helper creates it first. That is the deliberate order-flip versus
-/// [`RestoolMc::ensure_dpio`](crate::restool), which creates the dpio then its dpmcp: the
-/// ordering is adapter-procedural, not a typed verb obligation (mc-backend spec
-/// requirement 1; the dpni set-MAC-before-plug precedent). Returns the created dpio.
+/// and this helper creates it first — the deliberate order-flip versus ls-addni, which
+/// creates the dpio then its dpmcp: the ordering is adapter-procedural, not a typed verb
+/// obligation (mc-backend spec requirement 1; the dpni set-MAC-before-plug precedent).
+/// Returns the created dpio.
 ///
 /// # Errors
 /// Returns the first [`Error`] the dpmcp or dpio create raises. A failed dpio create after

@@ -68,7 +68,7 @@ opus48-developer parcel.
       departing port leaves surplus for free-only shrink; ADR-0015
       companion custody narrows to child-container population
       (bead 960.17).
-- [ ] 3.6 Shim: create_dpni sheds the provisioning chain
+- [x] 3.6 Shim: create_dpni sheds the provisioning chain
       (ensure_dpio + provision_chain/dpni_dep_steps) and becomes
       create+stamp; port teardown stops destroying companions; the
       disconnect --endpoint flag fix rides along (design D9;

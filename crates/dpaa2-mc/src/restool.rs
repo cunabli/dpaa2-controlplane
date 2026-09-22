@@ -246,14 +246,6 @@ const fn channel_mode_arg(mode: ChannelMode) -> &'static str {
     }
 }
 
-/// One step in a transactional provisioning chain (see
-/// [`RestoolMc::provision_chain`]): the object kind (for rollback destroy) and the
-/// `restool --script <kind> create ...` arguments.
-struct ProvisionStep {
-    kind: &'static str,
-    args: Vec<String>,
-}
-
 /// `restool`-backed [`McControl`] implementation.
 ///
 /// Generic over [`Runner`] so parsing and command construction are testable with
@@ -261,13 +253,14 @@ struct ProvisionStep {
 pub struct RestoolMc<R: Runner> {
     runner: R,
     container: String,
-    /// Number of CPU cores; sets the DPIO pool size (matches `ls-addni`).
+    /// Number of CPU cores; caps the host-derived queue fallback and reports the
+    /// inventory cpu count (matches `ls-addni`).
     cores: usize,
-    /// DPNI Rx/Tx queues; also the number of private DPCONs to provision.
+    /// The host-derived DPNI Rx/Tx queue count, used only as the unsized-cfg fallback.
     queues: usize,
 }
 
-/// Best-effort CPU core count for sizing the DPIO/DPCON pools.
+/// Best-effort CPU core count for the host-derived queue fallback and inventory cpus.
 fn default_cores() -> usize {
     std::thread::available_parallelism().map_or(1, std::num::NonZeroUsize::get)
 }
@@ -316,19 +309,13 @@ impl<R: Runner> RestoolMc<R> {
         self
     }
 
-    /// The number of private DPCONs a DPNI with `queues` transmit queues needs:
-    /// `min(queues, cores)`, mirroring `ls-addni` (`num_dpcons = min(num_queues, nproc)`).
-    fn num_dpcons(&self, queues: usize) -> usize {
-        queues.clamp(1, self.cores)
-    }
-
     /// `restool --script <type> create …` then plug the result into the container,
-    /// stamping it with the owning construct's name. Returns the created object
-    /// reference (e.g. `dpcon.5`). Every companion in a dpni's chain wears the same
-    /// construct name as the dpni it serves, so the whole chain is readable in bare
-    /// restool and — the name being in the declared set — recognized as ours next pass
-    /// (ADR-0010 §4 as refined by ADR-0015 decisions 9 + 13). A stamp failure lets the
-    /// chain roll back, so a half-labelled object is never left behind.
+    /// stamping it with the providing construct's name. Returns the created object
+    /// reference (e.g. `dpcon.5`). A pool-family companion carries no identity of its
+    /// own: the label names the construct that provides it, so the object is readable in
+    /// bare restool and — the name being in the declared set — recognized as ours next
+    /// pass (ADR-0010 §4 as refined by ADR-0015 decisions 13 + 14). A stamp failure
+    /// simply propagates.
     fn create_and_plug(
         &self,
         create_args: &[&str],
@@ -393,126 +380,6 @@ impl<R: Runner> RestoolMc<R> {
             "--plugged=1",
         ])?;
         Ok(())
-    }
-
-    /// Ensures the container holds one DPIO per core (each with its own DPMCP),
-    /// topping up idempotently — the DPAA2 datapath needs a per-core DPIO pool
-    /// (`ls-addni` `create_dpio`). The pool is shared across ports; each object it
-    /// tops up is stamped with `label`, the construct name of the port that triggered
-    /// the top-up. A shared pool object created under one port's name stays ours for
-    /// every port (its name is in the declared set), so ownership recognition never
-    /// depends on which port grew the pool (ADR-0010 §4 refined by ADR-0015).
-    fn ensure_dpio(&self, label: &ConstructName) -> Result<(), Error> {
-        let show = self.run_verb(&["dprc", "show", &self.container])?;
-        let existing = parse::count_objects(&show, "dpio");
-        let container = format!("--container={}", self.container);
-        for _ in existing..self.cores {
-            let dpio = self.create_and_plug(
-                &[
-                    "--script",
-                    "dpio",
-                    "create",
-                    "--channel-mode=DPIO_LOCAL_CHANNEL",
-                    &container,
-                    "--num-priorities=8",
-                ],
-                label,
-                None,
-            )?;
-            // Each DPIO also needs a companion DPMCP.
-            self.create_and_plug(&["--script", "dpmcp", "create", &container], label, None)?;
-            tracing::debug!(%dpio, "provisioned dpio");
-        }
-        Ok(())
-    }
-
-    /// Data for a DPNI's private dependencies (one DPBP, one DPMCP, and
-    /// `num_dpcons` DPCONs) — the objects `dpaa2-eth` allocates at probe. Without
-    /// them the driver fails with "No more resources of type dpcon left". A plain
-    /// data builder; [`Self::provision_chain`] does the actual creation and any
-    /// rollback.
-    fn dpni_dep_steps(&self, queues: usize) -> Vec<ProvisionStep> {
-        let container = format!("--container={}", self.container);
-        let mut steps = vec![
-            ProvisionStep {
-                kind: "dpbp",
-                args: vec![
-                    "--script".to_owned(),
-                    "dpbp".to_owned(),
-                    "create".to_owned(),
-                    container.clone(),
-                ],
-            },
-            ProvisionStep {
-                kind: "dpmcp",
-                args: vec![
-                    "--script".to_owned(),
-                    "dpmcp".to_owned(),
-                    "create".to_owned(),
-                    container.clone(),
-                ],
-            },
-        ];
-        for _ in 0..self.num_dpcons(queues) {
-            steps.push(ProvisionStep {
-                kind: "dpcon",
-                args: vec![
-                    "--script".to_owned(),
-                    "dpcon".to_owned(),
-                    "create".to_owned(),
-                    "--num-priorities=2".to_owned(),
-                    container.clone(),
-                ],
-            });
-        }
-        steps
-    }
-
-    /// Runs `steps` in order via [`Self::create_and_plug`], then `then`. If any
-    /// step or `then` fails, destroys every object already created in this chain
-    /// (reverse order, best-effort) before returning the original error — so a
-    /// failed provisioning attempt never leaves orphaned private objects plugged
-    /// in the container (each is otherwise invisible to reconcile, since
-    /// ownership is edge-based).
-    ///
-    /// This is the reusable transactional primitive for any object kind's
-    /// dependency chain, not just the DPNI's: a future kind's deps are a new
-    /// `Vec<ProvisionStep>` fed to this same helper.
-    fn provision_chain<T>(
-        &self,
-        steps: &[ProvisionStep],
-        label: &ConstructName,
-        then: impl FnOnce(&Self) -> Result<T, Error>,
-    ) -> Result<T, Error> {
-        let mut created: Vec<(&'static str, String)> = Vec::new();
-        for step in steps {
-            let args: Vec<&str> = step.args.iter().map(String::as_str).collect();
-            match self.create_and_plug(&args, label, None) {
-                Ok(obj) => created.push((step.kind, obj)),
-                Err(e) => {
-                    self.rollback_chain(&created);
-                    return Err(e);
-                }
-            }
-        }
-        match then(self) {
-            Ok(v) => Ok(v),
-            Err(e) => {
-                self.rollback_chain(&created);
-                Err(e)
-            }
-        }
-    }
-
-    /// Best-effort teardown of a partially- or fully-created provisioning chain,
-    /// in reverse creation order. Destroy failures are logged, not propagated:
-    /// the original error is what the caller of [`Self::provision_chain`] needs.
-    fn rollback_chain(&self, created: &[(&'static str, String)]) {
-        for (kind, obj) in created.iter().rev() {
-            if let Err(e) = self.run_verb(&[kind, "destroy", obj]) {
-                tracing::warn!(error = %e, %obj, "rollback: failed to destroy");
-            }
-        }
     }
 
     /// Borrows the underlying runner (used by tests to inspect issued commands).
@@ -792,30 +659,14 @@ impl<R: Runner> McControl for RestoolMc<R> {
         } else {
             usize::from(cfg.num_queues.get())
         };
-        // A DPNI is not usable alone: `dpaa2-eth` allocates a DPBP, a DPMCP, and one
-        // DPCON per queue from the container's pool at probe, backed by a per-core
-        // DPIO pool. These must exist first (mirrors `ls-addni`'s create_dpni).
-        // `ensure_dpio` tops up a shared, container-wide idempotent pool and is left
-        // outside the transactional chain (it's always safe to retry from partial
-        // state); the per-DPNI deps below are provisioned and, on any failure
-        // (including the `dpni create` itself), rolled back together so a failed
-        // attempt never leaves orphaned private objects plugged in the container. The
-        // whole chain wears `label`, the owning construct's name (ADR-0015 decision 9).
-        self.ensure_dpio(label)?;
-        self.provision_chain(&self.dpni_dep_steps(queues), label, |this| {
-            let create_args = dpni_create_args(cfg, queues);
-            let arg_refs: Vec<&str> = create_args.iter().map(String::as_str).collect();
-            let out = this.run_verb(&arg_refs)?;
-            let id = parse::parse_dpni_object_id(&out).ok_or_else(|| {
-                Error::Parse(format!("could not parse created dpni id from `{out}`"))
-            })?;
-            // Stamp the construct name at create (pre-plug is fine — V-DPRC-3 shows
-            // labels land regardless of plug state), so no read-back window ever shows
-            // the object unlabelled (ADR-0010 §4 ABA guard). A failure rolls the chain
-            // back.
-            this.stamp_label(&id.to_string(), label)?;
-            Ok(id)
-        })
+        // Probe-time companions come from the pool construct's root pool (pool-objects design D9).
+        let create_args = dpni_create_args(cfg, queues);
+        let arg_refs: Vec<&str> = create_args.iter().map(String::as_str).collect();
+        let out = self.run_verb(&arg_refs)?;
+        let id = parse::parse_dpni_object_id(&out)
+            .ok_or_else(|| Error::Parse(format!("could not parse created dpni id from `{out}`")))?;
+        self.stamp_label(&id.to_string(), label)?;
+        Ok(id)
         // The DPNI is plugged (triggering the driver probe) in `connect()`, after
         // any actuate-mode `set_mac` — matching the design recipe's ordering.
     }
@@ -826,11 +677,6 @@ impl<R: Runner> McControl for RestoolMc<R> {
         cfg: &DpniCfg,
         label: &ConstructName,
     ) -> Result<DpniId, Error> {
-        // A BARE dpni create in the child: the same rendered cfg block as `create_dpni`
-        // plus `--container=<child>`, but NO `provision_chain` dependency set and NO
-        // connect. A child's companions are converged separately from the pool disposition
-        // (pool-objects design D2), not this dpni's private chain — the deliberate
-        // divergence from `create_dpni`'s root chain (its dpni-typestate design D1 note).
         let queues = if cfg.num_queues.get() == 0 {
             self.queues
         } else {
@@ -892,7 +738,7 @@ impl<R: Runner> McControl for RestoolMc<R> {
             "dprc",
             "disconnect",
             &self.container,
-            &format!("--endpoint1={dpni}"),
+            &format!("--endpoint={dpni}"),
         ])?;
         self.sync()
     }
@@ -1048,9 +894,6 @@ impl<R: Runner> McControl for RestoolMc<R> {
         cfg: DpioCfg,
         label: &ConstructName,
     ) -> Result<ObjectRef, Error> {
-        // `--channel-mode` + `--num-priorities` (`docs/baseline/dpio.md` "Option
-        // inventory"); the mode is dead in the kernel (DPIO-I3) but restool still needs
-        // it, and the argument order mirrors `ensure_dpio`/the dprc-script recipe.
         let arg = format!("--container={}", self.container_name(container));
         let mode = format!("--channel-mode={}", channel_mode_arg(cfg.mode));
         let prio = format!("--num-priorities={}", cfg.priorities.get());
@@ -1195,6 +1038,23 @@ mod tests {
         assert_eq!(id, DprcId::new(3));
         // Exactly one command: no plug/assign, so the child reads back unplugged.
         assert_eq!(mc.runner().calls().len(), 1);
+    }
+
+    #[test]
+    fn disconnect_renders_singular_endpoint_flag() {
+        // dprc disconnect takes a single --endpoint=, not the connect pair (docs/baseline/dprc.md:46).
+        let runner = ScriptedRunner::new(vec![
+            ("dprc disconnect dprc.1 --endpoint=dpni.1", ok("")),
+            ("dprc sync", ok("")),
+        ]);
+        let mc = RestoolMc::with_runner(runner, DEFAULT_CONTAINER);
+
+        mc.disconnect(DpniId::new(1)).expect("disconnect");
+
+        assert_eq!(
+            mc.runner().calls()[0],
+            vec!["dprc", "disconnect", "dprc.1", "--endpoint=dpni.1"],
+        );
     }
 
     #[test]

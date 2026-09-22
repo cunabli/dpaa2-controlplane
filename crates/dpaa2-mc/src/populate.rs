@@ -93,7 +93,7 @@ impl ChildPopulation {
 ///   dpmcp-probe pairing is the *kernel* dpio driver's draw, and a VFIO child's dpio is
 ///   userspace-consumed (`docs/baseline/dpio.md` "Kernel-side behavior"; ADR-0012 poll
 ///   draws). The compiled dpio companion is [`Attributes::Unsized`], so the create-cfg is
-///   the `ensure_dpio` default here, not plan-drawn — a later tile.
+///   the ls-addni dpio default here, not plan-drawn — a later tile.
 ///
 /// The trio disposition judges against [`Ceiling::Unknown`]: this face threads no
 /// inventory, so it takes the admit-and-warn posture (a create is never ceiling-blocked

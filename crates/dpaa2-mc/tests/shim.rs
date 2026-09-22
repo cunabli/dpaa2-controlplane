@@ -82,12 +82,8 @@ impl RecordingRunner {
         responses.insert("dprc show".to_owned(), DPRC_SHOW.to_owned());
         responses.insert("dpni info".to_owned(), DPNI_CONNECTED.to_owned());
         responses.insert("dpmac info".to_owned(), DPMAC_PHY.to_owned());
-        responses.insert("--script dpni".to_owned(), DPNI_CREATE.to_owned());
         // The `--script <type> create` calls echo the new object reference.
-        responses.insert("--script dpio".to_owned(), "dpio.0\n".to_owned());
-        responses.insert("--script dpbp".to_owned(), "dpbp.0\n".to_owned());
-        responses.insert("--script dpmcp".to_owned(), "dpmcp.0\n".to_owned());
-        responses.insert("--script dpcon".to_owned(), "dpcon.0\n".to_owned());
+        responses.insert("--script dpni".to_owned(), DPNI_CREATE.to_owned());
         Self {
             calls: RefCell::new(Vec::new()),
             responses,
@@ -120,8 +116,7 @@ fn observe_composes_show_info_calls_into_topology() {
 }
 
 #[test]
-fn create_provisions_private_deps_then_creates_dpni_unplugged() {
-    // Pin cores=queues=1 so the sequence is bounded and deterministic.
+fn create_renders_create_then_stamp_only() {
     let mc = RestoolMc::with_runner(RecordingRunner::new(), "dprc.1").with_cores(1);
     // 0 = the unsized port-only projection, so the shim falls back to its host-derived
     // default (here `queues == cores == 1`), keeping this determinism assertion unchanged.
@@ -130,72 +125,17 @@ fn create_provisions_private_deps_then_creates_dpni_unplugged() {
         .expect("create");
     assert_eq!(id, DpniId::new(7));
 
-    let calls = mc.runner_calls();
-    let is_create = |c: &Vec<String>, kind: &str| {
-        c.first().map(String::as_str) == Some("--script")
-            && c.get(1).map(String::as_str) == Some(kind)
-    };
-    let pos = |kind: &str| calls.iter().position(|c| is_create(c, kind));
-
-    // The private dependencies exist before the DPNI is created.
-    let dpni_at = pos("dpni").expect("dpni created");
-    assert!(
-        pos("dpbp").expect("dpbp created") < dpni_at,
-        "dpbp before dpni"
-    );
-    assert!(
-        pos("dpmcp").expect("dpmcp created") < dpni_at,
-        "dpmcp before dpni"
-    );
-    assert!(
-        pos("dpcon").expect("dpcon created") < dpni_at,
-        "dpcon before dpni"
-    );
-    assert!(
-        pos("dpio").expect("dpio created") < dpni_at,
-        "dpio before dpni"
-    );
-
-    // The DPNI create is issued with an explicit queue count...
-    assert!(calls[dpni_at].iter().any(|a| a == "--num-queues=1"));
-    // ...and is immediately followed by the construct-name label (ADR-0010 §4 refined
-    // by ADR-0015 decision 9), which is now the last call: create_dpni() still does not
-    // plug or sync (plugging, and the actuate-mode SetMac that must precede it, happen
-    // in connect()).
-    let set_label = |obj: &str| {
+    assert_eq!(
+        mc.runner_calls(),
         vec![
-            "dprc".to_owned(),
-            "set-label".to_owned(),
-            obj.to_owned(),
-            "--label=wan0".to_owned(),
+            vec!["--script", "dpni", "create", "--num-queues=1"],
+            vec!["dprc", "set-label", "dpni.7", "--label=wan0"],
         ]
-    };
-    assert_eq!(
-        calls.last(),
-        Some(&set_label("dpni.7")),
-        "dpni labelled last"
     );
-    assert_eq!(
-        dpni_at,
-        calls.len() - 2,
-        "only the label follows dpni create"
-    );
-
-    // ADR-0010 §4: every companion in the chain wears the same construct name, so the
-    // whole chain is readable in bare restool and recognized as ours next pass. The
-    // RecordingRunner echoes each create as `<kind>.0`, so its label call is `dprc
-    // set-label <kind>.0 --label=wan0`.
-    for dep in ["dpbp.0", "dpmcp.0", "dpcon.0", "dpio.0"] {
-        assert!(
-            calls.contains(&set_label(dep)),
-            "expected a set-label for {dep}"
-        );
-    }
 }
 
 #[test]
-fn create_rolls_back_deps_when_dpni_create_fails() {
-    // Pin cores=queues=1 so exactly one dpbp/dpmcp/dpcon are created.
+fn create_propagates_dpni_create_failure_with_no_teardown() {
     let mc =
         RestoolMc::with_runner(FailingRunner::new(("--script", "dpni")), "dprc.1").with_cores(1);
     let err = mc
@@ -204,38 +144,16 @@ fn create_rolls_back_deps_when_dpni_create_fails() {
     assert!(matches!(err, dpaa2_api::core::error::Error::Backend(_)));
 
     let calls = mc.runner_calls();
-    // The failed attempt's private deps are torn down, in reverse creation order,
-    // rather than left orphaned and plugged in the container.
-    let destroys: Vec<&str> = calls
-        .iter()
-        .filter(|c| c.get(1).map(String::as_str) == Some("destroy"))
-        .map(|c| c[0].as_str())
-        .collect();
-    assert_eq!(destroys, vec!["dpcon", "dpmcp", "dpbp"]);
-}
-
-#[test]
-fn create_tops_up_dpio_pool_idempotently() {
-    // DPRC_SHOW has no dpio; with cores=2 the shim creates two DPIOs (+companion mcp).
-    let mc = RestoolMc::with_runner(RecordingRunner::new(), "dprc.1").with_cores(2);
-    mc.create_dpni(&ConstructName::from("wan0"), &unsized_cfg())
-        .expect("create");
-    let calls = mc.runner_calls();
-    let dpio_creates = calls
-        .iter()
-        .filter(|c| {
-            c.first().map(String::as_str) == Some("--script")
-                && c.get(1).map(String::as_str) == Some("dpio")
-        })
-        .count();
-    assert_eq!(dpio_creates, 2, "topped up to the core count");
+    assert_eq!(
+        calls,
+        vec![vec!["--script", "dpni", "create", "--num-queues=1"]],
+        "the create was the only call: no destroy, no set-label"
+    );
 }
 
 #[test]
 fn create_honors_compiled_num_queues_over_host_derivation() {
-    // The acceptance anchor (synthesis L2/B3): cores=16 would derive 16 queues, but a
-    // Create carrying the compiled num_queues=5 pins `--num-queues=5` and five private
-    // dpcons — the compiled attribute is honored exactly, not re-derived from the host.
+    // cores=16 would derive 16 queues; the compiled num_queues=5 is honored, not re-derived.
     let mc = RestoolMc::with_runner(RecordingRunner::new(), "dprc.1").with_cores(16);
     mc.create_dpni(&ConstructName::from("wan0"), &sized_cfg(5))
         .expect("create");
@@ -251,18 +169,6 @@ fn create_honors_compiled_num_queues_over_host_derivation() {
     assert!(
         dpni_create.iter().any(|a| a == "--num-queues=5"),
         "compiled num_queues honored exactly, not host-derived"
-    );
-
-    let dpcon_creates = calls
-        .iter()
-        .filter(|c| {
-            c.first().map(String::as_str) == Some("--script")
-                && c.get(1).map(String::as_str) == Some("dpcon")
-        })
-        .count();
-    assert_eq!(
-        dpcon_creates, 5,
-        "one dpcon per compiled queue (min(5, cores))"
     );
 }
 
