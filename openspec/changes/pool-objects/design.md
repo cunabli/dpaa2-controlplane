@@ -178,6 +178,48 @@ per-family vertical slice is refused: P3 makes the trio one
 implementation, and the MVP scenarios are consumer-shaped — no single
 family converges anything testable alone.
 
+### D9 — One provider per pool: the pool construct owns root capacity
+
+Two mechanisms provision the same functional pool at root: the
+restool shim's per-port chain in `create_dpni` (an ls-addni-shaped
+draw — dpio top-up plus dpbp/dpmcp/dpcon companions stamped with the
+port's name) and the intent-derived pool construct (`converge_pools`,
+D3). The kernel's fsl-mc allocator ignores labels: every plugged
+pool-family object in a container is one functional pool, so the
+per-port companions double-feed the root pool and break census
+idempotence. The label is control-plane custody bookkeeping only
+(ADR-0015), never an allocation input — a dpmcp labeled `kern0`
+counts into the pool exactly like a drawer-labeled one. Board
+evidence names the break: V-POOL-6 rev3 observed drawn 20 against a
+derived requirement of 19 — the port's own dpmcp companion counted
+into the census and turned a converged state into a refusal.
+
+Decision: the pool construct is the sole provider of pool-family
+objects at root. Per-port creation of dpmcp/dpbp/dpcon and the
+per-port dpio top-up cease; the derivation instead folds each
+declared port's draw into the pool requirement — +1 dpmcp, +1 dpbp,
++num_queues dpcon per port, the ADR-0012 `companionDraw` arithmetic
+the derivation already anchors on. A departing port leaves surplus
+capacity, which D3's free-only shrink reclaims level-triggered — no
+per-port rollback, no companion teardown. This composes with D2's
+count→individual boundary (the fold is a count edit; the adapter
+still turns a delta into ids) and D3's convergence laws unchanged.
+
+Child-container population is the carve-out: `create_dpni_in` and
+`populate_child` are unchanged. There the consuming construct's
+chain is the only provider and companions wear the consumer's name —
+one provider per pool holds in the child too, and consumer-name
+custody is correct because the consumer is the provider.
+
+*Alternative rejected:* a census "other-owned" arm that specially
+counts root pool-family objects wearing another construct's label.
+Under single provider such objects do not exist at root by
+construction, so the arm would count nothing real; foreign and
+DPL-born handling (D3, the roadmap #14 standing rule) stand
+unchanged and already cover boot-baseline objects. Building the arm
+would legitimize the double-feed the decision removes instead of
+removing it.
+
 ## Risks / Trade-offs
 
 - [P3's count-only claim fails contact with real dispatch — e.g.

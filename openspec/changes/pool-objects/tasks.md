@@ -60,6 +60,29 @@ opus48-developer parcel.
       free-only shrink, prune, ShrinkBelowDraw surfaced as a refusal
       (design D3); prerequisite for the 4.2 convergence walk and 4.3
       (bead 960.16).
+- [x] 3.5 Design amendment — single provider (discovered at 4.3's
+      opener: the per-port provisioning chain and the pool construct
+      double-feed one functional pool; the kernel allocator ignores
+      labels): the pool construct is the sole provider of pool-family
+      objects at root; per-port dpmcp/dpbp/dpcon creation ceases and a
+      departing port leaves surplus for free-only shrink; ADR-0015
+      companion custody narrows to child-container population
+      (bead 960.17).
+- [ ] 3.6 Shim: create_dpni sheds the provisioning chain
+      (ensure_dpio + provision_chain/dpni_dep_steps) and becomes
+      create+stamp; port teardown stops destroying companions; the
+      disconnect --endpoint flag fix rides along (design D9;
+      bead 960.18).
+- [ ] 3.7 Derivation: per-declared-port draws fold into the pool
+      requirement (+1 dpmcp, +1 dpbp, +num_queues dpcon per port;
+      dpio seats unchanged per design D4); vpool6_intents re-pins the
+      operands and V-POOL-6 expectations follow (design D9;
+      bead 960.19).
+- [ ] 3.8 Model: pool_lifecycle gains an external-consumer
+      environment (external draw, drawn DPL-born, labeled-other
+      cohabitant) with directed runs replayed as re-frozen twins, so
+      census divergences fail offline first (design D9;
+      bead 960.20).
 
 ## 4. Suites
 

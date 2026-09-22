@@ -111,7 +111,9 @@ For families that exist as *capacity consumed by other families*, not as
 individuals: the reconciler reasons about counts and draw arithmetic
 (ADR-0012), never about companion #7. A per-object identity type here
 would lie — these objects carry no intent-side identity (ADR-0015 keys
-identity by name; companions wear their consumer's name).
+identity by name; companions wear their provider's name — the
+consumer in a child container, the pooling drawer at root,
+ADR-0015 decision 14).
 
 - **Members:** dpio, dpbp, dpmcp, dpcon.
 - **Reference implementation:** `families/pool_lifecycle.rs` — one generic
