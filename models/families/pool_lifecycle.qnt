@@ -15,6 +15,13 @@
 // (pool-objects task 1.3; object-model.md §4, pool-objects design D3):
 // deficit→grow, surplus→free-only shrink, ShrinkBelowDraw refusal, prune of
 // undeclared non-DPL-born free objects. dpio's seat faces live in dpio_lifecycle.
+// The scope now also carries an environment adversary (pool-objects task 3.8;
+// pool-objects design D9): a non-reconciler EXTERNAL consumer draws, and the
+// undeclared-cohabitant create stands in for another construct's companion. The
+// two board-caught census divergences — the DPL-born drawn folding and the
+// other-construct companion folding — were environment gaps (V-POOL-5/V-POOL-6),
+// so the model now exercises them offline. The invariants hold under this
+// interference (simulate/verify check `stateInvariants`).
 //
 // The state is a CoreState so the core census/membership predicates apply
 // unchanged (create_allocate.freePool/inPool/canCreate, lifecycle.createT/plugT/
@@ -36,7 +43,10 @@
 //     no grow, shrink, or prune.
 // Directed runs: custodyCycleTest, dirtyReturnTest (DPBP-I3), censusRefusesAtCeilingTest
 //   (DPBP-I7), convergenceGrowTest, freeOnlyShrinkTest, drawnNeverShrunkTest,
-//   shrinkBelowDrawRefusedTest, prunePreservesDplBornTest, idempotentReconvergeTest.
+//   shrinkBelowDrawRefusedTest, prunePreservesDplBornTest, idempotentReconvergeTest,
+//   and the environment-adversary trio (pool-objects task 3.8) envBornDrawnNetsTest
+//   (V-POOL-6), envForeignDrawnFoldsTest (pool-objects design D2), envCohabitantPrunedTest
+//   (pool-objects design D9).
 // DPBP-I3, the free-only/refusal/prune runs are directed (simulate-only), the
 // split main.qnt applies to its own Breaking candidates.
 module pool_lifecycle {
@@ -241,6 +251,21 @@ module pool_lifecycle {
 
   action stutter = all { s' = s, conv' = conv }
 
+  // ---- environment adversary (pool-objects task 3.8; pool-objects design D9) ----
+
+  // A non-reconciler consumer distinct from CONSUMER: the board draws that no
+  // construct the reconciler owns can account for. The reconciler is the single
+  // provider (pool-objects design D9), so any other draw is the environment's.
+  pure val EXTERNAL: ObjId = { fam: Dpni, num: 1 }
+
+  // The environment draws a free individual for its own account — including the
+  // DPL-born `born` (free from init), the drawn-DPL-born case V-POOL-6 nets out of
+  // the draw guard. `createPooledAt` above IS the environment's undeclared-cohabitant
+  // create (the labeled-other object another construct made — the port chain's
+  // companions until pool-objects task 3.7's derivation folds them in; count-level
+  // simply foreign), so no separate create wrapper is needed here.
+  action doEnvDraw = { nondet p = s.objs.keys().oneOf() drawAt(EXTERNAL, p) }
+
   // ---- nondet wrappers ----
 
   action doCreatePooled = createPooledAt
@@ -263,6 +288,7 @@ module pool_lifecycle {
     doPrune,
     doShrinkBelowDraw,
     doRetarget,
+    doEnvDraw,
     stutter,
   }
 
@@ -430,5 +456,58 @@ module pool_lifecycle {
         not(growEnabled(s, conv)),
         not(shrinkEnabled(s, conv)),
         not(anyPrunable(s, conv)),
+      })
+
+  // ---- environment-adversary directed runs (pool-objects task 3.8) ----
+
+  // The DPL-born nets out of the draw guard: EXTERNAL draws `born`, so the base
+  // is drawnManaged (managed drawn only, born excluded) — a requirement of 0 fires
+  // no refusal (V-POOL-6; pool-objects design D3).
+  run envBornDrawnNetsTest =
+    init
+      .then(drawAt(EXTERNAL, born))
+      .expect(and {
+        s.objs.get(born).allocatedBy == Some(EXTERNAL),
+        s.objs.keys().contains(born),
+      })
+      .then(retargetAt(0))
+      .then(shrinkBelowDrawAt.fail())
+
+  // A drawn foreign folds into managed (count-indistinguishable; the conservative
+  // bias): the managed grow lands `second`, then EXTERNAL draws the cohabitant
+  // `first`, which stays drawn and is never a prune candidate (pool-objects design D2).
+  // The grow FIRES BEFORE the draw on purpose: a grow freezes only from states the
+  // count surface also grows from, and a drawn foreign masks a deficit at count level
+  // (the pool-objects design D2 fold, grow direction — the count surface does not grow
+  // atop a drawn foreign; the proxy refinement is tracked on the pool-objects follow-up bead).
+  run envForeignDrawnFoldsTest =
+    init
+      .then(createPooledAt)
+      .then(plugPooledAt(first))
+      .then(retargetAt(1))
+      .then(growCreateAt)
+      .then(drawAt(EXTERNAL, first))
+      .expect(and {
+        managedCount(conv) == 1,
+        s.objs.get(first).allocatedBy == Some(EXTERNAL),
+        not(anyPrunable(s, conv)),
+      })
+
+  // Convergence under interference: the adversary's free cohabitant `first` is a
+  // prune candidate and is reclaimed, while the managed `second` and the DPL-born
+  // `born` stand — the state converges (pool-objects design D9).
+  run envCohabitantPrunedTest =
+    init
+      .then(createPooledAt)
+      .then(plugPooledAt(first))
+      .then(retargetAt(1))
+      .then(growCreateAt)
+      .expect(anyPrunable(s, conv))
+      .then(pruneAt(first))
+      .expect(and {
+        isConverged(s, conv),
+        not(s.objs.keys().contains(first)),
+        s.objs.keys().contains(born),
+        s.objs.keys().contains(second),
       })
 }

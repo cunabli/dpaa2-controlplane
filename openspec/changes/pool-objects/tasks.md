@@ -78,7 +78,7 @@ opus48-developer parcel.
       dpio seats unchanged per design D4); vpool6_intents re-pins the
       operands and V-POOL-6 expectations follow (design D9;
       bead 960.19).
-- [ ] 3.8 Model: pool_lifecycle gains an external-consumer
+- [x] 3.8 Model: pool_lifecycle gains an external-consumer
       environment (external draw, drawn DPL-born, labeled-other
       cohabitant) with directed runs replayed as re-frozen twins, so
       census divergences fail offline first (design D9;

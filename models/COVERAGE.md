@@ -193,11 +193,18 @@ checked through the trio instantiations (representative: `dpbp_lifecycle`,
 they carry their own section here rather than a row in the 109-candidate table
 above (the same convention the Intent/Raw/Identity law sections follow). The
 five laws ride the `stateInvariants` conjunction (Apalache-marked); the
-accept/refuse shapes are directed runs in the same module. The nine runs are
+accept/refuse shapes are directed runs in the same module. The twelve runs are
 frozen for ITF-replay (`pnpm model:freeze-pool`) and replayed as conformance
 twins against the `dpaa2-api` P3 count surface in
 `crates/dpaa2-verify/tests/pool_replay.rs` (pool-objects task 4.1), so a Rust
 predicate that drifts from the model census fails CI.
+
+The module carries an environment adversary (pool-objects task 3.8): every
+P-family model gains an environment section — here a non-reconciler `EXTERNAL`
+consumer draws (the undeclared-cohabitant create stands in for another
+construct's companion) — so the board-caught census divergences (the DPL-born
+drawn folding and the other-construct companion folding, V-POOL-5/V-POOL-6) fail
+offline first rather than on the board.
 
 | Law | Name | CI rung | Anchors / ties |
 |-----|------|---------|----------------|
@@ -209,6 +216,9 @@ predicate that drifts from the model census fails CI.
 | Free-only shrink | `freeOnlyShrinkTest` / `drawnNeverShrunkTest` | simulate + itf-replay | pool-objects design D3; formal-models req 2 (surplus destroys free only) |
 | ShrinkBelowDraw | `shrinkBelowDrawRefusedTest` | simulate + itf-replay | pool-objects design D3; formal-models req 2 (refusal, not a teardown) |
 | Grow to count | `convergenceGrowTest` | simulate + itf-replay | pool-objects design D3 (deficit → create to the derived count) |
+| Born-drawn netting | envBornDrawnNetsTest | simulate + itf-replay | pool-objects design D3; V-POOL-6 (the DPL-born nets out of the draw guard) |
+| Foreign-drawn fold | envForeignDrawnFoldsTest | simulate + itf-replay | pool-objects design D2 (conservative bias; count-indistinguishable) |
+| Cohabitant reclaim | envCohabitantPrunedTest | simulate + itf-replay | pool-objects design D9 (single provider; convergence under interference) |
 
 ## Intent invariants (task 5.1)
 

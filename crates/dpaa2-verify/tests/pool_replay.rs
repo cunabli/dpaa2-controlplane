@@ -71,6 +71,18 @@ const TRACES: &[(&str, &str)] = &[
         "dpbp_lifecycle::pool_lifecycle::idempotentReconvergeTest",
         "a converged state enables no grow, shrink, or prune",
     ),
+    (
+        "dpbp_lifecycle::pool_lifecycle::envBornDrawnNetsTest",
+        "environment draws the DPL-born; it nets out of the draw guard (V-POOL-6)",
+    ),
+    (
+        "dpbp_lifecycle::pool_lifecycle::envForeignDrawnFoldsTest",
+        "a drawn foreign folds into managed (the conservative bias, design D2)",
+    ),
+    (
+        "dpbp_lifecycle::pool_lifecycle::envCohabitantPrunedTest",
+        "convergence under interference: the adversary's free cohabitant is reclaimed",
+    ),
 ];
 
 fn load(file: &str) -> String {
@@ -106,8 +118,8 @@ fn check_state(file: &str, i: usize, w: &PoolWorld) {
     }
     assert_eq!(
         w.census.shrinks_below_draw(w.derived_req),
-        w.derived_req < w.census.drawn(),
-        "{file} step {i}: shrink-below-draw is `requirement < drawn`"
+        w.derived_req < w.census.drawn_managed(),
+        "{file} step {i}: shrink-below-draw is `requirement < drawn_managed` (the DPL-born nets out, V-POOL-6)"
     );
     match drift_disposition(FAMILY, w.census, w.derived_req, &CEILING) {
         Ok(d) => {
@@ -132,8 +144,8 @@ fn check_state(file: &str, i: usize, w: &PoolWorld) {
             );
             assert_eq!(
                 sbd.drawn,
-                w.census.drawn(),
-                "{file} step {i}: refusal drawn count"
+                w.census.drawn_managed(),
+                "{file} step {i}: refusal drawn count (the netted guard base)"
             );
         }
     }
@@ -279,6 +291,60 @@ fn drawn_individual_is_never_a_shrink_victim() {
     assert!(
         d.destroy <= w.census.managed_free(),
         "the shrink takes only free managed individuals, so the drawn one survives"
+    );
+}
+
+/// The DPL-born nets out of the draw guard (V-POOL-6; pool-objects design D3): the environment
+/// draws `born`, so the netted guard base [`PoolCensus::drawn_managed`] is 0 even with the raw
+/// draw on the books — the refusal the un-netted census would raise never fires, drift accepts.
+#[test]
+fn born_drawn_nets_out_of_the_draw_guard() {
+    let steps = parse_pool_trace(&load(
+        "dpbp_lifecycle::pool_lifecycle::envBornDrawnNetsTest",
+    ))
+    .unwrap();
+    let w = last_world(&steps);
+    assert!(
+        w.census.born_drawn() > 0,
+        "the environment drew the DPL-born"
+    );
+    // drawn_managed is the netted guard base; raw drawn still carries the born draw.
+    assert_eq!(
+        w.census.drawn_managed(),
+        0,
+        "the born draw nets out of the guard base"
+    );
+    assert!(
+        !w.census.shrinks_below_draw(w.derived_req),
+        "a requirement of 0 raises no refusal once the born draw is netted"
+    );
+    assert!(
+        drift_disposition(FAMILY, w.census, w.derived_req, &CEILING).is_ok(),
+        "drift accepts: the un-netted census would refuse, the netted one does not"
+    );
+}
+
+/// A drawn foreign folds into managed (the conservative bias, pool-objects design D2): the
+/// environment draws the undeclared cohabitant, and [`PoolCensus::managed`] folds it in, so the
+/// count↔individual isomorphism `managed() == managedCount + foreign_drawn` runs non-vacuously.
+#[test]
+fn drawn_foreign_folds_into_managed() {
+    let steps = parse_pool_trace(&load(
+        "dpbp_lifecycle::pool_lifecycle::envForeignDrawnFoldsTest",
+    ))
+    .unwrap();
+    let w = steps
+        .iter()
+        .find_map(|s| match s {
+            PoolStep::World(w) if w.foreign_drawn > 0 => Some(w),
+            _ => None,
+        })
+        .expect("the run reaches a drawn foreign");
+    assert!(w.foreign_drawn > 0, "the fold is witnessed, not vacuous");
+    assert_eq!(
+        w.census.managed(),
+        w.managed_count + w.foreign_drawn,
+        "the drawn foreign folds into managed"
     );
 }
 
