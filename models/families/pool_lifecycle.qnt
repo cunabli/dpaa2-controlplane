@@ -261,9 +261,10 @@ module pool_lifecycle {
   // The environment draws a free individual for its own account — including the
   // DPL-born `born` (free from init), the drawn-DPL-born case V-POOL-6 nets out of
   // the draw guard. `createPooledAt` above IS the environment's undeclared-cohabitant
-  // create (the labeled-other object another construct made — the port chain's
-  // companions until pool-objects task 3.7's derivation folds them in; count-level
-  // simply foreign), so no separate create wrapper is needed here.
+  // create (the labeled-other object another construct made): pool-objects task 3.7
+  // folded the port chain's companions into the derivation, so this cohabitant now
+  // stands only for the generic environment adversary — count-level simply foreign,
+  // no separate create wrapper is needed here.
   action doEnvDraw = { nondet p = s.objs.keys().oneOf() drawAt(EXTERNAL, p) }
 
   // ---- nondet wrappers ----
