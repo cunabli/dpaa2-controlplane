@@ -1005,11 +1005,13 @@ mod tests {
             i64::try_from(mc.observe_pool(None, family).unwrap().len()).unwrap()
         }
 
-        fn seeded(ord: u32, label: RawLabel, plugged: bool) -> ObservedPoolObject {
+        // Seeds a plugged root dpbp; `drawn` sets the orthogonal draw facet a kernel-face would observe (pool-objects design D10).
+        fn seeded(ord: u32, label: RawLabel, drawn: bool) -> ObservedPoolObject {
             ObservedPoolObject {
                 object: ObjectRef::new(Family::Dpbp, ord),
                 label,
-                plugged,
+                plugged: true,
+                drawn,
             }
         }
 
@@ -1049,7 +1051,7 @@ mod tests {
         #[test]
         fn converge_pools_prunes_a_foreign_free_root_object() {
             let compiled = compiled_kernel();
-            let foreign = seeded(99, RawLabel::from("vendor"), false); // undeclared, unplugged ⇒ prune target
+            let foreign = seeded(99, RawLabel::from("vendor"), false); // undeclared, undrawn ⇒ prune target
             let mc = FakeBackend::new()
                 .with_inventory(ref_inventory(16))
                 .with_pool_object(DprcId::ROOT, foreign.clone());
@@ -1073,8 +1075,7 @@ mod tests {
         fn converge_pools_shrinks_a_free_managed_surplus() {
             let compiled = compiled_kernel();
             let req = derived_requirement(&compiled.plan, &Container::Root, PoolFamily::Dpbp);
-            // Seed req+2 free (unplugged) dpbp wearing the kernel name ⇒ a surplus of 2 free
-            // managed the shrink reclaims through free individuals only.
+            // Seed req+2 free (undrawn) dpbp wearing the kernel name ⇒ a surplus of 2 the shrink reclaims through the unplug probe.
             let mut mc = FakeBackend::new().with_inventory(ref_inventory(16));
             for ord in 0..u32::try_from(req + 2).unwrap() {
                 mc = mc.with_pool_object(DprcId::ROOT, seeded(ord, RawLabel::from(KERNEL), false));
