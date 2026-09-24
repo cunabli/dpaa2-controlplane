@@ -297,6 +297,7 @@ mod tests {
             object: ObjectRef::new(Family::Dpbp, 99),
             label: RawLabel::from("vendor"),
             plugged: false,
+            drawn: false,
         };
         let mc = FakeBackend::new().with_pool_object(child, foreign.clone());
 

@@ -82,18 +82,19 @@ pub struct PoolDispatch {
 ///
 /// - **grow**: `deltas.create` creates of `family`'s verb, each stamped `label` (dpcon
 ///   takes the baseline default of 2 priorities; counts are the only plan input in 3.1).
-/// - **destroy**: `deltas.destroy` victims selected from the *free* (unplugged) AND
-///   ours-judged rows, first-N — never a plugged (drawn) row, never a DPL-born or foreign
-///   one (pool-objects design D3).
-/// - **prune**: `deltas.prune` victims selected from the *free* AND foreign-judged rows,
-///   first-N — DPL-born rows are structurally exempt (roadmap #14).
+/// - **destroy**: `deltas.destroy` victims selected from the ours-judged rows, first-N —
+///   never a DPL-born or foreign one — each reclaimed through the unplug probe: a live draw
+///   the probe surfaces refuses rather than tears down (pool-objects design D10).
+/// - **prune**: `deltas.prune` victims selected from the foreign-judged rows, first-N,
+///   reclaimed through the same probe — DPL-born rows are structurally exempt (roadmap #14).
 ///
 /// Custody and ownership are judged against `declared`, the same declared-name recognition
 /// set the census and the inventory use (ADR-0010 §4 refined by ADR-0015), so the victims
 /// match the census that produced the deltas. Selection reads one fresh observation taken
-/// after the grow, so freshly created (plugged) companions are never chosen as free
-/// victims. After the mutations a final observation is read back into
-/// [`PoolDispatch::after`].
+/// after the grow. Each victim is reclaimed by the two-step unplug probe: unplug, then
+/// destroy; a victim the MC refuses to unplug (in use) is the drawn signal and propagates as
+/// the refusal (pool-objects design D10). After the mutations a final observation is read
+/// back into [`PoolDispatch::after`].
 ///
 /// Fails fast on the first verb error with no rollback — see the module docs.
 ///
@@ -116,19 +117,18 @@ pub fn dispatch_pool_deltas<M: McControl>(
         created.push(create_one(mc, container, family, label)?);
     }
 
-    // destroy + prune: resolve the counts to concrete free victims from one fresh
-    // observation. The grow's companions are plugged, so they never read as free here.
+    // destroy + prune: resolve the counts to concrete reclaim victims from one fresh observation, each reclaimed through the unplug probe (pool-objects design D10).
     let mut destroyed = Vec::new();
     let mut pruned = Vec::new();
     if deltas.destroy > 0 || deltas.prune > 0 {
         let rows = mc.observe_pool(container, family.family())?;
-        for victim in select_free(&rows, declared, PoolMembership::Managed, deltas.destroy) {
-            mc.pool_destroy(&victim)?;
-            destroyed.push(victim);
+        for victim in select_reclaimable(&rows, declared, PoolMembership::Managed, deltas.destroy) {
+            reclaim(mc, container, victim)?;
+            destroyed.push(victim.object);
         }
-        for victim in select_free(&rows, declared, PoolMembership::Foreign, deltas.prune) {
-            mc.pool_destroy(&victim)?;
-            pruned.push(victim);
+        for victim in select_reclaimable(&rows, declared, PoolMembership::Foreign, deltas.prune) {
+            reclaim(mc, container, victim)?;
+            pruned.push(victim.object);
         }
     }
 
@@ -184,22 +184,47 @@ fn create_one<M: McControl>(
     }
 }
 
-/// Selects the first `count` free rows whose custody membership matches — the arbitrary
-/// first-N victim pick (anonymity is the pattern's truth; pool-objects design D2). Never a
-/// plugged (drawn) row; a `Managed` filter yields shrink victims, a `Foreign` filter yields
-/// prune victims, and DPL-born rows match neither so they are structurally exempt.
-fn select_free(
-    rows: &[ObservedPoolObject],
+/// Selects the first `count` reclaim victims whose custody membership matches — the
+/// arbitrary first-N victim pick (anonymity is the pattern's truth; pool-objects design D2).
+/// A `Managed` filter yields shrink victims, a `Foreign` filter yields prune victims, and
+/// DPL-born rows match neither so they are structurally exempt. Rows the observation already
+/// knows drawn are skipped ([`ObservedPoolObject::is_free`]); the restool shim reports every
+/// row undrawn, so the unplug probe in [`reclaim`] is what discovers a live draw
+/// (pool-objects design D10) — no plugged⇒drawn proxy filters here anymore.
+fn select_reclaimable<'a>(
+    rows: &'a [ObservedPoolObject],
     declared: &BTreeSet<ConstructName>,
     membership: PoolMembership,
     count: i64,
-) -> Vec<ObjectRef> {
+) -> Vec<&'a ObservedPoolObject> {
     let n = usize::try_from(count).unwrap_or(0);
     rows.iter()
         .filter(|r| r.is_free() && r.membership(declared) == membership)
         .take(n)
-        .map(|r| r.object)
         .collect()
+}
+
+/// Reclaims one victim through the two-step unplug probe (pool-objects design D10; DPBP-I2:
+/// allocatable ⟺ plugged ∧ allocator-bound). A plugged victim is unplugged first (`dprc
+/// assign --plugged=0`); the MC refusing that unplug because the object is in use IS the
+/// drawn signal — read from the board, never inferred from a proxy — and propagates as the
+/// typed refusal the caller renders as the [`ShrinkBelowDraw`](dpaa2_api::families::pool_lifecycle::ShrinkBelowDraw)
+/// face (a refusal, not data loss). A cleared (or already-unplugged) victim is then
+/// destroyed.
+fn reclaim<M: McControl>(
+    mc: &M,
+    container: Option<DprcId>,
+    victim: &ObservedPoolObject,
+) -> Result<(), Error> {
+    if victim.plugged {
+        mc.dprc_assign(
+            container.unwrap_or(DprcId::ROOT),
+            victim.object,
+            None,
+            Some(false),
+        )?;
+    }
+    mc.pool_destroy(&victim.object)
 }
 
 #[cfg(test)]
@@ -351,21 +376,22 @@ mod tests {
         assert_eq!(out.after.len(), 2);
     }
 
-    // mc-backend scenario 2: a surplus destroy for dpbp destroys exactly one free dpbp id
-    // the adapter selected (unplugged AND ours) and re-observes; the plugged, DPL-labelled,
-    // and foreign-plugged rows are never selected.
+    // mc-backend scenario 2: a surplus destroy reclaims one ours-judged dpbp through the unplug probe (`--plugged=0` precedes `dpbp destroy`); DPL and foreign rows are exempt (pool-objects design D10).
     #[test]
-    fn surplus_destroy_targets_only_the_free_ours_dpbp() {
+    fn surplus_destroy_reclaims_the_ours_dpbp_through_the_probe() {
         let show = dprc_show(&[
-            "dpbp.0          vpp             unplugged", // free ours ⇒ the only victim
-            "dpbp.1          vpp             plugged",   // ours but drawn ⇒ never
-            "dpbp.2                          unplugged", // empty ⇒ DPL, exempt
-            "dpbp.3          vendor          plugged",   // foreign but drawn ⇒ never
+            "dpbp.5          vpp             plugged", // ours ⇒ the only destroy victim
+            "dpbp.2                          plugged", // empty ⇒ DPL, exempt
+            "dpbp.3          vendor          plugged", // foreign ⇒ a prune target, not a destroy
         ]);
         let mc = RestoolMc::with_runner(
             ScriptedRunner::new(vec![
                 ("dprc show dprc.1".to_owned(), ok(&show)),
-                ("dpbp destroy dpbp.0".to_owned(), ok("")),
+                (
+                    "dprc assign dprc.1 --object=dpbp.5 --plugged=0".to_owned(),
+                    ok(""),
+                ),
+                ("dpbp destroy dpbp.5".to_owned(), ok("")),
                 ("dprc sync".to_owned(), ok("")),
             ]),
             DEFAULT_CONTAINER,
@@ -385,38 +411,42 @@ mod tests {
         )
         .expect("shrink dispatches");
 
-        assert_eq!(out.destroyed, vec![ObjectRef::new(Family::Dpbp, 0)]);
+        assert_eq!(out.destroyed, vec![ObjectRef::new(Family::Dpbp, 5)]);
         assert!(out.pruned.is_empty());
-        // Exactly one destroy, of dpbp.0; the drawn/DPL/foreign-drawn rows are untouched.
-        let destroys: Vec<_> = mc
-            .runner()
-            .calls()
-            .into_iter()
+        let calls = mc.runner().calls();
+        let unplug_at = calls
+            .iter()
+            .position(|c| c == &["dprc", "assign", "dprc.1", "--object=dpbp.5", "--plugged=0"])
+            .expect("the victim is unplugged (probed)");
+        let destroy_at = calls
+            .iter()
+            .position(|c| c == &["dpbp", "destroy", "dpbp.5"])
+            .expect("the victim is destroyed");
+        assert!(unplug_at < destroy_at, "unplug probe precedes destroy");
+        let destroys: Vec<_> = calls
+            .iter()
             .filter(|c| c.get(1).map(String::as_str) == Some("destroy"))
             .collect();
-        assert_eq!(destroys, vec![vec!["dpbp", "destroy", "dpbp.0"]]);
-        // The census is re-observed after the destroy (two dprc show calls).
-        let shows = mc
-            .runner()
-            .calls()
-            .into_iter()
-            .filter(|c| c == &["dprc", "show", "dprc.1"])
-            .count();
-        assert_eq!(shows, 2, "select-observe then re-observe");
+        assert_eq!(
+            destroys,
+            vec![&vec!["dpbp".to_owned(), "destroy".into(), "dpbp.5".into()]]
+        );
     }
 
-    // Prune selects foreign ∧ unplugged only; empty-label (DPL) rows are exempt, and a
-    // drawn foreign is never a free victim (pool-objects design D3).
+    // Prune reclaims foreign rows through the same probe; empty-label (DPL) rows are exempt (pool-objects design D10, one label law).
     #[test]
-    fn prune_selects_only_foreign_free_rows() {
+    fn prune_reclaims_foreign_rows_through_the_probe() {
         let show = dprc_show(&[
-            "dpbp.0                          unplugged", // empty ⇒ DPL, exempt
-            "dpbp.1          vendor          unplugged", // foreign free ⇒ the only prune
-            "dpbp.2          vendor          plugged",   // foreign drawn ⇒ never
+            "dpbp.0                          plugged", // empty ⇒ DPL, exempt
+            "dpbp.1          vendor          plugged", // foreign ⇒ the only prune victim
         ]);
         let mc = RestoolMc::with_runner(
             ScriptedRunner::new(vec![
                 ("dprc show dprc.1".to_owned(), ok(&show)),
+                (
+                    "dprc assign dprc.1 --object=dpbp.1 --plugged=0".to_owned(),
+                    ok(""),
+                ),
                 ("dpbp destroy dpbp.1".to_owned(), ok("")),
                 ("dprc sync".to_owned(), ok("")),
             ]),
@@ -446,6 +476,67 @@ mod tests {
             .filter(|c| c.get(1).map(String::as_str) == Some("destroy"))
             .collect();
         assert_eq!(destroys, vec![vec!["dpbp", "destroy", "dpbp.1"]]);
+    }
+
+    // The unplug probe both directions over the stateful fake: a free managed victim unplugs then destroys; a drawn one bounces `-EBUSY` and is never destroyed (pool-objects design D10).
+    #[test]
+    fn unplug_probe_reclaims_free_but_refuses_drawn() {
+        use dpaa2_api::contract::fake::FakeBackend;
+        use dpaa2_api::families::pool_lifecycle::{ObservedPoolObject, RawLabel};
+
+        let vpp = ConstructName::from("vpp");
+        let declared = declared(&["vpp"]);
+        let free = ObjectRef::new(Family::Dpbp, 7);
+        let drawn = ObjectRef::new(Family::Dpbp, 8);
+        let row = |object| ObservedPoolObject {
+            object,
+            label: RawLabel::from("vpp"),
+            plugged: true,
+            drawn: false, // restool never reads the draw; the probe discovers it
+        };
+
+        // succeeds-on-free: a plugged, undrawn managed victim reclaims cleanly.
+        let mc = FakeBackend::new().with_pool_object(DprcId::ROOT, row(free));
+        let out = dispatch_pool_deltas(
+            &mc,
+            None,
+            PoolFamily::Dpbp,
+            PoolDeltas {
+                create: 0,
+                destroy: 1,
+                prune: 0,
+            },
+            &vpp,
+            &declared,
+        )
+        .expect("a free victim reclaims");
+        assert_eq!(out.destroyed, vec![free]);
+        assert!(
+            mc.observe_pool(None, Family::Dpbp).unwrap().is_empty(),
+            "the reclaimed victim is gone"
+        );
+
+        // refused-on-drawn: the row reads free to the census, but a consumer holds it — the unplug probe bounces `-EBUSY` and the victim survives.
+        let mc = FakeBackend::new().with_in_use_pool_object(DprcId::ROOT, row(drawn));
+        let err = dispatch_pool_deltas(
+            &mc,
+            None,
+            PoolFamily::Dpbp,
+            PoolDeltas {
+                create: 0,
+                destroy: 1,
+                prune: 0,
+            },
+            &vpp,
+            &declared,
+        )
+        .expect_err("a drawn victim refuses the unplug");
+        assert!(matches!(err, Error::McStatus { status: 0x10 }), "{err:?}");
+        assert_eq!(
+            mc.observe_pool(None, Family::Dpbp).unwrap().len(),
+            1,
+            "the drawn victim is never destroyed"
+        );
     }
 
     // create_dpio_seat creates the paired dpmcp BEFORE the dpio (the probe-draw ordering;

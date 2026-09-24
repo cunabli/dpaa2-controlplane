@@ -934,6 +934,8 @@ impl<R: Runner> McControl for RestoolMc<R> {
                 object: ObjectRef::new(r.family, r.num),
                 label: RawLabel::from(r.label.as_str()),
                 plugged: r.plugged,
+                // Drawn-ness has no `dprc show` column: the shim reports undrawn, the unplug probe discovers the real draw (pool-objects design D10).
+                drawn: false,
             })
             .collect())
     }
@@ -2059,11 +2061,13 @@ mod tests {
                     object: ObjectRef::new(Family::Dpbp, 0),
                     label: RawLabel::from(""),
                     plugged: false,
+                    drawn: false,
                 },
                 ObservedPoolObject {
                     object: ObjectRef::new(Family::Dpbp, 1),
                     label: RawLabel::from("vpp"),
                     plugged: true,
+                    drawn: false,
                 },
             ]
         );
