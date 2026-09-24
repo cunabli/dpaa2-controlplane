@@ -119,7 +119,7 @@ opus48-developer parcel.
       drift inside a bound child is a typed refusal (ADR-0017; the
       healing policy is roadmap #9's, bead w01) (design D11;
       bead 960.26).
-- [ ] 3.14 Teardown to baseline: undeclared managed-labelled root
+- [x] 3.14 Teardown to baseline: undeclared managed-labelled root
       dpnis prune under the double gate; ensure reorders consumer
       teardown before pool shrink; container prune gains vfio_unbind
       + child-dpni disconnect; dpio residue renders as the typed

@@ -16,7 +16,7 @@ use dpaa2_api::core::family::Family;
 use dpaa2_api::core::inventory::{Ceiling, Inventory};
 use dpaa2_api::core::model::{DesiredTopology, DpmacId, DpniId, DprcId, ObservedTopology};
 use dpaa2_api::core::types::{ConstructName, TenantName};
-use dpaa2_api::families::dpio::derived_seats;
+use dpaa2_api::families::dpio::{SeatDisposition, SeatRegime, derived_seats, seat_disposition};
 use dpaa2_api::families::dprc::Options;
 use dpaa2_api::families::pool_lifecycle::{
     PoolCensus, PoolDeltas, PoolFamily, ShrinkBelowDraw, census_of, derived_requirement,
@@ -316,12 +316,19 @@ pub fn plan_prune_report<M: McControl>(
 /// flags (ADR-0001 §4). The verdict comes from a second re-observation (DPRC-I6): a
 /// pruned id that survives is an error, never assumed gone.
 ///
+/// Before a candidate's residents are unplugged and destroyed, the container is released from
+/// its consumer bindings (pool-objects design D11 teardown walk): its VFIO handoff is undone
+/// ([`KernelControl::vfio_unbind`]) so restool can reach its residents, and each child dpni is
+/// disconnected from its root peer (the DPNI-I9 disconnect from the common ancestor) so no
+/// dangling endpoint survives the destroy — consumers before pools.
+///
 /// # Errors
-/// Propagates a backend read/dispatch error, and reports a survivor (a pruned container
+/// Propagates a backend/kernel read/dispatch error, and reports a survivor (a pruned container
 /// still observed) as an [`Error::Backend`].
-pub fn prune_containers<M: McControl>(
+pub fn prune_containers<M: McControl, K: KernelControl>(
     plan: &CompiledPlan,
     mc: &M,
+    kernel: &K,
     cfg: ConvergeConfig,
 ) -> Result<PruneOutcome, Error> {
     let items = plan_prune_report(plan, mc)?;
@@ -364,6 +371,8 @@ pub fn prune_containers<M: McControl>(
             refused.get_or_insert((*id, gap.clone()));
             continue;
         }
+        // Release the consumer bindings BEFORE the residents are torn down (pool-objects design D11).
+        release_child_bindings(mc, kernel, *id)?;
         match dispatch_candidate_teardown(candidate, *id, mc)? {
             Some(attribution) => {
                 refused.get_or_insert((*id, attribution));
@@ -406,6 +415,140 @@ fn dispatch_candidate_teardown<M: McControl>(
         }
     }
     Ok(None)
+}
+
+/// The outcome of the undeclared root-dpni prune pass (pool-objects design D10/D11): the root
+/// analog of [`PruneOutcome`] for kernel-interface dpnis. A root dpni is a consumer (it draws
+/// the pool), so it is torn down BEFORE the shrink pass reclaims the pool it drew.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum RootDpniPruneOutcome {
+    /// No undeclared managed-labelled root dpni — nothing to prune or report.
+    Clean,
+    /// Candidates exist but nothing was dispatched: `--prune` was withheld, or the run's gate
+    /// sits below the disruptive teardown headline. Carried so the shell reports them.
+    ReportOnly {
+        /// The candidate root dpnis, by id.
+        candidates: Vec<DpniId>,
+    },
+    /// `--prune` was given but `cfg.allow` sits below the disruptive teardown headline
+    /// (ADR-0015 decision 12); nothing was dispatched.
+    DisruptionRefused {
+        /// The disruptive headline the teardowns would actuate.
+        headline: Class,
+        /// The maximum class the run allowed.
+        allowed: Class,
+        /// The candidate root dpnis, by id.
+        candidates: Vec<DpniId>,
+    },
+    /// Both gates held: every candidate was disconnected and destroyed, its absence confirmed
+    /// by re-observation.
+    Pruned {
+        /// The pruned root dpnis, by id.
+        pruned: Vec<DpniId>,
+    },
+}
+
+/// The undeclared managed-labelled root dpnis the prune targets (the one-label law of
+/// pool-objects task 3.10; design D10/D11): a root dpni whose MC label is non-empty (managed-labelled —
+/// the tool stamps its dpnis with construct names, ADR-0015) yet names no declared construct is
+/// a candidate; an empty label is the DPL/foreign sentinel, structurally exempt (ADR-0001 §4),
+/// so the DPL baseline and the management-plane dpnis are never touched. Root dpnis only: a
+/// child dpni is a pool row under its own container, not a root topology dpni.
+fn root_dpni_candidates(
+    observed: &ObservedTopology,
+    declared: &BTreeSet<ConstructName>,
+) -> Vec<DpniId> {
+    observed
+        .dpnis
+        .iter()
+        .filter(|d| match &d.label {
+            Some(label) => !label.as_str().is_empty() && !declared.contains(label),
+            None => false,
+        })
+        .map(|d| d.id)
+        .collect()
+}
+
+/// Prunes undeclared managed-labelled root dpnis under the double gate (pool-objects design D10/D11).
+/// The requirement: undeclared managed-labelled root dpnis become prune candidates.
+/// Re-observes the root topology, classifies each dpni against the declared set by the
+/// one-label law (empty-label/DPL exempt), and, only when
+/// `cfg.prune` AND `cfg.allow` reaches the disruptive headline, disconnects then destroys each
+/// candidate — a consumer released before the shrink pass reclaims the pool it drew. The
+/// verdict comes from a second re-observation: a pruned dpni that survives is an error.
+///
+/// # Errors
+/// Propagates a backend read/dispatch error, and reports a survivor as an [`Error::Backend`].
+pub fn prune_root_dpnis<M: McControl>(
+    plan: &CompiledPlan,
+    mc: &M,
+    cfg: ConvergeConfig,
+) -> Result<RootDpniPruneOutcome, Error> {
+    let declared = root_declared(plan);
+    let observed = mc.observe()?;
+    let candidates = root_dpni_candidates(&observed, &declared);
+    if candidates.is_empty() {
+        return Ok(RootDpniPruneOutcome::Clean);
+    }
+
+    // First gate: `--prune` withheld ⇒ report only (the tool's most destructive act is opt-in).
+    if !cfg.prune {
+        return Ok(RootDpniPruneOutcome::ReportOnly { candidates });
+    }
+    // Second gate (ADR-0015 decision 12): a dpni teardown is disruptive.
+    if Class::Disruptive > cfg.allow {
+        tracing::error!(allowed = %cfg.allow, "root dpni prune exceeds allowed disruption class");
+        return Ok(RootDpniPruneOutcome::DisruptionRefused {
+            headline: Class::Disruptive,
+            allowed: cfg.allow,
+            candidates,
+        });
+    }
+
+    for dpni in &candidates {
+        if observed
+            .dpnis
+            .iter()
+            .any(|d| d.id == *dpni && d.connected_to.is_some())
+        {
+            mc.disconnect(*dpni)?;
+        }
+        mc.destroy(*dpni)?;
+        tracing::info!(%dpni, "pruned undeclared managed-labelled root dpni");
+    }
+
+    let after = mc.observe()?;
+    if let Some(survivor) = candidates
+        .iter()
+        .find(|id| after.dpnis.iter().any(|d| d.id == **id))
+    {
+        return Err(Error::Backend(format!(
+            "root dpni {survivor} survived prune dispatch"
+        )));
+    }
+    Ok(RootDpniPruneOutcome::Pruned { pruned: candidates })
+}
+
+/// Releases one candidate container's consumer bindings before its residents are torn down
+/// (pool-objects design D11 teardown walk): undoes the VFIO handoff so restool can reach the
+/// residents, then disconnects each child dpni from its root peer (the DPNI-I9 disconnect from
+/// the common ancestor). Consumers before pools — the residents' unplug/destroy follows.
+///
+/// # Errors
+/// Propagates the first backend/kernel error the unbind, child-dpni observation, or a
+/// disconnect raises.
+fn release_child_bindings<M: McControl, K: KernelControl>(
+    mc: &M,
+    kernel: &K,
+    id: DprcId,
+) -> Result<(), Error> {
+    kernel.vfio_unbind(id)?;
+    for row in mc.observe_pool(Some(id), Family::Dpni)? {
+        let dpni = DpniId::new(row.object.ordinal());
+        mc.disconnect(dpni)?;
+        tracing::info!(%id, %dpni, "disconnected child dpni before container teardown");
+    }
+    Ok(())
 }
 
 /// Dispatches one prune-teardown step against the target container `id`. A [`Destroy`]
@@ -500,6 +643,22 @@ pub enum PoolOutcome {
     },
 }
 
+/// Which half of the grow-first/shrink-last pool walk a [`converge_pools`] call runs
+/// (pool-objects design D10 teardown ordering). The grow half runs BEFORE consumer
+/// convergence — it dispatches only creates and dpio grows, and defers a below-draw shrink (a
+/// consumer still holds the draw, torn down between the two passes). The shrink half runs
+/// AFTER consumer teardown — it dispatches only destroys and prunes, and surfaces a genuine
+/// below-draw refusal (a consumer the teardown could not release). Grow-first so a consumer
+/// has capacity to draw; shrink-last so the teardown walk (consumers before pools) is the
+/// executed order and an empty-intent ensure reaches prune instead of dying at a probe refusal.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PoolPass {
+    /// Grow capacity: creates and dpio seat grows only; below-draw deferred.
+    Grow,
+    /// Reclaim capacity: destroys and prunes only; below-draw surfaced.
+    Shrink,
+}
+
 /// One root pool family's drift — its observed census, derived requirement, and the
 /// count-level disposition [`drift_disposition`] would take (pool-objects task 3.4). The
 /// read seam `dry-run`/`status` render, carried as data (the frontend owns its text;
@@ -546,11 +705,45 @@ impl PoolDrift {
         }
     }
 
+    /// The pass-specific headline (pool-objects design D10): the grow half is disruptive when a
+    /// family needs a create or the dpio seats are short; the shrink half when a family needs a
+    /// destroy or a prune. Split from [`headline`](Self::headline) so each pass gates only the
+    /// work it dispatches — a shrink-only drift is hitless to the grow pass, and vice versa.
+    #[must_use]
+    pub fn headline_for(&self, pass: PoolPass) -> Class {
+        let work = self.families.iter().any(|f| {
+            f.disposition.is_ok_and(|d| match pass {
+                PoolPass::Grow => d.create > 0,
+                PoolPass::Shrink => d.destroy > 0 || d.prune > 0,
+            })
+        });
+        let dpio = pass == PoolPass::Grow && self.dpio_required > self.dpio_observed;
+        if work || dpio {
+            Class::Disruptive
+        } else {
+            Class::Hitless
+        }
+    }
+
     /// The first below-draw refusal, if any (pool-objects design D3): a requirement under the drawn count
     /// surfaces to the operator by name and count, never a teardown of a live consumer.
     #[must_use]
     pub fn shrink_refusal(&self) -> Option<ShrinkBelowDraw> {
         self.families.iter().find_map(|f| f.disposition.err())
+    }
+
+    /// The grow-only dpio seat disposition at root scope (pool-objects design D4/D10): the
+    /// kernel-regime seats render [`SeatDisposition::RebootRequired`] when the observed count
+    /// sits above the required one — a surplus no live destroy can reclaim (the ADR-0008 §4
+    /// race), reported and reboot-named, never torn down. Root is the kernel container, so the
+    /// regime is [`SeatRegime::KernelSeat`].
+    #[must_use]
+    pub fn dpio_disposition(&self) -> SeatDisposition {
+        seat_disposition(
+            SeatRegime::KernelSeat,
+            self.dpio_observed,
+            self.dpio_required,
+        )
     }
 }
 
@@ -629,24 +822,27 @@ pub fn plan_pools<M: McControl>(plan: &CompiledPlan, mc: &M) -> Result<PoolDrift
 /// census → disposition → dispatch → read-back verdict, composing only the phase-2/3 pure
 /// functions and the [`dispatch_pool_deltas`] edge (no new policy).
 ///
-/// The pass, in order:
-/// - Reads the whole drift ([`plan_pools`]). A family whose requirement fell below its drawn
-///   count surfaces as [`PoolOutcome::ShrinkRefused`] before anything is dispatched — a
-///   free-only shrink never tears down a live consumer (pool-objects design D3).
-/// - Gates the deltas' headline against `cfg.allow` (ADR-0015 decision 12): a pool
-///   create/destroy/prune is [`Class::Disruptive`], so a hitless run refuses it, matching the
-///   container steps' class-gating.
-/// - Dispatches each trio family in traversal order (dpmcp→dpbp→dpcon; pool-objects design D8) through
-///   [`dispatch_pool_deltas`] — free-only victim selection, prune riding `PoolDeltas::prune`
-///   as the disposition emits it — and judges convergence by the post-dispatch census
-///   read-back ([`PoolCensus::converged`]).
-/// - Grows the dpio seat deficit plain (`dpio_create`, NOT `create_dpio_seat`): the
-///   dpio→dpmcp probe pairing is the kernel dpio driver's own draw, and the dpmcp pool the
-///   trio just converged supplies it (pool-objects design D4). Seats are grown, never shrunk,
-///   as [`dispatch_child_population`] does.
+/// The pass runs one half of the grow-first/shrink-last walk (`pass`; design D10 pool-objects),
+/// in order:
+/// - Reads the whole drift ([`plan_pools`]). On the [`PoolPass::Shrink`] half, a family whose
+///   requirement fell below its drawn count surfaces as [`PoolOutcome::ShrinkRefused`] before
+///   anything is dispatched — a free-only shrink never tears down a live consumer the teardown
+///   could not release (pool-objects design D3). The [`PoolPass::Grow`] half defers it (the
+///   consumer is torn down between the two passes — the teardown walk).
+/// - Gates the pass-specific headline ([`PoolDrift::headline_for`]) against `cfg.allow`
+///   (ADR-0015 decision 12): a pool create/destroy/prune is [`Class::Disruptive`], so a
+///   hitless run refuses it, matching the container steps' class-gating.
+/// - Dispatches each trio family in traversal order (dpmcp→dpbp→dpcon; pool-objects design D8)
+///   through [`dispatch_pool_deltas`] with the deltas MASKED to the pass — the grow half only
+///   creates, the shrink half only destroys and prunes — and judges by the post-dispatch
+///   census read-back (grow: the deficit closed; shrink: the full [`PoolCensus::converged`]).
+/// - On the grow half only, grows the dpio seat deficit plain (`dpio_create`, NOT
+///   `create_dpio_seat`): the dpio→dpmcp probe pairing is the kernel driver's own draw, and the
+///   dpmcp pool the trio just grew supplies it (pool-objects design D4). Seats are grown, never
+///   shrunk — a surplus is the reboot-required residue, reported not reclaimed.
 ///
-/// Idempotent and level-triggered: a converged root yields an empty-headline drift and
-/// returns [`PoolOutcome::Converged`] without dispatching, and a second pass over it does too.
+/// Idempotent and level-triggered: a converged root yields an empty pass headline and returns
+/// [`PoolOutcome::Converged`] without dispatching, and a second pass over it does too.
 ///
 /// # Errors
 /// Propagates a backend read/dispatch error, and reports a family that failed to reach its
@@ -656,11 +852,15 @@ pub fn converge_pools<M: McControl>(
     plan: &CompiledPlan,
     mc: &M,
     cfg: ConvergeConfig,
+    pass: PoolPass,
 ) -> Result<PoolOutcome, Error> {
     let drift = plan_pools(plan, mc)?;
 
-    // A below-draw requirement is the one refusal, surfaced before any dispatch (pool-objects design D3).
-    if let Some(refusal) = drift.shrink_refusal() {
+    // A below-draw requirement is the one refusal, surfaced by the shrink half before any
+    // dispatch; the grow half defers it to the post-teardown shrink (pool-objects design D10).
+    if pass == PoolPass::Shrink
+        && let Some(refusal) = drift.shrink_refusal()
+    {
         tracing::error!(
             family = refusal.family.name(),
             requirement = refusal.requirement,
@@ -670,8 +870,8 @@ pub fn converge_pools<M: McControl>(
         return Ok(PoolOutcome::ShrinkRefused { refusal });
     }
 
-    // Gate on the headline before touching the board (ADR-0015 decision 12).
-    let headline = drift.headline();
+    // Gate on the pass headline before touching the board (ADR-0015 decision 12).
+    let headline = drift.headline_for(pass);
     if headline > cfg.allow {
         tracing::error!(%headline, allowed = %cfg.allow, "root pool convergence exceeds allowed disruption class");
         return Ok(PoolOutcome::DisruptionRefused {
@@ -680,25 +880,41 @@ pub fn converge_pools<M: McControl>(
         });
     }
     if headline == Class::Hitless {
-        // Nothing to do: a converged root (or one only awaiting kernel-side draw).
+        // Nothing this half does: a converged root, or the other half's work.
         return Ok(PoolOutcome::Converged);
     }
 
     let declared = root_declared(plan);
 
-    // trio: dispatch each family's deltas and judge by post-dispatch read-back.
     for f in &drift.families {
-        // Every disposition is Ok here: shrink_refusal ruled out every Err above.
+        // A below-draw Err family carries no grow and is ruled out of shrink, so skip it (pool-objects design D10).
         let Ok(deltas) = f.disposition else {
             continue;
         };
-        if deltas.is_empty() {
+        let masked = match pass {
+            PoolPass::Grow => PoolDeltas {
+                create: deltas.create,
+                destroy: 0,
+                prune: 0,
+            },
+            PoolPass::Shrink => PoolDeltas {
+                create: 0,
+                destroy: deltas.destroy,
+                prune: deltas.prune,
+            },
+        };
+        if masked.is_empty() {
             continue;
         }
         let label = root_family_label(plan, f.family.family());
-        let dispatch = dispatch_pool_deltas(mc, None, f.family, deltas, &label, &declared)?;
+        let dispatch = dispatch_pool_deltas(mc, None, f.family, masked, &label, &declared)?;
         let after = census_of(&dispatch.after, &declared);
-        if !after.converged(f.required) {
+        // Grow judges the deficit closed (surplus/foreign is the shrink half's); shrink the full converged census.
+        let converged = match pass {
+            PoolPass::Grow => after.managed() == f.required,
+            PoolPass::Shrink => after.converged(f.required),
+        };
+        if !converged {
             return Err(Error::Backend(format!(
                 "root {} pool did not converge after dispatch: managed {} of required {}",
                 f.family.name(),
@@ -708,21 +924,22 @@ pub fn converge_pools<M: McControl>(
         }
     }
 
-    // dpio seats: grow the deficit plain (the dpmcp probe pairing is the kernel driver's own
-    // draw; pool-objects design D4). Grown, never shrunk — the populate_child convention.
-    let deficit = (drift.dpio_required - drift.dpio_observed).max(0);
-    if deficit > 0 {
-        let label = root_family_label(plan, Family::Dpio);
-        for _ in 0..deficit {
-            mc.dpio_create(None, default_dpio_cfg(), &label)?;
-        }
-        let observed_after =
-            i64::try_from(mc.observe_pool(None, Family::Dpio)?.len()).unwrap_or(i64::MAX);
-        if observed_after != drift.dpio_required {
-            return Err(Error::Backend(format!(
-                "root dpio seats did not converge after dispatch: {observed_after} of required {}",
-                drift.dpio_required
-            )));
+    // dpio seats grow the deficit on the grow half only (the dpmcp probe pairing is the kernel driver's own draw; pool-objects design D4); grown never shrunk, a surplus is the reboot-required residue.
+    if pass == PoolPass::Grow {
+        let deficit = (drift.dpio_required - drift.dpio_observed).max(0);
+        if deficit > 0 {
+            let label = root_family_label(plan, Family::Dpio);
+            for _ in 0..deficit {
+                mc.dpio_create(None, default_dpio_cfg(), &label)?;
+            }
+            let observed_after =
+                i64::try_from(mc.observe_pool(None, Family::Dpio)?.len()).unwrap_or(i64::MAX);
+            if observed_after != drift.dpio_required {
+                return Err(Error::Backend(format!(
+                    "root dpio seats did not converge after dispatch: {observed_after} of required {}",
+                    drift.dpio_required
+                )));
+            }
         }
     }
 
@@ -1169,7 +1386,7 @@ mod tests {
             let mc = FakeBackend::new().with_inventory(ref_inventory(16));
 
             assert_eq!(
-                converge_pools(&compiled.plan, &mc, pool_cfg()).unwrap(),
+                converge_pools(&compiled.plan, &mc, pool_cfg(), PoolPass::Grow).unwrap(),
                 PoolOutcome::Converged
             );
             // Each trio family reads back its derived count; dpio reads back its seat count.
@@ -1187,7 +1404,7 @@ mod tests {
                 .map(|f| count(&mc, f))
                 .to_vec();
             assert_eq!(
-                converge_pools(&compiled.plan, &mc, pool_cfg()).unwrap(),
+                converge_pools(&compiled.plan, &mc, pool_cfg(), PoolPass::Grow).unwrap(),
                 PoolOutcome::Converged
             );
             let after: Vec<i64> = [Family::Dpmcp, Family::Dpbp, Family::Dpcon, Family::Dpio]
@@ -1204,8 +1421,13 @@ mod tests {
                 .with_inventory(ref_inventory(16))
                 .with_pool_object(DprcId::ROOT, foreign.clone());
 
+            // Grow-first tops up the deficit; shrink-last reclaims the foreign object (pool-objects design D10).
             assert_eq!(
-                converge_pools(&compiled.plan, &mc, pool_cfg()).unwrap(),
+                converge_pools(&compiled.plan, &mc, pool_cfg(), PoolPass::Grow).unwrap(),
+                PoolOutcome::Converged
+            );
+            assert_eq!(
+                converge_pools(&compiled.plan, &mc, pool_cfg(), PoolPass::Shrink).unwrap(),
                 PoolOutcome::Converged
             );
             let dpbps = mc.observe_pool(None, Family::Dpbp).unwrap();
@@ -1230,7 +1452,7 @@ mod tests {
             }
 
             assert_eq!(
-                converge_pools(&compiled.plan, &mc, pool_cfg()).unwrap(),
+                converge_pools(&compiled.plan, &mc, pool_cfg(), PoolPass::Shrink).unwrap(),
                 PoolOutcome::Converged
             );
             assert_eq!(count(&mc, Family::Dpbp), req, "shrunk to the derived count");
@@ -1247,7 +1469,7 @@ mod tests {
                 mc = mc.with_pool_object(DprcId::ROOT, seeded(ord, RawLabel::from(KERNEL), true));
             }
 
-            match converge_pools(&compiled.plan, &mc, pool_cfg()).unwrap() {
+            match converge_pools(&compiled.plan, &mc, pool_cfg(), PoolPass::Shrink).unwrap() {
                 PoolOutcome::ShrinkRefused { refusal } => {
                     assert_eq!(refusal.family, PoolFamily::Dpbp);
                     assert_eq!(refusal.requirement, req);
@@ -1278,7 +1500,7 @@ mod tests {
                 ..pool_cfg()
             };
             assert_eq!(
-                converge_pools(&compiled.plan, &mc, cfg).unwrap(),
+                converge_pools(&compiled.plan, &mc, cfg, PoolPass::Grow).unwrap(),
                 PoolOutcome::DisruptionRefused {
                     headline: Class::Disruptive,
                     allowed: Class::Hitless,

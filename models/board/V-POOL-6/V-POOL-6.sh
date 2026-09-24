@@ -8,22 +8,30 @@
 # gates on CAP_NET_ADMIN (docs/baseline/mc-ioctl-policy.md).
 #
 # Root-scope pool convergence through the shipped dpaa2ctl (pool-objects task
-# 3.4 + 4.1, bead dpaa2-controlplane-960.10; mbt-harness spec "Suite generation
-# renders the pool walks"). converge_pools runs BEFORE the port loop
-# (crates/dpaa2-tools/src/main.rs), so a pool create/destroy/prune is
-# Class::Disruptive: a default (hitless) ensure refuses, changing nothing. The
-# walk: dry-run the grow, refuse it hitless (a cheap refusal face), grow under
-# --allow disruptive, prove idempotence (a second ensure dispatches nothing),
-# make a foreign restool pool object, then intent-b shrinks the surplus
-# free-only and prunes the foreign object while the DPL-born boot pool stays
-# untouched (pool-objects design D3). Results are captured for offline diff.
-# The operands' derivation is pinned offline by
+# 3.4 + 3.14 + 4.1, bead dpaa2-controlplane-960.10/.27; mbt-harness spec "Suite
+# generation renders the pool walks"). ensure runs the pool walk grow-first /
+# shrink-last (pool-objects design D10, crates/dpaa2-tools/src/main.rs): the grow
+# half runs BEFORE the port loop so a consumer has capacity to draw, and the
+# shrink half runs LAST, after the container and root-dpni teardown — consumers
+# before pools. A pool create/destroy/prune is Class::Disruptive: a default
+# (hitless) ensure refuses, changing nothing. The walk: dry-run the grow, refuse
+# it hitless (a cheap refusal face), grow under --allow disruptive, prove
+# idempotence (a second ensure dispatches nothing), make a foreign restool pool
+# object, then intent-b shrinks the surplus and prunes the foreign object while
+# the DPL-born boot pool stays untouched (pool-objects design D3). Results are
+# captured for offline diff. The operands' derivation is pinned offline by
 # crates/dpaa2-tools/tests/vpool6_intents.rs.
 #
-# ShrinkBelowDraw (a requirement below the drawn count) is NOT forced here:
-# --no-link means nothing draws these pool objects, so there is no live
-# consumer to refuse. Its board face rides V-POOL-7's bound state / stays twin-
-# covered (shrink_below_draw_refuses_by_name_and_count in pool_replay).
+# Reclaim is the unplug-probe law (pool-objects design D10): a surplus/foreign
+# object is unplugged first and then destroyed, and a PLUGGED-but-undrawn surplus
+# is reclaimable — the earlier plugged==>drawn proxy that made managed surplus
+# stuck is gone. A live draw the MC refuses to unplug (-EBUSY) is the drawn
+# signal, surfaced as the ShrinkBelowDraw face, never a forced teardown.
+#
+# ShrinkBelowDraw (a requirement below the drawn count) is NOT forced here: the
+# a->b delta is pure pool trio surplus (no port churn), so the shrunk objects are
+# free-managed, not drawn. Its board face rides V-POOL-7's bound state / stays
+# twin-covered (shrink_below_draw_refuses_by_name_and_count in pool_replay).
 #
 # 4.2 operator, READ FIRST: the grow leg creates the reserved kernel's full
 # root pool — on a 16-CPU board that is ~16 dpio seats + ~32 dpcon + ~18 dpmcp
@@ -92,13 +100,15 @@ kernel="$(uname -r)"
 case "$kernel" in 6.6.52*) ;; *) echo "refusing: kernel is not 6.6.52: $kernel" >&2; exit 1 ;; esac
 
 # --- unconditional teardown (ADR-0003 §6) ---
-# Reconcile the managed root pool and the kernel dpni back to nothing through
-# the reconciler's own reverse path: an empty intent derives zero, so
-# converge_pools shrinks every free-managed trio object to 0 and the port loop
-# tears down the kernel dpni; a foreign object left standing is destroyed
-# best-effort. dpio seats are grow-only and NOT reclaimed here — the closing
-# reboot restores them (ADR-0003 §7). The empty intent is written to the
-# results dir so no throwaway operand is committed.
+# Reconcile the managed root pool and the kernel dpni back to nothing through the
+# reconciler's own reverse path. An empty intent derives zero, and ensure runs the
+# grow-first / shrink-last walk (pool-objects design D10): the port loop and the
+# root-dpni prune tear the kernel dpni down FIRST (consumers before pools), which
+# releases its draws, so the shrink half then reclaims every free-managed trio
+# object to 0 through the unplug probe. A foreign object left standing is destroyed
+# best-effort. dpio seats are grow-only and NOT reclaimed here — the closing reboot
+# restores them (ADR-0003 §7). The empty intent is written to the results dir so no
+# throwaway operand is committed.
 teardown() {
   printf '[intent]\nschema = 1\n' > "$RESULTS/teardown-empty.toml"
   "$DPAA2CTL" --config "$RESULTS/teardown-empty.toml" ensure --prune --allow disruptive --no-link \
@@ -160,11 +170,12 @@ if [ -n "$FOREIGN" ]; then echo "PASS step 6: foreign root dpbp created ($FOREIG
 run 7 "$DPAA2CTL" --config models/board/V-POOL-6/intent-b.toml dry-run
 expect_zero 7 "dry-run: the shrink surplus and the foreign prune candidate"
 
-# step 8: shrink+prune under the disruptive gate — free-only shrink of the
-# surplus (pool creates/destroys are automatic in converge_pools; the pool
-# prune is not gated by --prune) and reclamation of the foreign dpbp.
+# step 8: shrink+prune under the disruptive gate — the shrink half reclaims the
+# free-managed surplus and the foreign dpbp through the unplug probe (a plugged-
+# but-undrawn object unplugs then destroys; pool-objects design D10). Pool creates/
+# destroys are automatic in the pool walk; the pool prune is not gated by --prune.
 run 8 "$DPAA2CTL" --config models/board/V-POOL-6/intent-b.toml ensure --no-link --allow disruptive
-expect_zero 8 "ensure intent-b shrinks the surplus free-only and prunes the foreign object"
+expect_zero 8 "ensure intent-b reclaims the surplus and the foreign object via the unplug probe"
 probe step-8-show-dprc1.txt restool dprc show dprc.1
 pool_capture pool-after-shrink.txt
 

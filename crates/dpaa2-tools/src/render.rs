@@ -12,6 +12,7 @@ use std::fmt::Write as _;
 
 use dpaa2_api::core::family::Family;
 use dpaa2_api::core::model::DprcId;
+use dpaa2_api::families::dpio::SeatDisposition;
 use dpaa2_api::intent::compiled::{
     AttachPoint, Attributes, CompiledPlan, Container, Measurement, ObjectKey, PlannedObject,
     ProvenanceKey,
@@ -291,6 +292,10 @@ pub fn render_pool_drift(plan: &CompiledPlan, drift: &PoolDrift) -> String {
         "  dpio seats observed={} required={} [{dpio_class}]",
         drift.dpio_observed, drift.dpio_required,
     );
+    // A surplus is the typed reboot-required residue, reported not reclaimed (pool-objects design D4/D10).
+    if let SeatDisposition::RebootRequired(residue) = drift.dpio_disposition() {
+        let _ = writeln!(out, "    reboot-required: {residue}");
+    }
     render_root_provenance(plan, Family::Dpio, &mut out);
     out
 }
