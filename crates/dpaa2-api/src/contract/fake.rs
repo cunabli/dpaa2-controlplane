@@ -12,6 +12,7 @@
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::collections::HashMap;
+use std::collections::HashSet;
 
 use crate::contract::{KernelControl, McControl};
 use crate::core::error::Error;
@@ -76,6 +77,11 @@ struct FakeState {
     pool_objects: Vec<(DprcId, ObservedPoolObject)>,
     /// Next pool-object ordinal, shared across families — unique enough for the fake.
     next_pool: u32,
+    /// Pool objects a consumer holds that `dprc show` cannot reveal — the ground-truth draw
+    /// the unplug probe discovers (pool-objects design D10). `observe_pool` still reports
+    /// these `drawn: false` (restool has no draw column), so a reclaim selects them and the
+    /// `--plugged=0` probe bounces `-EBUSY`, the in-use refusal that IS the drawn signal.
+    in_use: HashSet<ObjectRef>,
 }
 
 /// In-memory fake implementing both southbound ports over a shared state.
@@ -102,6 +108,7 @@ impl FakeBackend {
                 created_cfgs: Vec::new(),
                 pool_objects: Vec::new(),
                 next_pool: 0,
+                in_use: HashSet::new(),
             }),
         }
     }
@@ -125,6 +132,7 @@ impl FakeBackend {
                 object,
                 label: RawLabel::from(label.as_str()),
                 plugged: true,
+                drawn: false,
             },
         ));
         object
@@ -144,6 +152,24 @@ impl FakeBackend {
             st.pool_objects.push((container, object));
         }
         self
+    }
+
+    /// Seeds a pool object a consumer draws that `dprc show` cannot reveal: `observe_pool`
+    /// reports it `drawn: false` like restool, but the unplug probe (`dprc assign
+    /// --plugged=0`) bounces `-EBUSY` — the in-use refusal that IS the drawn signal
+    /// (pool-objects design D10). `object.drawn` is forced `false` so the row reads free to a
+    /// census; the draw lives only in the hidden in-use set.
+    #[must_use]
+    pub fn with_in_use_pool_object(
+        self,
+        container: DprcId,
+        mut object: ObservedPoolObject,
+    ) -> Self {
+        object.drawn = false;
+        let objref = object.object;
+        let backend = self.with_pool_object(container, object);
+        backend.state.borrow_mut().in_use.insert(objref);
+        backend
     }
 
     /// The create blocks handed to [`McControl::create_dpni`], in call order, so a test
@@ -456,13 +482,28 @@ impl McControl for FakeBackend {
         Ok(())
     }
 
+    // `--plugged=0` is the reclaim unplug probe: the MC refuses it `-EBUSY` (`0x10`) when the object is drawn — the in-use refusal IS the drawn signal (pool-objects design D10).
     fn dprc_assign(
         &self,
         _container: DprcId,
-        _object: ObjectRef,
-        _child: Option<DprcId>,
-        _plugged: Option<bool>,
+        object: ObjectRef,
+        child: Option<DprcId>,
+        plugged: Option<bool>,
     ) -> Result<(), Error> {
+        if child.is_some() {
+            return Ok(());
+        }
+        let Some(plugged) = plugged else {
+            return Ok(());
+        };
+        let mut st = self.state.borrow_mut();
+        let in_use = st.in_use.contains(&object);
+        if let Some((_, obj)) = st.pool_objects.iter_mut().find(|(_, o)| o.object == object) {
+            if !plugged && (obj.drawn || in_use) {
+                return Err(Error::McStatus { status: 0x10 });
+            }
+            obj.plugged = plugged;
+        }
         Ok(())
     }
 
@@ -488,7 +529,7 @@ impl McControl for FakeBackend {
     }
 
     // The pool verbs record the create's `container` (None ⇒ root); each create stamps and
-    // plugs so `observe_pool` of that container reads it back drawn (pool-objects task 3.1).
+    // plugs so `observe_pool` reads it back plugged and undrawn (pool-objects task 3.1; draw seeded separately, design D10).
     fn dpbp_create(
         &self,
         container: Option<DprcId>,

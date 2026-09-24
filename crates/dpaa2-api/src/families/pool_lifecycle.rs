@@ -115,16 +115,17 @@ impl PoolFamily {
 /// adapter feeds in phase 3, mirroring the model's count vocabulary (`pool_lifecycle`
 /// `poolPopulation`/`freePool`/draw/`born`; ADR-0011).
 ///
-/// `population` is the model's `poolPopulation` (every plugged member of the family in
+/// `population` is the model's `poolPopulation` (every member of the family parented to
 /// the container, the census the ceiling gate judges); `free` and `drawn` split it by
 /// custody (an undrawn member sits in the free pool, a drawn one is claimed by a
-/// consumer); `born` is the DPL-born, free, structurally prune-exempt count (the model
-/// anchor `born`, seeded free — a boot-baseline object is foreign, roadmap #14);
+/// consumer) — `drawn` is the real draw facet, never the plugged proxy the old census used
+/// (pool-objects design D10); `born` is the DPL-born, free, structurally prune-exempt count
+/// (the model anchor `born`, seeded free — a boot-baseline object is foreign, roadmap #14);
 /// `foreign_free` is the free count whose label names neither a declared consumer nor the
-/// DPL — undeclared capacity the prune reclaims; `born_drawn` is the DPL-born count that
-/// reads *drawn* under the custody proxy — the board's plugged boot pool (V-POOL-6,
-/// 2026-09-22), netted out of the draw guard so the DPL-born pool never masquerades as a
-/// live consumer blocking a managed grow (pool-objects design D3: DPL-born stays untouched).
+/// DPL — undeclared capacity the prune reclaims; `born_drawn` is the DPL-born count a
+/// consumer genuinely draws (the environment-adversary case, V-POOL-6), netted out of the
+/// draw guard so the DPL-born pool never masquerades as a live consumer blocking a managed
+/// grow (pool-objects design D3: DPL-born stays untouched).
 ///
 /// The label judgment is the count-level realization of the model's `managed` ghost set.
 /// The model tracks each companion the reconciler grew in a `Set[ObjId]`; the count level
@@ -135,7 +136,7 @@ impl PoolFamily {
 /// with. So the free pool splits three ways — `born`, `foreign_free`, and the reconciler's
 /// own free managed — and `managed = population - born - foreign_free - born_drawn` counts
 /// only the reconciler's companions (the model's `managedCount`), drawn ones included,
-/// with BOTH DPL-born subsets (free `born` and plugged `born_drawn`) netted out. A *drawn*
+/// with BOTH DPL-born subsets (free `born` and drawn `born_drawn`) netted out. A *drawn*
 /// foreign individual is count-indistinguishable from a drawn managed one and folds into
 /// `drawn`/`managed`: conservative, biasing toward the [`ShrinkBelowDraw`] refusal, never
 /// toward a teardown (pool-objects design D2). A *drawn* DPL-born is NOT folded in — it is
@@ -160,7 +161,7 @@ impl PoolCensus {
     /// Builds a census from an observation. `population` is every plugged member of the
     /// family in the container, split into `free` (undrawn, in the pool) and `drawn`
     /// (claimed by a consumer); `born` is the free DPL-born, prune-exempt subset; `born_drawn`
-    /// is the DPL-born subset the custody proxy reads drawn (the board's plugged boot pool).
+    /// is the DPL-born subset a consumer genuinely draws (V-POOL-6), netted out of the guard.
     ///
     /// The custody split (`free + drawn == population`), the free subsets
     /// (`0 <= born + foreign_free <= free`) and the drawn DPL-born subset
@@ -219,16 +220,17 @@ impl PoolCensus {
         self.free
     }
 
-    /// The total drawn count (every plugged member under the custody proxy) — the accounting
-    /// half of `free + drawn == population`. The model's `drawnManaged` guard base nets the
-    /// plugged DPL-born out of this: see [`PoolCensus::drawn_managed`].
+    /// The total drawn count (every member a consumer draws) — the accounting half of
+    /// `free + drawn == population`. The model's `drawnManaged` guard base nets the drawn
+    /// DPL-born out of this: see [`PoolCensus::drawn_managed`].
     #[must_use]
     pub const fn drawn(self) -> i64 {
         self.drawn
     }
 
-    /// The drawn count the plugged DPL-born boot pool occupies (the board's V-POOL-6 pool) —
-    /// netted out of the draw guard so the DPL-born never reads as a live consumer.
+    /// The drawn count a consumer genuinely holds against the DPL-born (the V-POOL-6
+    /// environment-adversary draw) — netted out of the draw guard so the DPL-born never
+    /// reads as a live consumer.
     #[must_use]
     pub const fn born_drawn(self) -> i64 {
         self.born_drawn
@@ -544,40 +546,38 @@ raw_capture! {
 /// judges — PASS5-F1/ADR-0010 §4).
 ///
 /// `label` is the MC label column exactly as read (a [`RawLabel`]): the empty string is
-/// the empty column, which [`judge_label`](crate::core::inventory) reads as the DPL
-/// sentinel `"dpl"` — never pre-judged into ours/foreign here. `plugged` is the trailing
-/// `plugged`/`unplugged` state token.
+/// the empty column, the DPL/report-only sentinel (ADR-0001 §4) — never pre-judged into
+/// ours/foreign here.
 ///
-/// # The custody proxy is conservative and restool-bound (DPBP-I2/I3/I4)
+/// # Plugged and drawn are two independent facets (pool-objects design D10; DPBP-I2)
 ///
-/// Kernel free/drawn custody is NOT restool-observable: an object enters its container's
-/// kernel pool only once the `fsl_mc_allocator` binds it, and the allocator's free/drawn
-/// split has no `dprc show` column (`docs/baseline/dpbp.md` "Kernel-side behavior";
-/// DPBP-I2's kernel-pool half is root-only until the raw command path, #10). So
-/// [`census_of`] uses the one custody signal restool DOES surface — the plugged state —
-/// as a conservative proxy: **plugged ⇒ counted drawn** (it may merely be kernel-held,
-/// not consumer-drawn), **unplugged ⇒ free**. `born` and `foreign_free` are then the
-/// unplugged rows the DPL / a foreign owner labels; a *plugged* DPL-born row is judged the
-/// same way (empty label ⇒ DPL sentinel) into `born_drawn` and netted back out of the draw
-/// guard, so the board's plugged boot pool never reads as a live consumer (V-POOL-6;
-/// pool-objects design D3: DPL-born stays untouched).
+/// The board exposes two custody observables the census once collapsed into a proxy:
+/// **plugged** — the object sits in the kernel's allocatable pool (DPBP-I2: allocatable ⟺
+/// plugged ∧ allocator-bound), the trailing `plugged`/`unplugged` state token `dprc show`
+/// prints; and **drawn** — a consumer actually holds it. They are orthogonal: a plugged
+/// object is usually *free* (available to draw), and drawn-ness is NOT inferred from
+/// plugged (the old `plugged ⇒ drawn` proxy is gone; V-POOL-6 rev 1–3 showed it made
+/// managed surplus unreclaimable).
 ///
-/// The consequence, stated plainly (pool-objects design D3): the conservative fold now
-/// applies to *foreign*-drawn only — a plugged foreign *surplus* the reconciler could in
-/// principle reclaim surfaces as a [`ShrinkBelowDraw`] refusal rather than a teardown,
-/// because the proxy cannot tell it from a live draw. That is the safe direction — never
-/// tear down something that might be kernel-held — and MC's own driver-bound destroy
-/// refusal (a typed `McStatus`; `docs/baseline/dpbp.md`: `destroy` refuses driver-bound
-/// objects) is the enforcement backstop. The phase-4 kernel-face probes refine the proxy.
+/// Drawn-ness is *discovered, never read*: restool has no draw column, so the shim reports
+/// `drawn: false` and reclaim runs the unplug probe (`dprc assign --plugged=0`) — the MC's
+/// in-use refusal IS the drawn signal, surfacing as the [`ShrinkBelowDraw`] face
+/// (pool-objects design D10; `dpaa2_mc::pool::dispatch_pool_deltas`). A twin/kernel-face
+/// that CAN read the draw sets `drawn` from the observation, and [`census_of`] then splits
+/// the two facets straight through.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ObservedPoolObject {
     /// The concrete `family.ordinal` reference the destroy/prune verbs address.
     pub object: ObjectRef,
     /// The raw MC label column, verbatim (empty for the empty column ⇒ the DPL sentinel).
     pub label: RawLabel,
-    /// Whether the row's trailing state token was `plugged` (the drawn proxy) vs
-    /// `unplugged` (free).
+    /// Whether the row is plugged — in the kernel's allocatable pool (DPBP-I2). The board
+    /// reports this; a reclaim victim is unplugged (probed) before it is destroyed.
     pub plugged: bool,
+    /// Whether a consumer draws the object. Discovered, never read from `dprc show`: the
+    /// shim reports `false` and the unplug probe surfaces the real draw; a twin or
+    /// kernel-face that observes the draw sets it (pool-objects design D10).
+    pub drawn: bool,
 }
 
 /// Pool-custody membership of one observed object, judged by its label against the
@@ -598,27 +598,30 @@ pub enum PoolMembership {
 }
 
 impl ObservedPoolObject {
-    /// Whether the object reads as free — the unplugged proxy for undrawn custody (see the
-    /// type-level DPBP-I2 note).
+    /// Whether the object reads as free — undrawn (in the pool, not held by a consumer).
+    /// The plugged facet is orthogonal (pool-objects design D10): a free object is usually
+    /// plugged, and drawn-ness is never inferred from plugged.
     #[must_use]
     pub fn is_free(&self) -> bool {
-        !self.plugged
+        !self.drawn
     }
 
-    /// Judges this object's custody membership against the declared-name set, reusing the
-    /// inventory's [`judge_label`](crate::core::inventory) so the empty-label⇒DPL and
-    /// declared⇒ours idioms are single-sourced (ADR-0010 §4 refined by ADR-0015). An empty
-    /// label is the empty column, judged as the DPL sentinel.
+    /// Judges this object's custody membership against the declared-name set — the one
+    /// label law (pool-objects design D10): the empty column is the DPL/report-only
+    /// sentinel, structurally prune-exempt everywhere (ADR-0001 §4); a declared name is
+    /// ours; any other owner is foreign. The ours/foreign split delegates to the single
+    /// judge [`judge_label`](crate::core::inventory); the empty sentinel is read directly
+    /// from the empty label, never via a `"dpl"` string a foreign owner could spoof into
+    /// exemption (board rev1/rev3: the out-of-band empty-label dpbp is never a prune
+    /// candidate).
     #[must_use]
     pub fn membership(&self, declared: &BTreeSet<ConstructName>) -> PoolMembership {
-        let judged = judge_label(self.label.as_str(), declared);
-        // Compare against judge_label's own empty⇒DPL verdict, never re-spelling "dpl" here.
-        if judged == judge_label("", declared) {
-            PoolMembership::DplBorn
-        } else if matches!(judged, Availability::Free) {
-            PoolMembership::Managed
-        } else {
-            PoolMembership::Foreign
+        if self.label.is_empty() {
+            return PoolMembership::DplBorn;
+        }
+        match judge_label(self.label.as_str(), declared) {
+            Availability::Free => PoolMembership::Managed,
+            _ => PoolMembership::Foreign,
         }
     }
 }
@@ -627,14 +630,17 @@ impl ObservedPoolObject {
 /// pool-family) pair — the pure boundary between the adapter's verbatim observation and
 /// the model's count vocabulary (pool-objects task 3.1; pool-objects design D2/D3).
 ///
-/// The custody split is the conservative restool proxy (see [`ObservedPoolObject`]):
-/// every `plugged` row counts `drawn`, every `unplugged` row `free`; a free row then adds
-/// to `born` (DPL) or `foreign_free` (undeclared) per its [`membership`](ObservedPoolObject::membership),
-/// or to neither when it is the reconciler's own managed-free. A *plugged* DPL-born row
-/// additionally adds to `born_drawn`, netting the board's boot pool out of the draw guard
-/// (V-POOL-6; pool-objects design D3). `declared` is the same declared-name recognition set
-/// the inventory judges labels against (ADR-0015), so the count-level `born`/`born_drawn`/
-/// `foreign_free` match the inventory's per-object verdicts exactly.
+/// The custody split reads the `drawn` facet straight through, never the plugged proxy
+/// (pool-objects design D10): every `drawn` row counts `drawn`, every undrawn row `free`;
+/// a free row then adds to `born` (DPL) or `foreign_free` (undeclared) per its
+/// [`membership`](ObservedPoolObject::membership), or to neither when it is the
+/// reconciler's own managed-free. A *drawn* DPL-born row adds to `born_drawn`, netting a
+/// DPL boot object a consumer genuinely holds out of the draw guard (pool-objects design D3,
+/// V-POOL-6). From the restool shim `drawn` is always `false` (discovered by the unplug
+/// probe, not read), so a restool census reads every row free; a twin/kernel-face that
+/// observes the draw splits the two facets here. `declared` is the same declared-name
+/// recognition set the inventory judges labels against (ADR-0015), so the count-level
+/// `born`/`born_drawn`/`foreign_free` match the inventory's per-object verdicts exactly.
 #[must_use]
 pub fn census_of(rows: &[ObservedPoolObject], declared: &BTreeSet<ConstructName>) -> PoolCensus {
     let population = i64::try_from(rows.len()).unwrap_or(i64::MAX);
@@ -644,10 +650,10 @@ pub fn census_of(rows: &[ObservedPoolObject], declared: &BTreeSet<ConstructName>
     let mut foreign_free = 0i64;
     let mut born_drawn = 0i64;
     for row in rows {
-        if row.plugged {
-            drawn += 1; // conservative proxy: plugged ⇒ drawn (see ObservedPoolObject; DPBP-I2/I3/I4)
+        if row.drawn {
+            drawn += 1; // the real draw facet, never inferred from plugged (pool-objects design D10)
             if row.membership(declared) == PoolMembership::DplBorn {
-                born_drawn += 1; // a plugged DPL-born nets out of the draw guard (V-POOL-6; pool-objects design D3)
+                born_drawn += 1; // a drawn DPL-born nets out of the draw guard (V-POOL-6; pool-objects design D3)
             }
         } else {
             free += 1;
@@ -1070,24 +1076,29 @@ mod tests {
         names.iter().map(|n| ConstructName::from(*n)).collect()
     }
 
-    fn pool_row(ord: u32, raw: &str, plugged: bool) -> ObservedPoolObject {
+    fn pool_row(ord: u32, raw: &str, drawn: bool) -> ObservedPoolObject {
+        row(ord, raw, true, drawn)
+    }
+
+    fn row(ord: u32, raw: &str, plugged: bool, drawn: bool) -> ObservedPoolObject {
         ObservedPoolObject {
             object: ObjectRef::new(Family::Dpbp, ord),
             label: RawLabel::from(raw),
             plugged,
+            drawn,
         }
     }
 
-    // The observation mapping (DPBP-I2/I3/I4), one row per case (see the trailing labels).
+    // The observation mapping (pool-objects design D10; DPBP-I2), one row per case.
     #[test]
-    fn census_of_maps_born_foreign_free_and_the_custody_proxy() {
+    fn census_of_maps_born_foreign_free_and_the_draw_facet() {
         let declared = declared_set(&["vpp"]);
         let rows = vec![
-            pool_row(0, "", false),       // empty ⇒ DPL, free ⇒ born
-            pool_row(1, "vpp", false),    // declared ⇒ ours, free ⇒ managed-free
-            pool_row(2, "vpp", true),     // declared ⇒ ours, plugged ⇒ drawn
-            pool_row(3, "vendor", false), // foreign, free ⇒ foreign_free
-            pool_row(4, "vendor", true),  // foreign, plugged ⇒ drawn (proxy)
+            pool_row(0, "", false),       // empty ⇒ DPL, undrawn ⇒ born
+            pool_row(1, "vpp", false),    // declared ⇒ ours, undrawn ⇒ managed-free
+            pool_row(2, "vpp", true),     // declared ⇒ ours, drawn
+            pool_row(3, "vendor", false), // foreign, undrawn ⇒ foreign_free
+            pool_row(4, "vendor", true),  // foreign, drawn
         ];
         let c = census_of(&rows, &declared);
         assert_eq!(c.population(), 5);
@@ -1095,29 +1106,28 @@ mod tests {
         assert_eq!(c.drawn(), 2); // rows 2, 4
         assert_eq!(c.born(), 1); // row 0
         assert_eq!(c.foreign_free(), 1); // row 3
-        assert_eq!(c.born_drawn(), 0); // no plugged DPL-born row here
+        assert_eq!(c.born_drawn(), 0); // no drawn DPL-born row here
         assert_eq!(c.managed_free(), 1); // row 1: free 3 - born 1 - foreign_free 1
         assert_eq!(c.managed(), 3); // population 5 - born 1 - foreign_free 1 - born_drawn 0
         assert_eq!(c.free() + c.drawn(), c.population());
     }
 
-    // V-POOL-6 (board sitting 2026-09-22): the root container's plugged DPL-born boot pool
-    // (empty label, plugged) must NOT count toward the draw guard — the managed requirement
-    // grows on TOP of it (pool-objects design D3). A census of 52 plugged DPL-born rows with a
-    // requirement of 19 plans a grow of 19 and raises NO ShrinkBelowDraw refusal.
+    // Plugged and drawn are independent: the DPL boot pool the board reports plugged (empty-label, undrawn) is `born`, never drawn, so a grow lands on top of it with no refusal (V-POOL-6; pool-objects design D10/D3).
     #[test]
-    fn plugged_dpl_born_nets_out_of_the_draw_guard() {
+    fn census_splits_plugged_from_drawn_independently() {
         let declared = declared_set(&[]); // the DPL boot pool wears no declared consumer name
-        let rows: Vec<ObservedPoolObject> = (0..52).map(|n| pool_row(n, "", true)).collect();
+        let rows: Vec<ObservedPoolObject> = (0..52).map(|n| row(n, "", true, false)).collect();
         let c = census_of(&rows, &declared);
         assert_eq!(c.population(), 52);
-        assert_eq!(c.drawn(), 52); // the custody proxy still counts every plugged row drawn
-        assert_eq!(c.born_drawn(), 52); // ...but all 52 are judged DPL-born and netted out
-        assert_eq!(c.drawn_managed(), 0); // so the draw guard sees no live consumer
-        assert_eq!(c.managed(), 0); // and the boot pool counts nothing toward the requirement
+        assert_eq!(poolable(&rows), 52); // plugged ⇒ every row is allocator-poolable
+        assert_eq!(c.drawn(), 0); // ...yet none is drawn: the facets are independent
+        assert_eq!(c.born(), 52); // all 52 are the free DPL boot pool
+        assert_eq!(c.born_drawn(), 0);
+        assert_eq!(c.drawn_managed(), 0); // the draw guard sees no live consumer
+        assert_eq!(c.managed(), 0); // the boot pool counts nothing toward the requirement
         assert!(
             !c.shrinks_below_draw(19),
-            "the DPL-born pool never forces the refusal"
+            "the DPL boot pool never forces the refusal"
         );
         let d = drift_disposition(PoolFamily::Dpmcp, c, 19, &Ceiling::Counted(80))
             .expect("a grow, not a refusal");
@@ -1131,11 +1141,9 @@ mod tests {
         );
     }
 
-    // Companion to V-POOL-6: a plugged FOREIGN pool (undeclared, non-empty label) is NOT netted
-    // — count-indistinguishable from a live draw, it stays folded into the draw guard and still
-    // biases to the ShrinkBelowDraw refusal (the conservative direction; pool-objects design D2).
+    // A genuinely drawn foreign is count-indistinguishable from a drawn managed one, so it folds into the draw guard and biases to the ShrinkBelowDraw refusal (pool-objects design D2).
     #[test]
-    fn plugged_foreign_still_biases_to_the_refusal() {
+    fn drawn_foreign_biases_to_the_refusal() {
         let declared = declared_set(&["vpp"]);
         let rows: Vec<ObservedPoolObject> = (0..52).map(|n| pool_row(n, "vendor", true)).collect();
         let c = census_of(&rows, &declared);
@@ -1166,21 +1174,21 @@ mod tests {
         assert!(c.converged(2));
     }
 
-    // poolable counts the plugged rows only — the allocator-bound census (DPBP-I2).
+    // poolable counts the plugged rows only — the allocator-bound census, orthogonal to the draw facet (DPBP-I2).
     #[test]
     fn poolable_counts_plugged_only() {
         let rows = vec![
-            pool_row(0, "vpp", true),  // plugged ⇒ allocator-bound ⇒ poolable
-            pool_row(1, "vpp", false), // unplugged ⇒ invisible to the allocator
-            pool_row(2, "", true),     // plugged DPL-born ⇒ still poolable
+            row(0, "vpp", true, false),  // plugged ⇒ allocator-bound ⇒ poolable
+            row(1, "vpp", false, false), // unplugged ⇒ invisible to the allocator
+            row(2, "", true, false),     // plugged DPL boot object ⇒ still poolable
+            row(3, "vpp", true, true),   // plugged AND drawn ⇒ still poolable
         ];
-        assert_eq!(poolable(&rows), 2);
+        assert_eq!(poolable(&rows), 3);
         assert_eq!(poolable(&[]), 0);
     }
 
-    // membership reuses judge_label: an empty label ⇒ DPL, declared ⇒ ours, else foreign.
     #[test]
-    fn membership_reuses_the_label_judgment() {
+    fn membership_is_the_one_label_law() {
         let declared = declared_set(&["wan0"]);
         assert_eq!(
             pool_row(0, "", false).membership(&declared),
@@ -1192,6 +1200,11 @@ mod tests {
         );
         assert_eq!(
             pool_row(0, "vendor", false).membership(&declared),
+            PoolMembership::Foreign
+        );
+        // A literal `"dpl"` owner label is foreign, NOT the empty-column sentinel — it must not spoof the DPL-born exemption (board rev1/rev3).
+        assert_eq!(
+            pool_row(0, "dpl", false).membership(&declared),
             PoolMembership::Foreign
         );
     }
