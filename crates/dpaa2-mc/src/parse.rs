@@ -614,10 +614,7 @@ plugged state: plugged
             parse_dpni_endpoint("endpoint: No object associated\n"),
             None
         );
-        assert_eq!(
-            parse_dpni_endpoint("mac address: absent\n"),
-            None
-        );
+        assert_eq!(parse_dpni_endpoint("mac address: absent\n"), None);
     }
 
     #[test]
