@@ -8,7 +8,7 @@ use std::collections::BTreeMap;
 
 use dpaa2_api::core::family::{ALL_FAMILIES, Family};
 use dpaa2_api::core::inventory::{DpmacLinkType, EthInterface};
-use dpaa2_api::core::model::{DpmacId, DpniId, DprcId, LinkType, MacAddr};
+use dpaa2_api::core::model::{DpmacId, DpniId, DprcId, LinkType, MacAddr, ObjectRef};
 use dpaa2_api::core::types::ConstructName;
 use dpaa2_api::families::dprc;
 
@@ -209,6 +209,23 @@ fn parse_family_num(tok: &str) -> Option<(Family, u32)> {
     let num = index.parse::<u32>().ok()?;
     let family = ALL_FAMILIES.iter().copied().find(|f| f.as_str() == kind)?;
     Some((family, num))
+}
+
+/// Parses the `endpoint:` line of `restool dpni info dpni.N` into the peer object it
+/// names, or `None` when the dpni is disconnected (`No object associated`). Unlike
+/// [`parse_dpni_info`], which keeps only a `dpmac.` peer, this recovers ANY family peer
+/// as an [`ObjectRef`], so the cross-container dpni↔dpni case reads back — the
+/// idempotence read the child-port converge issues (`docs/baseline/dpni.md` DPNI-I9).
+#[must_use]
+pub fn parse_dpni_endpoint(stdout: &str) -> Option<ObjectRef> {
+    for line in stdout.lines() {
+        if let Some(rest) = line.trim().strip_prefix("endpoint:") {
+            let obj = rest.split(',').next().unwrap_or("").trim();
+            let (family, num) = parse_family_num(obj)?;
+            return Some(ObjectRef::new(family, num));
+        }
+    }
+    None
 }
 
 /// Parses `restool dprc show <container>` and returns the DPNI and DPMAC ids it
@@ -584,6 +601,23 @@ plugged state: plugged
         let i = parse_dpni_info("endpoint: dpmac.7, link is up\nmac address: 00:00:00:00:00:29\n");
         assert_eq!(i.endpoint, Some(DpmacId::from(7)));
         assert_eq!(i.mac, "00:00:00:00:00:29".parse::<MacAddr>().ok());
+    }
+
+    #[test]
+    fn dpni_endpoint_reads_dpmac_dpni_and_disconnected_peers() {
+        // The idempotence read recovers ANY family peer (DPNI-I9 cross-container case).
+        let dpmac = parse_dpni_endpoint("endpoint: dpmac.7, link is up\n");
+        assert_eq!(dpmac, Some(ObjectRef::new(Family::Dpmac, 7)));
+        let dpni = parse_dpni_endpoint("endpoint: dpni.5, link is up\n");
+        assert_eq!(dpni, Some(ObjectRef::new(Family::Dpni, 5)));
+        assert_eq!(
+            parse_dpni_endpoint("endpoint: No object associated\n"),
+            None
+        );
+        assert_eq!(
+            parse_dpni_endpoint("mac address: absent\n"),
+            None
+        );
     }
 
     #[test]

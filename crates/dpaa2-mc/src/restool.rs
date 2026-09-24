@@ -710,6 +710,25 @@ impl<R: Runner> McControl for RestoolMc<R> {
         self.sync()
     }
 
+    fn connect_in(&self, ancestor: DprcId, dpni: DpniId, peer: ObjectRef) -> Result<(), Error> {
+        // DPNI-I9 form (docs/baseline/dpni.md DPNI-I9): a child dpni connects from the common
+        // ancestor with NO root plug step — root `connect`'s plug targets the wrong container.
+        self.run_verb(&[
+            "dprc",
+            "connect",
+            &ancestor.to_string(),
+            &format!("--endpoint1={dpni}"),
+            &format!("--endpoint2={peer}"),
+        ])?;
+        self.sync()
+    }
+
+    fn observe_endpoint(&self, dpni: DpniId) -> Result<Option<ObjectRef>, Error> {
+        // Idempotence read: `dpni info` `endpoint:` line into the typed peer (pool-objects design D11).
+        let out = self.run_verb(&["dpni", "info", &dpni.to_string()])?;
+        Ok(parse::parse_dpni_endpoint(&out))
+    }
+
     fn set_mac(&self, dpni: DpniId, mac: dpaa2_api::core::model::MacAddr) -> Result<(), Error> {
         // MAC actuation uses `dpni update --mac-addr` (as `ls-addni` does). Phase 1
         // defaults to assert mode, so this is reached only when a port opts into
@@ -1057,6 +1076,55 @@ mod tests {
             mc.runner().calls()[0],
             vec!["dprc", "disconnect", "dprc.1", "--endpoint=dpni.1"],
         );
+    }
+
+    #[test]
+    fn connect_in_renders_ancestor_form_without_the_root_plug() {
+        // DPNI-I9 ancestor form: endpoint1/endpoint2 and NO plug step (pool-objects design D11).
+        let runner = ScriptedRunner::new(vec![
+            (
+                "dprc connect dprc.2 --endpoint1=dpni.5 --endpoint2=dpmac.3",
+                ok(""),
+            ),
+            ("dprc sync", ok("")),
+        ]);
+        let mc = RestoolMc::with_runner(runner, DEFAULT_CONTAINER);
+
+        mc.connect_in(
+            DprcId::new(2),
+            DpniId::new(5),
+            ObjectRef::new(Family::Dpmac, 3),
+        )
+        .expect("connect_in");
+
+        // Exactly two commands: connect then sync — no assign/plug precedes them.
+        assert_eq!(
+            mc.runner().calls()[0],
+            vec![
+                "dprc",
+                "connect",
+                "dprc.2",
+                "--endpoint1=dpni.5",
+                "--endpoint2=dpmac.3"
+            ],
+        );
+        assert_eq!(mc.runner().calls().len(), 2);
+    }
+
+    #[test]
+    fn observe_endpoint_reads_peer_and_disconnected() {
+        // The `endpoint:` line into a typed peer; `No object associated` ⇒ None (pool-objects design D11).
+        let runner = ScriptedRunner::new(vec![
+            ("dpni info dpni.5", ok("endpoint: dpmac.3, link is up\n")),
+            ("dpni info dpni.6", ok("endpoint: No object associated\n")),
+        ]);
+        let mc = RestoolMc::with_runner(runner, DEFAULT_CONTAINER);
+
+        assert_eq!(
+            mc.observe_endpoint(DpniId::new(5)).expect("read"),
+            Some(ObjectRef::new(Family::Dpmac, 3)),
+        );
+        assert_eq!(mc.observe_endpoint(DpniId::new(6)).expect("read"), None);
     }
 
     #[test]

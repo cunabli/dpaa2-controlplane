@@ -106,7 +106,7 @@ opus48-developer parcel.
       container) feeds the port loop and link::apply; child port-edges
       leave the transitions for the population plan; render snapshots
       re-frozen (design D11; bead 960.24).
-- [ ] 3.12 MC seam for child ports: connect issued from the common
+- [x] 3.12 MC seam for child ports: connect issued from the common
       ancestor without the root plug step (DPNI-I9 form) + a dpni
       endpoint read for idempotence; stateful fake. Board-witness
       marker: dpni(child)↔dpmac(root) is DPNI-I9-allowed but
