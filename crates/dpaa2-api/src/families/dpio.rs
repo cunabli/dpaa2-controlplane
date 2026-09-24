@@ -305,6 +305,69 @@ pub fn derived_seats(plan: &CompiledPlan, container: &Container) -> i64 {
     .unwrap_or(i64::MAX)
 }
 
+// ---- the grow-only reboot-required residue (DPIO-I2; pool-objects design D4/D10) ----
+
+/// The observed-vs-required seat gap a grow-only regime reports when it sits ABOVE its
+/// requirement — the Rust twin of the `dpio.qnt` `SeatResidue` record
+/// (`{ regime, observed, required }`; pool-objects design D4/D10). A dpio seat cannot be torn
+/// down live (the ADR-0008 §4 race), so a surplus is never destroyed: it is reported, and the
+/// reboot named as the reconciliation path (ADR-0003 §7 recovery guarantee).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SeatResidue {
+    /// The regime whose observed seats exceed the required count.
+    pub regime: SeatRegime,
+    /// The observed seat count for the regime (the model's `dpioSeatCount`).
+    pub observed: i64,
+    /// The required seat count the observed count sits above (the derivation target).
+    pub required: i64,
+}
+
+impl core::fmt::Display for SeatResidue {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(
+            f,
+            "{} dpio seats: observed {} exceed the required {} — grow-only, so the surplus is \
+             reboot-required (a reboot rebinds the seats, ADR-0003 §7); never a live destroy",
+            self.regime.name(),
+            self.observed,
+            self.required,
+        )
+    }
+}
+
+/// The grow-only seat disposition — the Rust twin of the `dpio.qnt` `SeatDisposition` sum
+/// (`Converged | RebootRequired(SeatResidue)`; pool-objects design D4/D10). A regime at or
+/// below its requirement is [`Self::Converged`]; above it, the surplus is a typed
+/// [`Self::RebootRequired`] residue, never a torn-down seat (the ADR-0008 §4 race).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SeatDisposition {
+    /// The observed seat count meets the requirement (grow-only, so equal or a deficit the
+    /// grow tops up — a deficit is not this sum's concern, the grow handles it).
+    Converged,
+    /// The observed seat count exceeds the requirement: the typed reboot-required residue.
+    RebootRequired(SeatResidue),
+}
+
+/// The grow-only seat disposition for a regime — the `dpio.qnt` `seatDisposition`
+/// (`if observed <= required Converged else RebootRequired`; pool-objects design D4/D10). A
+/// surplus is reported, never reclaimed: the seat teardown the race forbids has no verb to
+/// reach, so the reconciliation path is the ADR-0003 §7 reboot.
+///
+/// Pure and sans-io: it compares the observed count the caller supplies against the derived
+/// requirement, observing and driving nothing.
+#[must_use]
+pub const fn seat_disposition(regime: SeatRegime, observed: i64, required: i64) -> SeatDisposition {
+    if observed <= required {
+        SeatDisposition::Converged
+    } else {
+        SeatDisposition::RebootRequired(SeatResidue {
+            regime,
+            observed,
+            required,
+        })
+    }
+}
+
 /// The typed refusal a create past the regime's seat ceiling raises — the Rust twin of the
 /// disabled `dpio.qnt` `createDpioAt` guard (`dpioSeatCount < seatCeiling`), the `-ERANGE`
 /// shape (`docs/baseline/dpio.md` "Kernel-side behavior": "Number of DPIOs exceeds
@@ -572,6 +635,41 @@ mod tests {
             ),
         ];
         assert!(admit_seat(&three, SeatRegime::DpdkSeat, 2, 2).is_ok());
+    }
+
+    // ---- seatResidueReportedTest: grow-only surplus is reboot-required, never destroyed ----
+
+    #[test]
+    fn seat_disposition_reports_surplus_as_reboot_required() {
+        // dpio.qnt seatResidueReportedTest: two kernel seats vs required one ⇒ reboot-required; equal ⇒ converged.
+        assert_eq!(
+            seat_disposition(SeatRegime::KernelSeat, 2, 1),
+            SeatDisposition::RebootRequired(SeatResidue {
+                regime: SeatRegime::KernelSeat,
+                observed: 2,
+                required: 1,
+            })
+        );
+        assert_eq!(
+            seat_disposition(SeatRegime::KernelSeat, 2, 2),
+            SeatDisposition::Converged
+        );
+        assert_eq!(
+            seat_disposition(SeatRegime::KernelSeat, 0, 2),
+            SeatDisposition::Converged
+        );
+    }
+
+    #[test]
+    fn seat_residue_names_the_reboot_reconciliation_path() {
+        let SeatDisposition::RebootRequired(residue) = seat_disposition(SeatRegime::DpdkSeat, 3, 1)
+        else {
+            panic!("a surplus is reboot-required");
+        };
+        let text = residue.to_string();
+        assert!(text.contains("DpdkSeat"), "{text}");
+        assert!(text.contains("reboot-required"), "{text}");
+        assert!(text.contains("ADR-0003 §7"), "{text}");
     }
 
     // ---- noChannelReportsPrioritiesTest / DPIO_I3_modeDead (DPIO-I3, Breaking) ----

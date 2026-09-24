@@ -93,6 +93,11 @@ struct FakeState {
     /// handoff is a board-only face, so `vfio_bind` stays a no-op and a bound child is a
     /// test seeding, the guard input the population pass reads back (ADR-0017).
     bound: HashMap<DprcId, RawDriver>,
+    /// A teardown-ordering audit trail: the VFIO unbind, child-dpni disconnect, and container
+    /// destroy calls in issue order, so a test can assert the prune unbinds and disconnects
+    /// BEFORE the destroy (pool-objects design D10/D11 teardown walk). Only the ordering-
+    /// relevant verbs record; the rest of the surface stays silent.
+    audit: Vec<String>,
 }
 
 /// In-memory fake implementing both southbound ports over a shared state.
@@ -122,6 +127,7 @@ impl FakeBackend {
                 in_use: HashSet::new(),
                 endpoints: HashMap::new(),
                 bound: HashMap::new(),
+                audit: Vec::new(),
             }),
         }
     }
@@ -192,6 +198,14 @@ impl FakeBackend {
         self.state.borrow().created_cfgs.clone()
     }
 
+    /// The teardown-ordering audit trail (pool-objects design D10/D11): the VFIO unbind,
+    /// child-dpni disconnect, and container destroy calls in issue order, so a prune test can
+    /// assert the unbind and disconnect precede the destroy.
+    #[must_use]
+    pub fn audit(&self) -> Vec<String> {
+        self.state.borrow().audit.clone()
+    }
+
     /// Makes the next [`McControl::dprc_create`] refuse with `error` — a typed shim
     /// refusal (`Error::McStatus`/`Error::RestoolGuard`) — so tests exercise the refusal
     /// path (typed attribution, non-zero exit) without a board. One-shot: consumed on
@@ -236,6 +250,22 @@ impl FakeBackend {
     #[must_use]
     pub fn with_bound_dprc(self, id: DprcId, driver: RawDriver) -> Self {
         self.state.borrow_mut().bound.insert(id, driver);
+        self
+    }
+
+    /// Seeds a root topology dpni verbatim, so a test can inject a labelled kernel interface
+    /// or an empty-label DPL-born dpni the create verbs cannot mint — the fixtures the
+    /// root-dpni prune classifies (pool-objects design D10/D11 one-label law). The id advances
+    /// the next-index counter so a later create never collides.
+    #[must_use]
+    pub fn with_dpni(self, dpni: ObservedDpni) -> Self {
+        {
+            let mut st = self.state.borrow_mut();
+            if dpni.id.into_inner() >= st.next_index {
+                st.next_index = dpni.id.into_inner() + 1;
+            }
+            st.dpnis.push(dpni);
+        }
         self
     }
 
@@ -456,14 +486,17 @@ impl McControl for FakeBackend {
 
     fn disconnect(&self, dpni: DpniId) -> Result<(), Error> {
         let mut st = self.state.borrow_mut();
-        let obj = st
-            .dpnis
-            .iter_mut()
-            .find(|d| d.id == dpni)
-            .ok_or_else(|| Error::Backend(format!("{dpni} does not exist")))?;
-        obj.connected_to = None;
-        obj.netdev = None;
-        st.ready_at.remove(&dpni);
+        st.audit.push(format!("disconnect:{dpni}"));
+        // A child dpni is a pool row whose edge lives in `endpoints`, not `connected_to`
+        // (pool-objects design D11): clear both faces so the DPNI-I9 disconnect reaches it.
+        let child_edge = st.endpoints.remove(&dpni).is_some();
+        if let Some(obj) = st.dpnis.iter_mut().find(|d| d.id == dpni) {
+            obj.connected_to = None;
+            obj.netdev = None;
+            st.ready_at.remove(&dpni);
+        } else if !child_edge {
+            return Err(Error::Backend(format!("{dpni} does not exist")));
+        }
         Ok(())
     }
 
@@ -471,6 +504,10 @@ impl McControl for FakeBackend {
         let mut st = self.state.borrow_mut();
         st.dpnis.retain(|d| d.id != dpni);
         st.ready_at.remove(&dpni);
+        // A destroyed consumer releases the pool draws it held (pool-objects design D10 teardown
+        // walk): the fake models one consumer, so its teardown clears the hidden in-use set.
+        // ponytail: whole-set clear, per-consumer draw tracking if a test needs it.
+        st.in_use.clear();
         Ok(())
     }
 
@@ -523,7 +560,10 @@ impl McControl for FakeBackend {
         {
             return Err(Error::McStatus { status: 0x10 });
         }
+        st.audit.push(format!("dprc_destroy:{container}"));
         st.containers.remove(&container);
+        // The destroyed container takes its resident pool rows with it (pool-objects design D11).
+        st.pool_objects.retain(|(c, _)| *c != container);
         Ok(())
     }
 
@@ -671,7 +711,10 @@ impl KernelControl for FakeBackend {
         Ok(())
     }
 
-    fn vfio_unbind(&self, _dprc: DprcId) -> Result<(), Error> {
+    fn vfio_unbind(&self, dprc: DprcId) -> Result<(), Error> {
+        let mut st = self.state.borrow_mut();
+        st.audit.push(format!("vfio_unbind:{dprc}"));
+        st.bound.remove(&dprc);
         Ok(())
     }
 
