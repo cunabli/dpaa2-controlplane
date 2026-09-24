@@ -82,6 +82,12 @@ struct FakeState {
     /// these `drawn: false` (restool has no draw column), so a reclaim selects them and the
     /// `--plugged=0` probe bounces `-EBUSY`, the in-use refusal that IS the drawn signal.
     in_use: HashSet<ObjectRef>,
+    /// Child-dpni connection edges (pool-objects design D11): the peer each dpni was
+    /// connected to by [`McControl::connect_in`], read back by
+    /// [`McControl::observe_endpoint`]. A child dpni is a pool row (see
+    /// [`FakeBackend::create_dpni_in`]), not an [`ObservedDpni`], so its connection lives
+    /// here, not on a `connected_to` field.
+    endpoints: HashMap<DpniId, ObjectRef>,
 }
 
 /// In-memory fake implementing both southbound ports over a shared state.
@@ -109,6 +115,7 @@ impl FakeBackend {
                 pool_objects: Vec::new(),
                 next_pool: 0,
                 in_use: HashSet::new(),
+                endpoints: HashMap::new(),
             }),
         }
     }
@@ -383,6 +390,27 @@ impl McControl for FakeBackend {
         Ok(())
     }
 
+    // A plain insert records the ancestor-connect edge; a same-peer re-connect is a no-op,
+    // the idempotence the converge relies on (pool-objects design D11).
+    fn connect_in(&self, _ancestor: DprcId, dpni: DpniId, peer: ObjectRef) -> Result<(), Error> {
+        self.state.borrow_mut().endpoints.insert(dpni, peer);
+        Ok(())
+    }
+
+    // A recorded child-dpni edge, else a root dpni's `connected_to` as a dpmac ref, else None.
+    fn observe_endpoint(&self, dpni: DpniId) -> Result<Option<ObjectRef>, Error> {
+        let st = self.state.borrow();
+        if let Some(&peer) = st.endpoints.get(&dpni) {
+            return Ok(Some(peer));
+        }
+        Ok(st
+            .dpnis
+            .iter()
+            .find(|d| d.id == dpni)
+            .and_then(|d| d.connected_to)
+            .map(|m| ObjectRef::new(Family::Dpmac, m.into_inner())))
+    }
+
     fn set_mac(&self, dpni: DpniId, mac: MacAddr) -> Result<(), Error> {
         let mut st = self.state.borrow_mut();
         let obj = st
@@ -640,5 +668,51 @@ impl KernelControl for FakeBackend {
 
     fn iommu_group(&self, _dprc: DprcId) -> Result<Option<u32>, Error> {
         Ok(None)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Both directions plus the idempotent re-connect path (pool-objects design D11).
+    #[test]
+    fn connect_in_then_endpoint_reads_back_and_is_idempotent() {
+        let backend = FakeBackend::new();
+        let label = ConstructName::from("tenant-port");
+        let dpni = backend
+            .create_dpni_in(DprcId::new(2), &DpniCfg::defaults(), &label)
+            .expect("create child dpni");
+        let peer = ObjectRef::new(Family::Dpmac, 7);
+
+        assert_eq!(backend.observe_endpoint(dpni).expect("read"), None);
+
+        backend
+            .connect_in(DprcId::new(1), dpni, peer)
+            .expect("connect");
+        assert_eq!(backend.observe_endpoint(dpni).expect("read"), Some(peer));
+
+        backend
+            .connect_in(DprcId::new(1), dpni, peer)
+            .expect("re-connect");
+        assert_eq!(backend.observe_endpoint(dpni).expect("read"), Some(peer));
+    }
+
+    // A dpni↔dpni peer reads back with its own family (the cross-container case, DPNI-I9).
+    #[test]
+    fn endpoint_reads_back_a_dpni_peer() {
+        let backend = FakeBackend::new();
+        let dpni = backend
+            .create_dpni_in(
+                DprcId::new(2),
+                &DpniCfg::defaults(),
+                &ConstructName::from("a"),
+            )
+            .expect("create");
+        let peer = ObjectRef::new(Family::Dpni, 9);
+        backend
+            .connect_in(DprcId::new(1), dpni, peer)
+            .expect("connect");
+        assert_eq!(backend.observe_endpoint(dpni).expect("read"), Some(peer));
     }
 }

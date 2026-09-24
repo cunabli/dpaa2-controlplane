@@ -84,6 +84,38 @@ pub trait McControl {
     /// Returns an error if the connection fails.
     fn connect(&self, dpni: DpniId, dpmac: DpmacId) -> Result<(), Error>;
 
+    /// Connects `dpni` to `peer` issued from their common ancestor `ancestor` — the
+    /// DPNI-I9 connect form (`docs/baseline/dpni.md` DPNI-I9): `dprc connect <ancestor>
+    /// --endpoint1=<dpni> --endpoint2=<peer>`, with **no** root plug step. This is the
+    /// child-port divergence from the root-shaped [`connect`](Self::connect), whose
+    /// `dprc assign --plugged` targets the shim's own container — the wrong container for
+    /// a child dpni (pool-objects design D11). `peer` is an [`ObjectRef`] so both the
+    /// child-dpni↔root-dpmac and the cross-container dpni↔dpni cases render.
+    ///
+    /// The reconciler reads [`observe_endpoint`](Self::observe_endpoint) first, so a
+    /// re-run over an already-connected edge issues nothing (idempotence, DPNI-I9's
+    /// both-endpoints-disconnected precondition).
+    ///
+    /// **Board-witness marker:** dpni(child)↔dpmac(root) is DPNI-I9-*allowed* but board-
+    /// verified only for dpni↔dpni (kdpni pairs in production). The child↔dpmac case is
+    /// witnessed on the board or it fails loud (pool-objects task 4.3); there is no
+    /// runtime gating here.
+    ///
+    /// # Errors
+    /// Returns an error if the connection fails.
+    fn connect_in(&self, ancestor: DprcId, dpni: DpniId, peer: ObjectRef) -> Result<(), Error>;
+
+    /// Reads the object `dpni` is currently connected to from its `endpoint:` line, or
+    /// `Ok(None)` when disconnected (`No object associated`) — the idempotence read the
+    /// child-port converge issues before [`connect_in`](Self::connect_in) to ask "already
+    /// connected to X?" (pool-objects design D11). The peer is an [`ObjectRef`] so a
+    /// dpmac and a cross-container dpni peer both read back (`docs/baseline/dpni.md`
+    /// DPNI-I9).
+    ///
+    /// # Errors
+    /// Returns an error if the backend cannot be queried.
+    fn observe_endpoint(&self, dpni: DpniId) -> Result<Option<ObjectRef>, Error>;
+
     /// Sets the DPNI primary MAC (used only in actuate mode).
     ///
     /// # Errors
