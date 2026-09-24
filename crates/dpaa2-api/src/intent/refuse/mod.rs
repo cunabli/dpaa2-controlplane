@@ -19,7 +19,7 @@ use crate::core::family::{DERIVED_FAMILIES, Family};
 use crate::core::inventory::{Ceiling, Inventory};
 use crate::core::model::{DesiredPort, DesiredTopology, DpmacId};
 use crate::core::types::{ConstructName, TenantName};
-use crate::intent::compiled::CompiledPlan;
+use crate::intent::compiled::{CompiledPlan, Container, ObjectKey};
 use crate::intent::derive::{derive, is_hw_switched_port, seeded_rate_classes};
 use crate::intent::{Dataplane, Intent, Member};
 
@@ -480,6 +480,74 @@ impl Compiled {
             .collect();
         DesiredTopology::from_parts(self.plan.clone(), ports)
             .expect("a compiled plan pairs coherently with its terminated-port projection")
+    }
+
+    /// The Root-container slice of [`desired_topology`](Self::desired_topology).
+    ///
+    /// The same projection filtered to ports whose compiled plan places the terminating
+    /// dpni in [`Container::Root`], keyed by the plan's dpni container and never the
+    /// dataplane (pool-objects design D11; bead dpaa2-controlplane-960.24) — so a
+    /// `Restricted { pool: kernel }` userspace tenant routes to the shell iff its plan
+    /// lands it in root.
+    ///
+    /// The imperative shell's port loop and link application drive this slice; the child
+    /// port-edges leave the transition stream for the population plan (pool-objects task
+    /// 3.13 is that pass). The plan facet is sliced to match: the child port-edges and
+    /// the dpni objects they terminate are dropped so the retained port-edges and the
+    /// root ports name one dpmac set, while every other object (child companions
+    /// included) stays in the plan-only census until the population pass moves it.
+    ///
+    /// # Panics
+    ///
+    /// Panics on a [`crate::core::model::FacetMismatch`] — the ports and retained
+    /// port-edges are filtered by the one shared container key, so a disagreeing pairing
+    /// is a compiler bug, never operator input.
+    #[must_use]
+    pub fn desired_topology_root(&self, intent: &Intent) -> DesiredTopology {
+        let container_of: BTreeMap<&ObjectKey, &Container> = self
+            .plan
+            .objects
+            .iter()
+            .map(|o| (o.key(), o.container()))
+            .collect();
+        let in_root = |key: &ObjectKey| matches!(container_of.get(key), Some(Container::Root));
+
+        let root_macs: BTreeSet<DpmacId> = self
+            .plan
+            .edges
+            .iter()
+            .filter_map(|e| e.port_edge_dpni())
+            .filter(|&(key, _)| in_root(key))
+            .map(|(_, dpmac)| dpmac)
+            .collect();
+        let ports: Vec<DesiredPort> = intent
+            .ports
+            .iter()
+            .filter(|p| root_macs.contains(&p.dpmac))
+            .map(|p| DesiredPort {
+                mac: p.mac,
+                mac_mode: p.mac_mode,
+                ..DesiredPort::new(p.dpmac, p.name.as_str())
+            })
+            .collect();
+
+        // Drop the child port-edges and their dpni objects; keep the rest (pool-objects design D11).
+        let dropped: BTreeSet<ObjectKey> = self
+            .plan
+            .edges
+            .iter()
+            .filter_map(|e| e.port_edge_dpni())
+            .filter(|&(key, _)| !in_root(key))
+            .map(|(key, _)| key.clone())
+            .collect();
+        let mut plan = self.plan.clone();
+        plan.edges
+            .retain(|e| e.port_edge_dpni().is_none_or(|(key, _)| in_root(key)));
+        plan.objects.retain(|o| !dropped.contains(o.key()));
+        plan.order.retain(|k| !dropped.contains(k));
+
+        DesiredTopology::from_parts(plan, ports)
+            .expect("the root ports and retained root port-edges name one dpmac set")
     }
 }
 
