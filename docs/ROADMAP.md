@@ -26,7 +26,7 @@ Two operating modes frame the whole series (design D8; restool-baseline):
 | 6 | `pool-objects` | dpbp + dpio + dpcon + dpmcp as one change (they live and die together as the driver's allocation pool); models + suites | 2, 4 | — |
 | 7 | `dpmac-typestate` | Full dpmac surface (link types, counters, MAC inheritance semantics); model + suite | 2, 4 | — |
 | 8 | `dpseci-typestate` | SEC queue pairs, priorities, congestion; anchored to the vpp-dpaa2-support crypto ADRs; model + suite | 2, 4 | — |
-| 9 | `cross-dprc-links` | dpni↔dpni pseudo-wires (kernel↔VPP) as a first-class link construct; netlink side. **Decision point: Mellanox DT revert** (see below) — first traffic-bearing phase | 4, 5 | — |
+| 9 | `cross-dprc-links` | dpni↔dpni pseudo-wires (kernel↔VPP) as a first-class link construct; netlink side. **Decision point: Mellanox DT revert** (see below) — first traffic-bearing phase. Owns the ADR-0017 VFIO rebind-drift policy (deferred from `pool-objects` design D11, bead dpaa2-controlplane-w01): healing a bound child's drift needs an unbind/rebind cycle only a live dataplane can schedule | 4, 5 | — |
 | 10 | `mc-portal-backend` | Rust ioctl MC-portal transport — the workspace's single unsafe module; MC v10 single-version with startup firmware assertion; per-family migration off restool behind the unchanged `McControl` trait, each gated by differential testing (same plan through both backends → identical observed state) | 5–8 | — |
 | 11 | `dpsw-typestate` | Switch object; online-discovery-heavy; switching topologies beyond point-to-point | 9 | — |
 | 12 | `dpdmux-typestate` | Demux object; kernel/VPP port-sharing topologies | 9 | — |

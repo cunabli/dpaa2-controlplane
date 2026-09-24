@@ -31,5 +31,9 @@ constraints.
 #### Scenario: Teardown returns the baseline
 - **WHEN** the tenants are removed from the intent and the tool
   re-runs
-- **THEN** every runtime-created object of the four families and their
-  consumers is destroyed and the board census matches the DPL baseline
+- **THEN** every runtime-created dpmcp, dpbp, and dpcon and every
+  consumer (the kernel dpni, the populated child dprc) is destroyed;
+  the grow-only dpio seats (design D4) are reported as a typed
+  reboot-required residue — observed vs. required stated, the
+  reconciliation path named (ADR-0003 §7) — and are the only census
+  delta against the DPL baseline, which the closing reboot restores

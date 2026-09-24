@@ -83,6 +83,48 @@ opus48-developer parcel.
       cohabitant) with directed runs replayed as re-frozen twins, so
       census divergences fail offline first (design D9;
       bead 960.20).
+- [ ] 3.9 Model — the plug facet (discovered at 4.3's authoring audit,
+      2026-09-24: the plugged⇒drawn census proxy makes managed surplus
+      unreclaimable and the divergence lived in the observation
+      mapping, below the model's state space): pool_lifecycle splits
+      allocatable (plugged, DPBP-I2) from drawn; reclaim is the
+      unplug-probe law (unplug of drawn refused — the board's in-use
+      refusal is the drawn signal; plugged-free unplugs then destroys);
+      dpio residue is a typed reboot-required disposition; teardown
+      walk (consumers before pool shrink) as a directed run; twins
+      re-frozen with plugged explicit in the mapping (design D10;
+      bead 960.22). Model first — the oracle the Rust twin validates
+      against.
+- [ ] 3.10 Custody twin: census/select/dispatch conform to 3.9 —
+      plugged distinct from drawn, unplug-probe shrink/prune verbs,
+      the two label judges (judge_label vs PoolMembership) reconciled
+      into one law (board rev1/rev3: the out-of-band empty-label dpbp
+      was never a prune candidate); 960.21's fold-direction finding
+      re-judged over the widened census (design D10; bead 960.23).
+- [ ] 3.11 Routing: ports actuate in their planned container — a
+      root-only projection (keyed by the compiled plan's dpni
+      container) feeds the port loop and link::apply; child port-edges
+      leave the transitions for the population plan; render snapshots
+      re-frozen (design D11; bead 960.24).
+- [ ] 3.12 MC seam for child ports: connect issued from the common
+      ancestor without the root plug step (DPNI-I9 form) + a dpni
+      endpoint read for idempotence; stateful fake. Board-witness
+      marker: dpni(child)↔dpmac(root) is DPNI-I9-allowed but
+      unverified — 4.3 witnesses it (design D11; bead 960.25).
+- [ ] 3.13 Population pass: converge_population after
+      converge_containers, planned FROM the compiled plan (per-port
+      child dpnis — arity from the verified derivation, never a
+      constant), vfio_handoff guarded by a bound_driver read, dry-run
+      block + child census in status so converged renders empty;
+      drift inside a bound child is a typed refusal (ADR-0017; the
+      healing policy is roadmap #9's, bead w01) (design D11;
+      bead 960.26).
+- [ ] 3.14 Teardown to baseline: undeclared managed-labelled root
+      dpnis prune under the double gate; ensure reorders consumer
+      teardown before pool shrink; container prune gains vfio_unbind
+      + child-dpni disconnect; dpio residue renders as the typed
+      disposition; V-POOL-6.sh shrink/prune legs revised to the
+      amended laws (design D10/D11; bead 960.27).
 
 ## 4. Suites
 
@@ -94,7 +136,11 @@ opus48-developer parcel.
       row advances (pre-run record commit per board protocol).
 - [ ] 4.3 Board: the two MVP scenarios — live kernel interface in
       dprc.1; populated VFIO-bound dprc.N; drift-heal and teardown
-      re-runs (system-integration req 1).
+      re-runs (system-integration req 1). Waits on 3.9–3.14 (the
+      2026-09-24 audit: Scenario B unwired, teardown unreachable,
+      shrink/prune assert laws the shipped census cannot execute);
+      V-MVP-1 intent + offline pins landed at the first authoring
+      pass, the suite script follows 3.14.
 - [ ] 4.4 GATED — DPL-defined-child escape: only if 4.1–4.3 leave a
       routed invariant unreachable at root scope; names the
       invariant, operator-approved before any boot-config write

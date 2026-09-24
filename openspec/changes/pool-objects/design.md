@@ -220,6 +220,89 @@ unchanged and already cover boot-baseline objects. Building the arm
 would legitimize the double-feed the decision removes instead of
 removing it.
 
+### D10 — Custody carries the plug facet; reclaim probes, residue is typed
+
+*Added 2026-09-24 during phase 4 (the 4.3 authoring audit, beads
+dpaa2-controlplane-960.22/.23/.27).*
+
+The board exposes two custody observables the model had collapsed into
+one: *plugged* — the object sits in the kernel's allocatable pool
+(DPBP-I2: allocatable ⟺ plugged ∧ allocator-bound) — and *drawn* — a
+consumer actually holds it. The Rust census bridged them with a
+conservative proxy (plugged ⇒ drawn), and the reconciler plugs
+everything it creates so the kernel can draw it; together those make
+managed surplus structurally unreclaimable — D3's free-only shrink and
+D9's "a departing port leaves surplus for free-only shrink" both
+assert a law the shipped census cannot execute (V-POOL-6 rev 1–3, the
+2026-09-24 audit). The divergence lived in the observation mapping
+between the model and the board, a seam trace-replay cannot check
+until the model's state space carries the facet explicitly.
+
+Decision, in three parts. (1) The model splits the facets:
+`pool_lifecycle` gains plug/unplug transitions distinct from
+draw/return, and the twins' observation mapping carries plugged
+explicitly, so census divergences of this class fail offline first —
+the model stays the behavior oracle the Rust twin is validated
+against. (2) Reclaim is the *unplug-probe* law: a shrink or prune of a
+managed individual attempts the unplug first; the MC refusing it
+(object in use) is the drawn signal read from the board itself and
+surfaces as the ShrinkBelowDraw face; a successful unplug is followed
+by destroy. Drawn-ness is discovered, never inferred from a proxy.
+(3) A divergence the tool must not reconcile live is *typed residue*,
+never silence: the grow-only dpio seats (D4; the twice-observed
+ADR-0008 §4 race) render in ensure/dry-run/status as a
+reboot-required disposition — observed vs. required stated, the
+reconciliation path named (ADR-0003 §7). Intent stays the expressed
+truth; inventory the tool cannot move is reported against it, not
+carved out of it.
+
+The two label judges are reconciled under the same decision:
+`judge_label` and `PoolMembership` disagree on the empty label
+(Foreign("dpl") vs DplBorn — the board twice showed the out-of-band
+empty-label dpbp escaping prune), and one law replaces them.
+
+*Alternatives rejected:* creating surplus unplugged — it leaves the
+kernel unable to draw the capacity the pool exists to provide;
+keeping the proxy and dropping shrink from scope — it abandons D9's
+own premise; destroying dpio seats live — it re-opens the §4 race on
+every teardown for no witness the reboot does not already give.
+
+### D11 — Actuation is planned from the compiled plan, per container
+
+*Added 2026-09-24 during phase 4 (the 4.3 authoring audit, beads
+dpaa2-controlplane-960.24/.25/.26).*
+
+Task 3.3 delivered `populate_child`/`vfio_handoff` as primitives, but
+nothing in the imperative shell called them: the port loop actuated
+every terminated port in the root (a userspace tenant's dpni would be
+created in dprc.1 and handed to dpaa2-eth), the child was created
+empty, and `populate_child` hardcoded one dpni per child while the
+reference intent derives two — a compile-vs-actuation arity mismatch
+between two individually verified layers.
+
+Decision: every actuation pass takes its shape from the compiled plan,
+which the derivation invariants already verify. Ports route by their
+planned dpni's container (Root ports feed the port loop and
+link::apply through a root-only projection; child port-edges feed the
+population plan) — the container, not the dataplane, is the key, so a
+`Restricted { pool: kernel }` userspace tenant lands where its plan
+says. `converge_population` runs after `converge_containers`: child id
+resolved by label, per-port dpnis and derived companions populated
+from the plan, connect issued from the common ancestor (DPNI-I9 form,
+without the root plug step), and `vfio_handoff` guarded by a
+`bound_driver` read so a re-run is a no-op. Population renders its own
+dry-run block and joins the status census, so "empty plan" quantifies
+over every pass. Drift inside a bound child is a typed refusal
+(ADR-0017: residents added while bound stay invisible until a rebind
+cycle); the healing policy needs a live dataplane to schedule the
+disruption and is roadmap #9's decision (bead dpaa2-controlplane-w01).
+
+*Alternatives rejected:* routing by tenant dataplane — it contradicts
+the plan for restricted-pool tenants; one dpni per child for the MVP —
+it closes the change with the flagship reference intent unactuatable;
+folding population into `converge_containers` — it breaks the
+container-only tile #5/#6 boundary and the vdprc9 pin that guards it.
+
 ## Risks / Trade-offs
 
 - [P3's count-only claim fails contact with real dispatch — e.g.

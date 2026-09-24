@@ -68,3 +68,34 @@ distinguishes free individuals of one family.
   absent from intent
 - **THEN** every DPL-born object remains and every undeclared free
   runtime object is removed
+
+### Requirement: Custody carries the plug facet distinct from draw
+The model SHALL split the two board custody observables the census
+collapsed (pool-objects design D10; 2026-09-24 audit): *plugged* —
+allocatable, in the kernel's pool (DPBP-I2: allocatable ⟺ plugged ∧
+allocator-bound) — and *drawn* — held by a consumer. `pool_lifecycle`
+SHALL model plug/unplug as transitions distinct from draw/return;
+reclaim of a managed individual SHALL be the unplug-probe law (an
+unplug of a drawn individual is refused and the refusal is the drawn
+signal; a plugged-free individual unplugs, then destroys); the
+grow-only dpio residue SHALL be a typed reboot-required disposition,
+never a silent carve-out. The ITF twins' observation mapping SHALL
+carry the plugged facet explicitly so a Rust census that infers drawn
+from plugged fails a frozen twin offline, before any board sitting.
+
+#### Scenario: Managed surplus reclaims through the probe
+- **WHEN** the derived requirement drops below the managed count and
+  the surplus individuals are plugged but not drawn
+- **THEN** each unplugs and is destroyed, and the census converges to
+  the requirement
+
+#### Scenario: The probe refuses on a drawn individual
+- **WHEN** a shrink selects a managed individual a consumer holds
+- **THEN** the unplug is refused, no destroy of that individual is
+  reachable, and the refusal surfaces as the ShrinkBelowDraw face
+
+#### Scenario: Teardown orders consumers before pools
+- **WHEN** an empty intent replays over a converged two-tenant state
+- **THEN** consumer and container teardown steps precede every pool
+  shrink step, the trio census returns to the DPL baseline, and the
+  dpio residue is the reported disposition, not a failure
