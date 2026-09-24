@@ -19,6 +19,7 @@ use dpaa2_api::intent::compiled::{
 use dpaa2_api::intent::refuse::{Refusal, Warning};
 use dpaa2_api::plan::dprc::{ConsumerConvergence, ContainerVerdict, FingerprintField, PruneItem};
 use dpaa2_api::plan::{Class, Plan, Transition};
+use dpaa2_mc::ChildPlan;
 
 use crate::engine::PoolDrift;
 
@@ -291,6 +292,97 @@ pub fn render_pool_drift(plan: &CompiledPlan, drift: &PoolDrift) -> String {
         drift.dpio_observed, drift.dpio_required,
     );
     render_root_provenance(plan, Family::Dpio, &mut out);
+    out
+}
+
+/// Renders the child-population pass the run would drive (pool-objects design D11;
+/// system-integration req 1): a header with the combined headline, then per child its
+/// re-observation handle, converged/pending state and VFIO bind, the dpni arity (planned vs
+/// present, connected vs peers), the trio families' observed-vs-derived counts and
+/// class-tagged disposition (or the [`ShrinkBelowDraw`] refusal), and the dpio seats — the
+/// same class-gating conventions the pool drift uses. A converged, bound board shows an
+/// all-hitless headline and empty dispositions: the idempotent run's zero-action proof.
+///
+/// [`ShrinkBelowDraw`]: dpaa2_api::families::pool_lifecycle::ShrinkBelowDraw
+#[must_use]
+pub fn render_population(children: &[ChildPlan]) -> String {
+    let headline = children
+        .iter()
+        .map(ChildPlan::headline)
+        .max()
+        .unwrap_or(Class::Hitless);
+    let mut out = String::new();
+    let _ = writeln!(
+        out,
+        "child population ({} child(ren)) [headline: {headline}]:",
+        children.len(),
+    );
+    if children.is_empty() {
+        let _ = writeln!(out, "  (none)");
+    }
+    for cp in children {
+        let present = cp.dpnis.iter().filter(|d| d.observed.is_some()).count();
+        let connected = cp.dpnis.iter().filter(|d| d.connected).count();
+        let peers = cp.dpnis.iter().filter(|d| d.peer.is_some()).count();
+        let state = if cp.is_converged() {
+            "converged"
+        } else {
+            "pending"
+        };
+        let _ = writeln!(
+            out,
+            "  {label} [{child}] {state} [headline: {ch}] bound={bound}",
+            label = cp.label,
+            child = cp.child,
+            ch = cp.headline(),
+            bound = cp.bound,
+        );
+        let _ = writeln!(
+            out,
+            "    dpni present={present}/{planned} connected={connected}/{peers}",
+            planned = cp.dpnis.len(),
+        );
+        for (family, (required, census, disposition)) in &cp.families {
+            match disposition {
+                Ok(deltas) => {
+                    let class = if deltas.is_empty() {
+                        Class::Hitless
+                    } else {
+                        Class::Disruptive
+                    };
+                    let _ = writeln!(
+                        out,
+                        "    {} observed managed={}/{} required={required} [{class}] create={} destroy={} prune={}",
+                        family.name(),
+                        census.managed(),
+                        census.population(),
+                        deltas.create,
+                        deltas.destroy,
+                        deltas.prune,
+                    );
+                }
+                Err(refusal) => {
+                    let _ = writeln!(
+                        out,
+                        "    {} observed managed={}/{} required={required} REFUSED: {refusal}",
+                        family.name(),
+                        census.managed(),
+                        census.population(),
+                    );
+                }
+            }
+        }
+        let dpio_class = if cp.seats.0 > cp.seats.1 {
+            Class::Disruptive
+        } else {
+            Class::Hitless
+        };
+        let _ = writeln!(
+            out,
+            "    dpio seats observed={} required={} [{dpio_class}]",
+            cp.seats.1, cp.seats.0,
+        );
+    }
     out
 }
 

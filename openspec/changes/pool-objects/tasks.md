@@ -111,7 +111,7 @@ opus48-developer parcel.
       endpoint read for idempotence; stateful fake. Board-witness
       marker: dpni(child)↔dpmac(root) is DPNI-I9-allowed but
       unverified — 4.3 witnesses it (design D11; bead 960.25).
-- [ ] 3.13 Population pass: converge_population after
+- [x] 3.13 Population pass: converge_population after
       converge_containers, planned FROM the compiled plan (per-port
       child dpnis — arity from the verified derivation, never a
       constant), vfio_handoff guarded by a bound_driver read, dry-run

@@ -15,7 +15,7 @@ use dpaa2_api::core::error::Error;
 use dpaa2_api::core::family::Family;
 use dpaa2_api::core::inventory::{Ceiling, Inventory};
 use dpaa2_api::core::model::{DesiredTopology, DpmacId, DpniId, DprcId, ObservedTopology};
-use dpaa2_api::core::types::ConstructName;
+use dpaa2_api::core::types::{ConstructName, TenantName};
 use dpaa2_api::families::dpio::derived_seats;
 use dpaa2_api::families::dprc::Options;
 use dpaa2_api::families::pool_lifecycle::{
@@ -31,7 +31,10 @@ use dpaa2_api::plan::dprc::{
 };
 use dpaa2_api::plan::reconcile::{ReconcileOptions, reconcile_with};
 use dpaa2_api::plan::{Class, Plan, Transition};
-use dpaa2_mc::{default_dpio_cfg, dispatch_pool_deltas};
+use dpaa2_mc::{
+    ChildPlan, default_dpio_cfg, dispatch_child_population, dispatch_pool_deltas,
+    plan_child_population, vfio_handoff,
+};
 
 /// Policy for a convergence run.
 #[derive(Clone, Copy, Debug)]
@@ -622,7 +625,7 @@ pub fn plan_pools<M: McControl>(plan: &CompiledPlan, mc: &M) -> Result<PoolDrift
 }
 
 /// Converges the root's pool families toward the compiled plan's derived counts (pool-objects
-/// task 3.4; pool-objects design D3), mirroring [`populate_child`](dpaa2_mc::populate_child) at root scope:
+/// task 3.4; pool-objects design D3), mirroring [`dispatch_child_population`] at root scope:
 /// census → disposition → dispatch → read-back verdict, composing only the phase-2/3 pure
 /// functions and the [`dispatch_pool_deltas`] edge (no new policy).
 ///
@@ -640,7 +643,7 @@ pub fn plan_pools<M: McControl>(plan: &CompiledPlan, mc: &M) -> Result<PoolDrift
 /// - Grows the dpio seat deficit plain (`dpio_create`, NOT `create_dpio_seat`): the
 ///   dpio→dpmcp probe pairing is the kernel dpio driver's own draw, and the dpmcp pool the
 ///   trio just converged supplies it (pool-objects design D4). Seats are grown, never shrunk,
-///   as [`populate_child`](dpaa2_mc::populate_child) does.
+///   as [`dispatch_child_population`] does.
 ///
 /// Idempotent and level-triggered: a converged root yields an empty-headline drift and
 /// returns [`PoolOutcome::Converged`] without dispatching, and a second pass over it does too.
@@ -724,6 +727,151 @@ pub fn converge_pools<M: McControl>(
     }
 
     Ok(PoolOutcome::Converged)
+}
+
+/// The outcome of the child-population pass (pool-objects design D11) — the population analog
+/// of [`ContainerOutcome`]. Kept distinct because a population refusal is either the disruption
+/// gate or the bound-child drift refusal (ADR-0017), neither a container [`Attribution`] nor a
+/// DPMAC deadline.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PopulationOutcome {
+    /// Every declared child is populated to its derived census, its dpnis connected, and
+    /// bound to VFIO (the idempotence witness reproduces it).
+    Converged,
+    /// A child population's headline exceeded the run's `--allow` gate (ADR-0015 decision
+    /// 12); nothing was actuated. Creating a resident is [`Class::Disruptive`].
+    DisruptionRefused {
+        /// The headline the population would have actuated.
+        headline: Class,
+        /// The maximum class the run allowed.
+        allowed: Class,
+    },
+    /// A child is already VFIO-bound yet its plan still needs residents: residents added to a
+    /// bound child stay invisible until a rebind cycle (ADR-0017), so the drift is surfaced to
+    /// the operator and nothing is actuated — the healing policy is roadmap #9's (bead
+    /// dpaa2-controlplane-w01), never this pass.
+    DriftRefused {
+        /// The bound child whose plan still carries pending residents.
+        label: ConstructName,
+    },
+}
+
+/// The distinct child (non-root) containers the compiled plan places objects in, by tenant
+/// name (pool-objects design D11). A child that owns a container appears here; the root and a
+/// restricted drawer pooling the kernel do not.
+fn child_tenants(plan: &CompiledPlan) -> BTreeSet<TenantName> {
+    plan.objects
+        .iter()
+        .filter_map(|o| match o.container() {
+            Container::Child(tenant) => Some(tenant.clone()),
+            Container::Root => None,
+        })
+        .collect()
+}
+
+/// Reads every declared child's population plan (pool-objects design D11), resolving each
+/// child's re-observation handle by its container label — the seam the `dry-run` and `status`
+/// surfaces render and [`converge_population`] dispatches. A declared child whose container is
+/// not yet observed (not created this pass) is skipped: it cannot be populated until it
+/// exists, and the level-triggered re-run populates it once [`converge_containers`] has.
+///
+/// # Errors
+/// Propagates a backend/kernel read failure.
+pub fn plan_population<M: McControl, K: KernelControl>(
+    plan: &CompiledPlan,
+    mc: &M,
+    kernel: &K,
+) -> Result<Vec<ChildPlan>, Error> {
+    let observed = mc.observe_containers()?;
+    let declared = root_declared(plan);
+    let mut plans = Vec::new();
+    for tenant in child_tenants(plan) {
+        let label = ConstructName::from(&tenant);
+        let Some((&id, _)) = observed
+            .iter()
+            .find(|(_, c)| c.label.as_str() == label.as_str())
+        else {
+            continue;
+        };
+        let container = Container::Child(tenant);
+        plans.push(plan_child_population(
+            mc, kernel, id, plan, &container, &label, &declared,
+        )?);
+    }
+    Ok(plans)
+}
+
+/// Converges every declared child container's population toward the compiled plan
+/// (pool-objects D11; system-integration req 1), run after [`converge_containers`] so each
+/// child exists before it is populated. Mirrors [`converge_pools`] at child scope: plan → gate →
+/// dispatch → read-back verdict, composing the `dpaa2_mc::populate` edge (no new policy).
+///
+/// The pass, in order:
+/// - Reads every child's plan ([`plan_population`]). A child that is already VFIO-bound yet
+///   still needs residents is [`PopulationOutcome::DriftRefused`] before any dispatch: a
+///   resident added to a bound child stays invisible until a rebind (ADR-0017), so the drift
+///   surfaces and nothing is healed here.
+/// - Gates the combined headline against `cfg.allow` (ADR-0015 decision 12): creating a
+///   resident (a dpni, a trio delta, a dpio seat) is [`Class::Disruptive`].
+/// - Populates each unconverged child ([`dispatch_child_population`]) — per-port dpnis with
+///   arity from the plan, their dpmac connect from the common ancestor, the trio deltas and
+///   dpio seats — and judges convergence by the post-dispatch read-back census.
+/// - Hands each not-yet-bound child to VFIO ([`vfio_handoff`]), guarded by the plan's
+///   `bound_driver` read so a re-run over a bound child issues nothing.
+///
+/// Idempotent and level-triggered: a converged, bound child yields an empty plan and is
+/// neither grown nor re-bound, and a second pass over it does too.
+///
+/// # Errors
+/// Propagates a backend/kernel read/dispatch error, and reports a child that failed to reach
+/// its derived census after dispatch as an [`Error::Backend`].
+pub fn converge_population<M: McControl, K: KernelControl>(
+    plan: &CompiledPlan,
+    mc: &M,
+    kernel: &K,
+    cfg: ConvergeConfig,
+) -> Result<PopulationOutcome, Error> {
+    let plans = plan_population(plan, mc, kernel)?;
+
+    // ADR-0017: a bound child with pending residents is a typed refusal, before any dispatch.
+    if let Some(cp) = plans.iter().find(|c| c.bound && !c.is_converged()) {
+        tracing::error!(label = %cp.label, "residents drift inside a bound child; a rebind cycle is required (ADR-0017)");
+        return Ok(PopulationOutcome::DriftRefused {
+            label: cp.label.clone(),
+        });
+    }
+
+    // Gate on the combined headline before touching the board (ADR-0015 decision 12).
+    let headline = plans
+        .iter()
+        .map(ChildPlan::headline)
+        .max()
+        .unwrap_or(Class::Hitless);
+    if headline > cfg.allow {
+        tracing::error!(%headline, allowed = %cfg.allow, "child population exceeds allowed disruption class");
+        return Ok(PopulationOutcome::DisruptionRefused {
+            headline,
+            allowed: cfg.allow,
+        });
+    }
+
+    let declared = root_declared(plan);
+    for cp in &plans {
+        if !cp.is_converged() {
+            let pop = dispatch_child_population(mc, cp, &declared)?;
+            if !pop.converged(cp.dpnis.len()) {
+                return Err(Error::Backend(format!(
+                    "child `{}` did not converge after population dispatch: {pop:?}",
+                    cp.label
+                )));
+            }
+        }
+        // Populate, then bind (ADR-0017): the handoff fires only on a not-yet-bound child.
+        if !cp.bound {
+            vfio_handoff(kernel, cp.child)?;
+        }
+    }
+    Ok(PopulationOutcome::Converged)
 }
 
 /// Reads MC state and enriches each DPNI with its kernel netdev name.

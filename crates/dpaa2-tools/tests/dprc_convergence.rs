@@ -16,6 +16,7 @@ use dpaa2_api::core::family::Family;
 use dpaa2_api::core::model::{DpmacId, DprcId, MacMode, ObjectRef};
 use dpaa2_api::core::types::ConstructName;
 use dpaa2_api::families::dprc::{ContainerState, ObservedResident, Options, ResidentKind};
+use dpaa2_api::families::pool_lifecycle::RawDriver;
 use dpaa2_api::intent::compiled::Container;
 use dpaa2_api::intent::refuse::{Compiled, compile};
 use dpaa2_api::intent::{Dataplane, Intent, Isolation, Port, Tenant, TenantRef};
@@ -24,7 +25,9 @@ use dpaa2_api::plan::dprc::{
     Attribution, ContainerVerdict, ObservedContainer, OptionBit, PruneBucket, plan_prune,
 };
 use dpaa2_api::testkit::ref_inventory;
-use dpaa2_tools::engine::{self, ContainerOutcome, ConvergeConfig, PruneOutcome};
+use dpaa2_tools::engine::{
+    self, ContainerOutcome, ConvergeConfig, PopulationOutcome, PruneOutcome,
+};
 use dpaa2_tools::render;
 
 /// A single isolated userspace-poll consumer ("router") on one 10G port — the smallest
@@ -455,4 +458,115 @@ fn render_prune_shows_candidate_partial_and_report_only() {
 #[test]
 fn render_prune_empty_says_none() {
     insta::assert_snapshot!(render::render_prune(&BTreeMap::new()));
+}
+
+// ---- child population after container convergence (pool-objects design D11) ----
+
+/// The reference router (two 10G ports, T = 5): its child derives TWO dpnis plus its
+/// poll-mode companions, the arity the population reads from the plan (never a constant).
+fn compiled_reference() -> Compiled {
+    let port = |name: &str, dpmac: u32| Port {
+        name: name.into(),
+        dpmac: DpmacId::new(dpmac),
+        rate: 10_000,
+        tenant: TenantRef::from_name("router".into()),
+        mac: None,
+        mac_mode: MacMode::Assert,
+        renamed: None,
+    };
+    let intent = Intent {
+        tenants: vec![Tenant {
+            name: "router".into(),
+            dataplane: Dataplane::UserspacePoll,
+            max_cores: 16,
+            isolation: Isolation::Isolated,
+            renamed: None,
+        }],
+        ports: vec![port("wan0", 7), port("wan1", 9)],
+        ..Intent::empty()
+    };
+    compile(&intent, &ref_inventory(16)).expect("reference intent must compile")
+}
+
+#[test]
+fn population_converges_the_child_then_reruns_clean() {
+    // pool-objects design D11 / system-integration req 1: converge the container, then populate
+    // it — two dpnis (plan arity), connected to their dpmac peers, plus the derived companions
+    // and dpio seats. A second population pass creates and binds nothing (idempotent; the
+    // vfio_handoff no-op on re-run rides the whole pass being empty).
+    let compiled = compiled_reference();
+    let backend = FakeBackend::new();
+
+    assert_eq!(
+        engine::converge_containers(&compiled.plan, &backend, disruptive_cfg()).unwrap(),
+        ContainerOutcome::Converged
+    );
+    assert_eq!(
+        engine::converge_population(&compiled.plan, &backend, &backend, disruptive_cfg()).unwrap(),
+        PopulationOutcome::Converged
+    );
+
+    let child = DprcId::new(2);
+    let count = |f: Family| backend.observe_pool(Some(child), f).unwrap().len();
+    assert_eq!(
+        count(Family::Dpni),
+        2,
+        "arity from the plan, not a constant"
+    );
+    assert_eq!(count(Family::Dpbp), 2);
+    assert_eq!(count(Family::Dpmcp), 1);
+    assert_eq!(count(Family::Dpcon), 10);
+    assert_eq!(count(Family::Dpio), 10);
+
+    // The plan re-reads converged and a second pass leaves the census untouched.
+    let plans = engine::plan_population(&compiled.plan, &backend, &backend).unwrap();
+    assert_eq!(plans.len(), 1);
+    assert!(plans[0].is_converged(), "the re-plan is converged");
+    assert_eq!(
+        engine::converge_population(&compiled.plan, &backend, &backend, disruptive_cfg()).unwrap(),
+        PopulationOutcome::Converged
+    );
+    assert_eq!(count(Family::Dpni), 2, "re-run creates no third dpni");
+    assert_eq!(count(Family::Dpio), 10, "re-run creates no extra seats");
+}
+
+#[test]
+fn population_refuses_drift_inside_a_bound_child() {
+    // ADR-0017: a child already bound to vfio-fsl-mc whose plan still needs residents is a typed
+    // drift refusal — residents added while bound stay invisible until a rebind — and nothing is
+    // populated or healed here.
+    let compiled = compiled_reference();
+    // dprc_create mints dprc.2; seed it bound before it is created so the empty child reads bound.
+    let backend =
+        FakeBackend::new().with_bound_dprc(DprcId::new(2), RawDriver::from("vfio-fsl-mc"));
+    assert_eq!(
+        engine::converge_containers(&compiled.plan, &backend, disruptive_cfg()).unwrap(),
+        ContainerOutcome::Converged
+    );
+
+    assert_eq!(
+        engine::converge_population(&compiled.plan, &backend, &backend, disruptive_cfg()).unwrap(),
+        PopulationOutcome::DriftRefused {
+            label: "router".into()
+        }
+    );
+    assert!(
+        backend
+            .observe_pool(Some(DprcId::new(2)), Family::Dpni)
+            .unwrap()
+            .is_empty(),
+        "a bound-child drift refusal actuates nothing"
+    );
+}
+
+#[test]
+fn render_population_shows_the_converged_child() {
+    // The dry-run/status block for a converged child: two present, connected dpnis, the trio
+    // and dpio seats all hitless — the idempotent run's zero-action proof, printed.
+    let compiled = compiled_reference();
+    let backend = FakeBackend::new();
+    engine::converge_containers(&compiled.plan, &backend, disruptive_cfg()).unwrap();
+    engine::converge_population(&compiled.plan, &backend, &backend, disruptive_cfg()).unwrap();
+    let plans = engine::plan_population(&compiled.plan, &backend, &backend).unwrap();
+    insta::assert_snapshot!(render::render_population(&plans));
 }

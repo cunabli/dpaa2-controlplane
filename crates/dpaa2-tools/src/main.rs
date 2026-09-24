@@ -17,7 +17,7 @@ use dpaa2_api::plan::Class;
 use dpaa2_api::plan::reconcile::{ReconcileOptions, reconcile_with};
 use dpaa2_mc::{RestoolMc, SysfsKernel};
 use dpaa2_tools::engine::{
-    self, ContainerOutcome, ConvergeConfig, Outcome, PoolOutcome, PruneOutcome,
+    self, ContainerOutcome, ConvergeConfig, Outcome, PoolOutcome, PopulationOutcome, PruneOutcome,
 };
 use dpaa2_tools::{StatusReport, link, render};
 
@@ -153,6 +153,11 @@ fn run(cli: &Cli) -> Result<ExitCode, Error> {
             // Reported alongside the port lifecycle; the exit code stays port-driven.
             let pools = engine::plan_pools(&compiled.plan, &mc)?;
             print!("{}", render::render_pool_drift(&compiled.plan, &pools));
+            // The child-population census the same run would drive, read-only off the board
+            // (pool-objects design D11): per-child dpni arity, trio counts, dpio seats, and the
+            // VFIO bind. Reported alongside the port lifecycle; the exit code stays port-driven.
+            let population = engine::plan_population(&compiled.plan, &mc, &kernel)?;
+            print!("{}", render::render_population(&population));
             Ok(if report.has_diverged() {
                 ExitCode::FAILURE
             } else {
@@ -187,6 +192,12 @@ fn run(cli: &Cli) -> Result<ExitCode, Error> {
             // class-gated disposition, and each family's provenance — a dry-run dispatches nothing.
             let pools = engine::plan_pools(&compiled.plan, &mc)?;
             print!("{}", render::render_pool_drift(&compiled.plan, &pools));
+            // The child-population census the same run would drive, read-only off the board
+            // (pool-objects design D11): per-child dpni arity, its trio/dpio counts and the VFIO
+            // bind — a dry-run dispatches nothing, so every child a converged board holds renders
+            // an empty, hitless plan.
+            let population = engine::plan_population(&compiled.plan, &mc, &kernel)?;
+            print!("{}", render::render_population(&population));
             Ok(ExitCode::SUCCESS)
         }
         Command::Ensure {
@@ -221,7 +232,10 @@ fn ensure(
     if !warnings.is_empty() {
         eprint!("{warnings}");
     }
-    let desired = compiled.desired_topology(&intent);
+    // The root slice feeds the port loop: only root-planned dpnis actuate here, and a child
+    // tenant's dpni is left for the population pass, never created in dprc.1 (pool-objects
+    // design D11; bead dpaa2-controlplane-960.24 routed dry-run/status, this closes ensure).
+    let desired = compiled.desired_topology_root(&intent);
 
     let cfg = ConvergeConfig {
         deadline: Duration::from_secs(deadline),
@@ -281,6 +295,14 @@ fn ensure(
         }
     }
 
+    // Populate each declared child container after it exists (pool-objects design D11;
+    // system-integration req 1): per-port child dpnis with plan-derived arity, their dpmac
+    // connect, the derived companions and dpio seats, then the VFIO handoff. A drift inside a
+    // bound child or an over-allow headline exits non-zero, changing nothing.
+    if let Some(code) = run_population(mc, kernel, &compiled.plan, cfg)? {
+        return Ok(code);
+    }
+
     // Prune undeclared consumer containers under the double gate (dprc-encapsulation task 4.3).
     // A separate pass so an empty intent still prunes; the report is printed before the
     // outcome, and a below-disruptive refusal exits non-zero, changing nothing.
@@ -326,6 +348,39 @@ fn ensure(
         }
         // Handled above (returns before link application); listed for exhaustiveness.
         Outcome::DisruptionRefused { .. } => Ok(ExitCode::FAILURE),
+    }
+}
+
+/// Converges the child-container populations, mapping each refusal to its operator message
+/// and a non-zero exit (pool-objects design D11). Returns `Some(exit)` on a refusal (nothing
+/// further should run), `None` when every child converged.
+///
+/// # Errors
+/// Propagates a backend/kernel read/dispatch error.
+fn run_population(
+    mc: &RestoolMc<dpaa2_mc::RestoolRunner>,
+    kernel: &SysfsKernel,
+    plan: &dpaa2_api::intent::compiled::CompiledPlan,
+    cfg: ConvergeConfig,
+) -> Result<Option<ExitCode>, Error> {
+    match engine::converge_population(plan, mc, kernel, cfg)? {
+        PopulationOutcome::Converged => Ok(None),
+        PopulationOutcome::DisruptionRefused { headline, allowed } => {
+            println!(
+                "refused: a child population's headline is `{headline}`, but the run allows only \
+                 up to `{allowed}`.\nre-run with `--allow={headline}` to actuate it (disruptive is \
+                 never implied)."
+            );
+            Ok(Some(ExitCode::FAILURE))
+        }
+        PopulationOutcome::DriftRefused { label } => {
+            println!(
+                "refused: child `{label}` is VFIO-bound but its population drifted; residents \
+                 added to a bound child stay invisible until a rebind cycle (ADR-0017). The \
+                 rebind policy is roadmap #9's decision (bead dpaa2-controlplane-w01)."
+            );
+            Ok(Some(ExitCode::FAILURE))
+        }
     }
 }
 
