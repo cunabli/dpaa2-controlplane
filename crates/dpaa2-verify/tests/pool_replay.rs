@@ -72,6 +72,14 @@ const TRACES: &[(&str, &str)] = &[
         "a converged state enables no grow, shrink, or prune",
     ),
     (
+        "dpbp_lifecycle::pool_lifecycle::managedSurplusReclaimsTest",
+        "managed surplus reclaims via the unplug probe: plugged-free unplugs then destroys",
+    ),
+    (
+        "dpbp_lifecycle::pool_lifecycle::teardownWalkTest",
+        "teardown orders consumers before pools; the freed managed then unplugs and destroys",
+    ),
+    (
         "dpbp_lifecycle::pool_lifecycle::envBornDrawnNetsTest",
         "environment draws the DPL-born; it nets out of the draw guard (V-POOL-6)",
     ),
@@ -156,6 +164,24 @@ fn check_state(file: &str, i: usize, w: &PoolWorld) {
 /// `shrinkDestroyAt`/`pruneAt` guards). draw/return/plug/retarget carry no population delta
 /// and are covered by [`check_state`] alone.
 fn check_transition(file: &str, i: usize, prev: &PoolWorld, w: &PoolWorld) {
+    // The unplug probe (pool-objects design D10): an already-present object leaving the plugged
+    // pool must be a managed, undrawn individual (the `shrinkUnplugAt` guard); a just-created one is excluded.
+    for o in w.unplugged.difference(&prev.unplugged) {
+        if !prev.present.contains(o) {
+            continue;
+        }
+        if !prev.managed.contains(o) {
+            finding(file, i, "an unplug probe cleared a non-managed individual");
+        }
+        if prev.drawn.contains(o) {
+            finding(
+                file,
+                i,
+                "an unplug probe cleared a drawn individual (the probe must refuse a live draw)",
+            );
+        }
+    }
+
     let dpop = w.census.population() - prev.census.population();
     if dpop > 0 {
         // A create fired: the census ceiling gate admitted it (DPBP-I7).
@@ -172,6 +198,16 @@ fn check_transition(file: &str, i: usize, prev: &PoolWorld, w: &PoolWorld) {
             // A managed shrink: surplus with a free managed victim.
             if !prev.census.shrink_enabled(prev.derived_req) {
                 finding(file, i, "a shrink fired without an enabled surplus");
+            }
+            // `shrinkDestroyAt` destroys only a probe-cleared (unplugged) individual — the two-step reclaim; a still-plugged managed victim means the probe was skipped (pool-objects design D10).
+            for o in prev.present.difference(&w.present) {
+                if prev.managed.contains(o) && !prev.unplugged.contains(o) {
+                    finding(
+                        file,
+                        i,
+                        "a managed shrink destroyed a still-plugged individual (unplug probe skipped)",
+                    );
+                }
             }
         } else {
             // A prune: an undeclared free object reclaimed (the census foreign-free).
@@ -408,7 +444,7 @@ fn every_committed_trace_is_listed() {
 fn decode_rejects_a_population_over_the_ceiling() {
     let obj = |n: u32| {
         format!(
-            r##"[{{"fam":{{"tag":"Dpbp","value":{{"#tup":[]}}}},"num":{{"#bigint":"{n}"}}}},{{"parent":{{"tag":"Some","value":{{"fam":{{"tag":"Dprc","value":{{"#tup":[]}}}},"num":{{"#bigint":"1"}}}}}},"allocatedBy":{{"tag":"None","value":{{"#tup":[]}}}}}}]"##
+            r##"[{{"fam":{{"tag":"Dpbp","value":{{"#tup":[]}}}},"num":{{"#bigint":"{n}"}}}},{{"parent":{{"tag":"Some","value":{{"fam":{{"tag":"Dprc","value":{{"#tup":[]}}}},"num":{{"#bigint":"1"}}}}}},"plugged":true,"allocatedBy":{{"tag":"None","value":{{"#tup":[]}}}}}}]"##
         )
     };
     let objs = (0..4).map(obj).collect::<Vec<_>>().join(",");

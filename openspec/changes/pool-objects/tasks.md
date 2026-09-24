@@ -95,7 +95,7 @@ opus48-developer parcel.
       re-frozen with plugged explicit in the mapping (design D10;
       bead 960.22). Model first — the oracle the Rust twin validates
       against.
-- [ ] 3.10 Custody twin: census/select/dispatch conform to 3.9 —
+- [x] 3.10 Custody twin: census/select/dispatch conform to 3.9 —
       plugged distinct from drawn, unplug-probe shrink/prune verbs,
       the two label judges (judge_label vs PoolMembership) reconciled
       into one law (board rev1/rev3: the out-of-band empty-label dpbp

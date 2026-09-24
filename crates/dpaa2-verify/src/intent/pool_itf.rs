@@ -45,8 +45,9 @@ const BORN_ORDINAL: u32 = 0;
 const CEILING: i64 = 3;
 
 /// One frozen state as the pool-objects count vocabulary: the observed [`PoolCensus`], the
-/// derived requirement, the reconciler ghost-set size, the drawn-foreign count, and the
-/// observable refusal flag (`pool_lifecycle` vars `s` and `conv`).
+/// derived requirement, the reconciler ghost-set size, the drawn-foreign count, the
+/// observable refusal flag, and the per-object plug/draw/managed sets the probe-shape
+/// transition checks read (`pool_lifecycle` vars `s` and `conv`).
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct PoolWorld {
     /// The census the ceiling/convergence predicates judge (the model's `poolPopulation`
@@ -62,6 +63,19 @@ pub struct PoolWorld {
     pub foreign_drawn: i64,
     /// The observable `ShrinkBelowDraw` refusal flag (`conv.refusal`).
     pub refusal: bool,
+    /// Every pooled-family object parented to the pool container (the `poolPopulation`
+    /// domain), by id — the identity the probe-shape transition checks diff.
+    pub present: BTreeSet<(Family, u32)>,
+    /// The subset that is NOT plugged — an object mid-reclaim the unplug probe has cleared,
+    /// or (transiently) a created-not-yet-plugged one. The plugged facet the census carries
+    /// distinct from drawn (pool-objects design D10): a probe-cleared object leaves the
+    /// allocatable pool before it is destroyed.
+    pub unplugged: BTreeSet<(Family, u32)>,
+    /// The subset a consumer draws (`allocatedBy != None`) — the real draw facet, never
+    /// inferred from plugged (pool-objects design D10).
+    pub drawn: BTreeSet<(Family, u32)>,
+    /// The reconciler ghost set `conv.managed`, by id.
+    pub managed: BTreeSet<(Family, u32)>,
 }
 
 /// One frozen step of a directed pool run.
@@ -83,23 +97,36 @@ fn managed_set(conv: &Value) -> Result<BTreeSet<(Family, u32)>, String> {
         .collect()
 }
 
+/// The count vocabulary plus the per-object identity sets one frozen `CoreState` decodes to.
+struct Decoded {
+    census: PoolCensus,
+    foreign_drawn: i64,
+    present: BTreeSet<(Family, u32)>,
+    unplugged: BTreeSet<(Family, u32)>,
+    drawn: BTreeSet<(Family, u32)>,
+}
+
 /// Reduces the `CoreState` object map to the model's pool count vocabulary: `poolPopulation`
-/// (every `FAMILY` object parented to the pool container) split by custody (`allocatedBy`)
-/// and, for the free pool, by label (the DPL-born ordinal, the reconciler ghost set, or an
+/// (every `FAMILY` object parented to the pool container) split by custody (`allocatedBy`),
+/// by the plugged (allocatable) facet distinct from the draw (pool-objects design D10), and,
+/// for the free pool, by label (the DPL-born ordinal, the reconciler ghost set, or an
 /// undeclared foreign).
-fn census_of(s: &Value, managed: &BTreeSet<(Family, u32)>) -> Result<(PoolCensus, i64), String> {
+fn census_of(s: &Value, managed: &BTreeSet<(Family, u32)>) -> Result<Decoded, String> {
     let entries = field(s, "objs")?["#map"]
         .as_array()
         .ok_or("objs is not a #map")?;
     let (
         mut population,
         mut free,
-        mut drawn,
+        mut drawn_n,
         mut born,
         mut foreign_free,
         mut foreign_drawn,
         mut born_drawn,
     ) = (0i64, 0i64, 0i64, 0i64, 0i64, 0i64, 0i64);
+    let mut present = BTreeSet::new();
+    let mut unplugged = BTreeSet::new();
+    let mut drawn = BTreeSet::new();
     for entry in entries {
         let pair = entry.as_array().ok_or("objs entry is not a pair")?;
         let (fam, n) = obj_ref(&pair[0])?;
@@ -107,16 +134,24 @@ fn census_of(s: &Value, managed: &BTreeSet<(Family, u32)>) -> Result<(PoolCensus
         // pooled family in the pool container — the model's `poolPopulation` filter.
         let parent = opt_obj_ref(field(&pair[1], "parent")?)?;
         let allocated = opt_obj_ref(field(&pair[1], "allocatedBy")?)?;
+        let is_plugged = field(&pair[1], "plugged")?
+            .as_bool()
+            .ok_or("plugged is not a bool")?;
         if fam != POOL_FAMILY || parent != Some(POOL_CONTAINER) {
             continue;
         }
         population += 1;
+        present.insert((fam, n));
+        if !is_plugged {
+            unplugged.insert((fam, n));
+        }
         let is_drawn = allocated.is_some();
         let is_managed = managed.contains(&(fam, n));
         if is_drawn {
-            drawn += 1;
+            drawn.insert((fam, n));
+            drawn_n += 1;
             if n == BORN_ORDINAL {
-                born_drawn += 1; // a drawn DPL-born nets out of the draw guard (V-POOL-6; pool-objects design D3)
+                born_drawn += 1; // a drawn DPL-born nets out of the draw guard (pool-objects design D3, V-POOL-6)
             } else if !is_managed {
                 foreign_drawn += 1;
             }
@@ -134,10 +169,13 @@ fn census_of(s: &Value, managed: &BTreeSet<(Family, u32)>) -> Result<(PoolCensus
             "pool population {population} exceeds the dpbp ceiling {CEILING} (DPBP-I7): no MC-legal state creates past the census floor"
         ));
     }
-    Ok((
-        PoolCensus::new(population, free, drawn, born, foreign_free, born_drawn),
+    Ok(Decoded {
+        census: PoolCensus::new(population, free, drawn_n, born, foreign_free, born_drawn),
         foreign_drawn,
-    ))
+        present,
+        unplugged,
+        drawn,
+    })
 }
 
 /// One frozen step as a [`PoolStep`].
@@ -148,15 +186,19 @@ fn pool_step(state: &Value) -> Result<PoolStep, String> {
     };
     let s = state_var(state, "s")?;
     let managed = managed_set(conv)?;
-    let (census, foreign_drawn) = census_of(s, &managed)?;
+    let decoded = census_of(s, &managed)?;
     Ok(PoolStep::World(PoolWorld {
-        census,
+        census: decoded.census,
         derived_req: int64(field(conv, "derivedReq")?)?,
         managed_count: i64::try_from(managed.len()).unwrap_or(i64::MAX),
-        foreign_drawn,
+        foreign_drawn: decoded.foreign_drawn,
         refusal: field(conv, "refusal")?
             .as_bool()
             .ok_or("refusal is not a bool")?,
+        present: decoded.present,
+        unplugged: decoded.unplugged,
+        drawn: decoded.drawn,
+        managed,
     }))
 }
 
