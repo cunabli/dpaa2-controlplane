@@ -144,7 +144,7 @@ fn run(cli: &Cli) -> Result<ExitCode, Error> {
             let Some((intent, compiled)) = compile_intent(&mc, &cli.config)? else {
                 return Ok(ExitCode::FAILURE);
             };
-            let desired = compiled.desired_topology(&intent);
+            let desired = compiled.desired_topology_root(&intent);
             let observed = engine::observe(&mc, &kernel)?;
             let report = StatusReport::compute(&desired, &observed);
             print!("{report}");
@@ -163,7 +163,7 @@ fn run(cli: &Cli) -> Result<ExitCode, Error> {
             let Some((intent, compiled)) = compile_intent(&mc, &cli.config)? else {
                 return Ok(ExitCode::FAILURE);
             };
-            let desired = compiled.desired_topology(&intent);
+            let desired = compiled.desired_topology_root(&intent);
             let observed = engine::observe(&mc, &kernel)?;
             let plan = reconcile_with(&desired, &observed, ReconcileOptions { prune: *prune });
             print!(

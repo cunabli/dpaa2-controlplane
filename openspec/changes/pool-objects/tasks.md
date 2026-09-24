@@ -101,7 +101,7 @@ opus48-developer parcel.
       into one law (board rev1/rev3: the out-of-band empty-label dpbp
       was never a prune candidate); 960.21's fold-direction finding
       re-judged over the widened census (design D10; bead 960.23).
-- [ ] 3.11 Routing: ports actuate in their planned container — a
+- [x] 3.11 Routing: ports actuate in their planned container — a
       root-only projection (keyed by the compiled plan's dpni
       container) feeds the port loop and link::apply; child port-edges
       leave the transitions for the population plan; render snapshots

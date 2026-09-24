@@ -473,13 +473,7 @@ edges:
   kernel/dpni/1#0 <-> dpmac.4  [port-edge]
   router/dpni/1#0 <-> dpmac.7  [port-edge]
   router/dpni/2#0 <-> dpmac.9  [port-edge]
-9 planned transition(s) [headline: disruptive]:
-  [disruptive] Create { port: dpmac.7, label: ConstructName("wan0"), num_queues: 5, options: [SingleSender,CustomCg,HasKeyMasking,HasOpr,OprPerTc,PfdrInPeb] }
-  [disruptive] Connect { port: dpmac.7 }
-  [hitless] Bind { port: dpmac.7 }
-  [disruptive] Create { port: dpmac.9, label: ConstructName("wan1"), num_queues: 5, options: [SingleSender,CustomCg,HasKeyMasking,HasOpr,OprPerTc,PfdrInPeb] }
-  [disruptive] Connect { port: dpmac.9 }
-  [hitless] Bind { port: dpmac.9 }
+3 planned transition(s) [headline: disruptive]:
   [disruptive] Create { port: dpmac.4, label: ConstructName("lan0"), num_queues: 16, options: [HasKeyMasking] }
   [disruptive] Connect { port: dpmac.4 }
   [hitless] Bind { port: dpmac.4 }
