@@ -88,6 +88,11 @@ struct FakeState {
     /// [`FakeBackend::create_dpni_in`]), not an [`ObservedDpni`], so its connection lives
     /// here, not on a `connected_to` field.
     endpoints: HashMap<DpniId, ObjectRef>,
+    /// The bus driver bound to a child dprc, read by [`KernelControl::bound_driver`]
+    /// (pool-objects design D11). Seeded by [`FakeBackend::with_bound_dprc`]: the VFIO
+    /// handoff is a board-only face, so `vfio_bind` stays a no-op and a bound child is a
+    /// test seeding, the guard input the population pass reads back (ADR-0017).
+    bound: HashMap<DprcId, RawDriver>,
 }
 
 /// In-memory fake implementing both southbound ports over a shared state.
@@ -116,6 +121,7 @@ impl FakeBackend {
                 next_pool: 0,
                 in_use: HashSet::new(),
                 endpoints: HashMap::new(),
+                bound: HashMap::new(),
             }),
         }
     }
@@ -219,6 +225,17 @@ impl FakeBackend {
                 st.next_dprc = id.into_inner() + 1;
             }
         }
+        self
+    }
+
+    /// Seeds a child dprc as VFIO-bound, the guard input the population pass reads back
+    /// (pool-objects design D11; ADR-0017): `bound_driver` returns `driver`, so a bound
+    /// child with pending residents is the typed drift refusal and a bound converged child
+    /// skips the handoff. The board-only bind face is never actuated by the fake, so this
+    /// is the only way to reach a bound child in a hardware-free test.
+    #[must_use]
+    pub fn with_bound_dprc(self, id: DprcId, driver: RawDriver) -> Self {
+        self.state.borrow_mut().bound.insert(id, driver);
         self
     }
 
@@ -658,8 +675,8 @@ impl KernelControl for FakeBackend {
         Ok(())
     }
 
-    fn bound_driver(&self, _dprc: DprcId) -> Result<Option<RawDriver>, Error> {
-        Ok(None)
+    fn bound_driver(&self, dprc: DprcId) -> Result<Option<RawDriver>, Error> {
+        Ok(self.state.borrow().bound.get(&dprc).cloned())
     }
 
     fn driver_override(&self, _dprc: DprcId) -> Result<Option<String>, Error> {
