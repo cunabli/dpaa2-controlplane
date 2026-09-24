@@ -50,6 +50,14 @@ module dpio {
   // verify rung needs (families/params.qnt header; companions.qnt REF_* precedent).
   pure val CHANNEL_MODES: Set[ChannelMode] = Set(LocalChannel, NoChannel)
   pure val SEAT_REGIMES: Set[SeatRegime] = Set(KernelSeat, DpdkSeat)
+
+  // dpio is grow-only (pool-objects design D4/D10; ADR-0008 §4 race): a seat cannot be torn
+  // down live, so a surplus is NOT destroyed — it renders as a typed reboot-required residue,
+  // observed vs required stated, never a silent carve-out. RebootRequired names the
+  // reconciliation path (a reboot rebinds the seats, ADR-0008 §4); Converged when the
+  // observed seat count already meets the required one.
+  type SeatResidue = { regime: SeatRegime, observed: int, required: int }
+  type SeatDisposition = Converged | RebootRequired(SeatResidue)
 }
 
 // The dpio seat machine (pool-objects task 1.2; docs/baseline/dpio.md). Unpooled
@@ -67,7 +75,9 @@ module dpio {
 // Named invariants (Apalache-marked via `stateInvariants`): DPIO_I2_seatBound
 // (dpio.md "Lifecycle ordering"), DPIO_I3_modeDead (Breaking, dpio.md
 // "Kernel-side behavior"). Directed runs: probeDrawTest, probeExhaustionDisabledTest,
-// seatBoundRefusedTest, noChannelReportsPrioritiesTest.
+// seatBoundRefusedTest, noChannelReportsPrioritiesTest, seatResidueReportedTest
+// (pool-objects task 3.9; the grow-only typed reboot-required residue, per
+// pool-objects design D4/D10). Model:test-only run — dpio's frozen twins are unchanged.
 module dpio_lifecycle {
   import types.* from "../core/types"
   import create_allocate.* from "../core/create_allocate"
@@ -116,6 +126,14 @@ module dpio_lifecycle {
 
   pure def dpioSeatCount(seats: ObjId -> DpioSeat, r: SeatRegime): int =
     seats.keys().filter(o => seats.get(o).regime == r).size()
+
+  // The grow-only shrink disposition (pool-objects design D4/D10; ADR-0008 §4): a required
+  // below the observed seat count cannot be met by a live destroy, so it reports residue —
+  // the observed/required gap, reboot-required — instead of tearing a seat down.
+  pure def seatDisposition(seats: ObjId -> DpioSeat, r: SeatRegime, required: int): SeatDisposition =
+    val observed = dpioSeatCount(seats, r)
+    if (observed <= required) Converged
+    else RebootRequired({ regime: r, observed: observed, required: required })
 
   action init = all { s' = initialState, dpioSeats' = Map() }
 
@@ -251,5 +269,19 @@ module dpio_lifecycle {
       .expect(and {
         dpioNotifyCapable(dpioSeats.get(dpio0)),
         dpioEightPriority(dpioSeats.get(dpio0)),
+      })
+
+  // Grow-only residue (pool-objects design D4/D10; ADR-0008 §4): two kernel seats against a
+  // required of one render a typed reboot-required residue — observed vs required stated —
+  // never a live destroy (there is no seat-teardown action to reach).
+  run seatResidueReportedTest =
+    init
+      .then(createDpioAt(LocalChannel, 8, KernelSeat))
+      .then(createDpioAt(LocalChannel, 8, KernelSeat))
+      .expect(and {
+        dpioSeatCount(dpioSeats, KernelSeat) == 2,
+        seatDisposition(dpioSeats, KernelSeat, 1)
+          == RebootRequired({ regime: KernelSeat, observed: 2, required: 1 }),
+        seatDisposition(dpioSeats, KernelSeat, 2) == Converged,
       })
 }

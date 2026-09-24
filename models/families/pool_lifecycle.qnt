@@ -23,8 +23,16 @@
 // so the model now exercises them offline. The invariants hold under this
 // interference (simulate/verify check `stateInvariants`).
 //
+// The scope also splits the two custody facets the census had collapsed (pool-objects
+// task 3.9; pool-objects design D10): plugged (allocatable, in the kernel pool — DPBP-I2:
+// allocatable ⟺ plugged ∧ allocator-bound) distinct from drawn (held by a consumer). Grow
+// creates-then-plugs, so surplus is drawable; reclaim is the unplug-probe law — an unplug of
+// a drawn individual is refused (the refusal is the drawn signal, never a plugged ⇒ drawn
+// proxy), a plugged-free individual unplugs then destroys. The twins carry plugged
+// explicitly, so a census that infers drawn from plugged fails offline first.
+//
 // The state is a CoreState so the core census/membership predicates apply
-// unchanged (create_allocate.freePool/inPool/canCreate, lifecycle.createT/plugT/
+// unchanged (create_allocate.freePool/inPool/canCreate, lifecycle.createT/plugT/unplugT/
 // markAllocated/destroyT) — no re-derivation of pool mechanics, and the shape
 // stays isomorphic (ADR-0002 §3) to the Rust P3 surface phase 2 builds. Params
 // come from families/params.qnt ALL_PARAMS (only ALL_PARAMS.get(FAMILY) is ever
@@ -42,8 +50,11 @@
 //   POOL_IDEMPOTENT (pool-objects design D3; formal-models req 2) — a converged state enables
 //     no grow, shrink, or prune.
 // Directed runs: custodyCycleTest, dirtyReturnTest (DPBP-I3), censusRefusesAtCeilingTest
-//   (DPBP-I7), convergenceGrowTest, freeOnlyShrinkTest, drawnNeverShrunkTest,
-//   shrinkBelowDrawRefusedTest, prunePreservesDplBornTest, idempotentReconvergeTest,
+//   (DPBP-I7), convergenceGrowTest, freeOnlyShrinkTest (probe-succeeds-on-plugged-free),
+//   drawnNeverShrunkTest (probe-refused-on-drawn), shrinkBelowDrawRefusedTest,
+//   prunePreservesDplBornTest, idempotentReconvergeTest, managedSurplusReclaimsTest and
+//   teardownWalkTest (pool-objects task 3.9; the unplug-probe reclaim and consumer-before-pool
+//   ordering, pool-objects design D10),
 //   and the environment-adversary trio (pool-objects task 3.8) envBornDrawnNetsTest
 //   (V-POOL-6), envForeignDrawnFoldsTest (pool-objects design D2), envCohabitantPrunedTest
 //   (pool-objects design D9).
@@ -203,23 +214,42 @@ module pool_lifecycle {
   // ---- convergence transitions (pool-objects task 1.3; pool-objects design D3) ----
 
   // Deficit → a managed grow toward the derived count, still census/ceiling gated.
+  // Created-then-plugged (pool-objects design D10; DPBP-I2): the reconciler plugs what it
+  // creates so the kernel can draw the capacity — surplus is never left unplugged.
   action growCreateAt: bool =
     val o = { fam: FAMILY, num: s.nextNum.get(FAMILY) }
     all {
       managedCount(conv) < conv.derivedReq,
       canCreate(s, ALL_PARAMS, FAMILY, poolContainer),
       censusAdmitsCreate(s),
-      s' = createT(s, ALL_PARAMS, FAMILY, poolContainer),
+      s' = plugT(createT(s, ALL_PARAMS, FAMILY, poolContainer), o),
       conv' = conv.with("managed", conv.managed.union(Set(o))),
     }
 
-  // Surplus → destroy a FREE managed individual, never a drawn one (pool-objects design D3);
-  // the victim is chosen nondeterministically — no law distinguishes free ones.
+  // Surplus reclaim step 1 — the unplug probe (pool-objects design D10; DPBP-I2:
+  // allocatable ⟺ plugged ∧ allocator-bound). A managed surplus individual is unplugged
+  // first; the MC refuses the unplug of a drawn object (allocatedBy != None disables this
+  // guard), and that refusal IS the drawn signal — read from the board, never inferred from
+  // a plugged ⇒ drawn proxy. The victim is nondeterministic; no law distinguishes free ones.
+  action shrinkUnplugAt(victim: ObjId): bool = all {
+    victim.fam == FAMILY,
+    conv.managed.contains(victim),
+    managedCount(conv) > conv.derivedReq,
+    s.objs.get(victim).allocatedBy == None,
+    s.objs.get(victim).plugged,
+    s' = unplugT(s, victim),
+    conv' = conv,
+  }
+
+  // Surplus reclaim step 2 — destroy the probe-cleared individual (pool-objects design D10):
+  // only an unplugged (thereby non-allocatable), free managed individual is destroyed and
+  // leaves the ghost set. Drawn-ness was discovered by the probe, never inferred here.
   action shrinkDestroyAt(victim: ObjId): bool = all {
     victim.fam == FAMILY,
     conv.managed.contains(victim),
     managedCount(conv) > conv.derivedReq,
     s.objs.get(victim).allocatedBy == None,
+    not(s.objs.get(victim).plugged),
     s' = destroyT(s, victim),
     conv' = conv.with("managed", conv.managed.exclude(Set(victim))),
   }
@@ -274,6 +304,7 @@ module pool_lifecycle {
   action doDraw = { nondet p = s.objs.keys().oneOf() drawAt(CONSUMER, p) }
   action doReturn = { nondet p = s.objs.keys().oneOf() returnAt(p) }
   action doGrow = growCreateAt
+  action doShrinkUnplug = { nondet v = s.objs.keys().oneOf() shrinkUnplugAt(v) }
   action doShrink = { nondet v = s.objs.keys().oneOf() shrinkDestroyAt(v) }
   action doPrune = { nondet o = s.objs.keys().oneOf() pruneAt(o) }
   action doShrinkBelowDraw = shrinkBelowDrawAt
@@ -285,6 +316,7 @@ module pool_lifecycle {
     doDraw,
     doReturn,
     doGrow,
+    doShrinkUnplug,
     doShrink,
     doPrune,
     doShrinkBelowDraw,
@@ -388,16 +420,17 @@ module pool_lifecycle {
       .expect(managedCount(conv) == 2)
       .then(growCreateAt.fail())
 
-  // Surplus → free-only shrink: the free managed individual is the victim, the
-  // drawn one survives (pool-objects design D3).
+  // Surplus → free-only shrink via the unplug probe (pool-objects design D10): the free
+  // managed individual is probe-cleared then destroyed; the drawn one survives. Grow plugs,
+  // so no separate plug step — the probe-succeeds-on-plugged-free admitted direction.
   run freeOnlyShrinkTest =
     init
       .then(retargetAt(2))
       .then(growCreateAt)
       .then(growCreateAt)
-      .then(plugPooledAt(first))
       .then(drawAt(CONSUMER, first))
       .then(retargetAt(1))
+      .then(shrinkUnplugAt(second))
       .then(shrinkDestroyAt(second))
       .expect(and {
         not(s.objs.keys().contains(second)),
@@ -405,16 +438,16 @@ module pool_lifecycle {
         s.objs.get(first).allocatedBy == Some(CONSUMER),
       })
 
-  // A drawn individual is never a shrink victim, even under surplus (pool-objects design D3).
+  // A drawn individual is never reclaimed: the unplug probe is refused on it
+  // (pool-objects design D10) — the refused guard direction, the board's in-use refusal.
   run drawnNeverShrunkTest =
     init
       .then(retargetAt(2))
       .then(growCreateAt)
       .then(growCreateAt)
-      .then(plugPooledAt(first))
       .then(drawAt(CONSUMER, first))
       .then(retargetAt(1))
-      .then(shrinkDestroyAt(first).fail())
+      .then(shrinkUnplugAt(first).fail())
 
   // ShrinkBelowDraw: a requirement below the drawn count surfaces a refusal, the
   // consumer intact (pool-objects design D3; formal-models req 2 "refusal, not a teardown").
@@ -422,7 +455,6 @@ module pool_lifecycle {
     init
       .then(retargetAt(1))
       .then(growCreateAt)
-      .then(plugPooledAt(first))
       .then(drawAt(CONSUMER, first))
       .then(retargetAt(0))
       .then(shrinkBelowDrawAt)
@@ -457,6 +489,45 @@ module pool_lifecycle {
         not(growEnabled(s, conv)),
         not(shrinkEnabled(s, conv)),
         not(anyPrunable(s, conv)),
+      })
+
+  // Managed surplus reclaims through the probe (pool-objects design D10; formal-models req
+  // "Custody carries the plug facet"): a plugged-but-undrawn surplus unplugs then destroys,
+  // and the census converges — the reclaim the collapsed proxy could not execute.
+  run managedSurplusReclaimsTest =
+    init
+      .then(retargetAt(2))
+      .then(growCreateAt)
+      .then(growCreateAt)
+      .then(retargetAt(1))
+      .then(shrinkUnplugAt(second))
+      .expect(and {
+        not(s.objs.get(second).plugged),
+        not(inPool(s, ALL_PARAMS, second)),
+      })
+      .then(shrinkDestroyAt(second))
+      .expect(and {
+        not(s.objs.keys().contains(second)),
+        managedCount(conv) == 1,
+        isConverged(s, conv),
+      })
+
+  // Teardown orders consumers before pools (pool-objects design D10; formal-models req
+  // "Teardown orders consumers before pools"): the consumer returns its draw first, and only
+  // then does the pool shrink probe+destroy the freed individual — the ordering law.
+  run teardownWalkTest =
+    init
+      .then(retargetAt(1))
+      .then(growCreateAt)
+      .then(drawAt(CONSUMER, first))
+      .then(retargetAt(0))
+      .then(returnAt(first))
+      .then(shrinkUnplugAt(first))
+      .then(shrinkDestroyAt(first))
+      .expect(and {
+        not(s.objs.keys().contains(first)),
+        managedCount(conv) == 0,
+        isConverged(s, conv),
       })
 
   // ---- environment-adversary directed runs (pool-objects task 3.8) ----

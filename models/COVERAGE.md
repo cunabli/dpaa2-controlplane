@@ -193,11 +193,19 @@ checked through the trio instantiations (representative: `dpbp_lifecycle`,
 they carry their own section here rather than a row in the 109-candidate table
 above (the same convention the Intent/Raw/Identity law sections follow). The
 five laws ride the `stateInvariants` conjunction (Apalache-marked); the
-accept/refuse shapes are directed runs in the same module. The twelve runs are
+accept/refuse shapes are directed runs in the same module. The fourteen runs are
 frozen for ITF-replay (`pnpm model:freeze-pool`) and replayed as conformance
 twins against the `dpaa2-api` P3 count surface in
 `crates/dpaa2-verify/tests/pool_replay.rs` (pool-objects task 4.1), so a Rust
 predicate that drifts from the model census fails CI.
+
+Task 3.9 (pool-objects design D10) splits the two custody facets the census had
+collapsed — plugged (allocatable, DPBP-I2) distinct from drawn — so reclaim is
+the unplug-probe law (an unplug of a drawn individual is refused, the refusal is
+the drawn signal; a plugged-free individual unplugs then destroys) and the twins
+carry plugged explicitly. The dpio grow-only residue renders as a typed
+reboot-required disposition (`families/dpio.qnt` `seatDisposition`;
+`seatResidueReportedTest`), never a silent carve-out.
 
 The module carries an environment adversary (pool-objects task 3.8): every
 P-family model gains an environment section — here a non-reconciler `EXTERNAL`
@@ -213,7 +221,10 @@ offline first rather than on the board.
 | DPL-born survive | POOL_DPL_SURVIVES + `prunePreservesDplBornTest` | simulate + apalache + itf-replay | pool-objects design D3; roadmap #14 (boot objects foreign); formal-models req 2 |
 | Managed honesty | POOL_MANAGED_LIVE | simulate + apalache + itf-replay | pool-objects design D2 (count↔individual boundary) |
 | Idempotent converge | POOL_IDEMPOTENT + `idempotentReconvergeTest` | simulate + apalache + itf-replay | pool-objects design D3; formal-models req 2 (level-triggered) |
-| Free-only shrink | `freeOnlyShrinkTest` / `drawnNeverShrunkTest` | simulate + itf-replay | pool-objects design D3; formal-models req 2 (surplus destroys free only) |
+| Free-only shrink | `freeOnlyShrinkTest` / `drawnNeverShrunkTest` | simulate + itf-replay | pool-objects design D3/D10; formal-models req 2 (surplus destroys free only, via the unplug probe) |
+| Unplug-probe reclaim | `managedSurplusReclaimsTest` / `drawnNeverShrunkTest` | simulate + itf-replay | pool-objects design D10; DPBP-I2 (allocatable ⟺ plugged; probe-succeeds-on-plugged-free, probe-refused-on-drawn) |
+| Teardown ordering | `teardownWalkTest` | simulate + itf-replay | pool-objects design D10; formal-models req (consumers release before pool shrink) |
+| dpio residue | `families/dpio.qnt` `seatDisposition` + `seatResidueReportedTest` | simulate | pool-objects design D4/D10; ADR-0008 §4 (grow-only seats; typed reboot-required residue) |
 | ShrinkBelowDraw | `shrinkBelowDrawRefusedTest` | simulate + itf-replay | pool-objects design D3; formal-models req 2 (refusal, not a teardown) |
 | Grow to count | `convergenceGrowTest` | simulate + itf-replay | pool-objects design D3 (deficit → create to the derived count) |
 | Born-drawn netting | envBornDrawnNetsTest | simulate + itf-replay | pool-objects design D3; V-POOL-6 (the DPL-born nets out of the draw guard) |

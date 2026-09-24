@@ -83,7 +83,7 @@ opus48-developer parcel.
       cohabitant) with directed runs replayed as re-frozen twins, so
       census divergences fail offline first (design D9;
       bead 960.20).
-- [ ] 3.9 Model — the plug facet (discovered at 4.3's authoring audit,
+- [x] 3.9 Model — the plug facet (discovered at 4.3's authoring audit,
       2026-09-24: the plugged⇒drawn census proxy makes managed surplus
       unreclaimable and the divergence lived in the observation
       mapping, below the model's state space): pool_lifecycle splits
