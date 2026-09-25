@@ -2,6 +2,7 @@ use std::collections::BTreeMap;
 
 use crate::core::family::Family;
 use crate::core::model::{DpmacId, DpniId};
+use crate::families::dpni::ObservationDiff;
 use crate::plan::{Class, Transition};
 
 /// A refusal: an immutable, create-time-only attribute differs from desired.
@@ -15,6 +16,20 @@ pub struct DriftReport {
     pub attribute: String,
     /// Human-readable description of desired vs. observed.
     pub detail: String,
+}
+
+/// A refused same-run rebuild: a port dpni this run created read back divergent, so a
+/// destroy-then-create would have churned live hardware (pool-objects design D12;
+/// ADR-0008 §9). Reconciliation refuses it and actuates nothing, carrying the field diff
+/// as the diagnostic that pins the mispredicted projection field.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct RebuildRefusal {
+    /// The port whose dpni was refused.
+    pub port: DpmacId,
+    /// The observed dpni the refusal is about.
+    pub dpni: DpniId,
+    /// The diverging observation fields, desired vs observed.
+    pub diff: Vec<ObservationDiff>,
 }
 
 /// An assert-only field whose observed value does not match intent.
@@ -42,6 +57,10 @@ pub struct Plan {
     pub drift: Vec<DriftReport>,
     /// Assert-only mismatches that were reported but not actuated.
     pub assertions: Vec<AssertMismatch>,
+    /// Same-run rebuilds refused so the converge loop cannot churn hardware
+    /// (pool-objects design D12; ADR-0008 §9). Actuates nothing, but a non-empty list
+    /// makes the plan unconverged.
+    pub refusals: Vec<RebuildRefusal>,
     /// Derived objects the port facet has no executor for, counted by family
     /// (design D10; restool-baseline). Reported so an operator sees the whole plan; never actuated,
     /// never drift, and — like drift and assertions — it does not affect convergence.
@@ -55,10 +74,12 @@ impl Plan {
         Self::default()
     }
 
-    /// Returns `true` when there is nothing to actuate.
+    /// Returns `true` when there is nothing to actuate. A refusal actuates nothing yet
+    /// leaves the board diverged, so a plan carrying one is not converged
+    /// (pool-objects design D12).
     #[must_use]
     pub fn is_converged(&self) -> bool {
-        self.transitions.is_empty()
+        self.transitions.is_empty() && self.refusals.is_empty()
     }
 
     /// Returns `true` when drift or an assert mismatch was reported.

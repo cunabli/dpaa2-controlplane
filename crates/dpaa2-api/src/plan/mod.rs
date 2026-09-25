@@ -18,5 +18,5 @@ pub mod reconcile;
 mod report;
 mod transition;
 
-pub use report::{AssertMismatch, DriftReport, Plan};
+pub use report::{AssertMismatch, DriftReport, Plan, RebuildRefusal};
 pub use transition::{Class, Transition};

@@ -906,6 +906,53 @@ impl DpniObservation {
             },
         }
     }
+
+    /// The field-level divergence of `self` (the desired projection) from `other` (the
+    /// observed read-back) — the diagnostic the converge-loop refusal carries to pin the
+    /// mispredicted projection field on the next board run (pool-objects design D12;
+    /// ADR-0008 §9). One [`ObservationDiff`] per differing field, `field` matching the
+    /// struct field name; a converged pair yields the empty vector. It is the Rust twin of
+    /// the `dpni_rebuild` `divergingFields` set.
+    #[must_use]
+    pub fn diff(&self, other: &Self) -> Vec<ObservationDiff> {
+        let mut out = Vec::new();
+        macro_rules! cmp {
+            ($f:ident, $name:literal) => {
+                if self.$f != other.$f {
+                    out.push(ObservationDiff {
+                        field: $name,
+                        desired: format!("{:?}", self.$f),
+                        observed: format!("{:?}", other.$f),
+                    });
+                }
+            };
+        }
+        cmp!(options, "options");
+        cmp!(num_queues, "num_queues");
+        cmp!(num_tcs, "num_tcs");
+        cmp!(mac_filter_entries, "mac_filter_entries");
+        cmp!(vlan_filter_entries, "vlan_filter_entries");
+        cmp!(qos_entries, "qos_entries");
+        cmp!(fs_entries, "fs_entries");
+        cmp!(num_cgs, "num_cgs");
+        cmp!(num_ceetm_ch, "num_ceetm_ch");
+        cmp!(num_opr, "num_opr");
+        out
+    }
+}
+
+/// One field's divergence between a desired projection and an observed read-back — the
+/// diagnostic the converge-loop rebuild refusal carries (pool-objects design D12;
+/// ADR-0008 §9). `field` is the observation field name; `desired`/`observed` are its two
+/// rendered values.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ObservationDiff {
+    /// The diverging observation field name (matches the [`DpniObservation`] field).
+    pub field: &'static str,
+    /// The desired projection's value, rendered.
+    pub desired: String,
+    /// The observed read-back's value, rendered.
+    pub observed: String,
 }
 
 // ---- drift disposition: cfg drift is destroy+create, MAC-only is the mutation ----
