@@ -24,7 +24,7 @@ use crate::core::model::{
 };
 use crate::core::types::ConstructName;
 use crate::families::dpio::{DpioCfg, Priorities};
-use crate::families::dpni::{DpniCfg, DpniObservation};
+use crate::families::dpni::{DpniCfg, DpniObservation, NumQueues};
 use crate::families::dprc::ContainerState;
 use crate::families::pool_lifecycle::{ObservedPoolObject, RawDriver, RawLabel};
 use crate::intent::compiled::Container;
@@ -98,6 +98,10 @@ struct FakeState {
     /// BEFORE the destroy (pool-objects design D10/D11 teardown walk). Only the ordering-
     /// relevant verbs record; the rest of the surface stays silent.
     audit: Vec<String>,
+    /// When set, [`McControl::create_dpni`] reads back a diverging `num_queues` so a
+    /// same-run rebuild becomes the loop-breaker refusal (pool-objects design D12) — the
+    /// projection defect a real board mispredicts, without a board.
+    readback_drift: bool,
 }
 
 /// In-memory fake implementing both southbound ports over a shared state.
@@ -128,6 +132,7 @@ impl FakeBackend {
                 endpoints: HashMap::new(),
                 bound: HashMap::new(),
                 audit: Vec::new(),
+                readback_drift: false,
             }),
         }
     }
@@ -277,6 +282,16 @@ impl FakeBackend {
         self
     }
 
+    /// Makes every subsequent [`McControl::create_dpni`] read back a diverging
+    /// `num_queues`, so a dpni this run creates looks like cfg drift on the next pass —
+    /// the mispredicted projection the loop-breaker must refuse, not churn
+    /// (pool-objects design D12).
+    #[must_use]
+    pub fn with_readback_drift(self) -> Self {
+        self.state.borrow_mut().readback_drift = true;
+        self
+    }
+
     /// Registers a DPMAC with the given link type and burned-in MAC.
     #[must_use]
     pub fn with_dpmac(self, id: DpmacId, link_type: LinkType, mac: MacAddr) -> Self {
@@ -389,6 +404,16 @@ impl McControl for FakeBackend {
         st.next_index += 1;
         // Record the handed-in block so a test can assert it reached the backend (dpni-typestate task 4.1).
         st.created_cfgs.push((id, cfg.clone()));
+        // When armed, a diverging num_queues models the mispredicted read-back (pool-objects design D12).
+        let mut observation = DpniObservation::project(cfg);
+        if st.readback_drift {
+            let bumped = if observation.num_queues.get() >= 2 {
+                1
+            } else {
+                2
+            };
+            observation.num_queues = NumQueues::new(bumped).expect("1..=2 within the envelope");
+        }
         // The object is stamped with the construct name at create (ADR-0010 §4 ABA
         // guard), so a re-observe never sees it unlabelled.
         st.dpnis.push(ObservedDpni {
@@ -399,7 +424,7 @@ impl McControl for FakeBackend {
             netdev: None,
             attributes: BTreeMap::new(),
             // Project the create's read-back so fake-vs-reconcile tests exercise cfg drift (7fv.2).
-            cfg_observation: Some(DpniObservation::project(cfg)),
+            cfg_observation: Some(observation),
         });
         Ok(id)
     }
@@ -502,6 +527,7 @@ impl McControl for FakeBackend {
 
     fn destroy(&self, dpni: DpniId) -> Result<(), Error> {
         let mut st = self.state.borrow_mut();
+        st.audit.push(format!("destroy:{dpni}"));
         st.dpnis.retain(|d| d.id != dpni);
         st.ready_at.remove(&dpni);
         // A destroyed consumer releases the pool draws it held (pool-objects design D10 teardown
@@ -677,6 +703,11 @@ impl McControl for FakeBackend {
 impl KernelControl for FakeBackend {
     fn bind(&self, _dpni: DpniId) -> Result<(), Error> {
         // Binding is automatic on plug for `dpaa2-eth`; nothing to force here.
+        Ok(())
+    }
+
+    fn unbind(&self, _dpni: DpniId) -> Result<(), Error> {
+        // The fake clears the netdev on disconnect/destroy; the eth unbind is a board sysfs write with no in-memory state (ADR-0008 §8).
         Ok(())
     }
 

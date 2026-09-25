@@ -11,6 +11,16 @@ pub trait KernelControl {
     /// Returns an error if an explicit bind is attempted and fails.
     fn bind(&self, dpni: DpniId) -> Result<(), Error>;
 
+    /// Releases `fsl_dpaa2_eth` from `dpni` via the driver's sysfs `unbind` attribute —
+    /// the §8-ordered teardown verb (ADR-0008 §8/§9; pool-objects design D12). The
+    /// disconnect has already severed the endpoint edge; unbind precedes destroy, since a
+    /// destroy issued against a still-bound dpni is refused client-side. Level-triggered:
+    /// an unbind of an already-unbound dpni is a no-op, so a teardown re-run converges.
+    ///
+    /// # Errors
+    /// Returns an error if the unbind write fails.
+    fn unbind(&self, dpni: DpniId) -> Result<(), Error>;
+
     /// Observes the netdev name for `dpni`, or `None` if none exists.
     ///
     /// A fixed-link DPMAC that `dpaa2-eth` does not bind yields `Ok(None)` — the
