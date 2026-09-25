@@ -126,7 +126,7 @@ opus48-developer parcel.
       disposition; V-POOL-6.sh shrink/prune legs revised to the
       amended laws (design D10/D11; bead 960.27).
 
-- [ ] 3.15 Loop-breaker, model first (discovered at the 4.3 sitting,
+- [x] 3.15 Loop-breaker, model first (discovered at the 4.3 sitting,
       2026-09-25: the cfg-drift branch churned a same-run-created dpni
       into a kernel crash): dpni.qnt gains the same-run rebuild-refusal
       law with a directed run; DpniObservation gains the field-level
