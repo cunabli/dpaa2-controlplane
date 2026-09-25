@@ -56,28 +56,33 @@ impl FslMcSysfs {
         self.bind_path.exists()
     }
 
-    /// Writes `<container>/<device>` to the `dpaa2-eth` driver bind attribute.
+    /// Writes the bare bus device name (`device`, e.g. `dpni.1`) to the `dpaa2-eth` driver
+    /// bind attribute. fsl-mc names bus devices `<type>.<id>` flat, with no container
+    /// prefix (`fsl-mc-bus.c` `dev_set_name`), and the driver bind attribute resolves the
+    /// written string by bus device name (`bus.c` `bus_find_device_by_name`) — a
+    /// `<container>/<device>` string matches nothing and returns `ENODEV`.
     ///
     /// # Errors
     ///
     /// Propagates the write error verbatim — `ResourceBusy` for an
     /// already-bound device, `NotFound` when the driver is not loaded.
     pub fn bind_eth(&self, device: &str) -> io::Result<()> {
-        let id = format!("{}/{device}", self.container);
-        std::fs::write(&self.bind_path, id.as_bytes())
+        std::fs::write(&self.bind_path, device.as_bytes())
     }
 
-    /// Writes `<container>/<device>` to the `dpaa2-eth` driver unbind attribute — the
-    /// reverse of [`bind_eth`](Self::bind_eth), releasing the netdev driver.
+    /// Writes the bare bus device name (`device`) to the `dpaa2-eth` driver unbind
+    /// attribute — the reverse of [`bind_eth`](Self::bind_eth), releasing the netdev
+    /// driver. The attribute resolves the string by bus device name, which fsl-mc names
+    /// `<type>.<id>` flat (`fsl-mc-bus.c` `dev_set_name`; `bus.c`
+    /// `bus_find_device_by_name`) — no container prefix.
     ///
     /// # Errors
     ///
     /// Propagates the write error verbatim — `NoDevice` when the device is not bound
     /// to this driver.
     pub fn unbind_eth(&self, device: &str) -> io::Result<()> {
-        let id = format!("{}/{device}", self.container);
         let path = self.drivers_root.join(ETH_DRIVER).join("unbind");
-        std::fs::write(path, id.as_bytes())
+        std::fs::write(path, device.as_bytes())
     }
 
     /// First netdev name under `<container>/<device>/net`, if any.
