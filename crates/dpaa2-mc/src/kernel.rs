@@ -73,10 +73,23 @@ impl KernelControl for SysfsKernel {
     /// Level-triggered (ADR-0008 §8): unbind only while `fsl_dpaa2_eth` still holds the
     /// dpni — read back the nested driver link first — so a teardown re-run over an
     /// already-unbound dpni is a no-op, mirroring the child VFIO unbind's idempotence.
+    /// The disconnect that precedes unbind makes dpaa2-eth release the netdev
+    /// asynchronously (ADR-0008 §8 endpoint-changed path), so a correct write can still
+    /// lose the race; `ENODEV` (os error 19) / `ENOENT` from the write is therefore
+    /// treated as already-unbound success, not a failure.
     fn unbind(&self, dpni: DpniId) -> Result<(), Error> {
         match self.dpni_driver(dpni)? {
             Some(driver) if driver.as_str() == ETH_DRIVER => {
-                self.bus.unbind_eth(&dpni.to_string()).map_err(Error::Io)
+                match self.bus.unbind_eth(&dpni.to_string()) {
+                    Ok(()) => Ok(()),
+                    Err(e)
+                        if e.kind() == std::io::ErrorKind::NotFound
+                            || e.raw_os_error() == Some(19) =>
+                    {
+                        Ok(())
+                    }
+                    Err(e) => Err(Error::Io(e)),
+                }
             }
             _ => Ok(()),
         }
@@ -333,12 +346,30 @@ mod tests {
         fx.link_dpni_driver();
 
         fx.kernel.unbind(dpni).expect("unbind");
-        assert_eq!(std::fs::read_to_string(&unbind).unwrap(), "dprc.1/dpni.7");
+        // Bare bus device name, no container prefix (fsl-mc-bus.c dev_set_name; the driver attribute resolves by bus device name via bus.c bus_find_device_by_name).
+        assert_eq!(std::fs::read_to_string(&unbind).unwrap(), "dpni.7");
 
         std::fs::remove_file(fx.devices.join("dprc.1/dpni.7/driver")).unwrap();
         std::fs::write(&unbind, b"sentinel").unwrap();
         fx.kernel.unbind(dpni).expect("idempotent unbind");
         assert_eq!(std::fs::read_to_string(&unbind).unwrap(), "sentinel");
+    }
+
+    /// A lost release race is already-unbound, not fatal (ADR-0008 §8): the disconnect ahead
+    /// of unbind can make dpaa2-eth release the netdev first, so a correct write returns
+    /// ENODEV (os error 19). The fixture reproduces the same branch with ENOENT — a nested
+    /// driver link naming `fsl_dpaa2_eth` still present, but no unbind attribute to write — and
+    /// the tolerant unbind stays a no-op success (teardown is level-triggered).
+    #[test]
+    fn eth_unbind_tolerates_a_lost_release_race() {
+        let fx = Fixture::new("eth-unbind-race");
+        let dpni = DpniId::new(7);
+        let dev = fx.devices.join("dprc.1/dpni.7");
+        std::fs::create_dir_all(&dev).unwrap();
+        std::os::unix::fs::symlink(fx.drivers.join("fsl_dpaa2_eth"), dev.join("driver")).unwrap();
+        fx.kernel
+            .unbind(dpni)
+            .expect("a lost release race is already-unbound, not a failure");
     }
 
     #[test]
