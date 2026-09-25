@@ -12,6 +12,9 @@ const FSL_MC_DEVICES: &str = "/sys/bus/fsl-mc/devices";
 const ETH_DRIVER_BIND: &str = "/sys/bus/fsl-mc/drivers/fsl_dpaa2_eth/bind";
 const FSL_MC_DRIVERS: &str = "/sys/bus/fsl-mc/drivers";
 
+/// The `dpaa2-eth` driver directory name under the drivers root.
+pub const ETH_DRIVER: &str = "fsl_dpaa2_eth";
+
 /// The fsl-mc sysfs bus rooted at one container (typically `dprc.1`).
 pub struct FslMcSysfs {
     container: String,
@@ -62,6 +65,19 @@ impl FslMcSysfs {
     pub fn bind_eth(&self, device: &str) -> io::Result<()> {
         let id = format!("{}/{device}", self.container);
         std::fs::write(&self.bind_path, id.as_bytes())
+    }
+
+    /// Writes `<container>/<device>` to the `dpaa2-eth` driver unbind attribute — the
+    /// reverse of [`bind_eth`](Self::bind_eth), releasing the netdev driver.
+    ///
+    /// # Errors
+    ///
+    /// Propagates the write error verbatim — `NoDevice` when the device is not bound
+    /// to this driver.
+    pub fn unbind_eth(&self, device: &str) -> io::Result<()> {
+        let id = format!("{}/{device}", self.container);
+        let path = self.drivers_root.join(ETH_DRIVER).join("unbind");
+        std::fs::write(path, id.as_bytes())
     }
 
     /// First netdev name under `<container>/<device>/net`, if any.
