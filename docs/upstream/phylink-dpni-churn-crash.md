@@ -115,6 +115,15 @@ Exploration is deferred to a separate session (2026-09-25 direction);
 reproduction needs no special tooling — a restool loop of
 create/connect/disconnect/destroy on a wired dpmac at ~1 s cadence.
 
+It also takes finding 50 (`drivers/bus/fsl-mc/fsl-mc-allocator.c` —
+the in-use guard in `fsl_mc_resource_pool_remove_device` cannot be
+enforced from a `void` remove callback, so an in-use allocatable
+object unbinds anyway and the pool bookkeeping goes inconsistent).
+Minimal fix shape: check the free list before `device_release_driver`
+reaches the allocator, or give the allocator a removal that can fail.
+Landing it re-opens root-scope reclaim for the control plane
+(ADR-0020) and is the highest-value of the three for this tool.
+
 The same session also takes finding 39 (`drivers/bus/fsl-mc/
 dprc-driver.c` — `dprc_scan_objects` reads descriptors per index with
 nothing holding the firmware still, and a stale plugged bit reaches
