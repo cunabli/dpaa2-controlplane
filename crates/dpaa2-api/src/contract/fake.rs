@@ -706,8 +706,9 @@ impl KernelControl for FakeBackend {
         Ok(())
     }
 
-    fn unbind(&self, _dpni: DpniId) -> Result<(), Error> {
-        // The fake clears the netdev on disconnect/destroy; the eth unbind is a board sysfs write with no in-memory state (ADR-0008 §8).
+    fn unbind(&self, dpni: DpniId) -> Result<(), Error> {
+        // The fake clears the netdev on disconnect/destroy; the eth unbind is a board sysfs write with no in-memory state (ADR-0008 §8), so only the audit records it.
+        self.state.borrow_mut().audit.push(format!("unbind:{dpni}"));
         Ok(())
     }
 
