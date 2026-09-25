@@ -868,7 +868,11 @@ impl DpniObservation {
     /// stripped (`McClearedFlags`, V-DPNI-7/9), `num_cgs` is honored only under `CUSTOM_CG`
     /// and otherwise reads back the forced 1 (`SizingCoupledToFlags`, V-DPNI-8), and
     /// `num_opr` reads back 0 without `HAS_OPR`, else the requested value or the MC default
-    /// fill 8 when the request is unset (V-DPNI-5). Modelling the read-back — not the
+    /// fill 8 when the request is unset (V-DPNI-5). Three ungated fields likewise read
+    /// back the MC default on an unset request: `mac_filter_entries` 16, `fs_entries` 64,
+    /// `num_ceetm_ch` 1 (MC default fill on an unset request; V-READBACK-1, board probe
+    /// 2026-09-25; `docs/baseline/dpni.md` `--mac-filter-entries`/`--fs-entries`/
+    /// `--num-channels`). Modelling the read-back — not the
     /// request — is what keeps a bare create from looking like permanent drift.
     ///
     /// It also drops write-only `dist_key_size` and the container placement
@@ -876,25 +880,37 @@ impl DpniObservation {
     /// equal and cannot drift.
     ///
     /// # Panics
-    /// Never in practice: the forced read-back literals `1` and `8` are inside every
-    /// board-verified create envelope, so their range constructors cannot fail.
+    /// Never in practice: the forced read-back literals (`1`, `8`, `16`, `64`) are inside
+    /// every board-verified create envelope, so their range constructors cannot fail.
     #[must_use]
     pub fn project(cfg: &DpniCfg) -> Self {
-        let ok = "1 and 8 are inside every board-verified create envelope";
+        let ok = "the MC-default fill literals are inside every board-verified create envelope";
         Self {
             options: cfg.options.without_mc_cleared_bits(),
             num_queues: cfg.num_queues,
             num_tcs: cfg.num_tcs,
-            mac_filter_entries: cfg.mac_filter_entries,
+            mac_filter_entries: if cfg.mac_filter_entries == MacFilterEntries::DEFAULT {
+                MacFilterEntries::new(16).expect(ok)
+            } else {
+                cfg.mac_filter_entries
+            },
             vlan_filter_entries: cfg.vlan_filter_entries,
             qos_entries: cfg.qos_entries,
-            fs_entries: cfg.fs_entries,
+            fs_entries: if cfg.fs_entries == FsEntries::DEFAULT {
+                FsEntries::new(64).expect(ok)
+            } else {
+                cfg.fs_entries
+            },
             num_cgs: if cfg.options.contains(DpniOpt::CustomCg) {
                 cfg.num_cgs
             } else {
                 NumCgs::new(1).expect(ok)
             },
-            num_ceetm_ch: cfg.num_ceetm_ch,
+            num_ceetm_ch: if cfg.num_ceetm_ch == NumCeetmCh::DEFAULT {
+                NumCeetmCh::new(1).expect(ok)
+            } else {
+                cfg.num_ceetm_ch
+            },
             num_opr: if cfg.options.contains(DpniOpt::HasOpr) {
                 if cfg.num_opr == NumOpr::DEFAULT {
                     NumOpr::new(8).expect(ok)
@@ -1326,7 +1342,8 @@ mod tests {
             c.options = OptionMask::empty().with_flag(DpniOpt::CustomCg);
             c.num_cgs = NumCgs::new(24).unwrap();
         });
-        drifts!(|c| c.num_ceetm_ch = NumCeetmCh::new(1).unwrap());
+        // num_ceetm_ch fills the MC default 1 when unset (V-READBACK-1), so drift needs 2.
+        drifts!(|c| c.num_ceetm_ch = NumCeetmCh::new(2).unwrap());
         drifts!(|c| {
             c.options = OptionMask::empty().with_flag(DpniOpt::HasOpr);
             c.num_opr = NumOpr::new(1).unwrap();
@@ -1369,6 +1386,18 @@ mod tests {
             8,
             "HAS_OPR fills the MC default 8 for an unset num_opr"
         );
+        // MC default fill on an unset request (V-READBACK-1; board probe 2026-09-25).
+        assert_eq!(
+            obs.mac_filter_entries.get(),
+            16,
+            "unset mac_filter fills 16"
+        );
+        assert_eq!(obs.fs_entries.get(), 1, "PMD sets fs_entries 1 explicitly");
+        assert_eq!(
+            obs.num_ceetm_ch.get(),
+            1,
+            "PMD sets num_ceetm_ch 1 explicitly"
+        );
 
         let kernel = Profile::Kernel.cfg();
         let obs = DpniObservation::project(&kernel);
@@ -1379,6 +1408,14 @@ mod tests {
             "no CUSTOM_CG ⇒ the MC forces num_cgs 1"
         );
         assert_eq!(obs.num_opr.get(), 0, "no HAS_OPR ⇒ num_opr observes 0");
+        // Bare kernel block: all three ungated fields fill their MC default (pool-objects design D12 fix; V-READBACK-1, board probe 2026-09-25).
+        assert_eq!(
+            obs.mac_filter_entries.get(),
+            16,
+            "unset mac_filter fills 16"
+        );
+        assert_eq!(obs.fs_entries.get(), 64, "unset fs_entries fills 64");
+        assert_eq!(obs.num_ceetm_ch.get(), 1, "unset num_ceetm_ch fills 1");
     }
 
     #[test]
