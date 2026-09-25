@@ -176,7 +176,12 @@ pub fn replay(views: &[ModelView], spec: &RetroTrace) -> Result<(), String> {
     }
 
     for (i, &obs) in spec.observations.iter().enumerate() {
-        let plan: Plan = reconcile_with(&desired, &project(&views[obs]), spec.options);
+        let plan: Plan = reconcile_with(
+            &desired,
+            &project(&views[obs]),
+            spec.options,
+            &std::collections::BTreeSet::new(),
+        );
         if plan.has_divergence() {
             return Err(format!(
                 "{}@{obs}: unexpected divergence: {:?} {:?}",
