@@ -178,7 +178,7 @@ echo "kernel dpni on dpmac.7: ${KERN_DPNI:-<none>}" | tee "$RESULTS/step-4-kern-
 if [ -n "$KERN_DPNI" ]; then
   echo "PASS step 4: the kernel dpni terminating dpmac.7 exists ($KERN_DPNI)"
   drv="$(readlink "/sys/bus/fsl-mc/devices/$KERN_DPNI/driver" 2>/dev/null)"
-  case "$drv" in *dpaa2-eth) echo "PASS step 4: $KERN_DPNI is bound to dpaa2-eth (kernel-attached)";;
+  case "$drv" in *fsl_dpaa2_eth) echo "PASS step 4: $KERN_DPNI is bound to dpaa2-eth (kernel-attached)";;
                  *) echo "FAIL step 4: $KERN_DPNI is not dpaa2-eth-bound (driver=${drv:-none})" >&2;; esac
   IF="$(ls "/sys/bus/fsl-mc/devices/$KERN_DPNI/net/" 2>/dev/null | head -1)"
   echo "netdev: ${IF:-<none>}" | tee "$RESULTS/step-4-netdev.txt"
@@ -188,7 +188,8 @@ if [ -n "$KERN_DPNI" ]; then
     i=0
     while [ "$i" -lt 60 ]; do
       c="$(cat "/sys/class/net/$IF/carrier" 2>/dev/null || echo 0)"
-      l="$(restool dpni info "$KERN_DPNI" 2>/dev/null | awk -F: 'tolower($0) ~ /link status/ { gsub(/ /, "", $2); print $2 }')"
+      # split on [:-]: restool renders `link status: N - word`; a bare -F: yields `1-up`, so the [ "$l" = 1 ] compare would silently never match.
+      l="$(restool dpni info "$KERN_DPNI" 2>/dev/null | awk -F'[:-]' 'tolower($0) ~ /link status/ { gsub(/ /, "", $2); print $2 }')"
       if [ "$c" = 1 ] && [ "$l" = 1 ]; then break; fi
       sleep 1; i=$((i + 1))
     done
