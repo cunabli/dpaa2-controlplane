@@ -14,7 +14,7 @@ use dpaa2_api::core::error::Error;
 use dpaa2_api::core::model::{DpniId, DprcId};
 use dpaa2_api::families::dprc;
 use dpaa2_api::families::pool_lifecycle::RawDriver;
-use dpaa2_hal::FslMcSysfs;
+use dpaa2_hal::{ETH_DRIVER, FslMcSysfs};
 
 /// Reads DPAA2 netdev state from sysfs under a given root container.
 pub struct SysfsKernel {
@@ -67,6 +67,18 @@ impl KernelControl for SysfsKernel {
                 tracing::debug!(%dpni, error = %e, "explicit bind failed (continuing)");
                 Ok(())
             }
+        }
+    }
+
+    /// Level-triggered (ADR-0008 §8): unbind only while `fsl_dpaa2_eth` still holds the
+    /// dpni — read back the nested driver link first — so a teardown re-run over an
+    /// already-unbound dpni is a no-op, mirroring the child VFIO unbind's idempotence.
+    fn unbind(&self, dpni: DpniId) -> Result<(), Error> {
+        match self.dpni_driver(dpni)? {
+            Some(driver) if driver.as_str() == ETH_DRIVER => {
+                self.bus.unbind_eth(&dpni.to_string()).map_err(Error::Io)
+            }
+            _ => Ok(()),
         }
     }
 
@@ -310,6 +322,23 @@ mod tests {
                 .map(RawDriver::as_str),
             Some("fsl_dpaa2_eth")
         );
+    }
+
+    #[test]
+    fn eth_unbind_writes_the_bound_dpni_and_is_a_noop_when_already_unbound() {
+        // unbind releases fsl_dpaa2_eth (the §8 teardown verb); a re-run over an already-unbound dpni writes nothing (pool-objects design D12).
+        let fx = Fixture::new("eth-unbind");
+        let dpni = DpniId::new(7);
+        let unbind = fx.drivers.join("fsl_dpaa2_eth").join("unbind");
+        fx.link_dpni_driver();
+
+        fx.kernel.unbind(dpni).expect("unbind");
+        assert_eq!(std::fs::read_to_string(&unbind).unwrap(), "dprc.1/dpni.7");
+
+        std::fs::remove_file(fx.devices.join("dprc.1/dpni.7/driver")).unwrap();
+        std::fs::write(&unbind, b"sentinel").unwrap();
+        fx.kernel.unbind(dpni).expect("idempotent unbind");
+        assert_eq!(std::fs::read_to_string(&unbind).unwrap(), "sentinel");
     }
 
     #[test]
