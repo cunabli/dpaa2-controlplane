@@ -220,6 +220,7 @@ fn run(cli: &Cli) -> Result<ExitCode, Error> {
 }
 
 #[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_lines)] // one linear stage per convergence phase, by design
 fn ensure(
     mc: &RestoolMc<dpaa2_mc::RestoolRunner>,
     kernel: &SysfsKernel,
@@ -271,6 +272,11 @@ fn ensure(
              `{allowed}`.\nre-run with `--allow={headline}` to actuate it (disruptive is never \
              implied)."
         );
+        return Ok(ExitCode::FAILURE);
+    }
+
+    if let Outcome::RebuildRefused { refusals } = &outcome {
+        print_rebuild_refusals(refusals);
         return Ok(ExitCode::FAILURE);
     }
 
@@ -372,7 +378,24 @@ fn ensure(
             Ok(ExitCode::FAILURE)
         }
         // Handled above (returns before link application); listed for exhaustiveness.
-        Outcome::DisruptionRefused { .. } => Ok(ExitCode::FAILURE),
+        Outcome::DisruptionRefused { .. } | Outcome::RebuildRefused { .. } => Ok(ExitCode::FAILURE),
+    }
+}
+
+/// Prints each refused same-run rebuild — port, dpni, and the diverging projection fields with desired vs observed (pool-objects design D12; ADR-0008 §9).
+fn print_rebuild_refusals(refusals: &[dpaa2_api::plan::RebuildRefusal]) {
+    for r in refusals {
+        println!(
+            "refused: {} on {} read back divergent, so a rebuild would churn live \
+             hardware; not actuated.",
+            r.dpni, r.port
+        );
+        for d in &r.diff {
+            println!(
+                "  {}: desired {}, observed {}",
+                d.field, d.desired, d.observed
+            );
+        }
     }
 }
 

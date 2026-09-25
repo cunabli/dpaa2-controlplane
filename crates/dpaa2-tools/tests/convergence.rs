@@ -1,15 +1,44 @@
 //! Convergence-loop, idempotence, and exit-behaviour tests driven entirely against
 //! the in-memory fake backend (design D10; restool-baseline, tasks 5.5/5.6). No board is touched.
 
+use std::collections::BTreeMap;
 use std::time::Duration;
 
 use dpaa2_api::contract::fake::FakeBackend;
-use dpaa2_api::core::model::{DesiredPort, DesiredTopology, DpmacId, LinkType, MacAddr};
+use dpaa2_api::core::model::{
+    DesiredPort, DesiredTopology, DpmacId, DpniId, LinkType, MacAddr, ObservedDpni,
+};
+use dpaa2_api::families::dpni::{DpniCfg, DpniObservation, NumQueues};
+use dpaa2_api::intent::compiled::CompiledPlan;
+use dpaa2_api::intent::kernel_tenant;
 use dpaa2_api::plan::Class;
 use dpaa2_tools::StatusReport;
 use dpaa2_tools::engine::{self, ConvergeConfig, Outcome};
 
 const MAC_7: MacAddr = MacAddr::new([0x02, 0, 0, 0, 0, 0x07]);
+const MAC_3: MacAddr = MacAddr::new([0x02, 0, 0, 0, 0, 0x03]);
+
+/// A sized desired topology for a single PHY port on dpmac.3 (the reconcile suite's
+/// `sized_desired`): `num_queues = n` compiles through the kernel tenant, so the drift
+/// branch is not fenced by the unsized-block guard.
+fn sized_desired(n: u32) -> DesiredTopology {
+    let kernel = kernel_tenant(i64::from(n));
+    let (obj, iface) = kernel.dpni(1, n, "wan0".into());
+    let mut compiled = CompiledPlan::default();
+    compiled.order.push(obj.key().clone());
+    compiled.objects.insert(obj);
+    compiled.edges.insert(iface.into_port_edge(DpmacId::new(3)));
+    DesiredTopology::from_parts(compiled, vec![DesiredPort::new(DpmacId::new(3), "wan0")])
+        .expect("plan port-edge and port agree on dpmac.3")
+}
+
+fn count_destroys(backend: &FakeBackend) -> usize {
+    backend
+        .audit()
+        .iter()
+        .filter(|a| a.starts_with("destroy:"))
+        .count()
+}
 
 fn one_port_backend(latency: u64) -> (FakeBackend, DesiredTopology) {
     let backend = FakeBackend::new()
@@ -75,6 +104,7 @@ fn deadline_exceeded_reports_unconverged_ports() {
         }
         Outcome::Converged => panic!("should not converge with unbounded latency"),
         Outcome::DisruptionRefused { .. } => panic!("disruptive was allowed; must not refuse"),
+        Outcome::RebuildRefused { .. } => panic!("no same-run rebuild here; must not refuse"),
     }
 }
 
@@ -126,4 +156,62 @@ fn status_exits_diverged_before_provisioning() {
     let observed = engine::observe(&backend, &backend).unwrap();
     let report = StatusReport::compute(&desired, &observed);
     assert!(report.has_diverged());
+}
+
+#[test]
+fn same_run_rebuild_is_refused_after_one_create_and_no_destroy() {
+    // The fake mispredicts the read-back, so the run-created dpni looks like drift; the anti-churn witness is exactly one create and zero destroys (pool-objects design D12; ADR-0008 §9).
+    let backend = FakeBackend::new()
+        .with_dpmac(DpmacId::new(3), LinkType::Phy, MAC_3)
+        .with_readback_drift();
+    let desired = sized_desired(8);
+
+    let outcome = engine::ensure(&desired, &backend, &backend, fast_cfg()).unwrap();
+    match outcome {
+        Outcome::RebuildRefused { refusals } => {
+            assert_eq!(refusals.len(), 1);
+            assert_eq!(refusals[0].port, DpmacId::new(3));
+            assert!(
+                refusals[0].diff.iter().any(|d| d.field == "num_queues"),
+                "diff names the mispredicted field: {:?}",
+                refusals[0].diff
+            );
+        }
+        other => panic!("expected a rebuild refusal, got {other:?}"),
+    }
+    assert_eq!(
+        backend.created_cfgs().len(),
+        1,
+        "exactly one create reached the fake"
+    );
+    assert_eq!(count_destroys(&backend), 0, "no destroy churned the board");
+}
+
+#[test]
+fn standing_divergent_dpni_still_converges_via_the_ordered_rebuild() {
+    // A dpni present before the run that reads back divergent is a standing rebuild, not a refusal: disconnect, unbind, destroy, create, then converge (ADR-0008 §8).
+    let backend = FakeBackend::new()
+        .with_dpmac(DpmacId::new(3), LinkType::Phy, MAC_3)
+        .with_dpni(ObservedDpni {
+            id: DpniId::new(1),
+            label: Some("wan0".into()),
+            connected_to: Some(DpmacId::new(3)),
+            mac: Some(MAC_3),
+            netdev: Some("eth1".to_owned()),
+            attributes: BTreeMap::new(),
+            cfg_observation: Some(DpniObservation::project(&DpniCfg {
+                num_queues: NumQueues::new(4).unwrap(),
+                ..DpniCfg::defaults()
+            })),
+        });
+    let desired = sized_desired(8);
+
+    let outcome = engine::ensure(&desired, &backend, &backend, fast_cfg()).unwrap();
+    assert_eq!(outcome, Outcome::Converged);
+    // The standing dpni was torn down once and rebuilt (not left to churn).
+    assert_eq!(
+        count_destroys(&backend),
+        1,
+        "the standing object rebuilt exactly once"
+    );
 }

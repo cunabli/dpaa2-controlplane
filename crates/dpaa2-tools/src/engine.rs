@@ -30,7 +30,7 @@ use dpaa2_api::plan::dprc::{
     plan_prune, verdict,
 };
 use dpaa2_api::plan::reconcile::{ReconcileOptions, reconcile_with};
-use dpaa2_api::plan::{Class, Plan, Transition};
+use dpaa2_api::plan::{Class, Plan, RebuildRefusal, Transition};
 use dpaa2_mc::{
     ChildPlan, default_dpio_cfg, dispatch_child_population, dispatch_pool_deltas,
     plan_child_population, vfio_handoff,
@@ -81,6 +81,14 @@ pub enum Outcome {
         headline: Class,
         /// The maximum class the run allowed.
         allowed: Class,
+    },
+    /// A same-run rebuild was refused so the converge loop cannot churn a just-created
+    /// port dpni into the phylink crash — the loop-breaker exit (pool-objects design D12;
+    /// ADR-0008 §9). Nothing was actuated for the refused ports; each refusal's field diff
+    /// pins the mispredicted projection field.
+    RebuildRefused {
+        /// The refused same-run rebuilds, each naming its port, dpni, and field diff.
+        refusals: Vec<RebuildRefusal>,
     },
 }
 
@@ -1152,15 +1160,26 @@ pub fn ensure<M: McControl, K: KernelControl>(
 ) -> Result<Outcome, Error> {
     let opts = ReconcileOptions { prune: cfg.prune };
     let start = Instant::now();
+    // Spans the whole run (not one apply pass) so a same-run rebuild is refused, not churned (pool-objects design D12; ADR-0008 §9).
+    let mut created: HashMap<DpmacId, DpniId> = HashMap::new();
 
     loop {
         let observed = observe(mc, kernel)?;
-        let plan = reconcile_with(desired, &observed, opts, &BTreeSet::new());
+        let run_created: BTreeSet<DpniId> = created.values().copied().collect();
+        let plan = reconcile_with(desired, &observed, opts, &run_created);
         log_plan(&observed, &plan);
 
         if plan.is_converged() {
             tracing::info!("converged");
             return Ok(Outcome::Converged);
+        }
+
+        // The loop-breaker exit, before the headline gate and deadline so a refusal never spins to the deadline (pool-objects design D12; ADR-0008 §9).
+        if !plan.refusals.is_empty() {
+            tracing::error!(count = plan.refusals.len(), "same-run rebuild refused");
+            return Ok(Outcome::RebuildRefused {
+                refusals: plan.refusals,
+            });
         }
 
         // Gate on the plan's headline before touching the board (ADR-0015 decision
@@ -1181,7 +1200,7 @@ pub fn ensure<M: McControl, K: KernelControl>(
             return Ok(Outcome::DeadlineExceeded { unconverged });
         }
 
-        apply(&plan, &observed, mc, kernel)?;
+        apply(&plan, &observed, mc, kernel, &mut created)?;
         sleep(cfg.poll_interval);
     }
 }
@@ -1191,15 +1210,15 @@ pub fn ensure<M: McControl, K: KernelControl>(
 ///
 /// # Errors
 /// Returns an error if any actuation fails.
+// `created` is ensure's own run-scoped map, never a caller-chosen hasher.
+#[allow(clippy::implicit_hasher)]
 pub fn apply<M: McControl, K: KernelControl>(
     plan: &Plan,
     observed: &ObservedTopology,
     mc: &M,
     kernel: &K,
+    created: &mut HashMap<DpmacId, DpniId>,
 ) -> Result<(), Error> {
-    // DPNIs created during this pass, keyed by their destination DPMAC.
-    let mut created: HashMap<DpmacId, DpniId> = HashMap::new();
-
     for t in &plan.transitions {
         match t {
             Transition::Create { port, label, cfg } => {
@@ -1208,17 +1227,17 @@ pub fn apply<M: McControl, K: KernelControl>(
                 tracing::info!(%port, %id, %label, "created dpni");
             }
             Transition::Connect { port } => {
-                let id = resolve(*port, &created, observed)?;
+                let id = resolve(*port, created, observed)?;
                 mc.connect(id, *port)?;
                 tracing::info!(%port, %id, "connected dpni to dpmac");
             }
             Transition::SetMac { port, mac } => {
-                let id = resolve(*port, &created, observed)?;
+                let id = resolve(*port, created, observed)?;
                 mc.set_mac(id, *mac)?;
                 tracing::info!(%port, %id, %mac, "set dpni primary mac");
             }
             Transition::Bind { port } => {
-                let id = resolve(*port, &created, observed)?;
+                let id = resolve(*port, created, observed)?;
                 kernel.bind(id)?;
                 tracing::debug!(%port, %id, "nudged bind; awaiting netdev");
             }
@@ -1227,9 +1246,9 @@ pub fn apply<M: McControl, K: KernelControl>(
                 tracing::info!(%dpni, "disconnected dpni");
             }
             Transition::Unbind { dpni } => {
-                // The driver releases the netdev on disconnect/destroy; nothing to
-                // force here. Logged for auditability.
-                tracing::info!(%dpni, "unbind (driver releases on teardown)");
+                // After the disconnect severed the edge, before destroy — a destroy-while-bound is refused (ADR-0008 §8/§9).
+                kernel.unbind(*dpni)?;
+                tracing::info!(%dpni, "unbound dpni from fsl_dpaa2_eth");
             }
             Transition::Destroy { dpni } => {
                 mc.destroy(*dpni)?;
