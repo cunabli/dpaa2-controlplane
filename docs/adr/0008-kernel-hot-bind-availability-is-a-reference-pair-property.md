@@ -338,10 +338,29 @@ Two rules follow.
   against a bound dpni is refused client-side by restool, and a
   teardown that skips the sever-first order strands the port per §8.
 
-The same sitting fired the §4 rescan race a third time — at a spaced
-pool-grow leg, not a destroy burst (the boot dpni's link dropped and
-the boot dpcon was re-added, the management-path disruption §4
-predicts). §6's containment holds as risk reduction, not elimination.
+The §4 race also fires on ADD events, and pacing is not the answer.
+The same sitting's grow leg fired it a third time, and the re-sit
+(V-POOL-6 rev 5, 2026-09-25) a fourth: an unspaced ~50-object pool
+grow in ~4 s left the boot dpni driverless mid-burst — not destroyed,
+silently unbound, its netdev name then claimed by the suite's own
+dpni. §6's containment holds as risk reduction, not elimination
+(V-POOL-5 rev 2 fired under §6 spacing), and it covers destroys only.
+
+The decision is to NOT pace the grow. Spacing is a wall-clock tax on
+every convergence for a probabilistic discount the record shows
+failing; no vanilla tool paces (ls-addni bursts ~35 objects on a
+16-CPU box), so the exposure is the platform's, not this tool's. The
+mitigation is the root cause: the scan race is kernel-fixable
+(finding 39 anchors it — a stale plugged bit read mid-scan reaches
+`device_release_driver` unverified and unlogged; re-reading the
+descriptor before release turns a torn read into a no-op), and the
+fix rides the same local-tree kernel session as the §9 phylink work.
+Until that kernel boots, the damage is recoverable at runtime: a
+sysfs bind of the boot dpni to `fsl_dpaa2_eth` re-attaches it (the
+netdev name may differ if another dpni claimed it). That recovery is
+an operator note, never tool automation — the boot dpni is foreign to
+intent, and the control plane reports foreign objects, it does not
+repair them.
 
 ## Open questions and revisit triggers
 
@@ -383,12 +402,15 @@ predicts). §6's containment holds as risk reduction, not elimination.
   destroys ahead of it, and a teardown that removes a container still
   holding residents remains unmeasured. Revisit when a suite of that
   last shape is authored.
-- **The §9 phylink crash is fenced, not fixed.** The tool-side refusal
-  removes the only in-tree trigger; the kernel race remains for any
-  other management flow. Revisit when the local-tree fix is attempted
-  (`docs/upstream/phylink-dpni-churn-crash.md`, "Local fix attempt") or
-  when a kernel upgrade changes phylink/dpaa2-mac PCS lifetime; either
-  re-anchors §9's rules.
+- **The §9 phylink crash and the §4 scan race are fenced, not
+  fixed.** The tool-side refusal removes the only in-tree churn
+  trigger, and the no-pacing decision leaves §4's add-burst exposure
+  standing by choice; both kernel bugs remain for any other management
+  flow. Revisit when the local-tree kernel session lands
+  (`docs/upstream/phylink-dpni-churn-crash.md`, "Local fix attempt" —
+  it scopes both the phylink PCS lifetime and the `dprc_scan_objects`
+  stale-plugged-bit release, finding 39) or when a kernel upgrade
+  changes either path; both re-anchor §9's rules.
 - **Which read-back field diverges for the kernel-profile block** is
   unpinned (the §9 refusal will name it on the next run, and one manual
   restool probe on a rebooted board answers it independently); the

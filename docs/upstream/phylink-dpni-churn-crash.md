@@ -114,3 +114,13 @@ disconnect endpoints), and the vendor standalone dpmac driver.
 Exploration is deferred to a separate session (2026-09-25 direction);
 reproduction needs no special tooling — a restool loop of
 create/connect/disconnect/destroy on a wired dpmac at ~1 s cadence.
+
+The same session also takes finding 39 (`drivers/bus/fsl-mc/
+dprc-driver.c` — `dprc_scan_objects` reads descriptors per index with
+nothing holding the firmware still, and a stale plugged bit reaches
+`device_release_driver` unverified and unlogged; ADR-0008 §4, four
+firings observed, two on add bursts). Minimal fix shape: re-read the
+descriptor before releasing a bound driver on a plugged→unplugged
+transition, so a torn read becomes a no-op. Decided 2026-09-25
+(ADR-0008 §9): the control plane does not pace around it — the kernel
+fix is the mitigation.
