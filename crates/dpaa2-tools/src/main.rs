@@ -172,7 +172,12 @@ fn run(cli: &Cli) -> Result<ExitCode, Error> {
             };
             let desired = compiled.desired_topology_root(&intent);
             let observed = engine::observe(&mc, &kernel)?;
-            let plan = reconcile_with(&desired, &observed, ReconcileOptions { prune: *prune });
+            let plan = reconcile_with(
+                &desired,
+                &observed,
+                ReconcileOptions { prune: *prune },
+                &std::collections::BTreeSet::new(),
+            );
             print!(
                 "{}",
                 render::render_dry_run(&compiled.plan, &compiled.warnings, &plan)

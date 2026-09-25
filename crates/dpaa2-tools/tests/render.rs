@@ -120,7 +120,12 @@ fn dry_run_reference() {
         dpnis: vec![],
         dpmacs: vec![],
     };
-    let plan = reconcile_with(&desired, &observed, ReconcileOptions::default());
+    let plan = reconcile_with(
+        &desired,
+        &observed,
+        ReconcileOptions::default(),
+        &std::collections::BTreeSet::new(),
+    );
     insta::assert_snapshot!(render_dry_run(&compiled.plan, &compiled.warnings, &plan));
 }
 
@@ -146,7 +151,12 @@ fn dry_run_crypto_and_warning() {
         dpnis: vec![],
         dpmacs: vec![],
     };
-    let plan = reconcile_with(&desired, &observed, ReconcileOptions::default());
+    let plan = reconcile_with(
+        &desired,
+        &observed,
+        ReconcileOptions::default(),
+        &std::collections::BTreeSet::new(),
+    );
     insta::assert_snapshot!(render_dry_run(&compiled.plan, &compiled.warnings, &plan));
 }
 

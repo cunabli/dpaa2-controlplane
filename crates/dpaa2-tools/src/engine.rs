@@ -1155,7 +1155,7 @@ pub fn ensure<M: McControl, K: KernelControl>(
 
     loop {
         let observed = observe(mc, kernel)?;
-        let plan = reconcile_with(desired, &observed, opts);
+        let plan = reconcile_with(desired, &observed, opts, &BTreeSet::new());
         log_plan(&observed, &plan);
 
         if plan.is_converged() {
