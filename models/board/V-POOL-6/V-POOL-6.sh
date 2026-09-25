@@ -141,7 +141,7 @@ expect_out 1 "root pool convergence" "dry-run prints the root pool convergence b
 # is Class::Disruptive, so the run refuses and changes nothing (exit FAILURE).
 run 2 "$DPAA2CTL" --config models/board/V-POOL-6/intent-a.toml ensure --no-link
 expect_nonzero 2 "hitless ensure refuses the disruptive root pool grow"
-expect_out 2 "root pool convergence is" "the refusal names the root pool convergence class"
+expect_out 2 "refused: root pool grow is" "the refusal names the root pool grow class"
 
 # step 3: grow under the disruptive gate — creates the managed root pool.
 run 3 "$DPAA2CTL" --config models/board/V-POOL-6/intent-a.toml ensure --no-link --allow disruptive
