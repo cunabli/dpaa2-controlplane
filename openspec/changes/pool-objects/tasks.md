@@ -134,7 +134,7 @@ opus48-developer parcel.
       refusal (fields named) instead of the destroy sequence; teardown
       emissions reorder to disconnect → unbind → destroy (ADR-0008
       §8/§9; design D12; bead 960.29).
-- [ ] 3.16 Real unbind + refusal surfaced: KernelControl gains the
+- [x] 3.16 Real unbind + refusal surfaced: KernelControl gains the
       sysfs dpni unbind (mirror of the child VFIO path), the engine's
       Unbind arm drives it, ensure carries the run-created set across
       passes and exits rendering the 3.15 refusal with its field diff;
