@@ -338,7 +338,8 @@ fn ensure(
     // Prune undeclared managed-labelled root dpnis under the same double gate (pool-objects design D10/D11).
     // A root kernel interface is a consumer that draws the pool, so it is torn down here — after
     // containers, before the pool shrink — so the shrink reclaims the capacity it drew.
-    if let Some(code) = report_root_dpni_prune(&engine::prune_root_dpnis(&compiled.plan, mc, cfg)?)
+    if let Some(code) =
+        report_root_dpni_prune(&engine::prune_root_dpnis(&compiled.plan, mc, kernel, cfg)?)
     {
         return Ok(code);
     }

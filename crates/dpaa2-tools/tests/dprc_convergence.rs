@@ -620,7 +620,7 @@ fn undeclared_managed_labelled_root_dpni_prunes_under_the_double_gate() {
         .with_dpni(root_dpni(3, None, Some(17)));
 
     // First gate: `--prune` withheld ⇒ report-only, nothing torn down.
-    match engine::prune_root_dpnis(&compiled.plan, &backend, disruptive_cfg()).unwrap() {
+    match engine::prune_root_dpnis(&compiled.plan, &backend, &backend, disruptive_cfg()).unwrap() {
         RootDpniPruneOutcome::ReportOnly { candidates } => {
             assert_eq!(
                 candidates,
@@ -635,10 +635,16 @@ fn undeclared_managed_labelled_root_dpni_prunes_under_the_double_gate() {
         3,
         "report-only actuates nothing"
     );
+    assert!(
+        !backend.audit().iter().any(|a| a.starts_with("unbind:")),
+        "report-only never touches the kernel seam: {:?}",
+        backend.audit()
+    );
 
-    // Both gates held ⇒ the undeclared managed-labelled dpni is disconnected and destroyed; the
-    // declared "wan0" and the empty-label DPL dpni survive.
-    match engine::prune_root_dpnis(&compiled.plan, &backend, prune_disruptive_cfg()).unwrap() {
+    // Both gates held ⇒ kern0 is torn down in ADR-0008 §8 order (disconnect, unbind, destroy); the declared "wan0" and the empty-label DPL dpni survive.
+    match engine::prune_root_dpnis(&compiled.plan, &backend, &backend, prune_disruptive_cfg())
+        .unwrap()
+    {
         RootDpniPruneOutcome::Pruned { pruned } => assert_eq!(pruned, vec![DpniId::new(2)]),
         other => panic!("expected pruned, got {other:?}"),
     }
@@ -654,9 +660,75 @@ fn undeclared_managed_labelled_root_dpni_prunes_under_the_double_gate() {
         vec![1, 3],
         "declared and DPL-born dpnis are untouched"
     );
+    let audit = backend.audit();
+    let pos = |needle: &str| {
+        audit
+            .iter()
+            .position(|a| a == needle)
+            .unwrap_or_else(|| panic!("{needle} not audited in {audit:?}"))
+    };
     assert!(
-        backend.audit().iter().any(|a| a == "disconnect:dpni.2"),
-        "kern0 was disconnected before destroy: {:?}",
+        pos("disconnect:dpni.2") < pos("unbind:dpni.2")
+            && pos("unbind:dpni.2") < pos("destroy:dpni.2"),
+        "kern0 is disconnected, then unbound, then destroyed: {audit:?}"
+    );
+}
+
+#[test]
+fn unconnected_candidate_still_unbinds_and_destroys() {
+    // ADR-0008 §8: a candidate with no peer skips the disconnect but is still unbound before the
+    // destroy — restool refuses a destroy of a driver-bound dpni client-side.
+    let compiled = compiled_empty();
+    let backend =
+        FakeBackend::new().with_dpni(root_dpni(2, Some(ConstructName::from("kern0")), None));
+
+    match engine::prune_root_dpnis(&compiled.plan, &backend, &backend, prune_disruptive_cfg())
+        .unwrap()
+    {
+        RootDpniPruneOutcome::Pruned { pruned } => assert_eq!(pruned, vec![DpniId::new(2)]),
+        other => panic!("expected pruned, got {other:?}"),
+    }
+    let audit = backend.audit();
+    assert!(
+        !audit.iter().any(|a| a == "disconnect:dpni.2"),
+        "an unconnected candidate emits no disconnect: {audit:?}"
+    );
+    assert!(
+        audit.iter().position(|a| a == "unbind:dpni.2")
+            < audit.iter().position(|a| a == "destroy:dpni.2"),
+        "unbind still precedes destroy: {audit:?}"
+    );
+}
+
+#[test]
+fn root_dpni_prune_gates_never_touch_the_kernel_seam() {
+    // pool-objects design D10/D11: `--prune` withheld ⇒ ReportOnly; a below-disruptive allow ⇒
+    // DisruptionRefused. Neither dispatches, so the kernel unbind seam stays untouched.
+    let compiled = compiled_empty();
+    let backend =
+        FakeBackend::new().with_dpni(root_dpni(2, Some(ConstructName::from("kern0")), Some(4)));
+
+    assert!(matches!(
+        engine::prune_root_dpnis(&compiled.plan, &backend, &backend, disruptive_cfg()).unwrap(),
+        RootDpniPruneOutcome::ReportOnly { .. }
+    ));
+    let refuse_cfg = ConvergeConfig {
+        prune: true,
+        allow: Class::Hitless,
+        ..ConvergeConfig::default()
+    };
+    match engine::prune_root_dpnis(&compiled.plan, &backend, &backend, refuse_cfg).unwrap() {
+        RootDpniPruneOutcome::DisruptionRefused {
+            headline, allowed, ..
+        } => {
+            assert_eq!(headline, Class::Disruptive);
+            assert_eq!(allowed, Class::Hitless);
+        }
+        other => panic!("expected disruption-refused, got {other:?}"),
+    }
+    assert!(
+        !backend.audit().iter().any(|a| a.starts_with("unbind:")),
+        "neither gate touches the kernel seam: {:?}",
         backend.audit()
     );
 }
@@ -696,7 +768,8 @@ fn empty_intent_reaches_prune_once_the_consumer_is_torn_down() {
         PoolOutcome::Converged
     );
     assert!(matches!(
-        engine::prune_root_dpnis(&compiled.plan, &backend, prune_disruptive_cfg()).unwrap(),
+        engine::prune_root_dpnis(&compiled.plan, &backend, &backend, prune_disruptive_cfg())
+            .unwrap(),
         RootDpniPruneOutcome::Pruned { .. }
     ));
     assert_eq!(

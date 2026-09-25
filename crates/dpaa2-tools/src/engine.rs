@@ -481,15 +481,19 @@ fn root_dpni_candidates(
 /// The requirement: undeclared managed-labelled root dpnis become prune candidates.
 /// Re-observes the root topology, classifies each dpni against the declared set by the
 /// one-label law (empty-label/DPL exempt), and, only when
-/// `cfg.prune` AND `cfg.allow` reaches the disruptive headline, disconnects then destroys each
-/// candidate — a consumer released before the shrink pass reclaims the pool it drew. The
-/// verdict comes from a second re-observation: a pruned dpni that survives is an error.
+/// `cfg.prune` AND `cfg.allow` reaches the disruptive headline, tears each candidate down in the
+/// ADR-0008 §8 order: disconnect while bound, then `kernel.unbind`, then `mc.destroy`. The
+/// disconnect lets dpaa2-eth re-attach the standalone MAC driver; the unbind must precede the
+/// destroy because restool refuses a destroy of a driver-bound dpni client-side. A consumer
+/// released before the shrink pass reclaims the pool it drew. The verdict comes from a second
+/// re-observation: a pruned dpni that survives is an error.
 ///
 /// # Errors
 /// Propagates a backend read/dispatch error, and reports a survivor as an [`Error::Backend`].
-pub fn prune_root_dpnis<M: McControl>(
+pub fn prune_root_dpnis<M: McControl, K: KernelControl>(
     plan: &CompiledPlan,
     mc: &M,
+    kernel: &K,
     cfg: ConvergeConfig,
 ) -> Result<RootDpniPruneOutcome, Error> {
     let declared = root_declared(plan);
@@ -513,6 +517,7 @@ pub fn prune_root_dpnis<M: McControl>(
         });
     }
 
+    // ADR-0008 §8 teardown order for each candidate: disconnect while bound, unbind, destroy.
     for dpni in &candidates {
         if observed
             .dpnis
@@ -521,6 +526,7 @@ pub fn prune_root_dpnis<M: McControl>(
         {
             mc.disconnect(*dpni)?;
         }
+        kernel.unbind(*dpni)?;
         mc.destroy(*dpni)?;
         tracing::info!(%dpni, "pruned undeclared managed-labelled root dpni");
     }
