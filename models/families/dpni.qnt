@@ -269,17 +269,26 @@ module dpni_lifecycle {
     escapes: m.escapes.exclude(MC_CLEARED_FLAGS.escapes),
   }
 
+  // An unset (0) request reads back the MC's own default — the fill shape num_opr
+  // already models under HAS_OPR, but ungated. Three fields carry it: mac_filter_entries
+  // 16, fs_entries 64, num_ceetm_ch 1 (board probe 2026-09-25, MC 10.39 restool v2.4;
+  // baseline dpni.md --mac-filter-entries/--fs-entries/--num-channels, V-READBACK-1).
+  pure def fillUnset(v: int, dflt: int): int = if (v == 0) dflt else v
+
   // Observation predicts the board read-back, not the request (board-verified
   // V-DPNI-5/7/8/9, 2026-09-19): the cleared bits are stripped, num_cgs is honored
-  // only under CUSTOM_CG (else the MC forces 1), and num_opr is observed only under
-  // HAS_OPR (else 0; under HAS_OPR an unset request fills the MC default 8, V-DPNI-5).
+  // only under CUSTOM_CG (else the MC forces 1), num_opr is observed only under
+  // HAS_OPR (else 0; under HAS_OPR an unset request fills the MC default 8, V-DPNI-5),
+  // and the three ungated fields fill their MC default when unset (board probe
+  // 2026-09-25) — modelling the fill keeps a bare block off the pool-objects design D12 loop.
   pure def observe(cfg: CreateCfg): Observation = {
     options: clearMcBits(cfg.options),
     numQueues: cfg.numQueues, numTcs: cfg.numTcs,
-    macFilterEntries: cfg.macFilterEntries, vlanFilterEntries: cfg.vlanFilterEntries,
-    qosEntries: cfg.qosEntries, fsEntries: cfg.fsEntries,
+    macFilterEntries: fillUnset(cfg.macFilterEntries, 16),
+    vlanFilterEntries: cfg.vlanFilterEntries,
+    qosEntries: cfg.qosEntries, fsEntries: fillUnset(cfg.fsEntries, 64),
     numCgs: if (cfg.options.flags.contains(CustomCg)) cfg.numCgs else 1,
-    numCeetmCh: cfg.numCeetmCh,
+    numCeetmCh: fillUnset(cfg.numCeetmCh, 1),
     numOpr: if (cfg.options.flags.contains(HasOpr))
               (if (cfg.numOpr == 0) 8 else cfg.numOpr) else 0,
   }
@@ -611,6 +620,18 @@ module dpni_lifecycle {
     init.then(check(and {
       observe(profileCfg(ProfilePmd)).numCgs == 24,
       observe(profileCfg(ProfilePmd)).numOpr == 8,
+    }))
+
+  // The MC default fill on a bare kernel block: the three fields the request left unset
+  // read back the MC default — mac_filter_entries 16, fs_entries 64, num_ceetm_ch 1
+  // (board probe 2026-09-25, MC 10.39 restool v2.4; baseline dpni.md
+  // --mac-filter-entries/--fs-entries/--num-channels, V-READBACK-1). The three fields
+  // the pool-objects design D12 re-sit named (V-POOL-6 rev5 / V-MVP-1 rev2).
+  run mcDefaultFillTest =
+    init.then(check(and {
+      observe(profileCfg(ProfileKernel)).macFilterEntries == 16,
+      observe(profileCfg(ProfileKernel)).fsEntries == 64,
+      observe(profileCfg(ProfileKernel)).numCeetmCh == 1,
     }))
 }
 
