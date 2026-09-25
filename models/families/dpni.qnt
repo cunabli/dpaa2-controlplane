@@ -815,3 +815,142 @@ module dpni_scenario {
         world.dpni == Absent,
       })
 }
+
+// The converge-loop rebuild-refusal law (pool-objects design D12; ADR-0008 §9;
+// upstream finding 49): a DestroyThenCreate disposition for a port dpni the same
+// run created is a typed refusal naming the diverging observation fields, never a
+// hardware destroy — the ~1.3 s create/destroy loop that Oopsed the kernel is made
+// structurally unreachable. A standing (not run-created) divergent dpni still
+// disposes DestroyThenCreate, so real drift on a standing object still heals. The
+// field this witness drifts (num_queues) is a placeholder for the law, never a
+// claim about which field mispredicts — board-pinned (pool-objects design D12).
+module dpni_rebuild {
+  import intent_types.* from "../intent/types"
+  import dpni.*
+  import dpni_lifecycle.Observation
+  import dpni_lifecycle.observe
+  import dpni_lifecycle.DpniState
+  import dpni_lifecycle.Absent
+  import dpni_lifecycle.Created
+
+  // The reconcile drift decision — the Rust twin of DpniDisposition with the
+  // pool-objects design D12 refusal arm (reconcile.rs RebuildRefusal): the refusal
+  // carries the diverging observation field names, its own diagnostic.
+  type Disposition =
+    | Converged
+    | DestroyThenCreate
+    | RebuildRefusal(Set[str])
+
+  // The observation fields that diverge between the desired projection and the
+  // board read-back, named to match the Rust ObservationDiff.field strings.
+  pure def divergingFields(want: Observation, got: Observation): Set[str] =
+    (if (want.options != got.options) Set("options") else Set())
+      .union(if (want.numQueues != got.numQueues) Set("num_queues") else Set())
+      .union(if (want.numTcs != got.numTcs) Set("num_tcs") else Set())
+      .union(if (want.macFilterEntries != got.macFilterEntries) Set("mac_filter_entries") else Set())
+      .union(if (want.vlanFilterEntries != got.vlanFilterEntries) Set("vlan_filter_entries") else Set())
+      .union(if (want.qosEntries != got.qosEntries) Set("qos_entries") else Set())
+      .union(if (want.fsEntries != got.fsEntries) Set("fs_entries") else Set())
+      .union(if (want.numCgs != got.numCgs) Set("num_cgs") else Set())
+      .union(if (want.numCeetmCh != got.numCeetmCh) Set("num_ceetm_ch") else Set())
+      .union(if (want.numOpr != got.numOpr) Set("num_opr") else Set())
+
+  pure def driftDisposition(desired: CreateCfg, got: Observation, createdThisRun: bool): Disposition =
+    val diverging = divergingFields(observe(desired), got)
+    if (diverging.size() == 0) Converged
+    else if (createdThisRun) RebuildRefusal(diverging)
+    else DestroyThenCreate
+
+  // The rebuild-law world: the tool's created dpni (its desired cfg), whether this
+  // run created it, the board read-back reconcile judges, and the last decision.
+  type World = {
+    dpni: DpniState,
+    createdThisRun: bool,
+    observed: Observation,
+    disposition: Disposition,
+  }
+
+  var world: World
+
+  action init = world' = {
+    dpni: Absent,
+    createdThisRun: false,
+    observed: observe(profileCfg(ProfileKernel)),
+    disposition: Converged,
+  }
+
+  action createDerivedAt(dp: Dataplane, ic: InterfaceConstruct): bool = all {
+    world.dpni == Absent,
+    match deriveProfile(dp, ic) {
+      | Derived(p) =>
+          val cfg = profileCfg(p)
+          world' = world
+            .with("dpni", Created(cfg))
+            .with("createdThisRun", true)
+            .with("observed", observe(cfg))
+            .with("disposition", Converged)
+      | Unpriced => world' = world
+    },
+  }
+
+  // A dpni already standing at the run's start (not run-created), carrying a board
+  // read-back that may diverge from its projection.
+  action standingDpni(cfg: CreateCfg, obs: Observation): bool = all {
+    world.dpni == Absent,
+    world' = world
+      .with("dpni", Created(cfg))
+      .with("createdThisRun", false)
+      .with("observed", obs)
+      .with("disposition", Converged),
+  }
+
+  // The board read-back mispredicts (a projection defect): the observation drifts
+  // from what observe predicts, with no cfg change.
+  action boardMispredicts(obs: Observation): bool = all {
+    world.dpni != Absent,
+    world' = world.with("observed", obs),
+  }
+
+  // DestroyThenCreate actuates the destroy; a refusal leaves the dpni standing —
+  // the churn the loop-breaker prevents.
+  action reconcile: bool =
+    match world.dpni {
+      | Absent => world' = world
+      | Created(cfg) =>
+          val d = driftDisposition(cfg, world.observed, world.createdThisRun)
+          world' = match d {
+            | DestroyThenCreate => world.with("dpni", Absent).with("disposition", d)
+            | Converged => world.with("disposition", d)
+            | RebuildRefusal(_) => world.with("disposition", d)
+          }
+    }
+
+  // A kernel read-back diverging from the projection on one placeholder field.
+  pure val DRIFTED_KERNEL_OBS: Observation =
+    observe(profileCfg(ProfileKernel))
+      .with("numQueues", observe(profileCfg(ProfileKernel)).numQueues + 1)
+
+  // ---- directed runs (pool-objects design D12 loop-breaker witnesses) ----
+
+  // Created this run + a divergent read-back ⇒ a typed refusal naming the field,
+  // the dpni left standing (never destroyed): the structural anti-churn law.
+  run sameRunRebuildRefusedTest =
+    init
+      .then(createDerivedAt(KernelNetlink, InjectionPair))
+      .then(boardMispredicts(DRIFTED_KERNEL_OBS))
+      .then(reconcile)
+      .expect(and {
+        world.disposition == RebuildRefusal(Set("num_queues")),
+        world.dpni == Created(profileCfg(ProfileKernel)),
+      })
+
+  // A standing (not run-created) divergent dpni still disposes DestroyThenCreate.
+  run standingDriftRebuildsTest =
+    init
+      .then(standingDpni(profileCfg(ProfileKernel), DRIFTED_KERNEL_OBS))
+      .then(reconcile)
+      .expect(and {
+        world.disposition == DestroyThenCreate,
+        world.dpni == Absent,
+      })
+}

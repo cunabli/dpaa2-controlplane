@@ -94,11 +94,12 @@ module retro {
   // Teardown under prune: desired = the same port, presence Absent,
   // options.prune = true, starting from the converged forward state.
   //
-  // Epoch 0 (state 16): observe -> plan [Unbind, Disconnect, Destroy].
+  // Epoch 0 (state 16): observe -> plan [Disconnect, Unbind, Destroy]
+  // (ADR-0008 §8: sever the edge while bound before unbinding, else the port strands).
   // Epoch 1 (state 19, final): observe -> converged (port gone).
   run retroTeardownTest =
     retroAssociationTest
-      .then(unbindAt(dpni0))                        // 17
-      .then(disconnectEdgeAt(ep(dpni0)))            // 18
+      .then(disconnectEdgeAt(ep(dpni0)))            // 17
+      .then(unbindAt(dpni0))                        // 18
       .then(destroyAt(dpni0))                       // 19
 }
