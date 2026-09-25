@@ -394,3 +394,22 @@ cites the suite and the design record that carry the numbers.
     fails late and quietly (portal exhaustion mid-run, buffer setup
     failure, silent transmit drops with no MC error). Evidence:
     ADR-0012, dpio.md, dpbp.md, dpni.md. — candidate
+
+## From the pool-objects sittings (task 4.3, 2026-09-25)
+
+### Linux kernel
+
+49. **dpni create/destroy churn on a wired port crashes phylink**: a
+    create/connect/disconnect/destroy cycle at ~1.3 s cadence on a
+    PHY-typed dpmac Oopses in `phylink_mac_pcs_get_state` (NULL-ish
+    PCS dereference at offset 0x29, `phylink_resolve` worker on
+    `events_power_efficient`), then warns `refcount_t: underflow;
+    use-after-free` one cycle later and taints — power cycle required.
+    Reproduced on two consecutive boots. Each cycle also logs
+    `phy_power_on was called before phy_init` and a standalone
+    `fsl_dpaa2_mac` attach failure (the finding-34 driver ping-pong);
+    the likely mechanism is the dpaa2-mac PCS being destroyed without
+    cancelling the queued resolve worker. Evidence:
+    `phylink-dpni-churn-crash.md` (full traces and analysis pointers),
+    `results/V-MVP-1-rev1/console-transcript.txt`, ADR-0008 §9. —
+    candidate

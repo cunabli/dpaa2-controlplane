@@ -126,6 +126,20 @@ opus48-developer parcel.
       disposition; V-POOL-6.sh shrink/prune legs revised to the
       amended laws (design D10/D11; bead 960.27).
 
+- [ ] 3.15 Loop-breaker, model first (discovered at the 4.3 sitting,
+      2026-09-25: the cfg-drift branch churned a same-run-created dpni
+      into a kernel crash): dpni.qnt gains the same-run rebuild-refusal
+      law with a directed run; DpniObservation gains the field-level
+      diff; reconcile takes the run-created set and emits a typed
+      refusal (fields named) instead of the destroy sequence; teardown
+      emissions reorder to disconnect → unbind → destroy (ADR-0008
+      §8/§9; design D12; bead 960.29).
+- [ ] 3.16 Real unbind + refusal surfaced: KernelControl gains the
+      sysfs dpni unbind (mirror of the child VFIO path), the engine's
+      Unbind arm drives it, ensure carries the run-created set across
+      passes and exits rendering the 3.15 refusal with its field diff;
+      fake + unit tests (ADR-0008 §8/§9; design D12; bead 960.30).
+
 ## 4. Suites
 
 - [x] 4.1 Offline: suite generation for the pool walks; frozen ITF
@@ -136,7 +150,7 @@ opus48-developer parcel.
       row advances (pre-run record commit per board protocol).
 - [ ] 4.3 Board: the two MVP scenarios — live kernel interface in
       dprc.1; populated VFIO-bound dprc.N; drift-heal and teardown
-      re-runs (system-integration req 1). Waits on 3.9–3.14 (the
+      re-runs (system-integration req 1). Waits on 3.9–3.16 (the
       2026-09-24 audit: Scenario B unwired, teardown unreachable,
       shrink/prune assert laws the shipped census cannot execute);
       V-MVP-1 intent + offline pins landed at the first authoring

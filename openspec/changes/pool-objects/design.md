@@ -303,6 +303,42 @@ it closes the change with the flagship reference intent unactuatable;
 folding population into `converge_containers` — it breaks the
 container-only tile #5/#6 boundary and the vdprc9 pin that guards it.
 
+### D12 — The converge loop is structurally unable to churn hardware
+
+*Added 2026-09-25 after the 4.3 sitting failure (bead
+dpaa2-controlplane-960.12; ADR-0008 §9; upstream finding 49).*
+
+The reconcile cfg-drift branch judged a just-created kernel dpni as
+DestroyThenCreate on every pass — the kernel-profile read-back
+projection was never board-pinned — and the loop either died on
+restool's bound-destroy refusal (the Unbind transition was a logged
+no-op) or hot-cycled create/destroy at ~1.3 s until the kernel Oopsed
+(phylink NULL-PCS, then a refcount underflow UAF; board tainted, both
+boots).
+
+Decision, in three parts. (1) *Loop-breaker, modeled first:* a
+DestroyThenCreate planned for a port dpni created in the same run is a
+typed refusal naming the diverging observation fields, never an
+actuation — dpni.qnt carries the law, the reconciler takes the
+run-created set as an input and emits the refusal, and ensure exits
+with it rendered. The refusal is also the diagnostic: it pins the
+mispredicted field without touching hardware. (2) *Real unbind, §8
+order:* the Unbind transition becomes a sysfs unbind of `fsl_dpaa2_eth`
+(mirror of the child VFIO path), and every teardown emission orders
+disconnect while bound → unbind → destroy (ADR-0008 §8: unbind-first
+strands the dpmac; destroy-while-bound is refused client-side). (3)
+*Board-pin before correcting:* `DpniObservation::project` is corrected
+only against read-back evidence — the named refusal field plus one
+manual restool probe on a rebooted board — never adjusted to make the
+loop converge.
+
+*Alternatives rejected:* actuating DestroyThenCreate with a retry cap —
+bounded churn still crossed the kernel's crash threshold in three
+cycles; skipping cfg-drift for kernel-profile blocks — it blinds the
+reconciler to real drift the moment the projection is pinned; unbind
+without the §8 sever-first order — board-verified to strand the port
+until reboot.
+
 ## Risks / Trade-offs
 
 - [P3's count-only claim fails contact with real dispatch — e.g.

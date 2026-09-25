@@ -258,7 +258,7 @@ teardown as the only place a destroy happens.
 
 ### 8. A bound dpni evicts the port's standalone MAC driver; sever the edge before unbinding
 
-Task 5.11's sitting found a second way for a boot resident to lose its
+The verify-foundation 5.11 sitting found a second way for a boot resident to lose its
 driver, with no race in it. The clean-boot reference shows every wired
 dpmac bound to the standalone `fsl_dpaa2_mac` driver. When a dpni
 connected to that dpmac is bound to `fsl_dpaa2_eth`, the ethernet
@@ -309,6 +309,40 @@ recorded here because its symptom is the one this record is about — a
 boot resident silently without its driver — and because the fix is,
 again, an ordering rule for the harness.
 
+### 9. Sustained create/destroy churn on a wired port crashes the kernel; the converge loop must be structurally unable to churn
+
+The pool-objects 4.3 sitting (V-MVP-1 rev 1, 2026-09-25) supplies the
+record: a reconcile defect re-planned destroy-then-create for the same
+port dpni on every pass, cycling create/connect/disconnect/destroy
+against a PHY-typed dpmac at ~1.3 s per cycle. Within three cycles the
+kernel Oopsed in `phylink_mac_pcs_get_state` (NULL-ish PCS dereference
+on the `phylink_resolve` worker), warned a `refcount_t` underflow
+use-after-free one cycle later, and tainted; only a power cycle
+recovers. Both boots of the sitting reproduced it. The mechanism and
+the upstream-shareable description are
+`docs/upstream/phylink-dpni-churn-crash.md` (finding 49); the driver
+bug is out of this tree.
+
+Two rules follow.
+
+- **The converge loop is structurally unable to churn.** A
+  destroy-then-create planned for a port dpni the same run created is
+  a typed refusal naming the diverging observation field, never an
+  actuation: a projection defect (the tool mispredicting read-back)
+  must surface as a named refusal, not as hardware churn. The refusal
+  doubles as the diagnostic — it names the field the projection got
+  wrong.
+- **A bound root dpni is unbound through sysfs before destroy**, in
+  the §8 order (disconnect while bound, then unbind, then destroy),
+  mirroring the child container's VFIO unbind path. A destroy issued
+  against a bound dpni is refused client-side by restool, and a
+  teardown that skips the sever-first order strands the port per §8.
+
+The same sitting fired the §4 rescan race a third time — at a spaced
+pool-grow leg, not a destroy burst (the boot dpni's link dropped and
+the boot dpcon was re-added, the management-path disruption §4
+predicts). §6's containment holds as risk reduction, not elimination.
+
 ## Open questions and revisit triggers
 
 - **Why does the firmware hand back a stale plugged bit?** Everything up
@@ -349,3 +383,13 @@ again, an ordering rule for the harness.
   destroys ahead of it, and a teardown that removes a container still
   holding residents remains unmeasured. Revisit when a suite of that
   last shape is authored.
+- **The §9 phylink crash is fenced, not fixed.** The tool-side refusal
+  removes the only in-tree trigger; the kernel race remains for any
+  other management flow. Revisit when the local-tree fix is attempted
+  (`docs/upstream/phylink-dpni-churn-crash.md`, "Local fix attempt") or
+  when a kernel upgrade changes phylink/dpaa2-mac PCS lifetime; either
+  re-anchors §9's rules.
+- **Which read-back field diverges for the kernel-profile block** is
+  unpinned (the §9 refusal will name it on the next run, and one manual
+  restool probe on a rebooted board answers it independently); the
+  projection is corrected against that evidence, never guessed.
