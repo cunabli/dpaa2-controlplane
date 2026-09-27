@@ -111,6 +111,88 @@ impl PoolFamily {
     }
 }
 
+/// Custody scope — whether a (container, family) pair is judged at the Linux root or inside a
+/// child container. The Rust twin of the model's `CustodyScope` sum, carried as data in `Conv`
+/// (ADR-0002 §3; ADR-0020, design D10 amendment): root capacity is grow-only (every plugged
+/// object is `fsl_mc_allocator`-bound with no safe drawn-ness signal), a child runs the
+/// unplug-probe reclaim law unchanged. Threaded as a parameter into [`drift_disposition`],
+/// never a global.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CustodyScope {
+    /// The Linux root container: grow-only at runtime (ADR-0020 decisions 1/3). A managed
+    /// surplus is the [`PoolDisposition::RebootRequired`] residue, never a destroy, and prune
+    /// reaches only the never-plugged foreign (decision 4).
+    RootScope,
+    /// A child container: VFIO owns the residents, no allocator competes, so the unplug-probe
+    /// reclaim and the [`ShrinkBelowDraw`] refusal fire (ADR-0020 decision 3).
+    ChildScope,
+}
+
+/// The observed-vs-required surplus a grow-only root pool family reports when its managed
+/// count sits ABOVE the derived requirement — the Rust twin of the model's `PoolResidue`
+/// record (`{ family, observed, required }`; ADR-0020, design D10 amendment). Root capacity
+/// cannot be reclaimed at runtime (ADR-0020 decisions 1/3), so a surplus is reported and the
+/// reboot named as the reconciliation path — one instance of the grow-only dpio
+/// [`SeatResidue`](crate::families::dpio::SeatResidue), never a runtime destroy.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PoolResidue {
+    /// The family whose observed managed count exceeds the required one.
+    pub family: PoolFamily,
+    /// The observed managed count (the model's `managedCount`).
+    pub observed: i64,
+    /// The required managed count the observed count sits above (the derivation target).
+    pub required: i64,
+}
+
+impl core::fmt::Display for PoolResidue {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(
+            f,
+            "{} pool: observed {} exceed the required {} — root capacity is grow-only, so the \
+             surplus is reboot-required (a reboot restores the DPL baseline, ADR-0020); never a \
+             runtime reclaim",
+            self.family.name(),
+            self.observed,
+            self.required,
+        )
+    }
+}
+
+/// The grow-only root pool disposition — the Rust twin of the model's `PoolDisposition` sum
+/// (`Converged | RebootRequired(PoolResidue)`; ADR-0020, design D10 amendment). A family at or
+/// below its requirement is [`Self::Converged`] (a deficit is the grow's concern, not this
+/// sum's); above it, the surplus is a typed [`Self::RebootRequired`] residue, never a
+/// torn-down object — mirroring the dpio [`SeatDisposition`](crate::families::dpio::SeatDisposition).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PoolDisposition {
+    /// The observed managed count meets the requirement (grow-only, so equal or a deficit the
+    /// grow tops up).
+    Converged,
+    /// The observed managed count exceeds the requirement: the typed reboot-required residue.
+    RebootRequired(PoolResidue),
+}
+
+/// The grow-only root pool disposition for one family — the model's `poolDisposition`
+/// (`if managedCount <= derivedReq Converged else RebootRequired`; ADR-0020, design D10
+/// amendment). A surplus at root is reported, never reclaimed: the runtime teardown ADR-0020
+/// forbids has no verb to reach, so the reconciliation path is a reboot.
+///
+/// Pure and sans-io: it compares the observed managed count the caller supplies against the
+/// derived requirement, observing and driving nothing — the seat twin of
+/// [`seat_disposition`](crate::families::dpio::seat_disposition).
+#[must_use]
+pub const fn pool_disposition(family: PoolFamily, observed: i64, required: i64) -> PoolDisposition {
+    if observed <= required {
+        PoolDisposition::Converged
+    } else {
+        PoolDisposition::RebootRequired(PoolResidue {
+            family,
+            observed,
+            required,
+        })
+    }
+}
+
 /// The observed census of one (container, pool-family) pair — plain count data the
 /// adapter feeds in phase 3, mirroring the model's count vocabulary (`pool_lifecycle`
 /// `poolPopulation`/`freePool`/draw/`born`; ADR-0011).
@@ -155,6 +237,10 @@ pub struct PoolCensus {
     born: i64,
     foreign_free: i64,
     born_drawn: i64,
+    /// The plugged subset of `foreign_free` — allocator-bound residue excluded from the ROOT
+    /// prune count (ADR-0020 decision 4; the model's `prunable` gate `scope == ChildScope or
+    /// not(plugged)`). Defaults to 0 via `new`; `census_of` sets it from the plugged facet.
+    foreign_free_plugged: i64,
 }
 
 impl PoolCensus {
@@ -204,7 +290,22 @@ impl PoolCensus {
             born,
             foreign_free,
             born_drawn,
+            foreign_free_plugged: 0,
         }
+    }
+
+    /// Records the plugged subset of `foreign_free` — the `fsl_mc_allocator`-bound residue root
+    /// prune must not reach (ADR-0020 decision 4). The producer boundary [`census_of`] sets it
+    /// from the observed plugged facet; the count is within `foreign_free` (debug-asserted, an
+    /// adapter miscount).
+    #[must_use]
+    pub fn with_foreign_free_plugged(mut self, n: i64) -> Self {
+        debug_assert!(
+            n >= 0 && n <= self.foreign_free,
+            "the plugged foreign-free subset is within foreign_free (0 <= foreign_free_plugged <= foreign_free)"
+        );
+        self.foreign_free_plugged = n;
+        self
     }
 
     /// The total plugged population (the model's `poolPopulation`) — the census the
@@ -257,6 +358,23 @@ impl PoolCensus {
     #[must_use]
     pub const fn foreign_free(self) -> i64 {
         self.foreign_free
+    }
+
+    /// The plugged subset of the foreign-free — at root scope an `fsl_mc_allocator`-bound
+    /// residue prune must not reach (ADR-0020 decision 4). Zero unless [`census_of`] recorded
+    /// it from the observed plugged facet.
+    #[must_use]
+    pub const fn foreign_free_plugged(self) -> i64 {
+        self.foreign_free_plugged
+    }
+
+    /// The never-plugged foreign-free count — the root prune target (ADR-0020 decision 4: a
+    /// never-plugged undeclared object carries no allocator binding, so prune reaches it). The
+    /// count-level realization of the model's `prunable` gate `scope == ChildScope or
+    /// not(plugged)` at root scope; at child scope prune uses the whole `foreign_free`.
+    #[must_use]
+    pub const fn foreign_free_unplugged(self) -> i64 {
+        self.foreign_free - self.foreign_free_plugged
     }
 
     /// The reconciler-owned count — the model's `managedCount`: the population minus both
@@ -314,6 +432,12 @@ impl PoolCensus {
     /// level as `foreign_free == 0`, since a foreign-free member is exactly a `prunable`
     /// one (undeclared, non-DPL-born, free; pool-objects design D3). A converged census is
     /// the idempotence witness: [`drift_disposition`] emits an empty [`PoolDeltas`] over it.
+    ///
+    /// This is the CHILD-scope realization of `isConverged` (child prune reaches every
+    /// foreign-free member, so full convergence needs `foreign_free == 0`). At root scope a
+    /// managed surplus is grow-only residue and a plugged foreign is retained (ADR-0020), so
+    /// the root prune-clear is [`foreign_free_unplugged`](Self::foreign_free_unplugged) `== 0`
+    /// and a surplus renders as [`pool_disposition`], never a false non-convergence.
     #[must_use]
     pub fn converged(self, requirement: i64) -> bool {
         self.managed() == requirement && self.foreign_free == 0
@@ -464,17 +588,34 @@ impl PoolDeltas {
 /// Grow and prune co-occur when a deficit stands alongside foreign objects — that is why the
 /// emission is a deltas struct, not a single verdict.
 ///
+/// # Custody scope narrows the shrink at root (ADR-0020, design D10 amendment)
+///
+/// At [`CustodyScope::ChildScope`] the disposition is as above — the unplug-probe reclaim law
+/// (ADR-0020 decision 3). At [`CustodyScope::RootScope`] root capacity is grow-only: every
+/// plugged object is `fsl_mc_allocator`-bound with no safe drawn-ness signal, so
+/// - it never returns [`ShrinkBelowDraw`] (root drawn-ness is unobservable — a surplus is the
+///   [`pool_disposition`] residue, not a refusal);
+/// - `destroy` is always 0 (a managed surplus is the reboot-required residue, decision 2);
+/// - `prune` is the never-plugged foreign-free count only
+///   ([`PoolCensus::foreign_free_unplugged`]) — a plugged foreign is allocator-bound residue
+///   (decision 4).
+///
+/// `create` (the grow) is identical at either scope: root sizes to intent by growing.
+///
 /// # Errors
-/// Returns [`ShrinkBelowDraw`] when `requirement` falls below the census `drawn` count — a
-/// free-only shrink cannot reach a live consumer, so the shortfall surfaces to the operator
-/// rather than tearing one down. No deltas accompany the refusal.
+/// At [`CustodyScope::ChildScope`], returns [`ShrinkBelowDraw`] when `requirement` falls below
+/// the census drawn count — a free-only shrink cannot reach a live consumer, so the shortfall
+/// surfaces to the operator rather than tearing one down. No deltas accompany the refusal.
+/// [`CustodyScope::RootScope`] never returns it.
 pub fn drift_disposition(
     family: PoolFamily,
     census: PoolCensus,
     requirement: i64,
     ceiling: &Ceiling,
+    scope: CustodyScope,
 ) -> Result<PoolDeltas, ShrinkBelowDraw> {
-    if census.shrinks_below_draw(requirement) {
+    // Below-draw refusal is child-scoped: root drawn-ness is unobservable (ADR-0020 decision 3; `shrinkBelowDrawAt` guard).
+    if scope == CustodyScope::ChildScope && census.shrinks_below_draw(requirement) {
         return Err(ShrinkBelowDraw {
             family,
             requirement,
@@ -488,13 +629,20 @@ pub fn drift_disposition(
         }
         Ceiling::Unknown => deficit,
     };
-    let destroy = (census.managed() - requirement)
-        .max(0)
-        .min(census.managed_free());
+    let (destroy, prune) = match scope {
+        CustodyScope::ChildScope => (
+            (census.managed() - requirement)
+                .max(0)
+                .min(census.managed_free()),
+            census.foreign_free(),
+        ),
+        // Root grow-only: no managed-surplus destroy (it is the `pool_disposition` residue), prune only never-plugged (ADR-0020).
+        CustodyScope::RootScope => (0, census.foreign_free_unplugged()),
+    };
     Ok(PoolDeltas {
         create,
         destroy,
-        prune: census.foreign_free(),
+        prune,
     })
 }
 
@@ -648,6 +796,7 @@ pub fn census_of(rows: &[ObservedPoolObject], declared: &BTreeSet<ConstructName>
     let mut drawn = 0i64;
     let mut born = 0i64;
     let mut foreign_free = 0i64;
+    let mut foreign_free_plugged = 0i64;
     let mut born_drawn = 0i64;
     for row in rows {
         if row.drawn {
@@ -659,12 +808,19 @@ pub fn census_of(rows: &[ObservedPoolObject], declared: &BTreeSet<ConstructName>
             free += 1;
             match row.membership(declared) {
                 PoolMembership::DplBorn => born += 1,
-                PoolMembership::Foreign => foreign_free += 1,
+                PoolMembership::Foreign => {
+                    foreign_free += 1;
+                    // A plugged foreign is allocator-bound residue root prune must not reach (ADR-0020 decision 4).
+                    if row.plugged {
+                        foreign_free_plugged += 1;
+                    }
+                }
                 PoolMembership::Managed => {}
             }
         }
     }
     PoolCensus::new(population, free, drawn, born, foreign_free, born_drawn)
+        .with_foreign_free_plugged(foreign_free_plugged)
 }
 
 /// The kernel-poolable count of an observed pool family — the plugged rows only. A pool
@@ -695,7 +851,10 @@ mod tests {
     //! `pool_lifecycle.qnt` by name: `idempotentReconvergeTest`, `convergenceGrowTest`,
     //! `freeOnlyShrinkTest`, `drawnNeverShrunkTest`, `shrinkBelowDrawRefusedTest` and
     //! `prunePreservesDplBornTest`, plus the ceiling cap, grow+prune co-occurrence, and a
-    //! total-function edge sweep the model's simulate-only runs do not enumerate.
+    //! total-function edge sweep the model's simulate-only runs do not enumerate. The reclaim
+    //! and refusal runs are child-scoped (ADR-0020 decision 3), so their drift tests pass
+    //! [`CustodyScope::ChildScope`]; the root grow-only faces of `rootSurplusResidueTest`
+    //! (ADR-0020) are the `pool_disposition`/`root_*` tests below.
 
     use super::*;
 
@@ -898,10 +1057,23 @@ mod tests {
     #[test]
     fn drift_disposition_is_empty_over_a_converged_census() {
         let c = PoolCensus::new(2, 2, 0, 0, 0, 0); // managed 2, no foreign
-        let d = drift_disposition(PoolFamily::Dpbp, c, 2, &Ceiling::Counted(3)).expect("converged");
+        let d = drift_disposition(
+            PoolFamily::Dpbp,
+            c,
+            2,
+            &Ceiling::Counted(3),
+            CustodyScope::ChildScope,
+        )
+        .expect("converged");
         assert!(d.is_empty(), "{d:?}");
-        let d2 =
-            drift_disposition(PoolFamily::Dpbp, c, 2, &Ceiling::Counted(3)).expect("converged");
+        let d2 = drift_disposition(
+            PoolFamily::Dpbp,
+            c,
+            2,
+            &Ceiling::Counted(3),
+            CustodyScope::ChildScope,
+        )
+        .expect("converged");
         assert_eq!(d, d2);
         assert!(d2.is_empty());
     }
@@ -910,7 +1082,14 @@ mod tests {
     #[test]
     fn drift_disposition_grows_to_the_deficit() {
         let c = PoolCensus::new(0, 0, 0, 0, 0, 0); // managed 0
-        let d = drift_disposition(PoolFamily::Dpbp, c, 2, &Ceiling::Counted(3)).expect("grows");
+        let d = drift_disposition(
+            PoolFamily::Dpbp,
+            c,
+            2,
+            &Ceiling::Counted(3),
+            CustodyScope::ChildScope,
+        )
+        .expect("grows");
         assert_eq!(
             d,
             PoolDeltas {
@@ -927,21 +1106,34 @@ mod tests {
     fn drift_disposition_caps_grow_at_headroom_and_unknown_is_uncapped() {
         let c = PoolCensus::new(1, 1, 0, 0, 0, 0); // managed 1, population 1
         // Counted(3): deficit 4, headroom 3-1=2 ⇒ create 2.
-        let capped = drift_disposition(PoolFamily::Dpbp, c, 5, &Ceiling::Counted(3)).expect("caps");
+        let capped = drift_disposition(
+            PoolFamily::Dpbp,
+            c,
+            5,
+            &Ceiling::Counted(3),
+            CustodyScope::ChildScope,
+        )
+        .expect("caps");
         assert_eq!(capped.create, 2);
         let obs = Ceiling::Observed {
             n: 3,
             provenance: "test".to_owned(),
         };
         assert_eq!(
-            drift_disposition(PoolFamily::Dpbp, c, 5, &obs)
+            drift_disposition(PoolFamily::Dpbp, c, 5, &obs, CustodyScope::ChildScope)
                 .expect("caps")
                 .create,
             2
         );
         // Unknown is never ceiling-blocked: the full deficit of 4.
-        let uncapped =
-            drift_disposition(PoolFamily::Dpbp, c, 5, &Ceiling::Unknown).expect("uncapped");
+        let uncapped = drift_disposition(
+            PoolFamily::Dpbp,
+            c,
+            5,
+            &Ceiling::Unknown,
+            CustodyScope::ChildScope,
+        )
+        .expect("uncapped");
         assert_eq!(uncapped.create, 4);
     }
 
@@ -949,7 +1141,14 @@ mod tests {
     #[test]
     fn drift_disposition_shrinks_the_surplus() {
         let c = PoolCensus::new(3, 3, 0, 0, 0, 0); // managed 3, all free
-        let d = drift_disposition(PoolFamily::Dpbp, c, 2, &Ceiling::Counted(9)).expect("shrinks");
+        let d = drift_disposition(
+            PoolFamily::Dpbp,
+            c,
+            2,
+            &Ceiling::Counted(9),
+            CustodyScope::ChildScope,
+        )
+        .expect("shrinks");
         assert_eq!(
             d,
             PoolDeltas {
@@ -965,7 +1164,14 @@ mod tests {
     #[test]
     fn drift_disposition_destroy_is_bounded_by_free_managed() {
         let c = PoolCensus::new(4, 3, 1, 0, 0, 0); // managed 4, free 3, drawn 1
-        let d = drift_disposition(PoolFamily::Dpbp, c, 2, &Ceiling::Counted(9)).expect("shrinks");
+        let d = drift_disposition(
+            PoolFamily::Dpbp,
+            c,
+            2,
+            &Ceiling::Counted(9),
+            CustodyScope::ChildScope,
+        )
+        .expect("shrinks");
         assert_eq!(d.destroy, 2); // surplus 2, and 2 <= managed_free 3
         assert!(
             d.destroy <= c.managed_free(),
@@ -978,7 +1184,14 @@ mod tests {
     #[test]
     fn drift_disposition_refuses_below_draw() {
         let c = PoolCensus::new(2, 0, 2, 0, 0, 0); // drawn 2
-        let err = drift_disposition(PoolFamily::Dpcon, c, 1, &Ceiling::Counted(3)).unwrap_err();
+        let err = drift_disposition(
+            PoolFamily::Dpcon,
+            c,
+            1,
+            &Ceiling::Counted(3),
+            CustodyScope::ChildScope,
+        )
+        .unwrap_err();
         assert_eq!(
             err,
             ShrinkBelowDraw {
@@ -1002,7 +1215,14 @@ mod tests {
     #[test]
     fn drift_disposition_prunes_foreign_never_born() {
         let c = PoolCensus::new(3, 3, 0, 1, 1, 0); // managed 1, born 1, foreign 1
-        let d = drift_disposition(PoolFamily::Dpbp, c, 1, &Ceiling::Counted(9)).expect("prunes");
+        let d = drift_disposition(
+            PoolFamily::Dpbp,
+            c,
+            1,
+            &Ceiling::Counted(9),
+            CustodyScope::ChildScope,
+        )
+        .expect("prunes");
         assert_eq!(
             d,
             PoolDeltas {
@@ -1020,8 +1240,14 @@ mod tests {
     #[test]
     fn drift_disposition_grows_and_prunes_together() {
         let c = PoolCensus::new(2, 2, 0, 0, 1, 0); // managed 1, one foreign-free
-        let d =
-            drift_disposition(PoolFamily::Dpbp, c, 3, &Ceiling::Counted(5)).expect("grow+prune");
+        let d = drift_disposition(
+            PoolFamily::Dpbp,
+            c,
+            3,
+            &Ceiling::Counted(5),
+            CustodyScope::ChildScope,
+        )
+        .expect("grow+prune");
         assert_eq!(
             d,
             PoolDeltas {
@@ -1039,7 +1265,8 @@ mod tests {
         let c = PoolCensus::new(2, 2, 0, 0, 1, 0); // managed 1, one foreign-free
         let mut seen = None;
         for f in PoolFamily::POOL_FAMILIES {
-            let d = drift_disposition(f, c, 3, &Ceiling::Counted(5)).expect("ok");
+            let d = drift_disposition(f, c, 3, &Ceiling::Counted(5), CustodyScope::ChildScope)
+                .expect("ok");
             match seen {
                 None => seen = Some(d),
                 Some(prev) => assert_eq!(prev, d, "{}", f.name()),
@@ -1059,7 +1286,8 @@ mod tests {
         ];
         for c in edges {
             for ceiling in [Ceiling::Counted(2), Ceiling::Unknown] {
-                match drift_disposition(PoolFamily::Dpmcp, c, 0, &ceiling) {
+                match drift_disposition(PoolFamily::Dpmcp, c, 0, &ceiling, CustodyScope::ChildScope)
+                {
                     Ok(d) => assert!(
                         d.create >= 0 && d.destroy >= 0 && d.prune >= 0,
                         "non-negative deltas for {c:?}"
@@ -1068,6 +1296,105 @@ mod tests {
                 }
             }
         }
+    }
+
+    // ---- root grow-only scope (ADR-0020; twins rootSurplusResidueTest) ----
+
+    /// rootSurplusResidueTest face 1: a managed surplus at root emits no destroy; it reports reboot-required residue (ADR-0020).
+    #[test]
+    fn pool_disposition_reports_a_root_managed_surplus_as_residue() {
+        let c = PoolCensus::new(1, 1, 0, 0, 0, 0);
+        let d = drift_disposition(
+            PoolFamily::Dpbp,
+            c,
+            0,
+            &Ceiling::Counted(3),
+            CustodyScope::RootScope,
+        )
+        .expect("root never refuses");
+        assert_eq!(d.destroy, 0, "root capacity is grow-only: no destroy");
+        assert_eq!(
+            pool_disposition(PoolFamily::Dpbp, c.managed(), 0),
+            PoolDisposition::RebootRequired(PoolResidue {
+                family: PoolFamily::Dpbp,
+                observed: 1,
+                required: 0,
+            })
+        );
+        assert_eq!(
+            pool_disposition(PoolFamily::Dpbp, 0, 0),
+            PoolDisposition::Converged
+        );
+        let text = PoolResidue {
+            family: PoolFamily::Dpbp,
+            observed: 1,
+            required: 0,
+        }
+        .to_string();
+        assert!(
+            text.contains("observed 1") && text.contains("reboot-required"),
+            "{text}"
+        );
+    }
+
+    /// rootSurplusResidueTest face 2: at root only a never-plugged foreign is pruned; a plugged one is residue (ADR-0020 decision 4).
+    #[test]
+    fn root_prune_reaches_never_plugged_foreign_only() {
+        let c = PoolCensus::new(2, 2, 0, 0, 2, 0).with_foreign_free_plugged(1);
+        assert_eq!(c.foreign_free(), 2);
+        assert_eq!(c.foreign_free_unplugged(), 1);
+        let d = drift_disposition(
+            PoolFamily::Dpbp,
+            c,
+            0,
+            &Ceiling::Counted(9),
+            CustodyScope::RootScope,
+        )
+        .expect("root never refuses");
+        assert_eq!(
+            d.prune, 1,
+            "only the never-plugged foreign is a root prune target"
+        );
+        assert_eq!(d.destroy, 0);
+        let child = drift_disposition(
+            PoolFamily::Dpbp,
+            c,
+            0,
+            &Ceiling::Counted(9),
+            CustodyScope::ChildScope,
+        )
+        .expect("child prunes both");
+        assert_eq!(
+            child.prune, 2,
+            "child prune reaches the whole foreign-free set"
+        );
+    }
+
+    /// rootSurplusResidueTest face 3: root drawn-ness is unobservable, so a requirement below draw never refuses at root (ADR-0020 decision 3).
+    #[test]
+    fn root_never_refuses_below_draw() {
+        let c = PoolCensus::new(2, 0, 2, 0, 0, 0); // drawn 2, requirement 1 ⇒ below draw
+        assert!(c.shrinks_below_draw(1), "the census predicate still holds");
+        assert!(
+            drift_disposition(
+                PoolFamily::Dpbp,
+                c,
+                1,
+                &Ceiling::Counted(3),
+                CustodyScope::ChildScope
+            )
+            .is_err(),
+            "child refuses a requirement below draw"
+        );
+        let d = drift_disposition(
+            PoolFamily::Dpbp,
+            c,
+            1,
+            &Ceiling::Counted(3),
+            CustodyScope::RootScope,
+        )
+        .expect("root never refuses below draw");
+        assert_eq!(d.destroy, 0, "root destroys nothing");
     }
 
     // ---- census_of: raw rows fold into the count vocabulary (pool-objects design D3) ----
@@ -1129,8 +1456,14 @@ mod tests {
             !c.shrinks_below_draw(19),
             "the DPL boot pool never forces the refusal"
         );
-        let d = drift_disposition(PoolFamily::Dpmcp, c, 19, &Ceiling::Counted(80))
-            .expect("a grow, not a refusal");
+        let d = drift_disposition(
+            PoolFamily::Dpmcp,
+            c,
+            19,
+            &Ceiling::Counted(80),
+            CustodyScope::ChildScope,
+        )
+        .expect("a grow, not a refusal");
         assert_eq!(
             d,
             PoolDeltas {
@@ -1151,7 +1484,14 @@ mod tests {
         assert_eq!(c.born_drawn(), 0); // a foreign label is not the DPL sentinel
         assert_eq!(c.drawn_managed(), 52); // foreign-drawn folds in, conservatively
         assert!(c.shrinks_below_draw(19));
-        let err = drift_disposition(PoolFamily::Dpmcp, c, 19, &Ceiling::Counted(80)).unwrap_err();
+        let err = drift_disposition(
+            PoolFamily::Dpmcp,
+            c,
+            19,
+            &Ceiling::Counted(80),
+            CustodyScope::ChildScope,
+        )
+        .unwrap_err();
         assert_eq!(
             err,
             ShrinkBelowDraw {
