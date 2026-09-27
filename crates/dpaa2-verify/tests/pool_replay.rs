@@ -32,6 +32,9 @@ use dpaa2_verify::intent::pool_itf::{PoolStep, PoolWorld, parse_pool_trace};
 const FAMILY: PoolFamily = PoolFamily::Dpbp;
 const CEILING: Ceiling = Ceiling::Counted(3);
 
+/// The DPL-born boot object present in every state (`pool_itf::BORN_ORDINAL`; `pool_lifecycle` `born`): `dpbp` at ordinal 0.
+const BORN: (dpaa2_api::core::family::Family, u32) = (dpaa2_api::core::family::Family::Dpbp, 0);
+
 /// Every committed trace under `models/traces/families/dpbp/`, with the model face it pins.
 /// The stems carry the `dpbp_lifecycle::pool_lifecycle::` prefix quint gives an inherited run.
 const TRACES: &[(&str, &str)] = &[
@@ -113,6 +116,14 @@ fn finding(file: &str, step: usize, msg: &str) -> ! {
 /// The per-state conformance: the count↔individual isomorphism, the shrink-below-draw
 /// duality, and the drift/refusal agreement (pool-objects design D2/D3).
 fn check_state(file: &str, i: usize, w: &PoolWorld) {
+    assert!(
+        w.drawn.is_disjoint(&w.unplugged),
+        "{file} step {i}: POOL_CUSTODY (DPBP-I2, rule 12) — a drawn object left the plugged pool (drawn disjoint unplugged)"
+    );
+    assert!(
+        w.present.contains(&BORN),
+        "{file} step {i}: POOL_DPL_SURVIVES (pool-objects design D3, rule 12) — the DPL-born object is absent"
+    );
     // The model's `managedCount` is the reconciler-owned count; the Rust `managed()` folds in
     // any drawn foreign (count-indistinguishable, the conservative bias). The exact relation
     // is the count↔individual boundary law.
@@ -317,7 +328,8 @@ fn shrink_below_draw_refuses_by_name_and_count() {
         ShrinkBelowDraw {
             family: FAMILY,
             requirement: w.derived_req,
-            drawn: w.census.drawn(),
+            // drawn_managed is the netted base the guard consumes (`shrinks_below_draw`; pool-objects design D9, rule 12).
+            drawn: w.census.drawn_managed(),
         }
     );
 }

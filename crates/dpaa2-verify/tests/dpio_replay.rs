@@ -43,6 +43,10 @@ const TRACES: &[(&str, &str)] = &[
         "DPIO-I2: kernel seats top out at NUM_CPUS; the next create is -ERANGE",
     ),
     (
+        "dpdkSeatBoundRefusedTest",
+        "DPIO-I2 (DpdkSeat): DPDK portals top out at 2·NUM_THREADS; the next create is -ERANGE",
+    ),
+    (
         "noChannelReportsPrioritiesTest",
         "DPIO-I3: a NoChannel seat still reports its priorities (mode is dead)",
     ),
@@ -154,6 +158,23 @@ fn seat_create_refused_at_the_regime_ceiling() {
             regime: SeatRegime::KernelSeat,
             count: CPUS,
             ceiling: CPUS,
+        }
+    );
+}
+
+/// DPIO-I2 (`DpdkSeat` regime): DPDK portals top out at `2·NUM_THREADS`; the frozen tail refuses the next create (pool-hardening).
+#[test]
+fn dpdk_seat_create_refused_at_the_regime_ceiling() {
+    let steps = parse_dpio_trace(&load("dpdkSeatBoundRefusedTest")).unwrap();
+    let seats = last_world(&steps).seat_vec();
+    let err = admit_seat(&seats, SeatRegime::DpdkSeat, CPUS, THREADS)
+        .expect_err("DPDK seats are at the ceiling");
+    assert_eq!(
+        err,
+        SeatCeilingExceeded {
+            regime: SeatRegime::DpdkSeat,
+            count: 2 * THREADS,
+            ceiling: 2 * THREADS,
         }
     );
 }

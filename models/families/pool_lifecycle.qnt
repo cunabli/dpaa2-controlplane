@@ -147,6 +147,7 @@ module pool_lifecycle {
 
   // The root residue disposition (ADR-0020 decision 2; design D10 amendment): a managed
   // count above intent that root cannot reclaim renders reboot-required, else converged.
+  // Twin `PoolFamilyDrift::residue` judges the labeled-plugged census, not `managedCount` — a recorded twin difference, not drift.
   pure def poolDisposition(cv: Conv): PoolDisposition =
     if (managedCount(cv) <= cv.derivedReq) Converged
     else RebootRequired({ family: FAMILY, observed: managedCount(cv), required: cv.derivedReq })

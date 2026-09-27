@@ -75,9 +75,10 @@ module dpio {
 // Named invariants (Apalache-marked via `stateInvariants`): DPIO_I2_seatBound
 // (dpio.md "Lifecycle ordering"), DPIO_I3_modeDead (Breaking, dpio.md
 // "Kernel-side behavior"). Directed runs: probeDrawTest, probeExhaustionDisabledTest,
-// seatBoundRefusedTest, noChannelReportsPrioritiesTest, seatResidueReportedTest
-// (pool-objects task 3.9; the grow-only typed reboot-required residue, per
-// pool-objects design D4/D10). Model:test-only run — dpio's frozen twins are unchanged.
+// seatBoundRefusedTest, dpdkSeatBoundRefusedTest, noChannelReportsPrioritiesTest,
+// seatResidueReportedTest (pool-objects task 3.9; the grow-only typed reboot-required
+// residue, per pool-objects design D4/D10). dpdkSeatBoundRefusedTest freezes the DpdkSeat
+// regime (pool-hardening); seatResidueReportedTest stays model:test-only.
 module dpio_lifecycle {
   import types.* from "../core/types"
   import create_allocate.* from "../core/create_allocate"
@@ -259,6 +260,16 @@ module dpio_lifecycle {
       .then(createDpioAt(LocalChannel, 8, KernelSeat))
       .expect(dpioSeatCount(dpioSeats, KernelSeat) == NUM_CPUS)
       .then(createDpioAt(LocalChannel, 8, KernelSeat).fail())
+
+  // DPIO-I2 (DpdkSeat regime): DPDK portals top out at 2·NUM_THREADS; the next create is
+  // refused (-ERANGE). The seat-typed twin of seatBoundRefusedTest, frozen to witness the
+  // DpdkSeat arm beyond unit tests (pool-hardening; review synthesis L25).
+  run dpdkSeatBoundRefusedTest =
+    init
+      .then(createDpioAt(LocalChannel, 8, DpdkSeat))
+      .then(createDpioAt(LocalChannel, 8, DpdkSeat))
+      .expect(dpioSeatCount(dpioSeats, DpdkSeat) == 2 * NUM_THREADS)
+      .then(createDpioAt(LocalChannel, 8, DpdkSeat).fail())
 
   // DPIO-I3 (Breaking): a NO_CHANNEL dpio at 8 priorities is still capable and
   // 8-priority — the reported num_priorities decides, the mode does not fold them
