@@ -153,6 +153,14 @@ opus48-developer parcel.
       shrink and deficit legs assert the typed residue or move to
       child scope; the foreign-prune leg matches the one-label law
       (ADR-0020; bead 960.33).
+- [x] 3.20 Root residue reports labeled runtime capacity at teardown
+      (discovered at 3.19 authoring: an empty intent judges the
+      orphaned consumer-labelled pool objects Foreign and renders no
+      residue — silent plugged capacity). The census judges
+      runtime-created by non-empty label (one-label law), folds
+      labeled plugged capacity into the residue observed count, and
+      all three surfaces render it; the model's retarget-to-0 face is
+      already the oracle (ADR-0020 decisions 2/4; bead 960.34).
 
 ## 4. Suites
 
