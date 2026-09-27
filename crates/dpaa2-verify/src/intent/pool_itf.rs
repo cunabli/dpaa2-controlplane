@@ -24,17 +24,17 @@
 //! Mapping (the only place the two encodings are reconciled): every `Family` tag ⇒ the
 //! corpus `Family` of the same name (`itf::obj_ref`, strict — ADR-0002 §3, no tag
 //! flattening); the `CoreState` custody edges (`parent`/`allocatedBy` as `Option[ObjId]`)
-//! and the `Conv` record (`derivedReq`/`managed`/`refusal`) ⇒ the count fields of
-//! `PoolCensus` plus the ghost-set size.
+//! and the `Conv` record (`derivedReq`/`managed`/`refusal`/`scope`) ⇒ the count fields of
+//! `PoolCensus` plus the ghost-set size and the custody scope (ADR-0020).
 
 use std::collections::BTreeSet;
 
 use serde_json::Value;
 
 use dpaa2_api::core::family::Family;
-use dpaa2_api::families::pool_lifecycle::PoolCensus;
+use dpaa2_api::families::pool_lifecycle::{CustodyScope, PoolCensus};
 
-use crate::itf::{field, int64, obj_ref, opt_obj_ref, set_items, state_var};
+use crate::itf::{field, int64, obj_ref, opt_obj_ref, set_items, state_var, tag};
 
 /// dpbp is the representative pool twin; the pool container is the Linux root `dprc.1`, the
 /// DPL-born boot object is ordinal 0 (`pool_lifecycle` `born`), and the ceiling is the
@@ -76,6 +76,12 @@ pub struct PoolWorld {
     pub drawn: BTreeSet<(Family, u32)>,
     /// The reconciler ghost set `conv.managed`, by id.
     pub managed: BTreeSet<(Family, u32)>,
+    /// The custody scope carried in `conv.scope` (ADR-0020): root is grow-only, child runs the
+    /// unplug-probe reclaim. The replay drives [`drift_disposition`] at this scope so the
+    /// oracle's shrink/prune judgment matches the model's scoped `prunable`/`shrinkBelowDrawAt`.
+    ///
+    /// [`drift_disposition`]: dpaa2_api::families::pool_lifecycle::drift_disposition
+    pub scope: CustodyScope,
 }
 
 /// One frozen step of a directed pool run.
@@ -121,9 +127,10 @@ fn census_of(s: &Value, managed: &BTreeSet<(Family, u32)>) -> Result<Decoded, St
         mut drawn_n,
         mut born,
         mut foreign_free,
+        mut foreign_free_plugged,
         mut foreign_drawn,
         mut born_drawn,
-    ) = (0i64, 0i64, 0i64, 0i64, 0i64, 0i64, 0i64);
+    ) = (0i64, 0i64, 0i64, 0i64, 0i64, 0i64, 0i64, 0i64);
     let mut present = BTreeSet::new();
     let mut unplugged = BTreeSet::new();
     let mut drawn = BTreeSet::new();
@@ -161,6 +168,10 @@ fn census_of(s: &Value, managed: &BTreeSet<(Family, u32)>) -> Result<Decoded, St
                 born += 1;
             } else if !is_managed {
                 foreign_free += 1;
+                // A plugged foreign is allocator-bound residue root prune must not reach (ADR-0020 decision 4).
+                if is_plugged {
+                    foreign_free_plugged += 1;
+                }
             }
         }
     }
@@ -170,7 +181,8 @@ fn census_of(s: &Value, managed: &BTreeSet<(Family, u32)>) -> Result<Decoded, St
         ));
     }
     Ok(Decoded {
-        census: PoolCensus::new(population, free, drawn_n, born, foreign_free, born_drawn),
+        census: PoolCensus::new(population, free, drawn_n, born, foreign_free, born_drawn)
+            .with_foreign_free_plugged(foreign_free_plugged),
         foreign_drawn,
         present,
         unplugged,
@@ -187,6 +199,11 @@ fn pool_step(state: &Value) -> Result<PoolStep, String> {
     let s = state_var(state, "s")?;
     let managed = managed_set(conv)?;
     let decoded = census_of(s, &managed)?;
+    let scope = match tag(field(conv, "scope")?)? {
+        "RootScope" => CustodyScope::RootScope,
+        "ChildScope" => CustodyScope::ChildScope,
+        other => return Err(format!("unknown CustodyScope tag `{other}`")),
+    };
     Ok(PoolStep::World(PoolWorld {
         census: decoded.census,
         derived_req: int64(field(conv, "derivedReq")?)?,
@@ -199,6 +216,7 @@ fn pool_step(state: &Value) -> Result<PoolStep, String> {
         unplugged: decoded.unplugged,
         drawn: decoded.drawn,
         managed,
+        scope,
     }))
 }
 

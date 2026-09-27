@@ -24,7 +24,7 @@ use std::collections::BTreeSet;
 
 use dpaa2_api::core::inventory::Ceiling;
 use dpaa2_api::families::pool_lifecycle::{
-    PoolCensus, PoolFamily, ShrinkBelowDraw, drift_disposition,
+    CustodyScope, PoolCensus, PoolFamily, ShrinkBelowDraw, drift_disposition,
 };
 use dpaa2_verify::intent::pool_itf::{PoolStep, PoolWorld, parse_pool_trace};
 
@@ -91,6 +91,10 @@ const TRACES: &[(&str, &str)] = &[
         "dpbp_lifecycle::pool_lifecycle::envCohabitantPrunedTest",
         "convergence under interference: the adversary's free cohabitant is reclaimed",
     ),
+    (
+        "dpbp_lifecycle::pool_lifecycle::rootSurplusResidueTest",
+        "root grow-only: a managed surplus is residue; prune reaches only the never-plugged foreign (ADR-0020)",
+    ),
 ];
 
 fn load(file: &str) -> String {
@@ -129,13 +133,18 @@ fn check_state(file: &str, i: usize, w: &PoolWorld) {
         w.derived_req < w.census.drawn_managed(),
         "{file} step {i}: shrink-below-draw is `requirement < drawn_managed` (the DPL-born nets out, V-POOL-6)"
     );
-    match drift_disposition(FAMILY, w.census, w.derived_req, &CEILING) {
+    match drift_disposition(FAMILY, w.census, w.derived_req, &CEILING, w.scope) {
         Ok(d) => {
             assert!(
                 !w.refusal,
                 "{file} step {i}: the refusal flag is set but drift accepts"
             );
-            assert_eq!(d.prune, w.census.foreign_free(), "{file} step {i}: prune");
+            // Child prune reaches every foreign-free member; root only the never-plugged (ADR-0020 decision 4).
+            let expected_prune = match w.scope {
+                CustodyScope::ChildScope => w.census.foreign_free(),
+                CustodyScope::RootScope => w.census.foreign_free_unplugged(),
+            };
+            assert_eq!(d.prune, expected_prune, "{file} step {i}: prune");
             assert!(
                 d.destroy <= w.census.managed_free(),
                 "{file} step {i}: destroy stays within the free managed set (drawn never a victim)"
@@ -210,10 +219,13 @@ fn check_transition(file: &str, i: usize, prev: &PoolWorld, w: &PoolWorld) {
                 }
             }
         } else {
-            // A prune: an undeclared free object reclaimed (the census foreign-free).
-            let d = drift_disposition(FAMILY, prev.census, prev.derived_req, &CEILING)
+            let d = drift_disposition(FAMILY, prev.census, prev.derived_req, &CEILING, prev.scope)
                 .unwrap_or_else(|_| finding(file, i, "a prune fired at a refusing census"));
-            if !(prev.census.foreign_free() > 0 && d.prune > 0) {
+            let prunable = match prev.scope {
+                CustodyScope::ChildScope => prev.census.foreign_free(),
+                CustodyScope::RootScope => prev.census.foreign_free_unplugged(),
+            };
+            if !(prunable > 0 && d.prune > 0) {
                 finding(file, i, "a prune fired with no foreign-free object");
             }
         }
@@ -298,7 +310,7 @@ fn shrink_below_draw_refuses_by_name_and_count() {
             _ => None,
         })
         .expect("the run reaches the refusal flag");
-    let err = drift_disposition(FAMILY, w.census, w.derived_req, &CEILING)
+    let err = drift_disposition(FAMILY, w.census, w.derived_req, &CEILING, w.scope)
         .expect_err("a requirement below draw refuses");
     assert_eq!(
         err,
@@ -321,7 +333,7 @@ fn drawn_individual_is_never_a_shrink_victim() {
     .unwrap();
     let w = last_world(&steps);
     assert!(w.census.drawn() > 0, "the run holds a drawn individual");
-    let d = drift_disposition(FAMILY, w.census, w.derived_req, &CEILING)
+    let d = drift_disposition(FAMILY, w.census, w.derived_req, &CEILING, w.scope)
         .expect("a free shrink, not a refusal");
     assert!(d.destroy > 0, "the surplus shrinks");
     assert!(
@@ -355,7 +367,7 @@ fn born_drawn_nets_out_of_the_draw_guard() {
         "a requirement of 0 raises no refusal once the born draw is netted"
     );
     assert!(
-        drift_disposition(FAMILY, w.census, w.derived_req, &CEILING).is_ok(),
+        drift_disposition(FAMILY, w.census, w.derived_req, &CEILING, w.scope).is_ok(),
         "drift accepts: the un-netted census would refuse, the netted one does not"
     );
 }
@@ -392,10 +404,8 @@ fn replay_detects_a_diverging_world() {
     let steps =
         parse_pool_trace(&load("dpbp_lifecycle::pool_lifecycle::convergenceGrowTest")).unwrap();
     let w = last_world(&steps);
-    let frozen = drift_disposition(FAMILY, w.census, w.derived_req, &CEILING);
+    let frozen = drift_disposition(FAMILY, w.census, w.derived_req, &CEILING, w.scope);
     let c = w.census;
-    // One extra undeclared free object (population/free/foreign_free all +1 keeps the census
-    // invariants) — the oracle must now emit a prune, diverging from the converged frozen world.
     let tampered = PoolCensus::new(
         c.population() + 1,
         c.free() + 1,
@@ -406,7 +416,7 @@ fn replay_detects_a_diverging_world() {
     );
     assert_ne!(
         frozen,
-        drift_disposition(FAMILY, tampered, w.derived_req, &CEILING),
+        drift_disposition(FAMILY, tampered, w.derived_req, &CEILING, w.scope),
         "an extra foreign-free object must diverge from the converged world"
     );
 }
