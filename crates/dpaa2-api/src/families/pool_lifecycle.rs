@@ -241,6 +241,11 @@ pub struct PoolCensus {
     /// prune count (ADR-0020 decision 4; the model's `prunable` gate `scope == ChildScope or
     /// not(plugged)`). Defaults to 0 via `new`; `census_of` sets it from the plugged facet.
     foreign_free_plugged: i64,
+    /// The plugged rows wearing any non-empty label — the runtime-created capacity the root
+    /// residue reports (ADR-0020 decision 2). A non-empty label proves runtime creation whether
+    /// or not the label is currently declared; an empty label is the DPL boot sentinel, exempt.
+    /// Defaults to 0 via `new`; `census_of` sets it.
+    labeled_plugged: i64,
 }
 
 impl PoolCensus {
@@ -291,6 +296,7 @@ impl PoolCensus {
             foreign_free,
             born_drawn,
             foreign_free_plugged: 0,
+            labeled_plugged: 0,
         }
     }
 
@@ -305,6 +311,19 @@ impl PoolCensus {
             "the plugged foreign-free subset is within foreign_free (0 <= foreign_free_plugged <= foreign_free)"
         );
         self.foreign_free_plugged = n;
+        self
+    }
+
+    /// Records the plugged rows wearing any non-empty label — the observed count the root residue
+    /// reports (ADR-0020 decision 2). The producer boundary [`census_of`] sets it; the count is
+    /// within the population (debug-asserted, an adapter miscount).
+    #[must_use]
+    pub fn with_labeled_plugged(mut self, n: i64) -> Self {
+        debug_assert!(
+            n >= 0 && n <= self.population,
+            "the labeled-plugged subset is within the population (0 <= labeled_plugged <= population)"
+        );
+        self.labeled_plugged = n;
         self
     }
 
@@ -366,6 +385,15 @@ impl PoolCensus {
     #[must_use]
     pub const fn foreign_free_plugged(self) -> i64 {
         self.foreign_free_plugged
+    }
+
+    /// The plugged count wearing any non-empty label — the root residue's observed count
+    /// (ADR-0020 decision 2). A non-empty label proves runtime creation whether or not the label
+    /// is currently declared, so this fires at an empty intent where `managed` reads zero; the
+    /// empty-label DPL boot pool is exempt. Zero unless [`census_of`] set it.
+    #[must_use]
+    pub const fn labeled_plugged(self) -> i64 {
+        self.labeled_plugged
     }
 
     /// The never-plugged foreign-free count — the root prune target (ADR-0020 decision 4: a
@@ -788,7 +816,9 @@ impl ObservedPoolObject {
 /// probe, not read), so a restool census reads every row free; a twin/kernel-face that
 /// observes the draw splits the two facets here. `declared` is the same declared-name
 /// recognition set the inventory judges labels against (ADR-0015), so the count-level
-/// `born`/`born_drawn`/`foreign_free` match the inventory's per-object verdicts exactly.
+/// `born`/`born_drawn`/`foreign_free` match the inventory's per-object verdicts exactly. It also
+/// tallies [`labeled_plugged`](PoolCensus::labeled_plugged) — every plugged row with a non-empty
+/// label — the root residue's observed count (ADR-0020 decision 2).
 #[must_use]
 pub fn census_of(rows: &[ObservedPoolObject], declared: &BTreeSet<ConstructName>) -> PoolCensus {
     let population = i64::try_from(rows.len()).unwrap_or(i64::MAX);
@@ -798,7 +828,12 @@ pub fn census_of(rows: &[ObservedPoolObject], declared: &BTreeSet<ConstructName>
     let mut foreign_free = 0i64;
     let mut foreign_free_plugged = 0i64;
     let mut born_drawn = 0i64;
+    let mut labeled_plugged = 0i64;
     for row in rows {
+        // A plugged row with any non-empty label is runtime-created residue (ADR-0020 decision 2).
+        if row.plugged && !row.label.is_empty() {
+            labeled_plugged += 1;
+        }
         if row.drawn {
             drawn += 1; // the real draw facet, never inferred from plugged (pool-objects design D10)
             if row.membership(declared) == PoolMembership::DplBorn {
@@ -821,6 +856,7 @@ pub fn census_of(rows: &[ObservedPoolObject], declared: &BTreeSet<ConstructName>
     }
     PoolCensus::new(population, free, drawn, born, foreign_free, born_drawn)
         .with_foreign_free_plugged(foreign_free_plugged)
+        .with_labeled_plugged(labeled_plugged)
 }
 
 /// The kernel-poolable count of an observed pool family — the plugged rows only. A pool
@@ -1395,6 +1431,42 @@ mod tests {
         )
         .expect("root never refuses below draw");
         assert_eq!(d.destroy, 0, "root destroys nothing");
+    }
+
+    /// rootSurplusResidueTest face 4 (ADR-0020 decision 2): at an empty intent the grown root
+    /// objects still wear a consumer label but declare no consumer, so `managed` reads zero; the
+    /// residue reads the labeled-plugged count instead, which fires. An unlabeled (DPL boot) pool
+    /// stays silent.
+    #[test]
+    fn labeled_plugged_is_the_root_residue_observed_at_an_empty_intent() {
+        let declared = declared_set(&[]); // an empty intent declares no consumer
+        let grown: Vec<ObservedPoolObject> = (0..3).map(|n| pool_row(n, "kern0", false)).collect();
+        let c = census_of(&grown, &declared);
+        assert_eq!(c.managed(), 0, "an undeclared label reads managed zero");
+        assert_eq!(c.labeled_plugged(), 3, "three plugged rows wear a label");
+        assert_eq!(
+            pool_disposition(PoolFamily::Dpbp, c.labeled_plugged(), 0),
+            PoolDisposition::RebootRequired(PoolResidue {
+                family: PoolFamily::Dpbp,
+                observed: 3,
+                required: 0,
+            }),
+            "the residue fires where managed would have been silent"
+        );
+
+        // An unlabeled (empty-column) plugged pool is the DPL boot baseline: never residue.
+        let boot: Vec<ObservedPoolObject> = (0..3).map(|n| pool_row(n, "", false)).collect();
+        let b = census_of(&boot, &declared);
+        assert_eq!(
+            b.labeled_plugged(),
+            0,
+            "the empty-label boot pool is exempt"
+        );
+        assert_eq!(
+            pool_disposition(PoolFamily::Dpbp, b.labeled_plugged(), 0),
+            PoolDisposition::Converged,
+            "the DPL baseline is silent"
+        );
     }
 
     // ---- census_of: raw rows fold into the count vocabulary (pool-objects design D3) ----
