@@ -177,7 +177,7 @@ opus48-developer parcel.
       shrink/prune assert laws the shipped census cannot execute);
       V-MVP-1 intent + offline pins landed at the first authoring
       pass, the suite script follows 3.14.
-- [ ] 4.4 GATED — DPL-defined-child escape: only if 4.1–4.3 leave a
+- [x] 4.4 GATED — DPL-defined-child escape: only if 4.1–4.3 leave a
       routed invariant unreachable at root scope; names the
       invariant, operator-approved before any boot-config write
       (design D5; bead 5y7).
