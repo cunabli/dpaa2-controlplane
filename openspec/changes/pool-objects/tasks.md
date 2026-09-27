@@ -144,7 +144,7 @@ opus48-developer parcel.
       residue widens from dpio seats to every root pool family on
       ensure/dry-run/status; design D10 amended; no model or Rust
       change (ADR-0020; bead 960.31).
-- [ ] 3.18 Model + custody twin follow ADR-0020: pool_lifecycle
+- [x] 3.18 Model + custody twin follow ADR-0020: pool_lifecycle
       scopes unplug-probe/reclaim to child custody and gains the
       root-surplus-is-residue law with a directed run; the Rust
       custody twin (census/select/dispatch) conforms; twins
