@@ -691,13 +691,19 @@ pub struct PoolFamilyDrift {
 
 impl PoolFamilyDrift {
     /// The grow-only residue disposition this root family reports (ADR-0020, design D10
-    /// amendment): a managed count above the requirement renders reboot-required, else
-    /// converged — root capacity cannot be reclaimed at runtime, so a surplus is reported and
-    /// the reboot named, never a live destroy. The `dry-run`/`status`/`ensure` surfaces render
-    /// it (the trio twin of the dpio [`SeatDisposition`] residue).
+    /// amendment): the observed count is the labeled-plugged one, and above the requirement it
+    /// renders reboot-required, else converged — root capacity cannot be reclaimed at runtime, so
+    /// a surplus is reported and the reboot named, never a live destroy. The `dry-run`/`status`/
+    /// `ensure` surfaces render it (the trio twin of the dpio [`SeatDisposition`] residue).
+    ///
+    /// Observed is the labeled-plugged count, not `managed` (ADR-0020 decision 2): at an empty
+    /// intent the grown objects still wear a consumer label but declare no consumer, so `managed`
+    /// reads zero and stays silent about capacity it grew and cannot reclaim. Any non-empty label
+    /// proves runtime creation; the empty-label DPL boot pool is exempt. Where labels are
+    /// declared the two counts agree, so every prior surplus case is unchanged.
     #[must_use]
     pub fn residue(&self) -> PoolDisposition {
-        pool_disposition(self.family, self.census.managed(), self.required)
+        pool_disposition(self.family, self.census.labeled_plugged(), self.required)
     }
 }
 

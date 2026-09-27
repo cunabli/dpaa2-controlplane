@@ -16,7 +16,9 @@ use dpaa2_api::core::family::Family;
 use dpaa2_api::core::model::{DpmacId, DpniId, DprcId, MacMode, ObjectRef, ObservedDpni};
 use dpaa2_api::core::types::ConstructName;
 use dpaa2_api::families::dprc::{ContainerState, ObservedResident, Options, ResidentKind};
-use dpaa2_api::families::pool_lifecycle::{ObservedPoolObject, RawDriver, RawLabel};
+use dpaa2_api::families::pool_lifecycle::{
+    ObservedPoolObject, PoolDisposition, RawDriver, RawLabel,
+};
 use dpaa2_api::intent::compiled::Container;
 use dpaa2_api::intent::refuse::{Compiled, compile};
 use dpaa2_api::intent::{Dataplane, Intent, Isolation, Port, Tenant, TenantRef};
@@ -788,6 +790,26 @@ fn root_pool_plugged_capacity_is_grow_only_residue_after_teardown() {
     assert!(
         backend.observe().unwrap().dpnis.is_empty(),
         "the kernel dpni was pruned"
+    );
+
+    // The residue is reported, never silent: the grown, still-labelled root capacity renders on
+    // the dry-run surface even at the empty intent, where `managed` reads zero (ADR-0020 decision 2).
+    let drift = engine::plan_pools(&compiled.plan, &backend).unwrap();
+    let residue_families: Vec<Family> = drift
+        .families
+        .iter()
+        .filter(|f| f.residue() != PoolDisposition::Converged)
+        .map(|f| f.family.family())
+        .collect();
+    assert_eq!(
+        residue_families,
+        vec![Family::Dpmcp, Family::Dpbp],
+        "both grown root families report reboot-required residue"
+    );
+    let text = render::render_pool_drift(&compiled.plan, &drift);
+    assert!(
+        text.matches("reboot-required").count() >= 2,
+        "the dry-run carries a reboot-required residue line per grown family: {text}"
     );
 }
 
