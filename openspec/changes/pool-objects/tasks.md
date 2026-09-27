@@ -187,5 +187,5 @@ opus48-developer parcel.
 - [x] 5.1 COVERAGE.md rows routed to #6 updated with dispositions;
       ROADMAP row #6 marked; ADR records that fired during the change
       verified in place (design D6).
-- [ ] 5.2 Quality floor green (scripts/checks/quality-floor.sh);
+- [x] 5.2 Quality floor green (scripts/checks/quality-floor.sh);
       epic-review; beads closed; archive readiness.
