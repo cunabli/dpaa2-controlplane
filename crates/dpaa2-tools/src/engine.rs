@@ -19,8 +19,8 @@ use dpaa2_api::core::types::{ConstructName, TenantName};
 use dpaa2_api::families::dpio::{SeatDisposition, SeatRegime, derived_seats, seat_disposition};
 use dpaa2_api::families::dprc::Options;
 use dpaa2_api::families::pool_lifecycle::{
-    PoolCensus, PoolDeltas, PoolFamily, ShrinkBelowDraw, census_of, derived_requirement,
-    drift_disposition,
+    CustodyScope, PoolCensus, PoolDeltas, PoolDisposition, PoolFamily, ShrinkBelowDraw, census_of,
+    derived_requirement, drift_disposition, pool_disposition,
 };
 use dpaa2_api::intent::KERNEL;
 use dpaa2_api::intent::compiled::{Attributes, CompiledPlan, Container, PlannedObject};
@@ -689,6 +689,18 @@ pub struct PoolFamilyDrift {
     pub disposition: Result<PoolDeltas, ShrinkBelowDraw>,
 }
 
+impl PoolFamilyDrift {
+    /// The grow-only residue disposition this root family reports (ADR-0020, design D10
+    /// amendment): a managed count above the requirement renders reboot-required, else
+    /// converged — root capacity cannot be reclaimed at runtime, so a surplus is reported and
+    /// the reboot named, never a live destroy. The `dry-run`/`status`/`ensure` surfaces render
+    /// it (the trio twin of the dpio [`SeatDisposition`] residue).
+    #[must_use]
+    pub fn residue(&self) -> PoolDisposition {
+        pool_disposition(self.family, self.census.managed(), self.required)
+    }
+}
+
 /// The root-scope pool drift across the trio plus the dpio seats — the read the pool
 /// convergence phase and the `dry-run`/`status` surfaces share (pool-objects task 3.4).
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -812,8 +824,14 @@ pub fn plan_pools<M: McControl>(plan: &CompiledPlan, mc: &M) -> Result<PoolDrift
         let rows = mc.observe_pool(None, family.family())?;
         let census = census_of(&rows, &declared);
         let required = derived_requirement(plan, &Container::Root, family);
-        let disposition =
-            drift_disposition(family, census, required, &ceiling_of(&inventory, family));
+        // Root is grow-only: no managed-surplus destroy, prune only never-plugged, no refusal (ADR-0020).
+        let disposition = drift_disposition(
+            family,
+            census,
+            required,
+            &ceiling_of(&inventory, family),
+            CustodyScope::RootScope,
+        );
         families.push(PoolFamilyDrift {
             family,
             census,
@@ -921,12 +939,20 @@ pub fn converge_pools<M: McControl>(
             continue;
         }
         let label = root_family_label(plan, f.family.family());
-        let dispatch = dispatch_pool_deltas(mc, None, f.family, masked, &label, &declared)?;
+        let dispatch = dispatch_pool_deltas(
+            mc,
+            None,
+            f.family,
+            masked,
+            &label,
+            &declared,
+            CustodyScope::RootScope,
+        )?;
         let after = census_of(&dispatch.after, &declared);
-        // Grow judges the deficit closed (surplus/foreign is the shrink half's); shrink the full converged census.
+        // Root shrink is grow-only: the verdict is the never-plugged prune cleared; surplus is residue (ADR-0020).
         let converged = match pass {
             PoolPass::Grow => after.managed() == f.required,
-            PoolPass::Shrink => after.converged(f.required),
+            PoolPass::Shrink => after.foreign_free_unplugged() == 0,
         };
         if !converged {
             return Err(Error::Backend(format!(
@@ -1441,7 +1467,13 @@ mod tests {
         #[test]
         fn converge_pools_prunes_a_foreign_free_root_object() {
             let compiled = compiled_kernel();
-            let foreign = seeded(99, RawLabel::from("vendor"), false); // undeclared, undrawn ⇒ prune target
+            // Never-plugged ⇒ the root prune target (ADR-0020 decision 4).
+            let foreign = ObservedPoolObject {
+                object: ObjectRef::new(Family::Dpbp, 99),
+                label: RawLabel::from("vendor"),
+                plugged: false,
+                drawn: false,
+            };
             let mc = FakeBackend::new()
                 .with_inventory(ref_inventory(16))
                 .with_pool_object(DprcId::ROOT, foreign.clone());
@@ -1466,11 +1498,11 @@ mod tests {
             );
         }
 
+        /// Root grow-only: a managed surplus is never reclaimed; it renders as reboot-required residue (ADR-0020; rootSurplusResidueTest).
         #[test]
-        fn converge_pools_shrinks_a_free_managed_surplus() {
+        fn converge_pools_reports_a_root_managed_surplus_as_residue() {
             let compiled = compiled_kernel();
             let req = derived_requirement(&compiled.plan, &Container::Root, PoolFamily::Dpbp);
-            // Seed req+2 free (undrawn) dpbp wearing the kernel name ⇒ a surplus of 2 the shrink reclaims through the unplug probe.
             let mut mc = FakeBackend::new().with_inventory(ref_inventory(16));
             for ord in 0..u32::try_from(req + 2).unwrap() {
                 mc = mc.with_pool_object(DprcId::ROOT, seeded(ord, RawLabel::from(KERNEL), false));
@@ -1480,40 +1512,51 @@ mod tests {
                 converge_pools(&compiled.plan, &mc, pool_cfg(), PoolPass::Shrink).unwrap(),
                 PoolOutcome::Converged
             );
-            assert_eq!(count(&mc, Family::Dpbp), req, "shrunk to the derived count");
+            assert_eq!(
+                count(&mc, Family::Dpbp),
+                req + 2,
+                "root surplus is never reclaimed at runtime"
+            );
+
+            let drift = plan_pools(&compiled.plan, &mc).unwrap();
+            let dpbp = drift
+                .families
+                .iter()
+                .find(|f| f.family == PoolFamily::Dpbp)
+                .expect("dpbp drift");
+            assert_eq!(
+                dpbp.residue(),
+                PoolDisposition::RebootRequired(dpaa2_api::families::pool_lifecycle::PoolResidue {
+                    family: PoolFamily::Dpbp,
+                    observed: req + 2,
+                    required: req,
+                })
+            );
+            let text = crate::render::render_pool_drift(&compiled.plan, &drift);
+            assert!(text.contains("reboot-required"), "{text}");
         }
 
+        /// Root drawn-ness is unobservable, so a requirement below draw NEVER refuses at root — the below-draw refusal is child-scoped (ADR-0020 decision 3).
         #[test]
-        fn converge_pools_refuses_a_requirement_below_draw() {
+        fn converge_pools_never_refuses_below_draw_at_root() {
             let compiled = compiled_kernel();
             let req = derived_requirement(&compiled.plan, &Container::Root, PoolFamily::Dpbp);
-            // Seed req+1 drawn (plugged) managed dpbp ⇒ the requirement sits below the draw, a
-            // free-only shrink cannot reach it, so it refuses and tears nothing down.
             let mut mc = FakeBackend::new().with_inventory(ref_inventory(16));
             for ord in 0..u32::try_from(req + 1).unwrap() {
                 mc = mc.with_pool_object(DprcId::ROOT, seeded(ord, RawLabel::from(KERNEL), true));
             }
 
             match converge_pools(&compiled.plan, &mc, pool_cfg(), PoolPass::Shrink).unwrap() {
-                PoolOutcome::ShrinkRefused { refusal } => {
-                    assert_eq!(refusal.family, PoolFamily::Dpbp);
-                    assert_eq!(refusal.requirement, req);
-                    assert_eq!(refusal.drawn, req + 1);
-                }
-                other => panic!("expected a below-draw refusal, got {other:?}"),
+                PoolOutcome::Converged => {}
+                other => panic!("root never refuses below draw, got {other:?}"),
             }
-            // Nothing was actuated: the drawn rows survive and no other family was grown.
             assert_eq!(count(&mc, Family::Dpbp), req + 1);
-            assert_eq!(
-                count(&mc, Family::Dpmcp),
-                0,
-                "no dispatch before the refusal"
-            );
 
-            // The dry-run seam renders the refusal (the REFUSED branch).
             let drift = plan_pools(&compiled.plan, &mc).unwrap();
+            assert!(drift.shrink_refusal().is_none(), "root raises no refusal");
             let text = crate::render::render_pool_drift(&compiled.plan, &drift);
-            assert!(text.contains("REFUSED"), "{text}");
+            assert!(!text.contains("REFUSED"), "{text}");
+            assert!(text.contains("reboot-required"), "{text}");
         }
 
         #[test]

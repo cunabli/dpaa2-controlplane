@@ -733,30 +733,27 @@ fn root_dpni_prune_gates_never_touch_the_kernel_seam() {
     );
 }
 
+/// ADR-0020 decisions 1/4: PLUGGED root pool capacity is grow-only residue — the shrink pass reclaims it neither before nor after the consumer teardown; only the consumer dpni is pruned.
 #[test]
-fn empty_intent_reaches_prune_once_the_consumer_is_torn_down() {
-    // pool-objects design D10 teardown walk: a kernel interface holds root pool objects it drew.
-    // The old order (shrink first) bounces the in-use probe; the reorder (grow, consumer
-    // teardown, shrink) reaches prune and reclaims the pool.
+fn root_pool_plugged_capacity_is_grow_only_residue_after_teardown() {
     let compiled = compiled_empty();
     let backend = FakeBackend::new()
         .with_dpni(root_dpni(1, Some(ConstructName::from("kern0")), Some(4)))
         .with_in_use_pool_object(DprcId::ROOT, kern_row(Family::Dpbp, 1))
         .with_in_use_pool_object(DprcId::ROOT, kern_row(Family::Dpmcp, 2));
 
-    // Old-order regression: a pool shrink before the consumer teardown hits the in-use probe.
-    assert!(
+    assert_eq!(
         engine::converge_pools(
             &compiled.plan,
             &backend,
             prune_disruptive_cfg(),
             PoolPass::Shrink
         )
-        .is_err(),
-        "a pool shrink before consumer teardown bounces the in-use unplug probe"
+        .unwrap(),
+        PoolOutcome::Converged,
+        "root plugged capacity is residue, never a runtime reclaim"
     );
 
-    // Reordered walk: grow-first defers, prune tears the consumer down, shrink-last reclaims.
     assert_eq!(
         engine::converge_pools(
             &compiled.plan,
@@ -782,16 +779,12 @@ fn empty_intent_reaches_prune_once_the_consumer_is_torn_down() {
         .unwrap(),
         PoolOutcome::Converged
     );
-    assert!(
-        backend.observe_pool(None, Family::Dpbp).unwrap().is_empty(),
-        "the drawn pool reclaims once its consumer is gone"
+    assert_eq!(
+        backend.observe_pool(None, Family::Dpbp).unwrap().len(),
+        1,
+        "root plugged capacity is grow-only residue, retained after teardown (ADR-0020)"
     );
-    assert!(
-        backend
-            .observe_pool(None, Family::Dpmcp)
-            .unwrap()
-            .is_empty()
-    );
+    assert_eq!(backend.observe_pool(None, Family::Dpmcp).unwrap().len(), 1);
     assert!(
         backend.observe().unwrap().dpnis.is_empty(),
         "the kernel dpni was pruned"

@@ -13,6 +13,7 @@ use std::fmt::Write as _;
 use dpaa2_api::core::family::Family;
 use dpaa2_api::core::model::DprcId;
 use dpaa2_api::families::dpio::SeatDisposition;
+use dpaa2_api::families::pool_lifecycle::PoolDisposition;
 use dpaa2_api::intent::compiled::{
     AttachPoint, Attributes, CompiledPlan, Container, Measurement, ObjectKey, PlannedObject,
     ProvenanceKey,
@@ -278,6 +279,10 @@ pub fn render_pool_drift(plan: &CompiledPlan, drift: &PoolDrift) -> String {
                     f.required,
                 );
             }
+        }
+        // A root managed surplus renders as grow-only reboot-required residue on every surface (ADR-0020; same voice as the dpio residue below).
+        if let PoolDisposition::RebootRequired(residue) = f.residue() {
+            let _ = writeln!(out, "    reboot-required: {residue}");
         }
         render_root_provenance(plan, f.family.family(), &mut out);
     }

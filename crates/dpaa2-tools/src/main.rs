@@ -12,6 +12,7 @@ use clap::{Parser, Subcommand, ValueEnum};
 use dpaa2_api::contract::McControl;
 use dpaa2_api::core::error::Error;
 use dpaa2_api::families::dpio::SeatDisposition;
+use dpaa2_api::families::pool_lifecycle::PoolDisposition;
 use dpaa2_api::intent::refuse::{Compiled, compile};
 use dpaa2_api::intent::{Intent, kernel_tenant};
 use dpaa2_api::plan::Class;
@@ -354,12 +355,14 @@ fn ensure(
         return Ok(code);
     }
 
-    // The grow-only dpio seats a teardown cannot reclaim render as the typed reboot-required
-    // residue (pool-objects design D4/D10; ADR-0003 §7): observed vs required, reboot-named,
-    // never a live destroy — the only census delta a reboot then restores.
-    if let SeatDisposition::RebootRequired(residue) =
-        engine::plan_pools(&compiled.plan, mc)?.dpio_disposition()
-    {
+    // Grow-only capacity renders as typed reboot-required residue on ensure too: each root family's managed surplus and the dpio seats (ADR-0020; ADR-0003 §7).
+    let residue_drift = engine::plan_pools(&compiled.plan, mc)?;
+    for f in &residue_drift.families {
+        if let PoolDisposition::RebootRequired(residue) = f.residue() {
+            println!("residue: {residue}");
+        }
+    }
+    if let SeatDisposition::RebootRequired(residue) = residue_drift.dpio_disposition() {
         println!("residue: {residue}");
     }
 
