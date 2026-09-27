@@ -34,8 +34,8 @@ use dpaa2_api::families::dpio::derived_seats;
 use dpaa2_api::families::dpni::DpniCfg;
 use dpaa2_api::families::dprc::VfioBind;
 use dpaa2_api::families::pool_lifecycle::{
-    PoolCensus, PoolDeltas, PoolFamily, RawDriver, ShrinkBelowDraw, census_of, derived_requirement,
-    drift_disposition,
+    CustodyScope, PoolCensus, PoolDeltas, PoolFamily, RawDriver, ShrinkBelowDraw, census_of,
+    derived_requirement, drift_disposition,
 };
 use dpaa2_api::intent::compiled::{Attributes, CompiledPlan, Container, ObjectKey};
 use dpaa2_api::plan::Class;
@@ -243,7 +243,14 @@ pub fn plan_child_population<M: McControl, K: KernelControl>(
         let rows = mc.observe_pool(Some(child), family.family())?;
         let census = census_of(&rows, declared);
         let requirement = derived_requirement(plan, container, family);
-        let disposition = drift_disposition(family, census, requirement, &Ceiling::Unknown);
+        // Child scope: the unplug-probe reclaim and below-draw refusal fire unchanged (ADR-0020 decision 3).
+        let disposition = drift_disposition(
+            family,
+            census,
+            requirement,
+            &Ceiling::Unknown,
+            CustodyScope::ChildScope,
+        );
         families.insert(family, (requirement, census, disposition));
     }
 
@@ -310,7 +317,15 @@ pub fn dispatch_child_population<M: McControl>(
     for family in TRIO {
         let (requirement, _census, disposition) = cplan.families[&family];
         let deltas = disposition?;
-        let dispatch = dispatch_pool_deltas(mc, Some(child), family, deltas, label, declared)?;
+        let dispatch = dispatch_pool_deltas(
+            mc,
+            Some(child),
+            family,
+            deltas,
+            label,
+            declared,
+            CustodyScope::ChildScope,
+        )?;
         families.insert(family, (requirement, census_of(&dispatch.after, declared)));
     }
 

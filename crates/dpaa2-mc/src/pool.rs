@@ -7,8 +7,10 @@
 //! pool-objects design D2 boundary decided. A grow emits N creates of the family's verb (companions wear their consumer's
 //! name, ADR-0015); a destroy/prune selects victims from the *free* set only, first-N
 //! (anonymity is the pattern's truth, so which free individual goes is not a policy
-//! surface). Read-back is the observation returned, never an exit status (mc-backend spec
-//! requirement 1).
+//! surface) — with the root prune narrowed to NEVER-PLUGGED foreigns (a plugged root foreign
+//! is `fsl_mc_allocator`-bound residue, ADR-0020 decision 4; the [`CustodyScope`] carried into
+//! the victim selection). Read-back is the observation returned, never an exit status
+//! (mc-backend spec requirement 1).
 //!
 //! # Fail-fast, no rollback chain
 //!
@@ -33,7 +35,7 @@ use dpaa2_api::core::model::{DprcId, ObjectRef};
 use dpaa2_api::core::types::ConstructName;
 use dpaa2_api::families::dpio::{ChannelMode, DpioCfg, Priorities};
 use dpaa2_api::families::pool_lifecycle::{
-    ObservedPoolObject, PoolDeltas, PoolFamily, PoolMembership,
+    CustodyScope, ObservedPoolObject, PoolDeltas, PoolFamily, PoolMembership,
 };
 
 /// The dpcon default priority count (`docs/baseline/dpcon.md` "Option inventory": 1–8,
@@ -87,6 +89,10 @@ pub struct PoolDispatch {
 ///   the probe surfaces refuses rather than tears down (pool-objects design D10).
 /// - **prune**: `deltas.prune` victims selected from the foreign-judged rows, first-N,
 ///   reclaimed through the same probe — DPL-born rows are structurally exempt (roadmap #14).
+///   At [`CustodyScope::RootScope`] only NEVER-PLUGGED foreign rows are eligible (a plugged
+///   root foreign is `fsl_mc_allocator`-bound residue, ADR-0020 decision 4), matching the
+///   never-plugged prune count the disposition emits; at [`CustodyScope::ChildScope`] a plugged
+///   foreign is still pruned through the probe (the child reclaim law is unchanged).
 ///
 /// Custody and ownership are judged against `declared`, the same declared-name recognition
 /// set the census and the inventory use (ADR-0010 §4 refined by ADR-0015), so the victims
@@ -109,6 +115,7 @@ pub fn dispatch_pool_deltas<M: McControl>(
     deltas: PoolDeltas,
     label: &ConstructName,
     declared: &BTreeSet<ConstructName>,
+    scope: CustodyScope,
 ) -> Result<PoolDispatch, Error> {
     // grow: each count is one create of the family's verb (companions wear the consumer's
     // name, ADR-0015). Fail-fast, no rollback (module docs).
@@ -122,11 +129,23 @@ pub fn dispatch_pool_deltas<M: McControl>(
     let mut pruned = Vec::new();
     if deltas.destroy > 0 || deltas.prune > 0 {
         let rows = mc.observe_pool(container, family.family())?;
-        for victim in select_reclaimable(&rows, declared, PoolMembership::Managed, deltas.destroy) {
+        for victim in select_reclaimable(
+            &rows,
+            declared,
+            PoolMembership::Managed,
+            deltas.destroy,
+            scope,
+        ) {
             reclaim(mc, container, victim)?;
             destroyed.push(victim.object);
         }
-        for victim in select_reclaimable(&rows, declared, PoolMembership::Foreign, deltas.prune) {
+        for victim in select_reclaimable(
+            &rows,
+            declared,
+            PoolMembership::Foreign,
+            deltas.prune,
+            scope,
+        ) {
             reclaim(mc, container, victim)?;
             pruned.push(victim.object);
         }
@@ -191,15 +210,29 @@ fn create_one<M: McControl>(
 /// knows drawn are skipped ([`ObservedPoolObject::is_free`]); the restool shim reports every
 /// row undrawn, so the unplug probe in [`reclaim`] is what discovers a live draw
 /// (pool-objects design D10) — no plugged⇒drawn proxy filters here anymore.
+///
+/// At [`CustodyScope::RootScope`] a foreign victim must additionally be NOT plugged: a plugged
+/// root foreign is `fsl_mc_allocator`-bound residue prune must not reach (ADR-0020 decision 4;
+/// the model's `prunable` gate `scope == ChildScope or not(plugged)`), so the never-plugged
+/// foreign is chosen even when a plugged one sorts first, and the plugged one is left untouched
+/// (never a wasted unplug attempt). The count the disposition emits is already the never-plugged
+/// foreign count, so this filter aligns the concrete victims with that count. At
+/// [`CustodyScope::ChildScope`] the plugged filter does not apply (the child prunes a plugged
+/// foreign through the probe).
 fn select_reclaimable<'a>(
     rows: &'a [ObservedPoolObject],
     declared: &BTreeSet<ConstructName>,
     membership: PoolMembership,
     count: i64,
+    scope: CustodyScope,
 ) -> Vec<&'a ObservedPoolObject> {
+    // A plugged root foreign is residue, never a prune victim — the count-level `prunable`'s twin (ADR-0020 decision 4).
+    let prunable_at_scope = |r: &ObservedPoolObject| {
+        membership != PoolMembership::Foreign || scope == CustodyScope::ChildScope || !r.plugged
+    };
     let n = usize::try_from(count).unwrap_or(0);
     rows.iter()
-        .filter(|r| r.is_free() && r.membership(declared) == membership)
+        .filter(|r| r.is_free() && r.membership(declared) == membership && prunable_at_scope(r))
         .take(n)
         .collect()
 }
@@ -350,6 +383,7 @@ mod tests {
             },
             &ConstructName::from("vpp"),
             &declared(&["vpp"]),
+            CustodyScope::ChildScope,
         )
         .expect("grow dispatches");
 
@@ -408,6 +442,7 @@ mod tests {
             },
             &ConstructName::from("vpp"),
             &declared(&["vpp"]),
+            CustodyScope::ChildScope,
         )
         .expect("shrink dispatches");
 
@@ -433,7 +468,7 @@ mod tests {
         );
     }
 
-    // Prune reclaims foreign rows through the same probe; empty-label (DPL) rows are exempt (pool-objects design D10, one label law).
+    /// Child-scoped prune reclaims a plugged foreign through the probe (DPL exempt; pool-objects design D10) — the probe-prune of a plugged foreign is the CHILD law now, at root it is residue (ADR-0020 decision 4).
     #[test]
     fn prune_reclaims_foreign_rows_through_the_probe() {
         let show = dprc_show(&[
@@ -464,6 +499,7 @@ mod tests {
             },
             &ConstructName::from("vpp"),
             &declared(&["vpp"]),
+            CustodyScope::ChildScope,
         )
         .expect("prune dispatches");
 
@@ -476,6 +512,58 @@ mod tests {
             .filter(|c| c.get(1).map(String::as_str) == Some("destroy"))
             .collect();
         assert_eq!(destroys, vec![vec!["dpbp", "destroy", "dpbp.1"]]);
+    }
+
+    /// Root: with a MIXED census (a plugged foreign sorted first + a never-plugged one), only the never-plugged is a prune victim; the plugged residue is untouched (ADR-0020 decision 4).
+    #[test]
+    fn root_prune_selects_the_never_plugged_foreign_only() {
+        use dpaa2_api::contract::fake::FakeBackend;
+        use dpaa2_api::families::pool_lifecycle::{ObservedPoolObject, RawLabel};
+
+        let declared = declared(&["vpp"]);
+        let plugged_foreign = ObjectRef::new(Family::Dpbp, 1);
+        let never_plugged_foreign = ObjectRef::new(Family::Dpbp, 2);
+        let foreign = |object, plugged| ObservedPoolObject {
+            object,
+            label: RawLabel::from("vendor"),
+            plugged,
+            drawn: false,
+        };
+        // The plugged foreign is seeded FIRST so it sorts ahead of the never-plugged one.
+        let mc = FakeBackend::new()
+            .with_pool_object(DprcId::ROOT, foreign(plugged_foreign, true))
+            .with_pool_object(DprcId::ROOT, foreign(never_plugged_foreign, false));
+
+        let out = dispatch_pool_deltas(
+            &mc,
+            None,
+            PoolFamily::Dpbp,
+            PoolDeltas {
+                create: 0,
+                destroy: 0,
+                prune: 1,
+            },
+            &ConstructName::from("vpp"),
+            &declared,
+            CustodyScope::RootScope,
+        )
+        .expect("root prune dispatches");
+
+        assert_eq!(out.pruned, vec![never_plugged_foreign]);
+
+        let rows = mc.observe_pool(None, Family::Dpbp).unwrap();
+        assert!(
+            !rows.iter().any(|r| r.object == never_plugged_foreign),
+            "the never-plugged foreign is the chosen root prune victim"
+        );
+        let survivor = rows
+            .iter()
+            .find(|r| r.object == plugged_foreign)
+            .expect("the plugged foreign survives as residue");
+        assert!(
+            survivor.plugged,
+            "the plugged residue is untouched: no `dprc assign --plugged=0` was dispatched against it"
+        );
     }
 
     // The unplug probe both directions over the stateful fake: a free managed victim unplugs then destroys; a drawn one bounces `-EBUSY` and is never destroyed (pool-objects design D10).
@@ -508,6 +596,7 @@ mod tests {
             },
             &vpp,
             &declared,
+            CustodyScope::ChildScope,
         )
         .expect("a free victim reclaims");
         assert_eq!(out.destroyed, vec![free]);
@@ -529,6 +618,7 @@ mod tests {
             },
             &vpp,
             &declared,
+            CustodyScope::ChildScope,
         )
         .expect_err("a drawn victim refuses the unplug");
         assert!(matches!(err, Error::McStatus { status: 0x10 }), "{err:?}");
