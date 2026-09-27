@@ -149,7 +149,7 @@ opus48-developer parcel.
       root-surplus-is-residue law with a directed run; the Rust
       custody twin (census/select/dispatch) conforms; twins
       re-frozen if trace shapes move (ADR-0020; bead 960.32).
-- [ ] 3.19 Suites follow the narrowed laws: V-POOL-6 / V-MVP-1 root
+- [x] 3.19 Suites follow the narrowed laws: V-POOL-6 / V-MVP-1 root
       shrink and deficit legs assert the typed residue or move to
       child scope; the foreign-prune leg matches the one-label law
       (ADR-0020; bead 960.33).

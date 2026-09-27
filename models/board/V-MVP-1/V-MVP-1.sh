@@ -121,9 +121,12 @@ teardown() {
   "$DPAA2CTL" --config "$RESULTS/teardown-empty.toml" ensure --prune --allow disruptive --no-link \
     > "$RESULTS/teardown-ensure.txt" 2>>"$RESULTS/teardown.log" || true
   sleep 2
-  if [ -n "${FOREIGN:-}" ]; then
-    restool dpbp info "$FOREIGN" > /dev/null 2>&1 && restool dpbp destroy "$FOREIGN" 2>>"$RESULTS/teardown.log" || true
-  fi
+  # Clear BOTH step-8 foreigns on every abort path (info-guarded: a stray already pruned by
+  # the ensure is skipped; the bare survivor is destroyed here — born unplugged, unlabeled).
+  for f in "${FOREIGN:-}" "${FOREIGN_STRAY:-}"; do
+    [ -n "$f" ] || continue
+    restool dpbp info "$f" > /dev/null 2>&1 && restool dpbp destroy "$f" 2>>"$RESULTS/teardown.log" || true
+  done
   pool_capture pool-teardown.txt
   save_dmesg
   echo "teardown: kernel dpni + child dprc + managed trio reconciled to empty; dpio seats are grow-only — reboot to reclaim (ADR-0003 §7)"
@@ -230,75 +233,89 @@ expect_out 6 "0 planned transition(s)" "the converged dry-run plans zero port tr
 run 7 "$DPAA2CTL" --config "$INTENT" ensure --no-link --allow disruptive
 expect_zero 7 "second ensure dispatches nothing (idempotent, no-op re-run)"
 
-# step 8: drift surplus — a foreign, undeclared, free dpbp in the root, the prune
-# target (V-POOL-6 step-6 shape). FOREIGN is exported for the teardown.
+# step 8 (drift surplus): TWO foreign root dpbps exercise the one-label law under
+# ADR-0020 decision 4. (1) FOREIGN_STRAY carries an undeclared label 'stray' ⇒ Foreign,
+# and a fresh create is born unplugged, so root prune REACHES it (ADR-0020 decision 4;
+# pool_lifecycle.rs foreign_free_unplugged). (2) FOREIGN is bare/unlabeled ⇒ the empty
+# label is the DPL sentinel, prune-EXEMPT everywhere (one-label law; pool_lifecycle.rs:767
+# membership) ⇒ it SURVIVES the ensure and only the EXIT trap clears it. Both are exported
+# for the trap (it destroys each on every abort path, info-guarded).
+FOREIGN_STRAY="$(restool --script dpbp create 2>"$RESULTS/step-8-stray-err.txt")"
+echo "$FOREIGN_STRAY" > "$RESULTS/step-8-stray.txt"
+[ -n "$FOREIGN_STRAY" ] && restool dprc set-label "$FOREIGN_STRAY" --label=stray 2>>"$RESULTS/step-8-stray-err.txt" || true
+if [ -n "$FOREIGN_STRAY" ]; then echo "PASS step 8: labeled foreign root dpbp created ($FOREIGN_STRAY, label=stray)"; else echo "FAIL step 8: could not create the labeled foreign dpbp" >&2; fi
 FOREIGN="$(restool --script dpbp create 2>"$RESULTS/step-8-foreign-err.txt")"
 echo "$FOREIGN" > "$RESULTS/step-8-foreign.txt"
-if [ -n "$FOREIGN" ]; then echo "PASS step 8: foreign root dpbp created ($FOREIGN)"; else echo "FAIL step 8: could not create the foreign dpbp" >&2; fi
+if [ -n "$FOREIGN" ]; then echo "PASS step 8: bare unlabeled foreign root dpbp created ($FOREIGN)"; else echo "FAIL step 8: could not create the bare foreign dpbp" >&2; fi
 sleep 2   # space the disruptive edge (ADR-0008 §6)
 run 8 "$DPAA2CTL" --config "$INTENT" ensure --no-link --allow disruptive
-expect_zero 8 "ensure prunes the foreign dpbp and restores the derived counts"
-run 9 restool dpbp info "$FOREIGN"
+expect_zero 8 "ensure prunes the labeled foreign and leaves the derived counts"
+run 9 restool dpbp info "$FOREIGN_STRAY"
 if [ "$(cat "$RESULTS/step-9-exit.txt")" != 0 ]; then
-  echo "PASS step 8: the foreign dpbp $FOREIGN was pruned (info reports it absent)"
+  echo "PASS step 8: the labeled foreign dpbp $FOREIGN_STRAY was pruned (info reports it absent, ADR-0020 decision 4)"
 else
-  echo "FAIL step 8: the foreign dpbp $FOREIGN still exists after the prune" >&2
+  echo "FAIL step 8: the labeled foreign dpbp $FOREIGN_STRAY still exists after the prune" >&2
 fi
+# The bare unlabeled foreign is the empty-label DPL sentinel: prune-EXEMPT (one-label law),
+# so it SURVIVES the ensure — info still succeeds. The EXIT trap clears it (born unplugged).
+run 14 restool dpbp info "$FOREIGN"
+expect_zero 14 "the bare unlabeled foreign $FOREIGN survives the ensure (empty-label DPL sentinel is prune-exempt, one-label law)"
 pool_capture pool-after-surplus-heal.txt
 probe step-8-show-dprc1.txt restool dprc show dprc.1
-# Counts back to the derived base — witnessed by the tool's OWN census, not a raw
-# `dprc show` row count (DPL-born rows carry no managed label, so a bare count would
-# fold them in). A converged dry-run reports dpbp at required=2 with zero deltas.
-# The teardown's info guard skips a FOREIGN already pruned here, so it is not cleared.
+# Counts back to the derived base — witnessed by the tool's OWN census, not a raw `dprc show`
+# row count (DPL-born rows, incl. the bare survivor, carry no managed label). A converged
+# dry-run reports dpbp at required=2 with zero deltas; the pruned stray leaves prune=0.
 run 12 "$DPAA2CTL" --config "$INTENT" dry-run
 expect_zero 12 "post-surplus-heal dry-run reads the converged pool"
-expect_line 12 '^  dpbp observed managed=[0-9]+/[0-9]+ required=2 \[hitless\] create=0 destroy=0 prune=0' "root dpbp converged to the derived 2 (surplus + foreign gone)"
+expect_line 12 '^  Dpbp observed managed=[0-9]+/[0-9]+ required=2 \[hitless\] create=0 destroy=0 prune=0' "root dpbp converged to the derived 2 (stray pruned, bare survivor DPL-exempt)"
 
-# step 9 (drift deficit): destroy ONE free managed root-pool object out of band,
-# then heal. Drawn-ness has no `dprc show` column (dpaa2-mc restool.rs: "the shim
-# reports undrawn, the unplug probe discovers the real draw"), so the victim is
-# selected with the tool's OWN unplug probe: walk the labelled (managed) dpcon rows
-# high-index first — a labelled row (NF==3: object + label + plugged-state) is a
-# managed pool object, an unlabelled row (NF==2) is DPL-born and never a target —
-# and `assign --plugged=0` each: a free object unplugs, a drawn one refuses (-EBUSY,
-# the ShrinkBelowDraw signal) and is skipped, so only a free managed object is
-# destroyed. dpcon carries the widest free headroom of the trio (32 derived, ~16
-# drawn), so a free victim is found. High-index-first keeps clear of any low-ordinal
-# DPL-born object; dpbp.0 is never touched.
-VICTIM=""
-for obj in $(restool dprc show dprc.1 2>/dev/null | awk 'NF==3 && $3=="plugged" && $1 ~ /^dpcon\./ { print $1 }' | sort -t. -k2 -nr); do
-  if restool dprc assign dprc.1 --object="$obj" --plugged=0 2>>"$RESULTS/step-9.log"; then
-    if restool dpcon destroy "$obj" 2>>"$RESULTS/step-9.log"; then VICTIM="$obj"; break; fi
-    restool dprc assign dprc.1 --object="$obj" --plugged=1 2>>"$RESULTS/step-9.log" || true  # destroy failed: re-plug
-  fi
-done
-echo "deficit victim: ${VICTIM:-<none>}" | tee "$RESULTS/step-9-victim.txt"
-if [ -n "$VICTIM" ]; then echo "PASS step 9: destroyed one free managed dpcon out of band ($VICTIM)"; else echo "FAIL step 9: found no free managed dpcon to destroy" >&2; fi
-sleep 2   # space the disruptive edge before the heal (ADR-0008 §6)
-run 10 "$DPAA2CTL" --config "$INTENT" ensure --no-link --allow disruptive
-expect_zero 10 "ensure recreates the deficit — root dpcon back to the derived count"
+# step 9 (drift surplus residue — the grow-only leg, ADR-0020 decisions 1-2): a root
+# managed surplus is REPORTED as reboot-required residue, never reclaimed at runtime. A root
+# deficit cannot be manufactured — every plugged root object is fsl_mc_allocator-bound and
+# restool refuses the client-side unplug, so the old out-of-band victim walk found no victim
+# (rev4, recorded — not re-derived here). Instead grow the root ABOVE intent with
+# intent-highwater (+2 dpcon), then reconcile the PLAIN intent back down: the surplus is not
+# destroyed (root grow-only, destroy=0), it renders as typed residue. The surplus persists to
+# the closing reboot (this suite runs LAST, the sitting reboots after; ADR-0003 §7).
+run 10 "$DPAA2CTL" --config models/board/V-MVP-1/intent-highwater.toml ensure --no-link --allow disruptive
+expect_zero 10 "ensure intent-highwater grows the root dpcon +2 above the derived 32"
+sleep 2   # space the disruptive edge (ADR-0008 §6)
 probe step-9-show-dprc1.txt restool dprc show dprc.1
-# Heal witnessed by the tool's census: dpcon recreated to 32, dpbp/dpmcp untouched.
+# dry-run the PLAIN intent: dpcon managed sits ABOVE required 32, so the 4-space reboot-
+# required line fires (PoolResidue Display) and the census shows destroy=0 (grow-only, no
+# runtime reclaim).
 run 13 "$DPAA2CTL" --config "$INTENT" dry-run
-expect_zero 13 "post-deficit-heal dry-run reads the converged pool"
-expect_line 13 '^  dpcon observed managed=[0-9]+/[0-9]+ required=32 \[hitless\] create=0 destroy=0 prune=0' "step 9: root dpcon healed to the derived 32 (deficit recreated)"
-expect_line 13 '^  dpbp observed managed=[0-9]+/[0-9]+ required=2 \[hitless\] create=0 destroy=0 prune=0' "step 9: root dpbp untouched at the derived 2"
-expect_line 13 '^  dpmcp observed managed=[0-9]+/[0-9]+ required=18 \[hitless\] create=0 destroy=0 prune=0' "step 9: root dpmcp untouched at the derived 18"
+expect_zero 13 "post-highwater dry-run reads the plain intent"
+expect_line 13 '^    reboot-required: Dpcon pool: observed [0-9]+ exceed the required 32 ' "root dpcon surplus renders as reboot-required residue (ADR-0020 decisions 1-2)"
+expect_line 13 '^  Dpcon observed managed=[0-9]+/[0-9]+ required=32 \[hitless\] create=0 destroy=0 prune=0' "root dpcon surplus is NOT reclaimed (destroy=0, grow-only)"
+sleep 2   # space the disruptive edge (ADR-0008 §6)
+# ensure the PLAIN intent: exits zero (residue is a report, not a failure) and prints the
+# no-indent `residue:` marker (main.rs); the managed dpcon census stays at the grown count.
+run 15 "$DPAA2CTL" --config "$INTENT" ensure --no-link --allow disruptive
+expect_zero 15 "ensure plain intent exits zero over the root dpcon surplus (residue is a report, not a failure)"
+expect_out 15 "residue: Dpcon pool:" "ensure prints the typed dpcon reboot-required residue (ADR-0020 decision 2)"
+probe step-9-show-dprc1-after.txt restool dprc show dprc.1
 if grep -qE '(^| )dpbp\.0( |$)' "$RESULTS/step-9-show-dprc1.txt" 2>/dev/null; then
-  echo "PASS step 9: the DPL-born dpbp.0 is untouched (present after the heal)"
+  echo "PASS step 9: the DPL-born dpbp.0 is untouched (present after the residue leg)"
 else
   echo "RECORD step 9: dpbp.0 not seen in the root listing — confirm the DPL-born boot pool from the census diff"
 fi
-pool_capture pool-after-deficit-heal.txt
+pool_capture pool-after-surplus-residue.txt
 
 # step 10 (teardown scenario — the ASSERTED leg): empty intent + prune tears both
-# regimes down. Expect the kernel dpni gone (netdev absent), the child dprc gone
-# from the root listing, the runtime trio reclaimed, and the typed dpio residue
-# printed (residue:) — the grow-only seats a teardown cannot reclaim (ADR-0003 §7).
+# regimes down. Expect the kernel dpni gone (netdev absent), the child dprc gone from
+# the root listing, and — root being grow-only — the managed trio AND the dpio seats
+# printed as typed reboot-required residue, not reclaimed (ADR-0020 decision 2; ADR-0003 §7).
 printf '[intent]\nschema = 1\n' > "$RESULTS/step-10-empty.toml"
 run 11 "$DPAA2CTL" --config "$RESULTS/step-10-empty.toml" ensure --prune --allow disruptive --no-link
 expect_zero 11 "empty-intent ensure tears both regimes down"
-expect_out 11 "residue:" "teardown reports the typed grow-only dpio residue (ADR-0003 §7)"
+# Grow-only capacity a teardown cannot return renders as typed residue, observed vs required 0
+# (ADR-0020 decision 2). A residue fires per family that holds labeled + plugged capacity now;
+# the empty-label DPL boot pool stays silent (engine.rs residue() reads labeled_plugged).
+expect_out 11 "residue: Dpcon pool:" "dpcon grew to 34 in the step-9 highwater leg, labeled + plugged ⇒ residue"
+expect_out 11 "residue: Dpmcp pool:" "the 18 managed dpmcp are labeled + plugged ⇒ residue"
+expect_out 11 "residue: Dpbp pool:" "the 2 managed dpbp are labeled + plugged (the bare survivor is unlabeled ⇒ silent) ⇒ residue"
+expect_out 11 "dpio seats:" "teardown reports the grow-only dpio seat residue (ADR-0003 §7)"
 sleep 2
 # Kernel dpni gone — its sysfs device (and netdev) is absent.
 if [ -n "$KERN_DPNI" ] && [ ! -e "/sys/bus/fsl-mc/devices/$KERN_DPNI" ]; then
@@ -313,10 +330,10 @@ if [ -n "$CHILD" ] && ! grep -qE "(^| )$CHILD( |\$)" "$RESULTS/step-10-show-dprc
 elif [ -n "$CHILD" ]; then
   echo "FAIL step 10: the router child $CHILD survives teardown" >&2
 fi
-# Runtime trio (every managed dpmcp/dpbp/dpcon) reclaimed to the DPL baseline —
-# witnessed offline by the census diff below (a raw row count would fold in DPL-born
-# rows). Only the grow-only dpio seats remain, which the closing reboot restores.
+# The managed trio (labeled + plugged) and the grow-only dpio seats are NOT reclaimed at
+# runtime (ADR-0020 decision 2); they remain as typed reboot-required residue, witnessed
+# offline by the census diff below (a raw row count would fold in the DPL-born rows).
 pool_capture pool-post.txt
-echo "census diff vs step 0: only the grow-only dpio seats should remain (pool-objects design D4); the closing reboot restores them (ADR-0003 §7)"
+echo "census diff vs step 0: the managed trio capacity plus the grow-only dpio seats remain as reboot-required residue (ADR-0020 decision 2); the closing reboot restores the DPL baseline (ADR-0003 §7)"
 
 echo "suite V-MVP-1 MVP end-to-end convergence complete"

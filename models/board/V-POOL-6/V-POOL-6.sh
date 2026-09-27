@@ -16,22 +16,22 @@
 # before pools. A pool create/destroy/prune is Class::Disruptive: a default
 # (hitless) ensure refuses, changing nothing. The walk: dry-run the grow, refuse
 # it hitless (a cheap refusal face), grow under --allow disruptive, prove
-# idempotence (a second ensure dispatches nothing), make a foreign restool pool
-# object, then intent-b shrinks the surplus and prunes the foreign object while
-# the DPL-born boot pool stays untouched (pool-objects design D3). Results are
-# captured for offline diff. The operands' derivation is pinned offline by
-# crates/dpaa2-tools/tests/vpool6_intents.rs.
+# idempotence (a second ensure dispatches nothing), make two foreign restool pool
+# objects, then intent-b NARROWS the requirement — but root capacity is grow-only
+# (ADR-0020 decisions 1-2), so the surplus renders as reboot-required residue, NOT
+# reclaimed, while the labeled foreign is pruned (born unplugged, ADR-0020 decision 4)
+# and the bare unlabeled foreign + the DPL-born boot pool stay untouched (one-label
+# law; pool-objects design D3). Results are captured for offline diff. The operands'
+# derivation is pinned offline by crates/dpaa2-tools/tests/vpool6_intents.rs.
 #
-# Reclaim is the unplug-probe law (pool-objects design D10): a surplus/foreign
-# object is unplugged first and then destroyed, and a PLUGGED-but-undrawn surplus
-# is reclaimable — the earlier plugged==>drawn proxy that made managed surplus
-# stuck is gone. A live draw the MC refuses to unplug (-EBUSY) is the drawn
-# signal, surfaced as the ShrinkBelowDraw face, never a forced teardown.
-#
-# ShrinkBelowDraw (a requirement below the drawn count) is NOT forced here: the
-# a->b delta is pure pool trio surplus (no port churn), so the shrunk objects are
-# free-managed, not drawn. Its board face rides V-POOL-7's bound state / stays
-# twin-covered (shrink_below_draw_refuses_by_name_and_count in pool_replay).
+# Root is grow-only (ADR-0020): every plugged root object is fsl_mc_allocator-bound
+# with no safe drawn-ness signal, so a runtime shrink/reclaim of managed root capacity
+# is not attempted — the surplus is reported and the reboot named (ADR-0003 §7). The
+# unplug-probe reclaim law and the ShrinkBelowDraw refusal are CHILD-scoped (ADR-0020
+# decision 3); at root prune keeps only the reach the hardware allows: a never-plugged
+# undeclared object (ADR-0020 decision 4). This suite exercises the ROOT leg, so no
+# managed destroy fires here; the child reclaim / ShrinkBelowDraw face stays twin-covered
+# (shrink_below_draw_refuses_by_name_and_count in pool_replay).
 #
 # 4.2 operator, READ FIRST: the grow leg creates the reserved kernel's full
 # root pool — on a 16-CPU board that is ~16 dpio seats + ~32 dpcon + ~18 dpmcp
@@ -92,6 +92,10 @@ expect_zero() { rc=$(cat "$RESULTS/step-$1-exit.txt"); if [ "$rc" = 0 ]; then ec
 expect_nonzero() { rc=$(cat "$RESULTS/step-$1-exit.txt"); if [ "$rc" != 0 ]; then echo "PASS step $1: $2 (refused, exit $rc)"; else echo "FAIL step $1: $2 (exit 0 — the refusal did not fire)" >&2; fi; }
 # expect_out N needle label: PASS iff step N's captured output carries the needle.
 expect_out() { if grep -qF "$2" "$RESULTS/step-$1-out.txt" "$RESULTS/step-$1-err.txt" 2>/dev/null; then echo "PASS step $1: $3"; else echo "FAIL step $1: $3 (missing '$2')" >&2; fi; }
+# expect_line N regex label: PASS iff a captured line of step N matches the regex.
+# The census regexes anchor the ROOT block by its 2-space indent (render.rs:261, capitalized
+# family), so a converged child family (4-space indent, render.rs:365) cannot false-PASS.
+expect_line() { if grep -qE "$2" "$RESULTS/step-$1-out.txt" "$RESULTS/step-$1-err.txt" 2>/dev/null; then echo "PASS step $1: $3"; else echo "FAIL step $1: $3 (no line matching /$2/)" >&2; fi; }
 
 # --- reference pair assertion (ADR-0003 §2) ---
 mc="$(restool -m 2>/dev/null || true)"
@@ -114,12 +118,15 @@ teardown() {
   "$DPAA2CTL" --config "$RESULTS/teardown-empty.toml" ensure --prune --allow disruptive --no-link \
     > "$RESULTS/teardown-ensure.txt" 2>>"$RESULTS/teardown.log" || true
   sleep 2
-  if [ -n "${FOREIGN:-}" ]; then
-    restool "$FOREIGN" > /dev/null 2>&1 && restool dpbp destroy "$FOREIGN" 2>>"$RESULTS/teardown.log" || true
-  fi
+  # Clear BOTH step-6 foreigns on every abort path (info-guarded: a stray already pruned is
+  # skipped; the bare survivor is destroyed here — born unplugged, unlabeled).
+  for f in "${FOREIGN:-}" "${FOREIGN_STRAY:-}"; do
+    [ -n "$f" ] || continue
+    restool dpbp info "$f" > /dev/null 2>&1 && restool dpbp destroy "$f" 2>>"$RESULTS/teardown.log" || true
+  done
   pool_capture pool-teardown.txt
   save_dmesg
-  echo "teardown: managed trio + kernel dpni reconciled to empty; dpio seats are grow-only — reboot to reclaim (ADR-0003 §7)"
+  echo "teardown: kernel dpni reconciled to empty; the managed trio capacity plus the grow-only dpio seats remain as reboot-required residue (ADR-0020 decision 2) — the closing reboot restores the DPL baseline (ADR-0003 §7)"
 }
 trap teardown EXIT
 
@@ -158,40 +165,67 @@ expect_zero 4 "post-grow dry-run: the root pool is converged"
 run 5 "$DPAA2CTL" --config models/board/V-POOL-6/intent-a.toml ensure --no-link --allow disruptive
 expect_zero 5 "second ensure plans zero pool actions (idempotent, level-triggered)"
 
-# step 6: make a foreign root pool object — an undeclared, unlabelled, free
-# dpbp in the root, the prune target. FOREIGN is exported for the teardown.
+# step 6: TWO foreign root dpbps exercise the one-label law under ADR-0020 decision 4.
+# (1) FOREIGN_STRAY carries an undeclared label 'stray' ⇒ Foreign, and a fresh create is
+#     born unplugged, so root prune REACHES it (ADR-0020 decision 4). (2) FOREIGN is
+#     bare/unlabeled ⇒ the empty label is the DPL sentinel, prune-EXEMPT (one-label law;
+#     pool_lifecycle.rs:767) ⇒ it SURVIVES the shrink and only the EXIT trap clears it.
+#     Both are exported for the trap (it destroys each on every abort path, info-guarded).
+FOREIGN_STRAY="$(restool --script dpbp create 2>"$RESULTS/step-6-stray-err.txt")"
+echo "$FOREIGN_STRAY" > "$RESULTS/step-6-stray.txt"
+[ -n "$FOREIGN_STRAY" ] && restool dprc set-label "$FOREIGN_STRAY" --label=stray 2>>"$RESULTS/step-6-stray-err.txt" || true
+if [ -n "$FOREIGN_STRAY" ]; then echo "PASS step 6: labeled foreign root dpbp created ($FOREIGN_STRAY, label=stray)"; else echo "FAIL step 6: could not create the labeled foreign dpbp" >&2; fi
 FOREIGN="$(restool --script dpbp create 2>"$RESULTS/step-6-err.txt")"
 echo "$FOREIGN" > "$RESULTS/step-6-foreign.txt"
-if [ -n "$FOREIGN" ]; then echo "PASS step 6: foreign root dpbp created ($FOREIGN)"; else echo "FAIL step 6: could not create the foreign dpbp" >&2; fi
+if [ -n "$FOREIGN" ]; then echo "PASS step 6: bare unlabeled foreign root dpbp created ($FOREIGN)"; else echo "FAIL step 6: could not create the bare foreign dpbp" >&2; fi
 
-# step 7: dry-run the shrink+prune — intent-b drops the surplus (per-family
-# destroy=2) and classifies the foreign dpbp as a prune candidate. Read BEFORE
-# the destructive leg (the V-DPRC-9 shape), dispatching nothing.
+# step 7 (drift narrows to residue, ADR-0020 decisions 1-2): intent-b drops the +2 extra,
+# but root capacity is grow-only — the managed surplus is NOT destroyed, it renders as
+# reboot-required residue (4-space marker, PoolResidue Display). The labeled stray is still a
+# prune candidate (born unplugged; ADR-0020 decision 4). Read BEFORE the ensure (the V-DPRC-9
+# shape), dispatching nothing.
 run 7 "$DPAA2CTL" --config models/board/V-POOL-6/intent-b.toml dry-run
-expect_zero 7 "dry-run: the shrink surplus and the foreign prune candidate"
+expect_zero 7 "dry-run: the root surplus residue and the labeled foreign prune candidate"
+expect_out 7 "    reboot-required: Dpbp pool:" "dry-run reports the dpbp surplus as reboot-required residue (ADR-0020)"
+expect_out 7 "    reboot-required: Dpmcp pool:" "dry-run reports the dpmcp surplus as reboot-required residue (ADR-0020)"
+expect_out 7 "    reboot-required: Dpcon pool:" "dry-run reports the dpcon surplus as reboot-required residue (ADR-0020)"
+expect_line 7 '^  Dpcon observed managed=[0-9]+/[0-9]+ required=32 \[hitless\] create=0 destroy=0 prune=0' "root dpcon surplus is NOT reclaimed (destroy=0, grow-only)"
 
-# step 8: shrink+prune under the disruptive gate — the shrink half reclaims the
-# free-managed surplus and the foreign dpbp through the unplug probe (a plugged-
-# but-undrawn object unplugs then destroys; pool-objects design D10). Pool creates/
-# destroys are automatic in the pool walk; the pool prune is not gated by --prune.
+# step 8 (ensure intent-b, ADR-0020 decisions 1-2): the root managed surplus is REPORTED as
+# reboot-required residue (no-indent `residue:` marker, main.rs), NOT reclaimed (root
+# grow-only, no runtime destroy); the labeled stray foreign is pruned (born unplugged,
+# ADR-0020 decision 4). ensure exits zero — residue is a report, not a failure. The surplus
+# persists to the closing reboot (ADR-0003 §7).
 run 8 "$DPAA2CTL" --config models/board/V-POOL-6/intent-b.toml ensure --no-link --allow disruptive
-expect_zero 8 "ensure intent-b reclaims the surplus and the foreign object via the unplug probe"
+expect_zero 8 "ensure intent-b exits zero over the root surplus (residue is a report, not a failure)"
+expect_out 8 "residue: Dpbp pool:" "ensure reports the dpbp surplus as reboot-required residue (ADR-0020 decision 2)"
+expect_out 8 "residue: Dpmcp pool:" "ensure reports the dpmcp surplus as reboot-required residue (ADR-0020 decision 2)"
+expect_out 8 "residue: Dpcon pool:" "ensure reports the dpcon surplus as reboot-required residue (ADR-0020 decision 2)"
 probe step-8-show-dprc1.txt restool dprc show dprc.1
 pool_capture pool-after-shrink.txt
 
-# step 9: read-back — the foreign object is gone, the DPL-born boot pool stands.
-run 9 restool dpbp info "$FOREIGN"
+# step 9: read-back — the labeled stray is pruned, the bare unlabeled foreign STANDS
+# (empty-label DPL sentinel, prune-exempt; one-label law), the DPL-born boot pool stands,
+# and the managed census still equals INTENT-A's counts (grow-only: no reclaim, ADR-0020).
+run 9 restool dpbp info "$FOREIGN_STRAY"
 if [ "$(cat "$RESULTS/step-9-exit.txt")" != 0 ]; then
-  echo "PASS step 9: the foreign dpbp $FOREIGN was pruned (info reports it absent)"
+  echo "PASS step 9: the labeled foreign dpbp $FOREIGN_STRAY was pruned (info reports it absent, ADR-0020 decision 4)"
 else
-  echo "FAIL step 9: the foreign dpbp $FOREIGN still exists after the prune" >&2
+  echo "FAIL step 9: the labeled foreign dpbp $FOREIGN_STRAY still exists after the prune" >&2
 fi
+run 10 restool dpbp info "$FOREIGN"
+expect_zero 10 "the bare unlabeled foreign $FOREIGN survives the shrink (empty-label DPL sentinel is prune-exempt, one-label law)"
 probe step-9-show-dprc1.txt restool dprc show dprc.1
 if grep -qE '(^| )dpbp\.0( |$)' "$RESULTS/step-9-show-dprc1.txt" 2>/dev/null; then
-  echo "PASS step 9: the DPL-born dpbp.0 is untouched (present after the prune)"
+  echo "PASS step 9: the DPL-born dpbp.0 is untouched (present after the shrink)"
 else
   echo "RECORD step 9: dpbp.0 not seen in the root listing — confirm the DPL-born boot pool from the census diff"
 fi
+# Managed census UNCHANGED — a dry-run of intent-a reads the grown counts as converged
+# (dpmcp still 20), proving the a->b narrowing reclaimed nothing at root (ADR-0020 decision 1).
+run 11 "$DPAA2CTL" --config models/board/V-POOL-6/intent-a.toml dry-run
+expect_zero 11 "post-shrink dry-run of intent-a reads the grown pool"
+expect_line 11 '^  Dpmcp observed managed=20/[0-9]+ required=20 \[hitless\] create=0 destroy=0 prune=0' "root dpmcp still at the grown 20 (grow-only: intent-b reclaimed nothing)"
 pool_capture pool-post.txt
 
 echo "suite V-POOL-6 root pool convergence complete"
