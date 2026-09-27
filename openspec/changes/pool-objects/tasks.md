@@ -170,7 +170,7 @@ opus48-developer parcel.
 - [x] 4.2 Board: census/ceiling and convergence walks at root scope;
       free/drain observed through the kernel face; record COVERAGE
       row advances (pre-run record commit per board protocol).
-- [ ] 4.3 Board: the two MVP scenarios — live kernel interface in
+- [x] 4.3 Board: the two MVP scenarios — live kernel interface in
       dprc.1; populated VFIO-bound dprc.N; drift-heal and teardown
       re-runs (system-integration req 1). Waits on 3.9–3.19 (the
       2026-09-24 audit: Scenario B unwired, teardown unreachable,

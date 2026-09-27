@@ -133,3 +133,23 @@ descriptor before releasing a bound driver on a plugged→unplugged
 transition, so a torn read becomes a no-op. Decided 2026-09-25
 (ADR-0008 §9): the control plane does not pace around it — the kernel
 fix is the mitigation.
+
+## Single fire without churn (2026-09-27, V-MVP-1 rev 5)
+
+The churn framing above is sufficient but not necessary. One ordered
+teardown of a single bound dpni — disconnect while bound, sysfs
+unbind of `fsl_dpaa2_eth`, destroy (the ADR-0008 §8 order) — lost
+the same race once: `dpmac.7: Error in attaching the fsl_dpaa2_mac
+driver` as the standalone mac driver re-attached while the dpni side
+went away, then one second later a data-abort Oops on the
+`events_power_efficient` `phylink_resolve` worker
+(`phylink_resolve → dpaa2_mac_link_up → mc_send_command+0x78`): the
+worker drove an MC command against a mac whose backing state was
+already torn down. The kworker exited with irqs disabled and
+preempt_count 1, the console carried the taint trace, and the board
+otherwise kept serving — the suite completed every read-back after
+the Oops. The window is therefore per-transition, not per-rate:
+pacing cannot close it, which confirms the ADR-0008 §9 decision that
+the kernel fix, not control-plane throttling, is the mitigation.
+Evidence: the V-MVP-1 rev 5 sitting capture (dmesg: attach error at
+116.1 s, Oops at 117.2 s; board power-cycled after the sitting).
