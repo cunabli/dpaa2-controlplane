@@ -31,6 +31,14 @@
 // proxy), a plugged-free individual unplugs then destroys. The twins carry plugged
 // explicitly, so a census that infers drawn from plugged fails offline first.
 //
+// Custody scope rides in Conv as DATA, not a module const (ADR-0020; design D10
+// amendment): the Rust twin takes scope as a disposition input and structural
+// isomorphism binds the type (ADR-0002 §3). The unplug-probe reclaim is CHILD-scoped
+// (ADR-0020 decisions 1/3) — at root every plugged pool object is fsl_mc_allocator-bound
+// with no safe drawn-ness signal, so root capacity is grow-only: surplus renders as a
+// typed reboot-required residue (poolDisposition, one instance of the grow-only dpio
+// residue) and prune keeps only the never-plugged reach (decision 4).
+//
 // The state is a CoreState so the core census/membership predicates apply
 // unchanged (create_allocate.freePool/inPool/canCreate, lifecycle.createT/plugT/unplugT/
 // markAllocated/destroyT) — no re-derivation of pool mechanics, and the shape
@@ -49,15 +57,22 @@
 //   POOL_MANAGED_LIVE — the managed ghost never drifts off the live pool;
 //   POOL_IDEMPOTENT (pool-objects design D3; formal-models req 2) — a converged state enables
 //     no grow, shrink, or prune.
+//   POOL_ROOT_GROW_ONLY (ADR-0020 decisions 1/3; design D10 amendment) — at root scope every
+//     managed individual stays plugged, so no destroy of plugged root capacity is reachable
+//     and surplus is residue, not teardown.
 // Directed runs: custodyCycleTest, dirtyReturnTest (DPBP-I3), censusRefusesAtCeilingTest
 //   (DPBP-I7), convergenceGrowTest, freeOnlyShrinkTest (probe-succeeds-on-plugged-free),
 //   drawnNeverShrunkTest (probe-refused-on-drawn), shrinkBelowDrawRefusedTest,
 //   prunePreservesDplBornTest, idempotentReconvergeTest, managedSurplusReclaimsTest and
 //   teardownWalkTest (pool-objects task 3.9; the unplug-probe reclaim and consumer-before-pool
 //   ordering, pool-objects design D10),
+//   rootSurplusResidueTest (ADR-0020; design D10 amendment — root surplus is a refused
+//   residue and prune reaches only the never-plugged foreign),
 //   and the environment-adversary trio (pool-objects task 3.8) envBornDrawnNetsTest
 //   (V-POOL-6), envForeignDrawnFoldsTest (pool-objects design D2), envCohabitantPrunedTest
-//   (pool-objects design D9).
+//   (pool-objects design D9). The reclaim/refusal runs (freeOnly/drawnNever/shrinkBelowDraw/
+//   managedSurplus/teardownWalk and envBornDrawnNets) anchor to the child init variant — those
+//   laws are child-scoped (ADR-0020 decision 3); prune runs stay at root under the never-plugged gate.
 // DPBP-I3, the free-only/refusal/prune runs are directed (simulate-only), the
 // split main.qnt applies to its own Breaking candidates.
 module pool_lifecycle {
@@ -87,11 +102,29 @@ module pool_lifecycle {
 
   // ---- convergence state (pool-objects task 1.3; pool-objects design D3) ----
 
+  // Custody scope rides in Conv as DATA, not a module const: the Rust twin takes it as a
+  // disposition input and structural isomorphism binds the type (ADR-0002 §3; design D10
+  // amendment). Root (dprc.1, the Linux root) is grow-only; child scope runs the
+  // unplug-probe reclaim (ADR-0020 decisions 1/3).
+  type CustodyScope = RootScope | ChildScope
+
+  // Each constructor gets a value use so the verify-rung flattener keeps them (the QNT404
+  // rule; families/params.qnt ALL_PARAMS and dpio.qnt SEAT_REGIMES precedent).
+  pure val CUSTODY_SCOPES: Set[CustodyScope] = Set(RootScope, ChildScope)
+
+  // Root surplus is typed reboot-required residue (ADR-0020 decision 2; design D10
+  // amendment): managed capacity beyond intent at root cannot be reclaimed, so it renders
+  // observed vs required with the family named — one instance of the grow-only dpio residue
+  // (dpio.qnt SeatResidue), never a destroy. Converged when the count already meets intent.
+  type PoolResidue = { family: Family, observed: int, required: int }
+  type PoolDisposition = Converged | RebootRequired(PoolResidue)
+
   // derivedReq is the compiled per-family target (ADR-0012 counts, consumed as
   // state the environment retargets); managed is the ghost set of companions the
   // reconciler grew (its own to shrink); refusal is the observable ShrinkBelowDraw
-  // flag (pool-objects design D3: a requirement below draw surfaces, never a teardown).
-  type Conv = { derivedReq: int, managed: Set[ObjId], refusal: bool }
+  // flag (pool-objects design D3: a requirement below draw surfaces, never a teardown);
+  // scope is the custody disposition (root grow-only vs child reclaim, ADR-0020).
+  type Conv = { derivedReq: int, managed: Set[ObjId], refusal: bool, scope: CustodyScope }
 
   var s: CoreState
   var conv: Conv
@@ -112,6 +145,12 @@ module pool_lifecycle {
   pure def drawnManaged(cv: Conv, st: CoreState): int =
     cv.managed.filter(o => st.objs.get(o).allocatedBy != None).size()
 
+  // The root residue disposition (ADR-0020 decision 2; design D10 amendment): a managed
+  // count above intent that root cannot reclaim renders reboot-required, else converged.
+  pure def poolDisposition(cv: Conv): PoolDisposition =
+    if (managedCount(cv) <= cv.derivedReq) Converged
+    else RebootRequired({ family: FAMILY, observed: managedCount(cv), required: cv.derivedReq })
+
   // The prune target set (pool-objects design D3): a pool object undeclared (not managed),
   // not DPL-born, and free.
   pure def prunable(st: CoreState, cv: Conv, o: ObjId): bool = and {
@@ -121,6 +160,9 @@ module pool_lifecycle {
     o != born,
     not(cv.managed.contains(o)),
     st.objs.get(o).allocatedBy == None,
+    // At root a plugged undeclared object is allocator-bound residue (ADR-0020 decision 4);
+    // an unplugged one carries no binding and prune reaches it. Child prune is unchanged.
+    cv.scope == ChildScope or not(st.objs.get(o).plugged),
   }
 
   // Enablement predicates, shared by the guards and the idempotence law.
@@ -167,7 +209,15 @@ module pool_lifecycle {
 
   action init = all {
     s' = initialPool,
-    conv' = { derivedReq: 0, managed: Set(), refusal: false },
+    conv' = { derivedReq: 0, managed: Set(), refusal: false, scope: RootScope },
+  }
+
+  // Child-scoped custody (ADR-0020 decision 3): VFIO owns the residents, no allocator
+  // competes, so the unplug-probe reclaim and the ShrinkBelowDraw refusal fire. init keeps
+  // root's grow-only meaning; the reclaim/refusal runs anchor here.
+  action initChildScoped = all {
+    s' = initialPool,
+    conv' = { derivedReq: 0, managed: Set(), refusal: false, scope: ChildScope },
   }
 
   // ---- custody transitions (pool-objects task 1.1) ----
@@ -232,6 +282,8 @@ module pool_lifecycle {
   // guard), and that refusal IS the drawn signal — read from the board, never inferred from
   // a plugged ⇒ drawn proxy. The victim is nondeterministic; no law distinguishes free ones.
   action shrinkUnplugAt(victim: ObjId): bool = all {
+    // Child-scoped: root capacity is grow-only, no unplug-probe reaches it (ADR-0020 decision 3).
+    conv.scope == ChildScope,
     victim.fam == FAMILY,
     conv.managed.contains(victim),
     managedCount(conv) > conv.derivedReq,
@@ -245,6 +297,8 @@ module pool_lifecycle {
   // only an unplugged (thereby non-allocatable), free managed individual is destroyed and
   // leaves the ghost set. Drawn-ness was discovered by the probe, never inferred here.
   action shrinkDestroyAt(victim: ObjId): bool = all {
+    // Child-scoped: the probe cleared it, and only child scope reaches the destroy (ADR-0020 decision 3).
+    conv.scope == ChildScope,
     victim.fam == FAMILY,
     conv.managed.contains(victim),
     managedCount(conv) > conv.derivedReq,
@@ -266,6 +320,9 @@ module pool_lifecycle {
   // free-only shrink, so it surfaces a refusal (the observable flag), never a
   // teardown of a live consumer (pool-objects design D3). s unchanged.
   action shrinkBelowDrawAt: bool = all {
+    // Child-scoped: root drawn-ness is unobservable, so the refusal face cannot fire there
+    // (ADR-0020 decision 3).
+    conv.scope == ChildScope,
     conv.derivedReq < drawnManaged(conv, s),
     s' = s,
     conv' = conv.with("refusal", true),
@@ -362,12 +419,20 @@ module pool_lifecycle {
       not(anyPrunable(s, conv)),
     }
 
+  // Root grow-only (ADR-0020 decisions 1/3; design D10 amendment): at root the unplug-probe
+  // never fires, so managed capacity stays plugged — no destroy of plugged root capacity is
+  // reachable and surplus is the typed residue, not a teardown.
+  val POOL_ROOT_GROW_ONLY: bool =
+    (conv.scope == RootScope) implies
+      conv.managed.forall(o => s.objs.get(o).plugged)
+
   val stateInvariants: bool = and {
     POOL_CENSUS,
     POOL_CUSTODY,
     POOL_DPL_SURVIVES,
     POOL_MANAGED_LIVE,
     POOL_IDEMPOTENT,
+    POOL_ROOT_GROW_ONLY,
   }
 
   // ---- directed runs (generic over FAMILY; inherited by each instantiation) ----
@@ -424,7 +489,7 @@ module pool_lifecycle {
   // managed individual is probe-cleared then destroyed; the drawn one survives. Grow plugs,
   // so no separate plug step — the probe-succeeds-on-plugged-free admitted direction.
   run freeOnlyShrinkTest =
-    init
+    initChildScoped
       .then(retargetAt(2))
       .then(growCreateAt)
       .then(growCreateAt)
@@ -441,7 +506,7 @@ module pool_lifecycle {
   // A drawn individual is never reclaimed: the unplug probe is refused on it
   // (pool-objects design D10) — the refused guard direction, the board's in-use refusal.
   run drawnNeverShrunkTest =
-    init
+    initChildScoped
       .then(retargetAt(2))
       .then(growCreateAt)
       .then(growCreateAt)
@@ -452,7 +517,7 @@ module pool_lifecycle {
   // ShrinkBelowDraw: a requirement below the drawn count surfaces a refusal, the
   // consumer intact (pool-objects design D3; formal-models req 2 "refusal, not a teardown").
   run shrinkBelowDrawRefusedTest =
-    init
+    initChildScoped
       .then(retargetAt(1))
       .then(growCreateAt)
       .then(drawAt(CONSUMER, first))
@@ -464,12 +529,12 @@ module pool_lifecycle {
         s.objs.keys().contains(first),
       })
 
-  // Prune removes an undeclared free runtime object; the DPL-born survives, and
-  // is itself never prunable (pool-objects design D3; roadmap #14).
+  // Prune removes an undeclared never-plugged runtime object at root (ADR-0020 decision 4:
+  // a never-plugged root object carries no allocator binding, so prune reaches it); the
+  // DPL-born survives and is itself never prunable (pool-objects design D3; roadmap #14).
   run prunePreservesDplBornTest =
     init
       .then(createPooledAt)
-      .then(plugPooledAt(first))
       .expect(prunable(s, conv, first))
       .then(pruneAt(first))
       .expect(and {
@@ -495,7 +560,7 @@ module pool_lifecycle {
   // "Custody carries the plug facet"): a plugged-but-undrawn surplus unplugs then destroys,
   // and the census converges — the reclaim the collapsed proxy could not execute.
   run managedSurplusReclaimsTest =
-    init
+    initChildScoped
       .then(retargetAt(2))
       .then(growCreateAt)
       .then(growCreateAt)
@@ -516,7 +581,7 @@ module pool_lifecycle {
   // "Teardown orders consumers before pools"): the consumer returns its draw first, and only
   // then does the pool shrink probe+destroy the freed individual — the ordering law.
   run teardownWalkTest =
-    init
+    initChildScoped
       .then(retargetAt(1))
       .then(growCreateAt)
       .then(drawAt(CONSUMER, first))
@@ -534,9 +599,10 @@ module pool_lifecycle {
 
   // The DPL-born nets out of the draw guard: EXTERNAL draws `born`, so the base
   // is drawnManaged (managed drawn only, born excluded) — a requirement of 0 fires
-  // no refusal (V-POOL-6; pool-objects design D3).
+  // no refusal (V-POOL-6; pool-objects design D3). Child-scoped: the refusal face is
+  // reachable only in a child (ADR-0020 decision 3), so the netting is what keeps it off.
   run envBornDrawnNetsTest =
-    init
+    initChildScoped
       .then(drawAt(EXTERNAL, born))
       .expect(and {
         s.objs.get(born).allocatedBy == Some(EXTERNAL),
@@ -565,13 +631,13 @@ module pool_lifecycle {
         not(anyPrunable(s, conv)),
       })
 
-  // Convergence under interference: the adversary's free cohabitant `first` is a
-  // prune candidate and is reclaimed, while the managed `second` and the DPL-born
-  // `born` stand — the state converges (pool-objects design D9).
+  // Convergence under interference (pool-objects design D9; ADR-0020 decision 4): the
+  // adversary's never-plugged cohabitant `first` carries no allocator binding and is
+  // prune-reachable at root, while the managed `second` and the DPL-born `born` stand —
+  // the state converges.
   run envCohabitantPrunedTest =
     init
       .then(createPooledAt)
-      .then(plugPooledAt(first))
       .then(retargetAt(1))
       .then(growCreateAt)
       .expect(anyPrunable(s, conv))
@@ -582,4 +648,26 @@ module pool_lifecycle {
         s.objs.keys().contains(born),
         s.objs.keys().contains(second),
       })
+
+  // Root surplus is grow-only residue (ADR-0020; design D10 amendment): a managed surplus at
+  // root (plugged, undrawn) reports observed vs required through poolDisposition and no step
+  // converges the count — grow is off, prune cannot touch managed, and the unplug probe is
+  // refused (decision 3). Prune reaches only the never-plugged foreign (decision 4); the
+  // plugged foreign is residue, not a prune candidate. The `.fail()` is last (README rung note).
+  run rootSurplusResidueTest =
+    init
+      .then(retargetAt(1))
+      .then(growCreateAt)
+      .then(retargetAt(0))
+      .expect(and {
+        poolDisposition(conv) == RebootRequired({ family: FAMILY, observed: 1, required: 0 }),
+        not(isConverged(s, conv)),
+        not(growEnabled(s, conv)),
+        not(anyPrunable(s, conv)),
+      })
+      .then(createPooledAt)
+      .expect(prunable(s, conv, second))
+      .then(plugPooledAt(second))
+      .expect(not(prunable(s, conv, second)))
+      .then(shrinkUnplugAt(first).fail())
 }
