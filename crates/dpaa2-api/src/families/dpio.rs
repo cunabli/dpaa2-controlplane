@@ -326,8 +326,9 @@ impl core::fmt::Display for SeatResidue {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(
             f,
-            "{} dpio seats: observed {} exceed the required {} — grow-only, so the surplus is \
-             reboot-required (a reboot rebinds the seats, ADR-0003 §7); never a live destroy",
+            "{} dpio seats: observed {} exceed the required {} — grow-only (a live seat cannot be \
+             torn down, ADR-0008 §4 race), so the surplus is reboot-required (a reboot rebinds the \
+             seats, ADR-0003 §7 recovery); never a live destroy",
             self.regime.name(),
             self.observed,
             self.required,

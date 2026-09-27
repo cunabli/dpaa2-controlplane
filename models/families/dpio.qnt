@@ -54,7 +54,7 @@ module dpio {
   // dpio is grow-only (pool-objects design D4/D10; ADR-0008 §4 race): a seat cannot be torn
   // down live, so a surplus is NOT destroyed — it renders as a typed reboot-required residue,
   // observed vs required stated, never a silent carve-out. RebootRequired names the
-  // reconciliation path (a reboot rebinds the seats, ADR-0008 §4); Converged when the
+  // reconciliation path (a reboot rebinds the seats, ADR-0003 §7 recovery); Converged when the
   // observed seat count already meets the required one.
   type SeatResidue = { regime: SeatRegime, observed: int, required: int }
   type SeatDisposition = Converged | RebootRequired(SeatResidue)
