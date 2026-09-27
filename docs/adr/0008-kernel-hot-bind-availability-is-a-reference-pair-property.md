@@ -411,7 +411,8 @@ repair them.
   it scopes both the phylink PCS lifetime and the `dprc_scan_objects`
   stale-plugged-bit release, finding 39) or when a kernel upgrade
   changes either path; both re-anchor §9's rules.
-- **Which read-back field diverges for the kernel-profile block** is
-  unpinned (the §9 refusal will name it on the next run, and one manual
-  restool probe on a rebooted board answers it independently); the
-  projection is corrected against that evidence, never guessed.
+- **The kernel-profile block diverges in its MC default-fill fields:**
+  an unset (0) `mac_filter_entries`, `fs_entries`, and `num_ceetm_ch`
+  read back the MC's own defaults (16 / 64 / 1), so the projection fills
+  them and a bare kernel block no longer reads as permanent drift
+  (V-MVP-1 rev 2).

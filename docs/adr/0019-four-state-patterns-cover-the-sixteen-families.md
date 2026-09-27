@@ -177,7 +177,7 @@ cross-checking every row against `FamilyParams`).
 | dpdmai | P2 configured object (degenerate) | `creatable`, `draw.dpmcp: 1` | |
 | dprtc  | P2 configured object (degenerate) | `creatable`, `singleton: true` (DPRTC-I1) | singleton refusal is part of its P2 refusal surface |
 | dpdbg  | P2 configured object (degenerate) | `creatable`, `singleton: true`, `placement: RootOnly` (DPDBG-I1) | singleton + placement refusals |
-| dpio   | P3 counted companion | `pooled: false`, regime-typed (DPIO-I1/I2), per-CPU seats | seat arithmetic, not pool custody; no cfg facet — `channel_mode` is kernel-dead (DPIO-I3) and immutable-cfg repair is count-level destroy+create; a DPDK-regime cfg refusal or probe reopens the judgment |
+| dpio   | P3 counted companion | `pooled: false`, regime-typed (DPIO-I1/I2), per-CPU seats | seat arithmetic, not pool custody; no cfg facet — `channel_mode` is kernel-dead (DPIO-I3) and immutable-cfg repair is count-level destroy+create, never live (a seat has no runtime teardown), so across the reboot boundary it renders as RebootRequired residue (ADR-0020 / ADR-0008 §4 rationale; `dpio.qnt` SeatResidue carries it); a DPDK-regime cfg refusal or probe reopens the judgment |
 | dpbp   | P3 counted companion | `pooled: true`, allocator custody | reference implementation; pool free is no reset (DPBP-I3) |
 | dpmcp  | P3 counted companion | `pooled: true`, allocator custody | reference implementation |
 | dpcon  | P3 counted companion | `pooled: true`, allocator custody | reference implementation |

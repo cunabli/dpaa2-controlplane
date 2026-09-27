@@ -85,7 +85,9 @@ new record is minted at that moment — not before.
 ### D3 — Convergence rules for anonymous capacity
 
 - Deficit → create to the derived count.
-- Surplus → destroy, free individuals only, never a drawn one.
+- Surplus → destroy, free individuals only, never a drawn one (child
+  scope; at root ADR-0020 applies — grow-only, surplus is
+  reboot-required residue).
 - Intent below current draw → refusal surfaced to the operator
   (`ShrinkBelowDraw` shape), never a forced teardown of a live
   consumer.
@@ -200,8 +202,9 @@ per-port dpio top-up cease; the derivation instead folds each
 declared port's draw into the pool requirement — +1 dpmcp, +1 dpbp,
 +num_queues dpcon per port, the ADR-0012 `companionDraw` arithmetic
 the derivation already anchors on. A departing port leaves surplus
-capacity, which D3's free-only shrink reclaims level-triggered — no
-per-port rollback, no companion teardown. This composes with D2's
+capacity, which D3's free-only shrink reclaims level-triggered (child
+scope; at root ADR-0020 applies — grow-only, surplus is reboot-required
+residue) — no per-port rollback, no companion teardown. This composes with D2's
 count→individual boundary (the fold is a count edit; the adapter
 still turns a delta into ids) and D3's convergence laws unchanged.
 

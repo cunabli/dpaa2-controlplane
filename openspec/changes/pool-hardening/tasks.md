@@ -18,16 +18,16 @@ outside this change.
 
 ## 2. Rule-amendment disposition (epic acceptance)
 
-- [ ] 2.1 Append repo rule 12 (asserting surfaces bind the production guard's named accessor, cited by name; `itf-replay` marks need a per-state assert) to `.claude/agents/rust-developer.md` and `.claude/agents/opus48-developer.md`
-- [ ] 2.2 Record the adoption on the epic bead (p6m) notes; commit
+- [x] 2.1 Append repo rule 12 (asserting surfaces bind the production guard's named accessor, cited by name; `itf-replay` marks need a per-state assert) to `.claude/agents/rust-developer.md` — the sole home of the numbered repo rule set (opus48-developer.md carries execution rules only; duplicating the list would break rule 9)
+- [x] 2.2 Record the adoption on the epic bead (p6m) notes — done; the commit waits on the user's call whether the untracked `.claude/agents/` dir joins the public repo
 
 ## 3. Bead G — ADR/design/retro residue (dpaa2-controlplane-p6m.7)
 
-- [ ] 3.1 `models/retro/reconciler.qnt` + `dpaa2-verify/README.md`: reframe the "mirrors RestoolMc" claim historical (pre-D9 chain, retired at f06fbb3) — NO re-freeze (L18)
-- [ ] 3.2 `docs/adr/0019` (~:180): grow-only qualifier on the wrong-cfg repair sentence (never live; across reboot = RebootRequired residue) (L6, ADR half)
-- [ ] 3.3 Archived pool-objects `design.md` D3/D9: one-line ADR-0020 pointer D10 already carries (L11)
-- [ ] 3.4 `docs/adr/0008` (~:414-417): open question marked resolved naming the default-fill fields (V-MVP-1 rev 2) (L12)
-- [ ] 3.5 Gates + close bead p6m.7; commit
+- [x] 3.1 `models/retro/reconciler.qnt` + `dpaa2-verify/README.md`: reframe the "mirrors RestoolMc" claim historical (pre-D9 chain, retired at f06fbb3) — NO re-freeze (L18)
+- [x] 3.2 `docs/adr/0019` (~:180): grow-only qualifier on the wrong-cfg repair sentence (never live; across reboot = RebootRequired residue) (L6, ADR half)
+- [x] 3.3 Archived pool-objects `design.md` D3/D9: one-line ADR-0020 pointer D10 already carries (L11)
+- [x] 3.4 `docs/adr/0008` (~:414-417): open question marked resolved naming the default-fill fields (V-MVP-1 rev 2) (L12)
+- [x] 3.5 Gates + close bead p6m.7; commit
 
 ## 4. Bead B — seat gate and typed child seat surplus (dpaa2-controlplane-p6m.2)
 

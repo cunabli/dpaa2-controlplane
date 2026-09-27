@@ -219,8 +219,10 @@ state the replayer:
    promises before the kernel delivers it.
 
 One reconciler plan step spans several machine actions (`Create` is a
-whole companion-provisioning chain); the classifier in `replay.rs` is
-the single place that mapping lives. Sub-steps an observer cannot see
+whole companion-provisioning chain — the historical root-scope flow the
+pool-objects design D9 fold retired at f06fbb3, which the retro corpus
+deliberately preserves); the classifier in `replay.rs` is the single
+place that mapping lives. Sub-steps an observer cannot see
 — companion creates, plug flips, bus rescans, pool draws — never
 surface as plan steps.
 
