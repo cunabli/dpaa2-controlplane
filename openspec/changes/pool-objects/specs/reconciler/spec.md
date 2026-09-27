@@ -65,3 +65,19 @@ decision 4).
 - **WHEN** the disposition runs twice over an unchanged converged
   observation
 - **THEN** the second run emits an empty plan
+
+## MODIFIED Requirements
+
+### Requirement: Consumer convergence is container-only in this change
+Converging a declared consumer SHALL produce the container itself —
+existence, options, label, placement, lock state, VFIO bindability — and its
+population SHALL converge through the pool passes this change adds: root pool
+convergence runs before the port loop and `converge_population` runs after
+container convergence (this delta's own ADDED requirements). Companion-set
+sizing is therefore emitted by those pool/population passes, not forbidden;
+the dpni option surface is tile #5's, delivered. The container-only fence is
+retired (review PASS4-F2).
+
+#### Scenario: Consumer declared on an empty board
+- **WHEN** intent declares one consumer and the board lacks its container
+- **THEN** the plan creates the child DPRC with derived options/label/placement and its companion-population steps follow via `converge_population`

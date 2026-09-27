@@ -61,3 +61,23 @@ observable as a census of the child matching the derived counts.
   tenant's container
 - **THEN** the child dprc holds the dpni and the regime-derived
   companion counts and is bound to vfio-fsl-mc, read back from the bus
+
+## MODIFIED Requirements
+
+### Requirement: KernelControl actuates VFIO binding for child DPRCs
+`KernelControl` SHALL observe and actuate the vfio-fsl-mc binding path for a
+child DPRC — `driver_override` write, bind, unbind — and SHALL expose the
+observed propagation of the override to subsequently-added children of a bound
+container. Restool-unreachable portal faces (child-portal unlock, the
+OBJ_CREATE_ALLOWED gate) are explicitly out of scope, deferred to tile #10.
+The `pool-objects` (#6) DPL-defined-child window closed NOT FIRED (bead
+dpaa2-controlplane-960.13, 2026-09-27), so DPRC-I8 batch ordering rides bead
+dpaa2-controlplane-5y7 on the raw command path (`mc-portal-backend`, #10).
+
+#### Scenario: Bind a scratch child to VFIO
+- **WHEN** KernelControl sets `driver_override` to vfio-fsl-mc on a plugged scratch child and binds it
+- **THEN** the container is observed bound to vfio-fsl-mc and its IOMMU group exists
+
+#### Scenario: Unbind restores the unbound state
+- **WHEN** KernelControl unbinds the scratch child and clears the override
+- **THEN** the container is observed unbound and eligible for fsl_mc_dprc again
