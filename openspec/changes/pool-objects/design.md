@@ -267,6 +267,21 @@ keeping the proxy and dropping shrink from scope — it abandons D9's
 own premise; destroying dpio seats live — it re-opens the §4 race on
 every teardown for no witness the reboot does not already give.
 
+*Amended 2026-09-26 after the 4.3 rev4 sitting (ADR-0020; bead
+dpaa2-controlplane-960.12):* part (2)'s unplug-probe law is
+child-scoped. At root, every plugged pool-family object is
+fsl_mc_allocator-bound regardless of provenance, restool refuses the
+unplug client-side identically for free and drawn (the refusal
+carries no drawn-ness), and unbinding the allocator first is unsafe
+— its in-use guard sits under a void remove callback the driver model
+cannot let refuse, so the unbind detaches an in-use object and
+corrupts the allocator's bookkeeping. Root capacity is therefore
+grow-only at runtime; part (3)'s typed reboot-required residue widens
+from dpio seats to every root pool family; prune keeps only the
+never-plugged reach at root. Child-container reclaim is unchanged.
+The kernel remedy (a pre-removal free-list check, or a remove that
+can fail) re-opens root reclaim and re-anchors ADR-0020.
+
 ### D11 — Actuation is planned from the compiled plan, per container
 
 *Added 2026-09-24 during phase 4 (the 4.3 authoring audit, beads

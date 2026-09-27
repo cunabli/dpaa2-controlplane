@@ -7,11 +7,13 @@ The `dpaa2-mc` restool shim SHALL grow create and destroy verbs for
 dpmcp, dpbp, dpcon, and dpio, resolving the disposition's count deltas
 to concrete object ids: creates carry the family's cfg (dpcon/dpio
 priorities, dpio channel mode) computed from the typed block, destroys
-target the free individual the adapter selected, and read-back is the
-only observation (exit status never is). Order-sensitive sequencing
-that the typed surface does not carry (the dpio→dpmcp probe draw)
-SHALL live procedurally in the adapter, per the dpni
-set-MAC-before-plug precedent.
+target the free individual the adapter selected — reclaim inside a
+child container, or a never-plugged undeclared root object under
+prune; plugged root capacity is never a destroy target (ADR-0020) —
+and read-back is the only observation (exit status never is).
+Order-sensitive sequencing that the typed surface does not carry (the
+dpio→dpmcp probe draw) SHALL live procedurally in the adapter, per the
+dpni set-MAC-before-plug precedent.
 
 #### Scenario: A grow delta becomes N creates
 - **WHEN** the reconciler dispatches a deficit of 2 dpcon in a
@@ -20,7 +22,8 @@ set-MAC-before-plug precedent.
   post-dispatch census reads back the new count
 
 #### Scenario: A destroy targets only the adapter-selected free object
-- **WHEN** the reconciler dispatches a surplus destroy for dpbp
+- **WHEN** the reconciler dispatches a surplus destroy for dpbp in a
+  child container
 - **THEN** the shim destroys exactly one free dpbp id and re-observes
   the census
 

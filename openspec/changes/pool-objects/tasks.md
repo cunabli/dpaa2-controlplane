@@ -139,6 +139,20 @@ opus48-developer parcel.
       Unbind arm drives it, ensure carries the run-created set across
       passes and exits rendering the 3.15 refusal with its field diff;
       fake + unit tests (ADR-0008 §8/§9; design D12; bead 960.30).
+- [x] 3.17 ADR-0020 lands in the specs: root reclaim narrows
+      (unplug-probe law child-scoped), the typed reboot-required
+      residue widens from dpio seats to every root pool family on
+      ensure/dry-run/status; design D10 amended; no model or Rust
+      change (ADR-0020; bead 960.31).
+- [ ] 3.18 Model + custody twin follow ADR-0020: pool_lifecycle
+      scopes unplug-probe/reclaim to child custody and gains the
+      root-surplus-is-residue law with a directed run; the Rust
+      custody twin (census/select/dispatch) conforms; twins
+      re-frozen if trace shapes move (ADR-0020; bead 960.32).
+- [ ] 3.19 Suites follow the narrowed laws: V-POOL-6 / V-MVP-1 root
+      shrink and deficit legs assert the typed residue or move to
+      child scope; the foreign-prune leg matches the one-label law
+      (ADR-0020; bead 960.33).
 
 ## 4. Suites
 
@@ -150,7 +164,7 @@ opus48-developer parcel.
       row advances (pre-run record commit per board protocol).
 - [ ] 4.3 Board: the two MVP scenarios — live kernel interface in
       dprc.1; populated VFIO-bound dprc.N; drift-heal and teardown
-      re-runs (system-integration req 1). Waits on 3.9–3.16 (the
+      re-runs (system-integration req 1). Waits on 3.9–3.19 (the
       2026-09-24 audit: Scenario B unwired, teardown unreachable,
       shrink/prune assert laws the shipped census cannot execute);
       V-MVP-1 intent + offline pins landed at the first authoring

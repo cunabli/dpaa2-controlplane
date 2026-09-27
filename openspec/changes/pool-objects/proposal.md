@@ -27,10 +27,12 @@ ls-addni/dynamic-DPL script path for real.
 - `dpaa2-api` gains the P3 counted-companion implementation (ADR-0019):
   one generic shape over `FamilyParams` for the allocator trio
   (dpbp/dpmcp/dpcon), a seat-typed dpio variant, and the count-drift
-  disposition — grow and shrink to intent-derived counts, only free
-  individuals destroyed, in-use shortfall a refusal. No per-object
-  identity types; no cross-pattern trait framework; structural
-  isomorphism to the Quint model preserved (ADR-0002 §3).
+  disposition — grow to intent-derived counts; shrink through free
+  individuals in child containers only — root capacity is grow-only
+  at runtime, its surplus a typed reboot-required residue (ADR-0020);
+  in-use shortfall a refusal. No per-object identity types; no
+  cross-pattern trait framework; structural isomorphism to the Quint
+  model preserved (ADR-0002 §3).
 - dpio enters as table-pure P3; whether its create-cfg earns a P2 facet
   is an explicit judgment point with a marker (bead + acceptance
   criterion), amending ADR-0019 only if evidence demands.
@@ -38,8 +40,10 @@ ls-addni/dynamic-DPL script path for real.
   restool shim, the kernel root-bind face (dpaa2-eth attach in dprc.1),
   and child-container population for the VFIO path.
 - Convergence becomes eventually consistent for pool capacity:
-  undeclared, non-DPL-born, free objects are pruned; declared deficits
-  are created; the planner reasons in counts, never companion identity.
+  undeclared, non-DPL-born, free objects are pruned (at root, only
+  never-plugged ones — plugged root surplus is typed residue,
+  ADR-0020); declared deficits are created; the planner reasons in
+  counts, never companion identity.
 - Board suites deliver the two MVP scenarios: a live kernel interface
   in dprc.1 (dpni + companions + dpmac, kernel-attached) and a
   populated, VFIO-bound dprc.N. The DPL-defined-child mechanism (a boot
@@ -61,7 +65,8 @@ None — the four families land inside the existing capability surfaces.
   named invariants over the pool substrate; count-convergence and prune
   laws; the dpio seat/dpmcp probe-draw edges.
 - `reconciler`: count-drift disposition for P3 families (grow/shrink/
-  refuse) and the anonymous-capacity prune rule join the plan surface.
+  refuse) and the anonymous-capacity prune rule join the plan surface;
+  root shrink narrows to the typed residue disposition (ADR-0020).
 - `mc-backend`: restool-shim create/destroy verbs for dpbp/dpio/dpcon/
   dpmcp; kernel bind/unbind of a root dpni; child-container population
   and VFIO handoff observation.

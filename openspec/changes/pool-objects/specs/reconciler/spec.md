@@ -29,24 +29,37 @@ isomorphic to the Quint model (ADR-0002 §3).
 The pure disposition SHALL judge each (container, family) pair from
 observed census versus intent-derived requirement (ADR-0012 counts,
 consumed unchanged from the compiled plan) and emit: creates for a
-deficit; destroys of free individuals only for a surplus, selected
-arbitrarily; a typed refusal when the requirement falls below the
-currently drawn count; and prune destroys for objects that are
-undeclared in intent, not DPL-born, and free. The count→individual
-boundary SHALL sit at the dispatch edge: the disposition speaks deltas,
-the adapter resolves deltas to concrete object ids.
+deficit; destroys of free individuals only for a surplus in a child
+container, selected arbitrarily; a typed refusal when the requirement
+falls below the currently drawn count; and prune destroys for objects
+that are undeclared in intent, not DPL-born, and free. At root scope a
+surplus emits no destroy and renders as the typed reboot-required
+residue disposition (ADR-0020). The count→individual boundary SHALL
+sit at the dispatch edge: the disposition speaks deltas, the adapter
+resolves deltas to concrete object ids. Prune destroys keep reaching
+objects that are undeclared, not DPL-born, and — at root — never
+plugged; an undeclared plugged root object is residue (ADR-0020
+decision 4).
 
 #### Scenario: Surplus shrinks through free individuals only
-- **WHEN** the census shows 3 dpbp against a derived requirement of 2
-  and one dpbp is drawn
+- **WHEN** a child container's census shows 3 dpbp against a derived
+  requirement of 2 and one dpbp is drawn
 - **THEN** the disposition emits one destroy resolvable only to a free
   dpbp and the drawn individual is never a candidate
 
 #### Scenario: Requirement below draw refuses
 - **WHEN** the derived dpcon requirement is 4 and 5 dpcons are
-  currently drawn
+  currently drawn in a child container (root drawn-ness is
+  unobservable, ADR-0020)
 - **THEN** the disposition returns a typed refusal naming the family
   and counts, and emits no destroy
+
+#### Scenario: Root surplus is typed residue
+- **WHEN** the root census shows plugged capacity above the derived
+  requirement
+- **THEN** the disposition emits no destroy and reports the
+  reboot-required residue naming observed vs. required and the
+  reconciliation path (ADR-0020)
 
 #### Scenario: Convergence is idempotent
 - **WHEN** the disposition runs twice over an unchanged converged
