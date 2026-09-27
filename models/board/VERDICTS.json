@@ -1155,6 +1155,17 @@
       "hook": "4/4",
       "archive": null,
       "refusals": []
+    },
+    "V-POOL-5-rev2": {
+      "pass": true,
+      "date": "2026-09-22",
+      "kind": "batch",
+      "revision": 2,
+      "steps": "1/1",
+      "source_hash": "fnv1a64:4d397b7892319e3e",
+      "hook": "4/4",
+      "archive": null,
+      "refusals": []
     }
   },
   "V-POOL-7": {
