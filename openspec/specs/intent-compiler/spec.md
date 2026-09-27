@@ -192,9 +192,13 @@ compile-side `KernelDeclared`, `LinkSelfLoop`, and `RenameDoubleClaim`
 rules SHALL mirror their parse-side twins verbatim, each site carrying a
 doc note naming its twin (deliberate duplication across the config→api
 seam, design D11). The
-`Refusal` and `Dataplane` types SHALL be `#[non_exhaustive]`, and a
-`PoolShortfall` variant SHALL be reserved for the reconciler's
-live-census refusal.
+`Refusal` and `Dataplane` types SHALL be `#[non_exhaustive]`, justified
+by the change-#4 passthrough. No corpus-wide `PoolShortfall` variant is
+reserved: the reconciler's live-census refusal role went to the
+family-namespaced `ShrinkBelowDraw` refusal plus the ADR-0020 typed
+reboot-required residue — a deliberate no-corpus-wide-refusal choice
+living in `crates/dpaa2-api/src/families/pool_lifecycle.rs` (review
+PASS1-F14/PASS4-F3).
 
 #### Scenario: Core budget exceeded
 - **WHEN** a userspace-poll tenant's table row gives T = 5 and
@@ -262,6 +266,7 @@ live-census refusal.
 - **THEN** the `TenantAbsent` refusal for the missing holder identifies
   the drawing tenant through the typed referrer, distinguishable from
   any refusal referring to the port `pool`
+
 
 ### Requirement: The reserved kernel resolves at every reference site
 
@@ -467,9 +472,10 @@ child (ADR-0005).
 - **WHEN** intent declares the kernel tenant
 - **THEN** the derived model contains no child DPRC for it
 
-#### Scenario: Derivation is container-only
+#### Scenario: Derivation folds the companion draws the pool construct consumes
 - **WHEN** a consumer is derived under this change
-- **THEN** no companion objects (DPIO/DPBP/DPCON/DPMCP) or DPNIs are emitted for it; sizing rules remain dormant until tiles #5/#6
+- **THEN** derivation emits the folded per-port companion draws the pool construct consumes (design D9) — tiles #5 and #6 are both delivered — while the consumer derives no inline companion objects (DPIO/DPBP/DPCON/DPMCP) or DPNIs of its own, because the pool passes own them (single provider)
+
 
 ### Requirement: dpni options derive purely from Dataplane and interface construct
 The compiler SHALL choose each derived dpni's option set solely from the
@@ -512,4 +518,3 @@ Every intent that was valid before this change SHALL keep its meaning.
   compiler after the hazard closure
 - **THEN** every accepted intent compiles to the identical plan and every
   refusal keeps its variant
-
