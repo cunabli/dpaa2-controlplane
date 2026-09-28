@@ -737,10 +737,11 @@ raw_capture! {
 ///
 /// Drawn-ness is *discovered, never read*: restool has no draw column, so the shim reports
 /// `drawn: false` and reclaim runs the unplug probe (`dprc assign --plugged=0`) — the MC's
-/// in-use refusal IS the drawn signal, surfacing as the [`ShrinkBelowDraw`] face
-/// (pool-objects design D10; `dpaa2_mc::pool::dispatch_pool_deltas`). A twin/kernel-face
-/// that CAN read the draw sets `drawn` from the observation, and [`census_of`] then splits
-/// the two facets straight through.
+/// in-use refusal IS the per-victim drawn signal, so the managed destroy path treats it as an
+/// observation, skips the held victim, and tries the next candidate; the caller surfaces the
+/// typed [`ShrinkBelowDraw`] only when the free candidates run out (pool-objects design D10;
+/// `dpaa2_mc::pool::dispatch_pool_deltas`). A twin/kernel-face that CAN read the draw sets
+/// `drawn` from the observation, and [`census_of`] then splits the two facets straight through.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ObservedPoolObject {
     /// The concrete `family.ordinal` reference the destroy/prune verbs address.
