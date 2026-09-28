@@ -216,17 +216,20 @@ pub const fn pool_disposition(family: PoolFamily, observed: i64, required: i64) 
 /// marks the DPL-born, and anything else is foreign — the same label-fingerprint
 /// declaredness the [`plan::dprc`](crate::plan::dprc) `PruneBucket` decides prune candidacy
 /// with. So the free pool splits three ways — `born`, `foreign_free`, and the reconciler's
-/// own free managed — and `managed = population - born - foreign_free - born_drawn` counts
-/// only the reconciler's companions (the model's `managedCount`), drawn ones included,
-/// with BOTH DPL-born subsets (free `born` and drawn `born_drawn`) netted out. A *drawn*
-/// foreign individual is count-indistinguishable from a drawn managed one and folds into
-/// `drawn`/`managed`: conservative, biasing toward the [`ShrinkBelowDraw`] refusal, never
-/// toward a teardown (pool-objects design D2). A *drawn* DPL-born is NOT folded in — it is
-/// judged (empty label ⇒ DPL sentinel) and netted into `born_drawn`, so the model's
-/// `drawnManaged` guard base is `drawn - born_drawn` (V-POOL-6; pool-objects design D3).
+/// own free managed — and `managed = population - born - foreign_free - born_drawn -
+/// foreign_drawn` counts only the reconciler's companions (the model's `managedCount`), drawn
+/// ones included, with BOTH DPL-born subsets (free `born` and drawn `born_drawn`) and BOTH
+/// foreign subsets (free `foreign_free` and drawn `foreign_drawn`) netted out. A *drawn*
+/// foreign individual is its own census facet, `foreign_drawn`, not a managed one: it nets out
+/// of `managed` so it never masks a grow deficit at count level (bead
+/// dpaa2-controlplane-960.21; pool-objects design D2 conservative bias retired at the count
+/// level). A *drawn* DPL-born is likewise NOT counted — it is judged (empty label ⇒ DPL
+/// sentinel) and netted into `born_drawn`, so the model's `drawnManaged` guard base is
+/// `drawn - born_drawn` (V-POOL-6; pool-objects design D3).
 ///
 /// The invariant arithmetic (`free + drawn == population`, `0 <= born + foreign_free <= free`,
-/// `0 <= born_drawn <= drawn`) is a debug assertion in [`PoolCensus::new`]: the adapter is the
+/// `0 <= born_drawn <= drawn`, `0 <= born_drawn + foreign_drawn <= drawn`) is a debug assertion
+/// in [`PoolCensus::new`]/[`PoolCensus::with_foreign_drawn`]: the adapter is the
 /// trust boundary counting its own observation, so a violated invariant is a miscount to catch
 /// in test/debug, not untrusted input to reject at runtime.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -246,6 +249,11 @@ pub struct PoolCensus {
     /// or not the label is currently declared; an empty label is the DPL boot sentinel, exempt.
     /// Defaults to 0 via `new`; `census_of` sets it.
     labeled_plugged: i64,
+    /// The drawn foreign subset — an undeclared object a consumer draws, its own facet rather
+    /// than a managed one (bead dpaa2-controlplane-960.21). It nets out of [`managed`](Self::managed)
+    /// so a drawn foreign never masks a grow deficit at count level. Defaults to 0 via `new`
+    /// (and reads 0 under the restool shim, which never observes the draw); `census_of` sets it.
+    foreign_drawn: i64,
 }
 
 impl PoolCensus {
@@ -297,6 +305,7 @@ impl PoolCensus {
             born_drawn,
             foreign_free_plugged: 0,
             labeled_plugged: 0,
+            foreign_drawn: 0,
         }
     }
 
@@ -311,6 +320,20 @@ impl PoolCensus {
             "the plugged foreign-free subset is within foreign_free (0 <= foreign_free_plugged <= foreign_free)"
         );
         self.foreign_free_plugged = n;
+        self
+    }
+
+    /// Records the drawn foreign subset — an undeclared object a consumer draws (bead
+    /// dpaa2-controlplane-960.21). The producer boundary [`census_of`] sets it from the drawn
+    /// facet; the drawn subsets are disjoint and within `drawn` (`born_drawn + foreign_drawn <=
+    /// drawn`, debug-asserted, an adapter miscount).
+    #[must_use]
+    pub fn with_foreign_drawn(mut self, n: i64) -> Self {
+        debug_assert!(
+            n >= 0 && self.born_drawn + n <= self.drawn,
+            "the drawn foreign and DPL-born subsets are disjoint and drawn (born_drawn + foreign_drawn <= drawn)"
+        );
+        self.foreign_drawn = n;
         self
     }
 
@@ -356,11 +379,21 @@ impl PoolCensus {
         self.born_drawn
     }
 
+    /// The drawn foreign subset — an undeclared object a consumer draws, netted out of
+    /// [`managed`](Self::managed) as its own facet (bead dpaa2-controlplane-960.21). Zero unless
+    /// [`census_of`] set it (and zero under the restool shim, which never reads the draw).
+    #[must_use]
+    pub const fn foreign_drawn(self) -> i64 {
+        self.foreign_drawn
+    }
+
     /// The drawn count that counts toward the draw guard — the model's `drawnManaged`
-    /// (`drawn - born_drawn`). A drawn foreign folds in (conservative, biasing to the refusal);
-    /// a drawn DPL-born does not (it is the board's boot pool, not a live consumer; V-POOL-6).
+    /// (`drawn - born_drawn`). A drawn foreign still counts here (conservative, biasing to the
+    /// refusal); a drawn DPL-born does not (it is the board's boot pool, not a live consumer;
+    /// V-POOL-6).
     #[must_use]
     pub const fn drawn_managed(self) -> i64 {
+        // Retained conservatism: this guard base keeps counting a drawn foreign, unlike managed() (bead dpaa2-controlplane-960.21).
         self.drawn - self.born_drawn
     }
 
@@ -406,11 +439,20 @@ impl PoolCensus {
     }
 
     /// The reconciler-owned count — the model's `managedCount`: the population minus both
-    /// DPL-born subsets (free `born` and plugged `born_drawn`) and the undeclared foreign-free,
-    /// so neither the boot pool nor an out-of-band create ever counts toward the requirement.
+    /// DPL-born subsets (free `born` and drawn `born_drawn`) and both foreign subsets (free
+    /// `foreign_free` and drawn `foreign_drawn`), so neither the boot pool nor an out-of-band
+    /// create ever counts toward the requirement.
+    ///
+    /// With the drawn-foreign facet observed this IS the model's `managedCount` exactly: a drawn
+    /// foreign nets out here, so it no longer masks a grow deficit (bead
+    /// dpaa2-controlplane-960.21; pool-objects design D2 conservative bias retired at the count
+    /// level). Under the restool shim the facet reads 0 and the old fold is vacuous. This
+    /// intentionally reaches [`grow_enabled`](Self::grow_enabled),
+    /// [`shrink_enabled`](Self::shrink_enabled), [`pool_disposition`], and the converged
+    /// judgment — all of whose model twins read the ghost `managedCount`.
     #[must_use]
     pub const fn managed(self) -> i64 {
-        self.population - self.born - self.foreign_free - self.born_drawn
+        self.population - self.born - self.foreign_free - self.born_drawn - self.foreign_drawn
     }
 
     /// The free reconciler-owned count — the free pool minus the free DPL-born and the
@@ -833,11 +875,14 @@ impl ObservedPoolObject {
 /// (pool-objects design D10): every `drawn` row counts `drawn`, every undrawn row `free`;
 /// a free row then adds to `born` (DPL) or `foreign_free` (undeclared) per its
 /// [`membership`](ObservedPoolObject::membership), or to neither when it is the
-/// reconciler's own managed-free. A *drawn* DPL-born row adds to `born_drawn`, netting a
-/// DPL boot object a consumer genuinely holds out of the draw guard (pool-objects design D3,
-/// V-POOL-6). From the restool shim `drawn` is always `false` (discovered by the unplug
-/// probe, not read), so a restool census reads every row free; a twin/kernel-face that
-/// observes the draw splits the two facets here. `declared` is the same declared-name
+/// reconciler's own managed-free. A drawn row splits the same way: a *drawn* DPL-born adds to
+/// `born_drawn` (netting a DPL boot object a consumer genuinely holds out of the draw guard;
+/// pool-objects design D3, V-POOL-6) and a *drawn* foreign adds to `foreign_drawn` — its own
+/// census facet, netted out of `managed` so it never masks a grow deficit (bead
+/// dpaa2-controlplane-960.21). The facet lands at the census now; under the restool shim
+/// `drawn` is always `false` (discovered by the unplug probe, not read), so a restool census
+/// reads every row free and `foreign_drawn` is 0, while a kernel-face transport that READS the
+/// draw makes the split live in production. `declared` is the same declared-name
 /// recognition set the inventory judges labels against (ADR-0015), so the count-level
 /// `born`/`born_drawn`/`foreign_free` match the inventory's per-object verdicts exactly. It also
 /// tallies [`labeled_plugged`](PoolCensus::labeled_plugged) — every plugged row with a non-empty
@@ -851,6 +896,7 @@ pub fn census_of(rows: &[ObservedPoolObject], declared: &BTreeSet<ConstructName>
     let mut foreign_free = 0i64;
     let mut foreign_free_plugged = 0i64;
     let mut born_drawn = 0i64;
+    let mut foreign_drawn = 0i64;
     let mut labeled_plugged = 0i64;
     for row in rows {
         // A plugged row with any non-empty label is runtime-created residue (ADR-0020 decision 2).
@@ -859,8 +905,10 @@ pub fn census_of(rows: &[ObservedPoolObject], declared: &BTreeSet<ConstructName>
         }
         if row.drawn {
             drawn += 1; // the real draw facet, never inferred from plugged (pool-objects design D10)
-            if row.membership(declared) == PoolMembership::DplBorn {
-                born_drawn += 1; // a drawn DPL-born nets out of the draw guard (V-POOL-6; pool-objects design D3)
+            match row.membership(declared) {
+                PoolMembership::DplBorn => born_drawn += 1,
+                PoolMembership::Foreign => foreign_drawn += 1,
+                PoolMembership::Managed => {}
             }
         } else {
             free += 1;
@@ -879,6 +927,7 @@ pub fn census_of(rows: &[ObservedPoolObject], declared: &BTreeSet<ConstructName>
     }
     PoolCensus::new(population, free, drawn, born, foreign_free, born_drawn)
         .with_foreign_free_plugged(foreign_free_plugged)
+        .with_foreign_drawn(foreign_drawn)
         .with_labeled_plugged(labeled_plugged)
 }
 
@@ -956,6 +1005,32 @@ mod tests {
         assert_eq!(c.foreign_free(), 1);
         assert_eq!(c.managed(), 3); // 5 - 1 born - 1 foreign_free
         assert_eq!(c.managed_free(), 2); // 4 free - 1 born - 1 foreign_free
+    }
+
+    // managed() nets a drawn foreign out, so a deficit masked only by one still enables grow (bead dpaa2-controlplane-960.21).
+    #[test]
+    fn managed_nets_the_drawn_foreign_so_grow_sees_the_deficit() {
+        let ceiling = Ceiling::Counted(3);
+        // Population 2, both drawn: one reconciler draw, one foreign draw; requirement 2.
+        let c = PoolCensus::new(2, 0, 2, 0, 0, 0).with_foreign_drawn(1);
+        assert_eq!(c.foreign_drawn(), 1);
+        assert_eq!(
+            c.managed(),
+            1,
+            "2 - foreign_drawn 1; the drawn foreign no longer counts"
+        );
+        assert!(
+            c.grow_enabled(2, &ceiling),
+            "a deficit masked only by a drawn foreign still enables grow"
+        );
+    }
+
+    // The builder rejects a drawn-subset miscount (born_drawn + foreign_drawn > drawn) as an adapter error (bead dpaa2-controlplane-960.21).
+    #[test]
+    #[cfg(debug_assertions)]
+    #[should_panic(expected = "drawn foreign and DPL-born subsets")]
+    fn with_foreign_drawn_rejects_more_than_drawn() {
+        let _ = PoolCensus::new(3, 1, 2, 0, 0, 1).with_foreign_drawn(2); // 1 + 2 > drawn 2
     }
 
     // ---- the ceiling gate (censusRefusesAtCeilingTest; DPBP-I7, ADR-0011) ----
@@ -1529,8 +1604,9 @@ mod tests {
         assert_eq!(c.born(), 1); // row 0
         assert_eq!(c.foreign_free(), 1); // row 3
         assert_eq!(c.born_drawn(), 0); // no drawn DPL-born row here
+        assert_eq!(c.foreign_drawn(), 1); // row 4: a drawn foreign is its own facet
         assert_eq!(c.managed_free(), 1); // row 1: free 3 - born 1 - foreign_free 1
-        assert_eq!(c.managed(), 3); // population 5 - born 1 - foreign_free 1 - born_drawn 0
+        assert_eq!(c.managed(), 2); // pop 5 - born 1 - foreign_free 1 - born_drawn 0 - foreign_drawn 1
         assert_eq!(c.free() + c.drawn(), c.population());
     }
 
