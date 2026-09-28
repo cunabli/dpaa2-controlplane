@@ -12,6 +12,13 @@
 //! the victim selection). Read-back is the observation returned, never an exit status
 //! (mc-backend spec requirement 1).
 //!
+//! The two reclaim halves split on how they treat a busy refusal. The managed destroy path
+//! discovers a per-victim draw: the MC's in-use refusal (`McStatus` `0x10`) on the unplug probe
+//! is an observation, so the pass skips the held victim, tries the next free candidate, and
+//! reports the typed [`ShrinkBelowDraw`] on [`PoolDispatch::refusal`] only when the free
+//! candidates run out (pool-objects design D10). The foreign PRUNE path keeps its fail-fast
+//! raw behavior — its count-level below-draw fold is a tracked refinement (ADR-0020).
+//!
 //! # Fail-fast, no rollback chain
 //!
 //! A verb error returns immediately and the objects already created this pass are left in
@@ -35,7 +42,7 @@ use dpaa2_api::core::model::{DprcId, ObjectRef};
 use dpaa2_api::core::types::ConstructName;
 use dpaa2_api::families::dpio::{ChannelMode, DpioCfg, Priorities};
 use dpaa2_api::families::pool_lifecycle::{
-    CustodyScope, ObservedPoolObject, PoolDeltas, PoolFamily, PoolMembership,
+    CustodyScope, ObservedPoolObject, PoolDeltas, PoolFamily, PoolMembership, ShrinkBelowDraw,
 };
 
 /// The dpcon default priority count (`docs/baseline/dpcon.md` "Option inventory": 1–8,
@@ -74,6 +81,10 @@ pub struct PoolDispatch {
     pub destroyed: Vec<ObjectRef>,
     /// The foreign-free objects a prune reclaimed (the model's `pruneAt`).
     pub pruned: Vec<ObjectRef>,
+    /// The board-proven below-draw refusal the managed destroy pass discovered — `Some` only
+    /// when every free managed candidate was held (`McStatus` `0x10`) and the destroy quota
+    /// stayed unmet; the caller judges it, it is never an [`Error`] (pool-objects design D10).
+    pub refusal: Option<ShrinkBelowDraw>,
     /// The post-dispatch census, re-observed from the board (read-back, not exit status).
     pub after: Vec<ObservedPoolObject>,
 }
@@ -84,9 +95,12 @@ pub struct PoolDispatch {
 ///
 /// - **grow**: `deltas.create` creates of `family`'s verb, each stamped `label` (dpcon
 ///   takes the baseline default of 2 priorities; counts are the only plan input in 3.1).
-/// - **destroy**: `deltas.destroy` victims selected from the ours-judged rows, first-N —
-///   never a DPL-born or foreign one — each reclaimed through the unplug probe: a live draw
-///   the probe surfaces refuses rather than tears down (pool-objects design D10).
+/// - **destroy**: `deltas.destroy` victims drawn from ALL the free ours-judged rows — never a
+///   DPL-born or foreign one — each reclaimed through the unplug probe. The pass discovers
+///   then judges: a victim the MC refuses to unplug (`McStatus` `0x10`) is held, so it is
+///   skipped and the next candidate tried; only an exhausted candidate set with the quota
+///   unmet proves the below-draw refusal, reported on [`PoolDispatch::refusal`] — never an
+///   [`Error`] (pool-objects design D10).
 /// - **prune**: `deltas.prune` victims selected from the foreign-judged rows, first-N,
 ///   reclaimed through the same probe — DPL-born rows are structurally exempt (roadmap #14).
 ///   At [`CustodyScope::RootScope`] only NEVER-PLUGGED foreign rows are eligible (a plugged
@@ -98,21 +112,28 @@ pub struct PoolDispatch {
 /// set the census and the inventory use (ADR-0010 §4 refined by ADR-0015), so the victims
 /// match the census that produced the deltas. Selection reads one fresh observation taken
 /// after the grow. Each victim is reclaimed by the two-step unplug probe: unplug, then
-/// destroy; a victim the MC refuses to unplug (in use) is the drawn signal and propagates as
-/// the refusal (pool-objects design D10). After the mutations a final observation is read
-/// back into [`PoolDispatch::after`].
+/// destroy; a managed victim the MC refuses to unplug (in use) is the drawn signal — skipped,
+/// not torn down — so the pass tries the next candidate and reports the exhausted-candidate
+/// refusal typed on [`PoolDispatch::refusal`], while a foreign prune victim propagates the raw
+/// refusal (pool-objects design D10). `requirement` is the family's derived requirement,
+/// carried so the discovered refusal names the count the operator sees. After the mutations a
+/// final observation is read back into [`PoolDispatch::after`].
 ///
-/// Fails fast on the first verb error with no rollback — see the module docs.
+/// Fails fast on the first verb error with no rollback — see the module docs. The managed
+/// busy refusal is the one exception: it is an observation, not a verb error.
 ///
 /// # Errors
 /// Returns the first [`Error`] any create, destroy, or observation verb raises (the typed
-/// `McStatus`/`RestoolGuard`/`Backend` funnel is inherited from the shim). Objects already
-/// created this pass are left in place for the next converge pass to build on.
+/// `McStatus`/`RestoolGuard`/`Backend` funnel is inherited from the shim), except the managed
+/// unplug's `McStatus` `0x10`, which is discovered as the drawn signal. Objects already created
+/// this pass are left in place for the next converge pass to build on.
+#[allow(clippy::too_many_arguments)] // the requirement joins the count→id inputs, all read-only
 pub fn dispatch_pool_deltas<M: McControl>(
     mc: &M,
     container: Option<DprcId>,
     family: PoolFamily,
     deltas: PoolDeltas,
+    requirement: i64,
     label: &ConstructName,
     declared: &BTreeSet<ConstructName>,
     scope: CustodyScope,
@@ -127,18 +148,38 @@ pub fn dispatch_pool_deltas<M: McControl>(
     // destroy + prune: resolve the counts to concrete reclaim victims from one fresh observation, each reclaimed through the unplug probe (pool-objects design D10).
     let mut destroyed = Vec::new();
     let mut pruned = Vec::new();
+    let mut refusal = None;
     if deltas.destroy > 0 || deltas.prune > 0 {
         let rows = mc.observe_pool(container, family.family())?;
-        for victim in select_reclaimable(
-            &rows,
-            declared,
-            PoolMembership::Managed,
-            deltas.destroy,
-            scope,
-        ) {
-            reclaim(mc, container, victim)?;
-            destroyed.push(victim.object);
+
+        // Managed destroy discovers then judges: try EVERY free candidate, skip a held one
+        // (McStatus 0x10), and an exhausted set with the quota unmet proves the refusal (pool-objects design D10).
+        if deltas.destroy > 0 {
+            let quota = usize::try_from(deltas.destroy).unwrap_or(0);
+            let candidates =
+                select_reclaimable(&rows, declared, PoolMembership::Managed, i64::MAX, scope);
+            for victim in &candidates {
+                if destroyed.len() == quota {
+                    break;
+                }
+                match reclaim(mc, container, victim) {
+                    Ok(()) => destroyed.push(victim.object),
+                    Err(Error::McStatus { status: 0x10 }) => {}
+                    Err(e) => return Err(e),
+                }
+            }
+            if destroyed.len() < quota {
+                // Quota unmet ⇒ every survivor is held: the drawn count the requirement fell below.
+                let drawn = i64::try_from(candidates.len() - destroyed.len()).unwrap_or(i64::MAX);
+                refusal = Some(ShrinkBelowDraw {
+                    family,
+                    requirement,
+                    drawn,
+                });
+            }
         }
+
+        // Foreign prune keeps the fail-fast raw path (its below-draw fold is a tracked refinement, ADR-0020).
         for victim in select_reclaimable(
             &rows,
             declared,
@@ -157,6 +198,7 @@ pub fn dispatch_pool_deltas<M: McControl>(
         created,
         destroyed,
         pruned,
+        refusal,
         after,
     })
 }
@@ -240,10 +282,16 @@ fn select_reclaimable<'a>(
 /// Reclaims one victim through the two-step unplug probe (pool-objects design D10; DPBP-I2:
 /// allocatable ⟺ plugged ∧ allocator-bound). A plugged victim is unplugged first (`dprc
 /// assign --plugged=0`); the MC refusing that unplug because the object is in use IS the
-/// drawn signal — read from the board, never inferred from a proxy — and propagates as the
-/// typed refusal the caller renders as the [`ShrinkBelowDraw`](dpaa2_api::families::pool_lifecycle::ShrinkBelowDraw)
-/// face (a refusal, not data loss). A cleared (or already-unplugged) victim is then
-/// destroyed.
+/// per-victim drawn signal — read from the board, never inferred from a proxy. The managed
+/// destroy caller treats that `McStatus` `0x10` as an observation: it skips the held victim,
+/// tries the next candidate, and surfaces the typed
+/// [`ShrinkBelowDraw`](dpaa2_api::families::pool_lifecycle::ShrinkBelowDraw) only when the free
+/// candidates run out (a refusal, not data loss). A cleared (or already-unplugged) victim is
+/// then destroyed.
+///
+/// The busy-on-unplug contract follows current MC behavior as observed through the restool
+/// shim on the board (V-POOL-6; `docs/baseline/dprc.md`). A replacement transport (the
+/// MC-portal ioctl) must re-verify it, not inherit it.
 fn reclaim<M: McControl>(
     mc: &M,
     container: Option<DprcId>,
@@ -381,6 +429,7 @@ mod tests {
                 destroy: 0,
                 prune: 0,
             },
+            2,
             &ConstructName::from("vpp"),
             &declared(&["vpp"]),
             CustodyScope::ChildScope,
@@ -440,6 +489,7 @@ mod tests {
                 destroy: 1,
                 prune: 0,
             },
+            0,
             &ConstructName::from("vpp"),
             &declared(&["vpp"]),
             CustodyScope::ChildScope,
@@ -497,6 +547,7 @@ mod tests {
                 destroy: 0,
                 prune: 1,
             },
+            0,
             &ConstructName::from("vpp"),
             &declared(&["vpp"]),
             CustodyScope::ChildScope,
@@ -543,6 +594,7 @@ mod tests {
                 destroy: 0,
                 prune: 1,
             },
+            0,
             &ConstructName::from("vpp"),
             &declared,
             CustodyScope::RootScope,
@@ -566,7 +618,7 @@ mod tests {
         );
     }
 
-    // The unplug probe both directions over the stateful fake: a free managed victim unplugs then destroys; a drawn one bounces `-EBUSY` and is never destroyed (pool-objects design D10).
+    // The unplug probe both directions over the stateful fake: a free managed victim unplugs then destroys; a drawn one with no free alternative bounces `-EBUSY`, is never destroyed, and the pass reports the typed below-draw refusal — not an error (pool-objects design D10).
     #[test]
     fn unplug_probe_reclaims_free_but_refuses_drawn() {
         use dpaa2_api::contract::fake::FakeBackend;
@@ -594,20 +646,22 @@ mod tests {
                 destroy: 1,
                 prune: 0,
             },
+            0,
             &vpp,
             &declared,
             CustodyScope::ChildScope,
         )
         .expect("a free victim reclaims");
         assert_eq!(out.destroyed, vec![free]);
+        assert!(out.refusal.is_none(), "a free victim raises no refusal");
         assert!(
             mc.observe_pool(None, Family::Dpbp).unwrap().is_empty(),
             "the reclaimed victim is gone"
         );
 
-        // refused-on-drawn: the row reads free to the census, but a consumer holds it — the unplug probe bounces `-EBUSY` and the victim survives.
+        // refused-on-drawn: the sole managed row reads free but is held, no free alternative — the pass returns the typed refusal, not an error.
         let mc = FakeBackend::new().with_in_use_pool_object(DprcId::ROOT, row(drawn));
-        let err = dispatch_pool_deltas(
+        let out = dispatch_pool_deltas(
             &mc,
             None,
             PoolFamily::Dpbp,
@@ -616,16 +670,29 @@ mod tests {
                 destroy: 1,
                 prune: 0,
             },
+            0,
             &vpp,
             &declared,
             CustodyScope::ChildScope,
         )
-        .expect_err("a drawn victim refuses the unplug");
-        assert!(matches!(err, Error::McStatus { status: 0x10 }), "{err:?}");
+        .expect("a drawn victim is a refusal, not an error");
+        assert_eq!(
+            out.refusal,
+            Some(ShrinkBelowDraw {
+                family: PoolFamily::Dpbp,
+                requirement: 0,
+                drawn: 1,
+            }),
+            "the exhausted-candidate below-draw refusal"
+        );
+        assert!(
+            out.destroyed.is_empty(),
+            "the drawn victim is never destroyed"
+        );
         assert_eq!(
             mc.observe_pool(None, Family::Dpbp).unwrap().len(),
             1,
-            "the drawn victim is never destroyed"
+            "the drawn victim survives"
         );
     }
 

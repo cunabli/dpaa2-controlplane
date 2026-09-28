@@ -147,7 +147,10 @@ impl ChildPlan {
         seat_disposition(SeatRegime::DpdkSeat, self.seats.1, self.seats.0)
     }
 
-    /// The first below-draw refusal across the trio, if any (pool-objects design D3).
+    /// The first PRE-DISPATCH below-draw refusal across the trio, if any (pool-objects design D3):
+    /// the census already read the draw, so the requirement sits below it before any probe runs.
+    /// The population convergence consults it to refuse the pass typed before dispatch; its
+    /// discovered-draw twin surfaces after dispatch on [`ChildPopulation::refusal`].
     #[must_use]
     pub fn shrink_refusal(&self) -> Option<ShrinkBelowDraw> {
         self.families.values().find_map(|(_, _, d)| d.err())
@@ -165,6 +168,10 @@ pub struct ChildPopulation {
     pub families: BTreeMap<PoolFamily, (i64, PoolCensus)>,
     /// The dpio seats: `(required, observed-after)`.
     pub seats: (i64, i64),
+    /// The below-draw refusal the trio's managed destroy DISCOVERED through the probe — `Some`
+    /// when a family's held rows could not shrink to its requirement (pool-objects design D10),
+    /// which stops the pass (first family wins). The caller surfaces it typed, never an error.
+    pub refusal: Option<ShrinkBelowDraw>,
 }
 
 impl ChildPopulation {
@@ -172,11 +179,12 @@ impl ChildPopulation {
     /// meets its requirement ([`PoolCensus::converged`]), the dpio seats MEET their
     /// requirement — a surplus converges grow-only and is reported as the typed residue
     /// (`dpio.qnt` `seatDisposition`; pool-objects design D4/D10) — and every planned dpni is
-    /// present. The read-back census is the observation, so a `true` here is the idempotence
-    /// witness a second pass reproduces.
+    /// present, and no below-draw refusal was discovered. The read-back census is the
+    /// observation, so a `true` here is the idempotence witness a second pass reproduces.
     #[must_use]
     pub fn converged(&self, dpnis_required: usize) -> bool {
-        self.dpnis.len() >= dpnis_required
+        self.refusal.is_none()
+            && self.dpnis.len() >= dpnis_required
             && self.seats.1 >= self.seats.0
             && self
                 .families
@@ -293,17 +301,20 @@ pub fn plan_child_population<M: McControl, K: KernelControl>(
 ///   ancestor ([`McControl::connect_in`], the DPNI-I9 form without a root plug), skipping a
 ///   dpni already connected to that peer.
 /// - **trio** (dpmcp→dpbp→dpcon): dispatches each family's planned deltas
-///   ([`dispatch_pool_deltas`]) — a below-draw disposition surfaces as the typed
-///   [`ShrinkBelowDraw`] folded to [`Error::Config`].
+///   ([`dispatch_pool_deltas`]). A PRE-DISPATCH below-draw disposition (the census already read
+///   the draw) folds to [`Error::Config`] through `?`; a DISCOVERED below-draw (the probe
+///   refusal on a row the census read free) returns typed on [`ChildPopulation::refusal`] and
+///   stops the pass at that family — never an error (pool-objects design D10).
 /// - **dpio seats**: creates the seat deficit as plain `dpio_create`s, NOT
 ///   [`create_dpio_seat`](crate::pool::create_dpio_seat): the dpmcp-probe pairing is the
 ///   kernel dpio driver's draw, and a VFIO child's dpio is userspace-consumed
 ///   (`docs/baseline/dpio.md`; ADR-0012).
 ///
 /// # Errors
-/// Returns the first [`Error`] any create, connect, destroy, or dispatch raises; a
-/// requirement below a family's drawn count surfaces as the typed [`ShrinkBelowDraw`]
-/// folded to [`Error::Config`].
+/// Returns the first [`Error`] any create, connect, destroy, or dispatch raises; a PRE-DISPATCH
+/// requirement below a family's drawn count surfaces as the typed [`ShrinkBelowDraw`] folded to
+/// [`Error::Config`], while a probe-DISCOVERED one is carried on [`ChildPopulation::refusal`],
+/// not returned as an error.
 pub fn dispatch_child_population<M: McControl>(
     mc: &M,
     cplan: &ChildPlan,
@@ -325,6 +336,7 @@ pub fn dispatch_child_population<M: McControl>(
     }
 
     let mut families = BTreeMap::new();
+    let mut refusal = None;
     for family in TRIO {
         let (requirement, _census, disposition) = cplan.families[&family];
         let deltas = disposition?;
@@ -333,21 +345,28 @@ pub fn dispatch_child_population<M: McControl>(
             Some(child),
             family,
             deltas,
+            requirement,
             label,
             declared,
             CustodyScope::ChildScope,
         )?;
         families.insert(family, (requirement, census_of(&dispatch.after, declared)));
+        // A discovered below-draw stops the pass at this family, returned typed, not an error (pool-objects design D10).
+        if dispatch.refusal.is_some() {
+            refusal = dispatch.refusal;
+            break;
+        }
     }
 
     let (required, _observed) = cplan.seats;
-    let observed =
-        i64::try_from(mc.observe_pool(Some(child), Family::Dpio)?.len()).unwrap_or(i64::MAX);
-    // The `(required - observed).max(0)` bound (`required = derived_seats`, 2·T, the DpdkSeat
-    // `seat_ceiling` by ADR-0012 construction) is the count-level `admit_seat` gate; a typed
-    // pre-gate needs regime-typed observed seats the census cannot read, so a short board surfaces raw MC status.
-    for _ in 0..(required - observed).max(0) {
-        mc.dpio_create(Some(child), default_dpio_cfg(), label)?;
+    // A discovered refusal stops the pass before the seat grow (pool-objects design D10).
+    if refusal.is_none() {
+        let observed =
+            i64::try_from(mc.observe_pool(Some(child), Family::Dpio)?.len()).unwrap_or(i64::MAX);
+        // The `(required - observed).max(0)` deficit is the count-level `admit_seat` gate (ADR-0012); a typed pre-gate needs regime-typed observed seats the census cannot read.
+        for _ in 0..(required - observed).max(0) {
+            mc.dpio_create(Some(child), default_dpio_cfg(), label)?;
+        }
     }
     let observed_after =
         i64::try_from(mc.observe_pool(Some(child), Family::Dpio)?.len()).unwrap_or(i64::MAX);
@@ -362,6 +381,7 @@ pub fn dispatch_child_population<M: McControl>(
         dpnis,
         families,
         seats: (required, observed_after),
+        refusal,
     })
 }
 
@@ -633,6 +653,173 @@ mod tests {
         assert!(
             pop.converged(cplan.dpnis.len()),
             "the typed grow-only outcome converges: {pop:?}"
+        );
+    }
+
+    #[test]
+    fn child_below_draw_pre_dispatch_refuses_typed() {
+        // pool-objects design D3: a kernel-face `drawn: true` row puts the requirement below the draw pre-dispatch — shrink_refusal names it typed.
+        let compiled = compiled_router();
+        let child = DprcId::new(2);
+        let container = Container::Child("router".into());
+        let label = ConstructName::from("router");
+        let req = derived_requirement(&compiled.plan, &container, PoolFamily::Dpbp);
+
+        let mut mc = FakeBackend::new();
+        for ord in 0..=req {
+            mc = mc.with_pool_object(
+                child,
+                ObservedPoolObject {
+                    object: ObjectRef::new(Family::Dpbp, u32::try_from(ord).unwrap()),
+                    label: RawLabel::from("router"),
+                    plugged: true,
+                    drawn: true,
+                },
+            );
+        }
+
+        let cplan = plan_child_population(
+            &mc,
+            &mc,
+            child,
+            &compiled.plan,
+            &container,
+            &label,
+            &declared(),
+        )
+        .expect("plan");
+        assert_eq!(
+            cplan.shrink_refusal(),
+            Some(ShrinkBelowDraw {
+                family: PoolFamily::Dpbp,
+                requirement: req,
+                drawn: req + 1,
+            }),
+            "the census-read draw is the pre-dispatch refusal"
+        );
+    }
+
+    #[test]
+    fn child_discovered_draw_refuses_typed() {
+        // pool-objects design D10: in-use rows read free, so the census emits a destroy; the probe finds every candidate held and the dispatch returns the typed refusal, held rows surviving.
+        let compiled = compiled_router();
+        let child = DprcId::new(2);
+        let container = Container::Child("router".into());
+        let label = ConstructName::from("router");
+        let req = derived_requirement(&compiled.plan, &container, PoolFamily::Dpbp);
+
+        let held: Vec<ObjectRef> = (0..=req)
+            .map(|ord| ObjectRef::new(Family::Dpbp, u32::try_from(ord).unwrap()))
+            .collect();
+        let mut mc = FakeBackend::new();
+        for &object in &held {
+            mc = mc.with_in_use_pool_object(
+                child,
+                ObservedPoolObject {
+                    object,
+                    label: RawLabel::from("router"),
+                    plugged: true,
+                    drawn: false,
+                },
+            );
+        }
+
+        let cplan = plan_child_population(
+            &mc,
+            &mc,
+            child,
+            &compiled.plan,
+            &container,
+            &label,
+            &declared(),
+        )
+        .expect("plan");
+        let pop =
+            dispatch_child_population(&mc, &cplan, &declared()).expect("dispatch, not an error");
+        assert_eq!(
+            pop.refusal,
+            Some(ShrinkBelowDraw {
+                family: PoolFamily::Dpbp,
+                requirement: req,
+                drawn: req + 1,
+            }),
+            "every candidate held: the discovered below-draw refusal with proven counts"
+        );
+        assert!(
+            !pop.converged(cplan.dpnis.len()),
+            "a refused pass is not converged"
+        );
+        let dpbps = mc.observe_pool(Some(child), Family::Dpbp).unwrap();
+        for &object in &held {
+            assert!(
+                dpbps.iter().any(|r| r.object == object),
+                "the held victim survives"
+            );
+        }
+    }
+
+    #[test]
+    fn discovered_draw_skips_to_free_victim() {
+        // freeOnlyShrinkTest twin (pool-objects design D10): one held row plus free surplus enough for the quota — the shrink converges through the free victims, the held one survives.
+        let compiled = compiled_router();
+        let child = DprcId::new(2);
+        let container = Container::Child("router".into());
+        let label = ConstructName::from("router");
+        let req = derived_requirement(&compiled.plan, &container, PoolFamily::Dpbp);
+
+        let held = ObjectRef::new(Family::Dpbp, 50);
+        let mut mc = FakeBackend::new().with_in_use_pool_object(
+            child,
+            ObservedPoolObject {
+                object: held,
+                label: RawLabel::from("router"),
+                plugged: true,
+                drawn: false,
+            },
+        );
+        let free: Vec<ObjectRef> = (0..=(req + 1))
+            .map(|ord| ObjectRef::new(Family::Dpbp, 60 + u32::try_from(ord).unwrap()))
+            .collect();
+        for &object in &free {
+            mc = mc.with_pool_object(
+                child,
+                ObservedPoolObject {
+                    object,
+                    label: RawLabel::from("router"),
+                    plugged: true,
+                    drawn: false,
+                },
+            );
+        }
+
+        let cplan = plan_child_population(
+            &mc,
+            &mc,
+            child,
+            &compiled.plan,
+            &container,
+            &label,
+            &declared(),
+        )
+        .expect("plan");
+        let pop = dispatch_child_population(&mc, &cplan, &declared()).expect("dispatch");
+        assert!(
+            pop.refusal.is_none(),
+            "the quota is reachable through the free victims: {pop:?}"
+        );
+        assert!(
+            pop.converged(cplan.dpnis.len()),
+            "the free-only shrink converges"
+        );
+        let dpbps = mc.observe_pool(Some(child), Family::Dpbp).unwrap();
+        assert!(
+            dpbps.iter().any(|r| r.object == held),
+            "the held victim survives"
+        );
+        assert_eq!(
+            i64::try_from(dpbps.len()).unwrap(),
+            req,
+            "the child shrank to exactly the requirement"
         );
     }
 
