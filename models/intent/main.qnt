@@ -257,17 +257,24 @@ module intent_main {
       p.provenance.get({ tenant: "router", rule: "dpio", construct: "" }).value == 14,
     }
 
-  // The kernel dataplane: no child DPRC, dpio per online CPU, dpmcp cpus+dpnis,
-  // dpbp per dpni, dpcon per polled queue, the pinned dprtc, dpio ≺ dpmcp.
+  // The kernel dataplane on the reference inventory (16 cpus), terminating one
+  // port: no child DPRC, dpio per online CPU (16, unchanged), the pinned dprtc,
+  // dpio ≺ dpmcp. The pool-objects design D9 per-port probe fold lands on top of
+  // the ADR-0012 companion draw: dpmcp 17 + 1 port = 18, dpbp 1 + 1 = 2, dpcon
+  // dpnis·cpus + np·numQueues = 16 + 16 = 32; dpio stays 16 (per-CPU seats). The
+  // dpmcp node reports request 18 and carries the "ports" input.
   run kernelDeriveTest =
     val p = derive(kernelIntent, REF_INVENTORY)
     all {
       p.objs.filter(o => o.key.family == Dprc) == Set(),
       countFam(p, "kernel", Dpio) == 16,
-      countFam(p, "kernel", Dpmcp) == 17,
-      countFam(p, "kernel", Dpbp) == 1,
-      countFam(p, "kernel", Dpcon) == 16,
+      countFam(p, "kernel", Dpmcp) == 18,
+      countFam(p, "kernel", Dpbp) == 2,
+      countFam(p, "kernel", Dpcon) == 32,
       countFam(p, "kernel", Dpni) == 1,
+      p.provenance.get({ tenant: "kernel", rule: "dpmcp", construct: "" }).request == 18,
+      p.provenance.get({ tenant: "kernel", rule: "dpmcp", construct: "" }).inputs
+        .contains({ tenant: "kernel", rule: "ports", construct: "" }),
       objsOfFam(p, "kernel", Dpni).forall(o =>
         o.container == Root and match o.attributes { | DpniAttrs(a) => a.cfg.numQueues == 16 | _ => false }),
       p.objs.filter(o => o.key.family == Dprtc) ==
@@ -658,9 +665,12 @@ module intent_main {
 
   // ---- task 2.6c: isolation, pooling, the kernel link end ----
 
-  // A declared kernel-netlink namespace derives a child dprc and the child-
-  // resident kernel draw: dpio 0, dpbp/dpmcp one per dpni, a cpus-queue dpni,
-  // dpcon one per online CPU (dpio-service.c l.54; fsl-mc-allocator.c l.106).
+  // A declared kernel-netlink namespace terminating one port derives a child
+  // dprc and the child-resident kernel draw: dpio 0, a cpus-queue dpni, dpbp/
+  // dpmcp one per dpni (dpio-service.c l.54; fsl-mc-allocator.c l.106). dpaa2-eth
+  // probes wherever it binds, so the pool-objects design D9 fold folds the port's
+  // probe draw in too: dpbp 1 + 1 port = 2, dpmcp 1 + 1 = 2, dpcon dpnis·cpus +
+  // np·numQueues = 16 + 16 = 32.
   run declaredKernelNetlinkTest =
     val p = derive(nsIntent, REF_INVENTORY)
     all {
@@ -668,10 +678,10 @@ module intent_main {
         Set({ key: { tenant: "ns1", family: Dprc, ordinal: 1 }, container: Root,
               attributes: DprcAttrs({ options: DPRC_DEFAULT_OPTIONS }), provenance: { tenant: "ns1", rule: "dprc", construct: "" } }),
       countFam(p, "ns1", Dpio) == 0,
-      countFam(p, "ns1", Dpbp) == 1,
-      countFam(p, "ns1", Dpmcp) == 1,
+      countFam(p, "ns1", Dpbp) == 2,
+      countFam(p, "ns1", Dpmcp) == 2,
       countFam(p, "ns1", Dpni) == 1,
-      countFam(p, "ns1", Dpcon) == 16,
+      countFam(p, "ns1", Dpcon) == 32,
       objsOfFam(p, "ns1", Dpni).forall(o =>
         o.container == Child("ns1") and match o.attributes { | DpniAttrs(a) => a.cfg.numQueues == 16 | _ => false }),
       p.objs.filter(o => o.key.tenant == "ns1" and o.key.family != Dprc).forall(o => o.container == Child("ns1")),

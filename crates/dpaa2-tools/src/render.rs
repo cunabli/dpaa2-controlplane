@@ -12,13 +12,19 @@ use std::fmt::Write as _;
 
 use dpaa2_api::core::family::Family;
 use dpaa2_api::core::model::DprcId;
+use dpaa2_api::families::dpio::SeatDisposition;
+use dpaa2_api::families::pool_lifecycle::{
+    PoolCensus, PoolDeltas, PoolDisposition, PoolFamily, ShrinkBelowDraw,
+};
 use dpaa2_api::intent::compiled::{
     AttachPoint, Attributes, CompiledPlan, Container, Measurement, ObjectKey, PlannedObject,
     ProvenanceKey,
 };
 use dpaa2_api::intent::refuse::{Refusal, Warning};
 use dpaa2_api::plan::dprc::{ConsumerConvergence, ContainerVerdict, FingerprintField, PruneItem};
-use dpaa2_api::plan::{Plan, Transition};
+use dpaa2_api::plan::pool::PoolDrift;
+use dpaa2_api::plan::populate::ChildPlan;
+use dpaa2_api::plan::{Class, Plan, Transition};
 
 /// Renders the whole dry-run text: the compiled objects with their provenance trees
 /// and edges, the transitions `reconcile` would execute, the plan-only report, and
@@ -224,6 +230,184 @@ pub fn render_container_convergence(
         }
     }
     out
+}
+
+/// Writes one pool family's observed-vs-derived counts and its class-tagged disposition (or the
+/// [`ShrinkBelowDraw`] refusal) at `indent`
+/// — the shared block of the root drift and the child population renders (pool-objects design D3).
+/// The per-surface residue line is left to the caller, whose indent differs.
+fn render_family_disposition(
+    out: &mut String,
+    indent: &str,
+    family: PoolFamily,
+    census: PoolCensus,
+    required: i64,
+    disposition: Result<PoolDeltas, ShrinkBelowDraw>,
+) {
+    match disposition {
+        Ok(deltas) => {
+            let class = if deltas.is_empty() {
+                Class::Hitless
+            } else {
+                Class::Disruptive
+            };
+            let _ = writeln!(
+                out,
+                "{indent}{} observed managed={}/{} required={required} [{class}] create={} destroy={} prune={}",
+                family.name(),
+                census.managed(),
+                census.population(),
+                deltas.create,
+                deltas.destroy,
+                deltas.prune,
+            );
+        }
+        // A requirement below the drawn count is surfaced, never a teardown (pool-objects design D3).
+        Err(refusal) => {
+            let _ = writeln!(
+                out,
+                "{indent}{} observed managed={}/{} required={required} REFUSED: {refusal}",
+                family.name(),
+                census.managed(),
+                census.population(),
+            );
+        }
+    }
+}
+
+/// The class a grow-only dpio seat line reports: a deficit is [`Class::Disruptive`], parity is
+/// [`Class::Hitless`] (pool-objects design D4). Shared by the root and child seat lines.
+fn seat_class(required: i64, observed: i64) -> Class {
+    if required > observed {
+        Class::Disruptive
+    } else {
+        Class::Hitless
+    }
+}
+
+/// Renders the root-scope pool convergence the run would drive (pool-objects task 3.4;
+/// pool-objects design D3): a header with the pass headline, then per trio family its
+/// observed-vs-derived counts, the class-tagged disposition (create/destroy/prune, or the
+/// [`ShrinkBelowDraw`] refusal), and the
+/// family's provenance node resolved to its baseline anchor — the same class-gating and
+/// per-object provenance conventions the container steps use. The dpio seats follow as a
+/// grow-only line. A converged root shows an all-hitless headline and empty dispositions:
+/// the idempotent second run's zero-action proof, printed.
+#[must_use]
+pub fn render_pool_drift(plan: &CompiledPlan, drift: &PoolDrift) -> String {
+    let mut out = String::new();
+    let _ = writeln!(
+        out,
+        "root pool convergence ({} famil(ies) + dpio seats) [headline: {}]:",
+        drift.families.len(),
+        drift.headline(),
+    );
+    for f in &drift.families {
+        render_family_disposition(
+            &mut out,
+            "  ",
+            f.family,
+            f.census,
+            f.required,
+            f.disposition,
+        );
+        // A root managed surplus renders as grow-only reboot-required residue on every surface (ADR-0020; same voice as the dpio residue below).
+        if let PoolDisposition::RebootRequired(residue) = f.residue() {
+            let _ = writeln!(out, "    reboot-required: {residue}");
+        }
+        render_root_provenance(plan, f.family.family(), &mut out);
+    }
+    // dpio is a seat, grown never shrunk (pool-objects design D4).
+    let dpio_class = seat_class(drift.dpio_required, drift.dpio_observed);
+    let _ = writeln!(
+        out,
+        "  dpio seats observed={} required={} [{dpio_class}]",
+        drift.dpio_observed, drift.dpio_required,
+    );
+    // A surplus is the typed reboot-required residue, reported not reclaimed (pool-objects design D4/D10).
+    if let SeatDisposition::RebootRequired(residue) = drift.dpio_disposition() {
+        let _ = writeln!(out, "    reboot-required: {residue}");
+    }
+    render_root_provenance(plan, Family::Dpio, &mut out);
+    out
+}
+
+/// Renders the child-population pass the run would drive (pool-objects design D11;
+/// system-integration req 1): a header with the combined headline, then per child its
+/// re-observation handle, converged/pending state and VFIO bind, the dpni arity (planned vs
+/// present, connected vs peers), the trio families' observed-vs-derived counts and
+/// class-tagged disposition (or the [`ShrinkBelowDraw`] refusal), and the dpio seats — the
+/// same class-gating conventions the pool drift uses. A converged, bound board shows an
+/// all-hitless headline and empty dispositions: the idempotent run's zero-action proof.
+///
+/// [`ShrinkBelowDraw`]: dpaa2_api::families::pool_lifecycle::ShrinkBelowDraw
+#[must_use]
+pub fn render_population(children: &[ChildPlan]) -> String {
+    let headline = children
+        .iter()
+        .map(ChildPlan::headline)
+        .max()
+        .unwrap_or(Class::Hitless);
+    let mut out = String::new();
+    let _ = writeln!(
+        out,
+        "child population ({} child(ren)) [headline: {headline}]:",
+        children.len(),
+    );
+    if children.is_empty() {
+        let _ = writeln!(out, "  (none)");
+    }
+    for cp in children {
+        let present = cp.dpnis.iter().filter(|d| d.observed.is_some()).count();
+        let connected = cp.dpnis.iter().filter(|d| d.connected).count();
+        let peers = cp.dpnis.iter().filter(|d| d.peer.is_some()).count();
+        let state = if cp.is_converged() {
+            "converged"
+        } else {
+            "pending"
+        };
+        let _ = writeln!(
+            out,
+            "  {label} [{child}] {state} [headline: {ch}] bound={bound}",
+            label = cp.label,
+            child = cp.child,
+            ch = cp.headline(),
+            bound = cp.bound,
+        );
+        let _ = writeln!(
+            out,
+            "    dpni present={present}/{planned} connected={connected}/{peers}",
+            planned = cp.dpnis.len(),
+        );
+        for (family, (required, census, disposition)) in &cp.families {
+            render_family_disposition(&mut out, "    ", *family, *census, *required, *disposition);
+        }
+        let dpio_class = seat_class(cp.seats.0, cp.seats.1);
+        let _ = writeln!(
+            out,
+            "    dpio seats observed={} required={} [{dpio_class}]",
+            cp.seats.1, cp.seats.0,
+        );
+        if let SeatDisposition::RebootRequired(residue) = cp.dpio_disposition() {
+            let _ = writeln!(out, "      reboot-required: {residue}");
+        }
+    }
+    out
+}
+
+/// Renders the provenance node of a planned root object of `family`, when one exists — the
+/// operator's trace down to the declared construct and the ADR/baseline it cites, matching
+/// the container-convergence provenance render (ADR-0004 design D6).
+fn render_root_provenance(plan: &CompiledPlan, family: Family, out: &mut String) {
+    let Some(obj) = plan
+        .objects
+        .iter()
+        .find(|o| o.container() == &Container::Root && o.key().family == family)
+    else {
+        return;
+    };
+    let mut path = BTreeSet::new();
+    render_prov_tree(plan, obj.provenance(), 2, &mut path, out);
 }
 
 /// Renders a container verdict as a short operator token.

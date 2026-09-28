@@ -11,12 +11,17 @@ use std::time::Duration;
 use clap::{Parser, Subcommand, ValueEnum};
 use dpaa2_api::contract::McControl;
 use dpaa2_api::core::error::Error;
+use dpaa2_api::families::dpio::SeatDisposition;
+use dpaa2_api::families::pool_lifecycle::PoolDisposition;
 use dpaa2_api::intent::refuse::{Compiled, compile};
 use dpaa2_api::intent::{Intent, kernel_tenant};
 use dpaa2_api::plan::Class;
 use dpaa2_api::plan::reconcile::{ReconcileOptions, reconcile_with};
 use dpaa2_mc::{RestoolMc, SysfsKernel};
-use dpaa2_tools::engine::{self, ContainerOutcome, ConvergeConfig, Outcome, PruneOutcome};
+use dpaa2_tools::engine::{
+    self, ContainerOutcome, ConvergeConfig, Outcome, PoolOutcome, PoolPass, PopulationOutcome,
+    PruneOutcome, RootDpniPruneOutcome,
+};
 use dpaa2_tools::{StatusReport, link, render};
 
 /// Declarative DPAA2 (DPNI↔DPMAC) provisioning for the LX2160A.
@@ -142,10 +147,20 @@ fn run(cli: &Cli) -> Result<ExitCode, Error> {
             let Some((intent, compiled)) = compile_intent(&mc, &cli.config)? else {
                 return Ok(ExitCode::FAILURE);
             };
-            let desired = compiled.desired_topology(&intent);
+            let desired = compiled.desired_topology_root(&intent);
             let observed = engine::observe(&mc, &kernel)?;
             let report = StatusReport::compute(&desired, &observed);
             print!("{report}");
+            // The root-scope pool drift per family, read-only off the board (pool-objects task
+            // 3.4): observed-vs-derived counts and the disposition convergence would take.
+            // Reported alongside the port lifecycle; the exit code stays port-driven.
+            let pools = engine::plan_pools(&compiled.plan, &mc)?;
+            print!("{}", render::render_pool_drift(&compiled.plan, &pools));
+            // The child-population census the same run would drive, read-only off the board
+            // (pool-objects design D11): per-child dpni arity, trio counts, dpio seats, and the
+            // VFIO bind. Reported alongside the port lifecycle; the exit code stays port-driven.
+            let population = engine::plan_population(&compiled.plan, &mc, &kernel)?;
+            print!("{}", render::render_population(&population));
             Ok(if report.has_diverged() {
                 ExitCode::FAILURE
             } else {
@@ -156,9 +171,14 @@ fn run(cli: &Cli) -> Result<ExitCode, Error> {
             let Some((intent, compiled)) = compile_intent(&mc, &cli.config)? else {
                 return Ok(ExitCode::FAILURE);
             };
-            let desired = compiled.desired_topology(&intent);
+            let desired = compiled.desired_topology_root(&intent);
             let observed = engine::observe(&mc, &kernel)?;
-            let plan = reconcile_with(&desired, &observed, ReconcileOptions { prune: *prune });
+            let plan = reconcile_with(
+                &desired,
+                &observed,
+                ReconcileOptions { prune: *prune },
+                &std::collections::BTreeSet::new(),
+            );
             print!(
                 "{}",
                 render::render_dry_run(&compiled.plan, &compiled.warnings, &plan)
@@ -175,6 +195,17 @@ fn run(cli: &Cli) -> Result<ExitCode, Error> {
             // classified read-only off the board — a dry-run dispatches nothing.
             let prune = engine::plan_prune_report(&compiled.plan, &mc)?;
             print!("{}", render::render_prune(&prune));
+            // The root-scope pool convergence the same run would drive, censused read-only off
+            // the board (pool-objects task 3.4): per-family observed-vs-derived counts, the
+            // class-gated disposition, and each family's provenance — a dry-run dispatches nothing.
+            let pools = engine::plan_pools(&compiled.plan, &mc)?;
+            print!("{}", render::render_pool_drift(&compiled.plan, &pools));
+            // The child-population census the same run would drive, read-only off the board
+            // (pool-objects design D11): per-child dpni arity, its trio/dpio counts and the VFIO
+            // bind — a dry-run dispatches nothing, so every child a converged board holds renders
+            // an empty, hitless plan.
+            let population = engine::plan_population(&compiled.plan, &mc, &kernel)?;
+            print!("{}", render::render_population(&population));
             Ok(ExitCode::SUCCESS)
         }
         Command::Ensure {
@@ -190,6 +221,7 @@ fn run(cli: &Cli) -> Result<ExitCode, Error> {
 }
 
 #[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_lines)] // one linear stage per convergence phase, by design
 fn ensure(
     mc: &RestoolMc<dpaa2_mc::RestoolRunner>,
     kernel: &SysfsKernel,
@@ -209,7 +241,10 @@ fn ensure(
     if !warnings.is_empty() {
         eprint!("{warnings}");
     }
-    let desired = compiled.desired_topology(&intent);
+    // The root slice feeds the port loop: only root-planned dpnis actuate here, and a child
+    // tenant's dpni is left for the population pass, never created in dprc.1 (pool-objects
+    // design D11; bead dpaa2-controlplane-960.24 routed dry-run/status, this closes ensure).
+    let desired = compiled.desired_topology_root(&intent);
 
     let cfg = ConvergeConfig {
         deadline: Duration::from_secs(deadline),
@@ -217,15 +252,31 @@ fn ensure(
         allow: allow.into(),
         ..ConvergeConfig::default()
     };
+
+    // Grow the root's shared pool capacity FIRST (pool-objects design D3/D10, the grow half):
+    // the kernel interface's dpaa2-eth bind draws dpbp/dpio/dpcon and a dpmcp from the root pool,
+    // so the companions must exist before the port loop binds. The shrink half runs LAST, after
+    // consumer teardown — grow-first, shrink-last (the teardown walk). A refusal exits non-zero.
+    if let Some(code) = report_pool_outcome(
+        &engine::converge_pools(&compiled.plan, mc, cfg, PoolPass::Grow)?,
+        "grow",
+    ) {
+        return Ok(code);
+    }
+
     let outcome = engine::ensure(&desired, mc, kernel, cfg)?;
 
     // A refused run changed nothing, so write no `.link` files either.
     if let Outcome::DisruptionRefused { headline, allowed } = &outcome {
         println!(
-            "refused: this plan's headline is `{headline}`, but the run allows only up to \
-             `{allowed}`.\nre-run with `--allow={headline}` to actuate it (disruptive is never \
-             implied)."
+            "{}",
+            gate_refusal_message("this plan's headline is", *headline, *allowed, false)
         );
+        return Ok(ExitCode::FAILURE);
+    }
+
+    if let Outcome::RebuildRefused { refusals } = &outcome {
+        print_rebuild_refusals(refusals);
         return Ok(ExitCode::FAILURE);
     }
 
@@ -236,9 +287,13 @@ fn ensure(
         ContainerOutcome::Converged => {}
         ContainerOutcome::DisruptionRefused { headline, allowed } => {
             println!(
-                "refused: a consumer container plan's headline is `{headline}`, but the run allows \
-                 only up to `{allowed}`.\nre-run with `--allow={headline}` to actuate it \
-                 (disruptive is never implied)."
+                "{}",
+                gate_refusal_message(
+                    "a consumer container plan's headline is",
+                    headline,
+                    allowed,
+                    false
+                )
             );
             return Ok(ExitCode::FAILURE);
         }
@@ -248,10 +303,18 @@ fn ensure(
         }
     }
 
+    // Populate each declared child container after it exists (pool-objects design D11;
+    // system-integration req 1): per-port child dpnis with plan-derived arity, their dpmac
+    // connect, the derived companions and dpio seats, then the VFIO handoff. A drift inside a
+    // bound child or an over-allow headline exits non-zero, changing nothing.
+    if let Some(code) = run_population(mc, kernel, &compiled.plan, cfg)? {
+        return Ok(code);
+    }
+
     // Prune undeclared consumer containers under the double gate (dprc-encapsulation task 4.3).
     // A separate pass so an empty intent still prunes; the report is printed before the
     // outcome, and a below-disruptive refusal exits non-zero, changing nothing.
-    match engine::prune_containers(&compiled.plan, mc, cfg)? {
+    match engine::prune_containers(&compiled.plan, mc, kernel, cfg)? {
         PruneOutcome::Clean => {}
         PruneOutcome::ReportOnly { items } | PruneOutcome::Pruned { items } => {
             print!("{}", render::render_prune(&items));
@@ -263,9 +326,13 @@ fn ensure(
         } => {
             print!("{}", render::render_prune(&items));
             println!(
-                "refused: pruning an undeclared container is `{headline}`, but the run allows \
-                 only up to `{allowed}`.\nre-run with `--prune --allow={headline}` to actuate it \
-                 (disruptive is never implied)."
+                "{}",
+                gate_refusal_message(
+                    "pruning an undeclared container is",
+                    headline,
+                    allowed,
+                    true
+                )
             );
             return Ok(ExitCode::FAILURE);
         }
@@ -273,6 +340,42 @@ fn ensure(
         PruneOutcome::Refused { id, attribution } => {
             println!("refused: undeclared container {id} could not be pruned: {attribution:?}");
             return Ok(ExitCode::FAILURE);
+        }
+    }
+
+    // Prune undeclared managed-labelled root dpnis under the same double gate (pool-objects design D10/D11).
+    // A root kernel interface is a consumer that draws the pool, so it is torn down here — after
+    // containers, before the pool shrink — so the shrink reclaims the capacity it drew.
+    if let Some(code) =
+        report_root_dpni_prune(&engine::prune_root_dpnis(&compiled.plan, mc, kernel, cfg)?)
+    {
+        return Ok(code);
+    }
+
+    // Shrink/prune the root pool LAST (pool-objects design D3/D10, the shrink half): every
+    // consumer that drew it has been torn down above, so a free-only shrink reclaims the surplus
+    // and prunes the foreign objects — the teardown walk reaches the pool it could not before.
+    if let Some(code) = report_pool_outcome(
+        &engine::converge_pools(&compiled.plan, mc, cfg, PoolPass::Shrink)?,
+        "shrink",
+    ) {
+        return Ok(code);
+    }
+
+    // Grow-only capacity renders as typed reboot-required residue on ensure too: each root family's managed surplus and the dpio seats (ADR-0020; ADR-0003 §7).
+    let residue_drift = engine::plan_pools(&compiled.plan, mc)?;
+    for f in &residue_drift.families {
+        if let PoolDisposition::RebootRequired(residue) = f.residue() {
+            println!("residue: {residue}");
+        }
+    }
+    if let SeatDisposition::RebootRequired(residue) = residue_drift.dpio_disposition() {
+        println!("residue: {residue}");
+    }
+    // The child half: each VFIO child's seat surplus is the same grow-only residue (pool-objects design D4/D10).
+    for cp in engine::plan_population(&compiled.plan, mc, kernel)? {
+        if let SeatDisposition::RebootRequired(residue) = cp.dpio_disposition() {
+            println!("residue: {residue}");
         }
     }
 
@@ -292,7 +395,128 @@ fn ensure(
             Ok(ExitCode::FAILURE)
         }
         // Handled above (returns before link application); listed for exhaustiveness.
-        Outcome::DisruptionRefused { .. } => Ok(ExitCode::FAILURE),
+        Outcome::DisruptionRefused { .. } | Outcome::RebuildRefused { .. } => Ok(ExitCode::FAILURE),
+    }
+}
+
+/// The one ADR-0015 decision-12 gate refusal message every convergence/teardown stage shares:
+/// the plan's `what` exceeds the run's `--allow` ceiling, so nothing actuates until a wider
+/// re-run. `needs_prune` prefixes `--prune ` on the pruning stages. Only this law's text is
+/// shared — the six outcome enums stay distinct, since each carries a different refusal payload.
+fn gate_refusal_message(what: &str, headline: Class, allowed: Class, needs_prune: bool) -> String {
+    let flag = if needs_prune { "--prune " } else { "" };
+    format!(
+        "refused: {what} `{headline}`, but the run allows only up to `{allowed}`.\nre-run with \
+         `{flag}--allow={headline}` to actuate it (disruptive is never implied)."
+    )
+}
+
+/// Prints each refused same-run rebuild — port, dpni, and the diverging projection fields with desired vs observed (pool-objects design D12; ADR-0008 §9).
+fn print_rebuild_refusals(refusals: &[dpaa2_api::plan::RebuildRefusal]) {
+    for r in refusals {
+        println!(
+            "refused: {} on {} read back divergent, so a rebuild would churn live \
+             hardware; not actuated.",
+            r.dpni, r.port
+        );
+        for d in &r.diff {
+            println!(
+                "  {}: desired {}, observed {}",
+                d.field, d.desired, d.observed
+            );
+        }
+    }
+}
+
+/// Converges the child-container populations, mapping each refusal to its operator message
+/// and a non-zero exit (pool-objects design D11). Returns `Some(exit)` on a refusal (nothing
+/// further should run), `None` when every child converged.
+///
+/// # Errors
+/// Propagates a backend/kernel read/dispatch error.
+fn run_population(
+    mc: &RestoolMc<dpaa2_mc::RestoolRunner>,
+    kernel: &SysfsKernel,
+    plan: &dpaa2_api::intent::compiled::CompiledPlan,
+    cfg: ConvergeConfig,
+) -> Result<Option<ExitCode>, Error> {
+    match engine::converge_population(plan, mc, kernel, cfg)? {
+        PopulationOutcome::Converged => Ok(None),
+        PopulationOutcome::DisruptionRefused { headline, allowed } => {
+            println!(
+                "{}",
+                gate_refusal_message("a child population's headline is", headline, allowed, false)
+            );
+            Ok(Some(ExitCode::FAILURE))
+        }
+        PopulationOutcome::DriftRefused { label } => {
+            println!(
+                "refused: child `{label}` is VFIO-bound but its population drifted; residents \
+                 added to a bound child stay invisible until a rebind cycle (ADR-0017). The \
+                 rebind policy is roadmap #9's decision (bead dpaa2-controlplane-w01)."
+            );
+            Ok(Some(ExitCode::FAILURE))
+        }
+        PopulationOutcome::ShrinkRefused { label, refusal } => {
+            println!("refused: child `{label}`: {refusal}");
+            Ok(Some(ExitCode::FAILURE))
+        }
+    }
+}
+
+/// Maps a pool-convergence outcome to its operator message and a non-zero exit, or `None` when
+/// the pass converged (pool-objects design D3/D10). `stage` names the half (grow/shrink) in the
+/// refusal so the operator sees which one exceeded the gate.
+fn report_pool_outcome(outcome: &PoolOutcome, stage: &str) -> Option<ExitCode> {
+    match outcome {
+        PoolOutcome::Converged => None,
+        PoolOutcome::DisruptionRefused { headline, allowed } => {
+            println!(
+                "{}",
+                gate_refusal_message(&format!("root pool {stage} is"), *headline, *allowed, false)
+            );
+            Some(ExitCode::FAILURE)
+        }
+        PoolOutcome::ShrinkRefused { refusal } => {
+            println!("refused: {refusal}");
+            Some(ExitCode::FAILURE)
+        }
+    }
+}
+
+/// Maps a root-dpni prune outcome to its operator message and a non-zero exit, or `None` when
+/// nothing blocked (pool-objects design D10/D11). A report-only or refused outcome names the
+/// candidates and the missing gate; a clean or pruned outcome proceeds.
+fn report_root_dpni_prune(outcome: &RootDpniPruneOutcome) -> Option<ExitCode> {
+    match outcome {
+        RootDpniPruneOutcome::Clean | RootDpniPruneOutcome::Pruned { .. } => None,
+        RootDpniPruneOutcome::ReportOnly { candidates } => {
+            println!(
+                "report-only: {} undeclared managed-labelled root dpni(s) {candidates:?} — \
+                 re-run with `--prune --allow disruptive` to tear them down.",
+                candidates.len()
+            );
+            None
+        }
+        RootDpniPruneOutcome::DisruptionRefused {
+            headline,
+            allowed,
+            candidates,
+        } => {
+            println!(
+                "{}",
+                gate_refusal_message(
+                    &format!(
+                        "pruning {} undeclared root dpni(s) {candidates:?} is",
+                        candidates.len()
+                    ),
+                    *headline,
+                    *allowed,
+                    true
+                )
+            );
+            Some(ExitCode::FAILURE)
+        }
     }
 }
 

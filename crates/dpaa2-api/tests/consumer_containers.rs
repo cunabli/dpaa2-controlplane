@@ -1,12 +1,12 @@
-//! The consumer→container derivation (intent-compiler spec, `dprc-encapsulation`
-//! task 4.1): a declared consumer runtime derives exactly one typed child-DPRC
+//! The consumer→container derivation (`dprc-encapsulation` task 4.1, intent-compiler
+//! spec): a declared consumer runtime derives exactly one typed child-DPRC
 //! realization, the reserved kernel derives none, and the derivation is container-only.
 //!
 //! These run the whole compile pipeline (`compile` → [`derive_consumer_containers`]) so
 //! the realization is proved against real derivation output, not a hand-built plan. The
 //! full plan a consumer compiles to still carries its companions and dpnis (the intent
 //! layer sizes them); this change's derivation surface projects only the container —
-//! `topology`, sizing and the dpni option surface stay tiles #5/#6.
+//! `topology`, sizing and the dpni option surface are realized by the pool and population passes, not this derivation surface.
 
 use std::collections::BTreeMap;
 
@@ -213,7 +213,7 @@ fn the_derived_mask_pairs_with_the_dprc_lifecycle_entry_state() {
     // Binds the derivation output to the task-1.1 model's entry state (`dprc.qnt` `init`
     // / [`Container::declare`]): the derived option mask IS the lifecycle entry-state
     // mask, and realizing the container through create carries it unchanged (DPRC-I10,
-    // create-time-immutable). This is the parity/pairing idiom of task 2.1, extended
+    // create-time-immutable). This is the parity/pairing idiom of dprc-encapsulation task 2.1, extended
     // from the state sum to the derived container.
     let intent = Intent {
         tenants: vec![poll("vpp")],

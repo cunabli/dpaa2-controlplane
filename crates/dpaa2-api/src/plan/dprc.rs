@@ -591,8 +591,8 @@ pub fn verdict(desired: &PlannedObject, observed: Option<&ObservedContainer>) ->
 /// placement ([`Placement::Root`], dprc.1), and the consumer's name-keyed label as a
 /// [`ConstructName`] (ADR-0015 decisions 9+13 — never a `String` in a name slot).
 ///
-/// Container-only (this change, tile #4): no companion (dpio/dpbp/dpcon/dpmcp) or dpni
-/// is realized here — the sizing rules stay dormant until tiles #5/#6. The realization
+/// Container-only: no companion (dpio/dpbp/dpcon/dpmcp) or dpni is realized here — they
+/// converge in the pool and population passes. The realization
 /// carries the derived object's provenance key ([`ProvenanceKey`]) so a caller resolves
 /// its rule node — the baseline anchor — in the same [`CompiledPlan`] provenance DAG the
 /// intent layer already populates (design D6; ADR-0004).
@@ -603,7 +603,7 @@ pub struct ConsumerContainer {
     /// The MC label — the consumer's name-keyed identity (ADR-0015 decisions 9+13).
     pub label: ConstructName,
     /// The create-time-immutable option mask, typed as the lifecycle [`Options`]
-    /// (task 2.1) — the board-verified child default (DPRC-I4).
+    /// (dprc-encapsulation task 2.1) — the board-verified child default (DPRC-I4).
     pub options: Options,
     /// Where the container lives: a consumer's child DPRC sits under the root
     /// container ([`Placement::Root`], dprc.1).
@@ -623,7 +623,7 @@ pub struct ConsumerContainer {
 /// mask representation). The reserved kernel tenant remains the root container and emits
 /// no child DPRC, so it never appears here (ADR-0005; `docs/baseline/dprc.md` "Intent
 /// mapping"). Container-only by construction: only the `Dprc` family is projected, so no
-/// companion or dpni the full plan may carry for the consumer is realized (tiles #5/#6).
+/// companion or dpni the full plan may carry for the consumer is realized.
 #[must_use]
 pub fn derive_consumer_containers(plan: &CompiledPlan) -> BTreeMap<TenantName, ConsumerContainer> {
     plan.objects
@@ -647,7 +647,7 @@ pub fn derive_consumer_containers(plan: &CompiledPlan) -> BTreeMap<TenantName, C
 
 /// Plans convergence for a declared consumer's child container against a fresh
 /// observation (design D5 (ADR-0003): container-only — existence, options, label, placement; no
-/// companion sizing (tile #6) or dpni option surface (tile #5)).
+/// companion sizing or dpni option surface — both converge in the pool and population passes).
 ///
 /// An absent container yields exactly one [`ContainerStep::CreateContainer`] with the
 /// derived mask/label/placement — and because the function plans the single child DPRC
@@ -685,7 +685,7 @@ pub fn plan_consumer_container(
 /// container-only"; carry-forward decision pinned on bead cd3.8).
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct ConsumerConvergence {
-    /// The derived child-DPRC realization (task 4.1): label, options, placement, and the
+    /// The derived child-DPRC realization (dprc-encapsulation task 4.1): label, options, placement, and the
     /// provenance key that resolves the baseline anchor in the plan's DAG.
     pub container: ConsumerContainer,
     /// The container-only plan to reach it from the observation (empty when converged).
@@ -703,7 +703,7 @@ pub struct ConsumerConvergence {
 /// to its observed container by name-keyed label, and pairs the create-only
 /// [`plan_consumer_container`] plan with the [`verdict`]. Because every plan is projected
 /// from the `Family::Dprc` object alone, no companion-population step is representable —
-/// the intent layer's dormant companion/dpni sizing (tiles #5/#6) never reaches this
+/// the companion/dpni sizing is realized by the pool and population passes, never this
 /// path (carry-forward decision, bead cd3.8).
 #[must_use]
 pub fn plan_consumer_convergence(

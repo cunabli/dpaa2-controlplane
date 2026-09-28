@@ -12,16 +12,21 @@
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::collections::HashMap;
+use std::collections::HashSet;
 
 use crate::contract::{KernelControl, McControl};
 use crate::core::error::Error;
+use crate::core::family::Family;
 use crate::core::inventory::Inventory;
 use crate::core::model::{
     DpmacId, DpniId, DprcId, LinkType, MacAddr, ObjectRef, ObservedDpmac, ObservedDpni,
     ObservedTopology,
 };
-use crate::families::dpni::{DpniCfg, DpniObservation};
+use crate::core::types::ConstructName;
+use crate::families::dpio::{DpioCfg, Priorities};
+use crate::families::dpni::{DpniCfg, DpniObservation, NumQueues};
 use crate::families::dprc::ContainerState;
+use crate::families::pool_lifecycle::{ObservedPoolObject, RawDriver, RawLabel};
 use crate::intent::compiled::Container;
 use crate::plan::dprc::ObservedContainer;
 
@@ -64,6 +69,39 @@ struct FakeState {
     /// records what it was told to build so a test can assert the compiled cfg reached
     /// the backend verbatim (dpni-typestate task 4.1).
     created_cfgs: Vec<(DpniId, DpniCfg)>,
+    /// The pool objects [`McControl::dpbp_create`] and friends have minted, observed by
+    /// [`McControl::observe_pool`] — each paired with the container it was created in
+    /// (`None` ⇒ [`DprcId::ROOT`], the shim default), so a child population is observable
+    /// scoped to its own child (pool-objects task 3.3). Each created object is stamped and
+    /// plugged (pool-objects task 3.1).
+    pool_objects: Vec<(DprcId, ObservedPoolObject)>,
+    /// Next pool-object ordinal, shared across families — unique enough for the fake.
+    next_pool: u32,
+    /// Pool objects a consumer holds that `dprc show` cannot reveal — the ground-truth draw
+    /// the unplug probe discovers (pool-objects design D10). `observe_pool` still reports
+    /// these `drawn: false` (restool has no draw column), so a reclaim selects them and the
+    /// `--plugged=0` probe bounces `-EBUSY`, the in-use refusal that IS the drawn signal.
+    in_use: HashSet<ObjectRef>,
+    /// Child-dpni connection edges (pool-objects design D11): the peer each dpni was
+    /// connected to by [`McControl::connect_in`], read back by
+    /// [`McControl::observe_endpoint`]. A child dpni is a pool row (see
+    /// [`FakeBackend::create_dpni_in`]), not an [`ObservedDpni`], so its connection lives
+    /// here, not on a `connected_to` field.
+    endpoints: HashMap<DpniId, ObjectRef>,
+    /// The bus driver bound to a child dprc, read by [`KernelControl::bound_driver`]
+    /// (pool-objects design D11). Seeded by [`FakeBackend::with_bound_dprc`]: the VFIO
+    /// handoff is a board-only face, so `vfio_bind` stays a no-op and a bound child is a
+    /// test seeding, the guard input the population pass reads back (ADR-0017).
+    bound: HashMap<DprcId, RawDriver>,
+    /// A teardown-ordering audit trail: the VFIO unbind, child-dpni disconnect, and container
+    /// destroy calls in issue order, so a test can assert the prune unbinds and disconnects
+    /// BEFORE the destroy (pool-objects design D10/D11 teardown walk). Only the ordering-
+    /// relevant verbs record; the rest of the surface stays silent.
+    audit: Vec<String>,
+    /// When set, [`McControl::create_dpni`] reads back a diverging `num_queues` so a
+    /// same-run rebuild becomes the loop-breaker refusal (pool-objects design D12) — the
+    /// projection defect a real board mispredicts, without a board.
+    readback_drift: bool,
 }
 
 /// In-memory fake implementing both southbound ports over a shared state.
@@ -88,8 +126,74 @@ impl FakeBackend {
                 containers: BTreeMap::new(),
                 refuse_dprc_create: None,
                 created_cfgs: Vec::new(),
+                pool_objects: Vec::new(),
+                next_pool: 0,
+                in_use: HashSet::new(),
+                endpoints: HashMap::new(),
+                bound: HashMap::new(),
+                audit: Vec::new(),
+                readback_drift: false,
             }),
         }
+    }
+
+    /// Mints one plugged, stamped pool object of `family` in `container` (`None` ⇒
+    /// [`DprcId::ROOT`], the shim default) and records it so a later
+    /// [`McControl::observe_pool`] of that container reads it back (create → stamp → plug;
+    /// pool-objects task 3.1).
+    fn push_pool_object(
+        &self,
+        container: Option<DprcId>,
+        family: Family,
+        label: &ConstructName,
+    ) -> ObjectRef {
+        let mut st = self.state.borrow_mut();
+        let object = ObjectRef::new(family, st.next_pool);
+        st.next_pool += 1;
+        st.pool_objects.push((
+            container.unwrap_or(DprcId::ROOT),
+            ObservedPoolObject {
+                object,
+                label: RawLabel::from(label.as_str()),
+                plugged: true,
+                drawn: false,
+            },
+        ));
+        object
+    }
+
+    /// Seeds a pool object into `container` as if a prior run or bare restool had left it,
+    /// so a test can inject an orphan the create verbs cannot mint — an unplugged foreign
+    /// row a child population then prunes (pool-objects task 3.3). The ordinal advances the
+    /// next-pool counter so a later create never collides.
+    #[must_use]
+    pub fn with_pool_object(self, container: DprcId, object: ObservedPoolObject) -> Self {
+        {
+            let mut st = self.state.borrow_mut();
+            if object.object.ordinal() >= st.next_pool {
+                st.next_pool = object.object.ordinal() + 1;
+            }
+            st.pool_objects.push((container, object));
+        }
+        self
+    }
+
+    /// Seeds a pool object a consumer draws that `dprc show` cannot reveal: `observe_pool`
+    /// reports it `drawn: false` like restool, but the unplug probe (`dprc assign
+    /// --plugged=0`) bounces `-EBUSY` — the in-use refusal that IS the drawn signal
+    /// (pool-objects design D10). `object.drawn` is forced `false` so the row reads free to a
+    /// census; the draw lives only in the hidden in-use set.
+    #[must_use]
+    pub fn with_in_use_pool_object(
+        self,
+        container: DprcId,
+        mut object: ObservedPoolObject,
+    ) -> Self {
+        object.drawn = false;
+        let objref = object.object;
+        let backend = self.with_pool_object(container, object);
+        backend.state.borrow_mut().in_use.insert(objref);
+        backend
     }
 
     /// The create blocks handed to [`McControl::create_dpni`], in call order, so a test
@@ -97,6 +201,14 @@ impl FakeBackend {
     #[must_use]
     pub fn created_cfgs(&self) -> Vec<(DpniId, DpniCfg)> {
         self.state.borrow().created_cfgs.clone()
+    }
+
+    /// The teardown-ordering audit trail (pool-objects design D10/D11): the VFIO unbind,
+    /// child-dpni disconnect, and container destroy calls in issue order, so a prune test can
+    /// assert the unbind and disconnect precede the destroy.
+    #[must_use]
+    pub fn audit(&self) -> Vec<String> {
+        self.state.borrow().audit.clone()
     }
 
     /// Makes the next [`McControl::dprc_create`] refuse with `error` — a typed shim
@@ -135,11 +247,48 @@ impl FakeBackend {
         self
     }
 
+    /// Seeds a child dprc as VFIO-bound, the guard input the population pass reads back
+    /// (pool-objects design D11; ADR-0017): `bound_driver` returns `driver`, so a bound
+    /// child with pending residents is the typed drift refusal and a bound converged child
+    /// skips the handoff. The board-only bind face is never actuated by the fake, so this
+    /// is the only way to reach a bound child in a hardware-free test.
+    #[must_use]
+    pub fn with_bound_dprc(self, id: DprcId, driver: RawDriver) -> Self {
+        self.state.borrow_mut().bound.insert(id, driver);
+        self
+    }
+
+    /// Seeds a root topology dpni verbatim, so a test can inject a labelled kernel interface
+    /// or an empty-label DPL-born dpni the create verbs cannot mint — the fixtures the
+    /// root-dpni prune classifies (pool-objects design D10/D11 one-label law). The id advances
+    /// the next-index counter so a later create never collides.
+    #[must_use]
+    pub fn with_dpni(self, dpni: ObservedDpni) -> Self {
+        {
+            let mut st = self.state.borrow_mut();
+            if dpni.id.into_inner() >= st.next_index {
+                st.next_index = dpni.id.into_inner() + 1;
+            }
+            st.dpnis.push(dpni);
+        }
+        self
+    }
+
     /// Sets how many observation ticks pass after connect before a PHY netdev
     /// appears, simulating the driver's asynchronous probe.
     #[must_use]
     pub fn with_bind_latency(self, ticks: u64) -> Self {
         self.state.borrow_mut().bind_latency = ticks;
+        self
+    }
+
+    /// Makes every subsequent [`McControl::create_dpni`] read back a diverging
+    /// `num_queues`, so a dpni this run creates looks like cfg drift on the next pass —
+    /// the mispredicted projection the loop-breaker must refuse, not churn
+    /// (pool-objects design D12).
+    #[must_use]
+    pub fn with_readback_drift(self) -> Self {
+        self.state.borrow_mut().readback_drift = true;
         self
     }
 
@@ -255,6 +404,16 @@ impl McControl for FakeBackend {
         st.next_index += 1;
         // Record the handed-in block so a test can assert it reached the backend (dpni-typestate task 4.1).
         st.created_cfgs.push((id, cfg.clone()));
+        // When armed, a diverging num_queues models the mispredicted read-back (pool-objects design D12).
+        let mut observation = DpniObservation::project(cfg);
+        if st.readback_drift {
+            let bumped = if observation.num_queues.get() >= 2 {
+                1
+            } else {
+                2
+            };
+            observation.num_queues = NumQueues::new(bumped).expect("1..=2 within the envelope");
+        }
         // The object is stamped with the construct name at create (ADR-0010 §4 ABA
         // guard), so a re-observe never sees it unlabelled.
         st.dpnis.push(ObservedDpni {
@@ -265,9 +424,23 @@ impl McControl for FakeBackend {
             netdev: None,
             attributes: BTreeMap::new(),
             // Project the create's read-back so fake-vs-reconcile tests exercise cfg drift (7fv.2).
-            cfg_observation: Some(DpniObservation::project(cfg)),
+            cfg_observation: Some(observation),
         });
         Ok(id)
+    }
+
+    // A bare child dpni is modeled as a plugged, stamped pool row in `container`, so
+    // `observe_pool(Some(child), Dpni)` reads it back — the dpni half of a child
+    // population (pool-objects task 3.3). No dependency chain and no connect, matching
+    // the shim's bare create; the id follows the pool ordinal.
+    fn create_dpni_in(
+        &self,
+        container: DprcId,
+        _cfg: &DpniCfg,
+        label: &ConstructName,
+    ) -> Result<DpniId, Error> {
+        let obj = self.push_pool_object(Some(container), Family::Dpni, label);
+        Ok(DpniId::new(obj.ordinal()))
     }
 
     fn connect(&self, dpni: DpniId, dpmac: DpmacId) -> Result<(), Error> {
@@ -287,6 +460,27 @@ impl McControl for FakeBackend {
         }
         st.ready_at.insert(dpni, tick + latency);
         Ok(())
+    }
+
+    // A plain insert records the ancestor-connect edge; a same-peer re-connect is a no-op,
+    // the idempotence the converge relies on (pool-objects design D11).
+    fn connect_in(&self, _ancestor: DprcId, dpni: DpniId, peer: ObjectRef) -> Result<(), Error> {
+        self.state.borrow_mut().endpoints.insert(dpni, peer);
+        Ok(())
+    }
+
+    // A recorded child-dpni edge, else a root dpni's `connected_to` as a dpmac ref, else None.
+    fn observe_endpoint(&self, dpni: DpniId) -> Result<Option<ObjectRef>, Error> {
+        let st = self.state.borrow();
+        if let Some(&peer) = st.endpoints.get(&dpni) {
+            return Ok(Some(peer));
+        }
+        Ok(st
+            .dpnis
+            .iter()
+            .find(|d| d.id == dpni)
+            .and_then(|d| d.connected_to)
+            .map(|m| ObjectRef::new(Family::Dpmac, m.into_inner())))
     }
 
     fn set_mac(&self, dpni: DpniId, mac: MacAddr) -> Result<(), Error> {
@@ -317,21 +511,29 @@ impl McControl for FakeBackend {
 
     fn disconnect(&self, dpni: DpniId) -> Result<(), Error> {
         let mut st = self.state.borrow_mut();
-        let obj = st
-            .dpnis
-            .iter_mut()
-            .find(|d| d.id == dpni)
-            .ok_or_else(|| Error::Backend(format!("{dpni} does not exist")))?;
-        obj.connected_to = None;
-        obj.netdev = None;
-        st.ready_at.remove(&dpni);
+        st.audit.push(format!("disconnect:{dpni}"));
+        // A child dpni is a pool row whose edge lives in `endpoints`, not `connected_to`
+        // (pool-objects design D11): clear both faces so the DPNI-I9 disconnect reaches it.
+        let child_edge = st.endpoints.remove(&dpni).is_some();
+        if let Some(obj) = st.dpnis.iter_mut().find(|d| d.id == dpni) {
+            obj.connected_to = None;
+            obj.netdev = None;
+            st.ready_at.remove(&dpni);
+        } else if !child_edge {
+            return Err(Error::Backend(format!("{dpni} does not exist")));
+        }
         Ok(())
     }
 
     fn destroy(&self, dpni: DpniId) -> Result<(), Error> {
         let mut st = self.state.borrow_mut();
+        st.audit.push(format!("destroy:{dpni}"));
         st.dpnis.retain(|d| d.id != dpni);
         st.ready_at.remove(&dpni);
+        // A destroyed consumer releases the pool draws it held (pool-objects design D10 teardown
+        // walk): the fake models one consumer, so its teardown clears the hidden in-use set.
+        // ponytail: whole-set clear, per-consumer draw tracking if a test needs it.
+        st.in_use.clear();
         Ok(())
     }
 
@@ -384,17 +586,35 @@ impl McControl for FakeBackend {
         {
             return Err(Error::McStatus { status: 0x10 });
         }
+        st.audit.push(format!("dprc_destroy:{container}"));
         st.containers.remove(&container);
+        // The destroyed container takes its resident pool rows with it (pool-objects design D11).
+        st.pool_objects.retain(|(c, _)| *c != container);
         Ok(())
     }
 
+    // `--plugged=0` is the reclaim unplug probe: the MC refuses it `-EBUSY` (`0x10`) when the object is drawn — the in-use refusal IS the drawn signal (pool-objects design D10).
     fn dprc_assign(
         &self,
         _container: DprcId,
-        _object: ObjectRef,
-        _child: Option<DprcId>,
-        _plugged: Option<bool>,
+        object: ObjectRef,
+        child: Option<DprcId>,
+        plugged: Option<bool>,
     ) -> Result<(), Error> {
+        if child.is_some() {
+            return Ok(());
+        }
+        let Some(plugged) = plugged else {
+            return Ok(());
+        };
+        let mut st = self.state.borrow_mut();
+        let in_use = st.in_use.contains(&object);
+        if let Some((_, obj)) = st.pool_objects.iter_mut().find(|(_, o)| o.object == object) {
+            if !plugged && (obj.drawn || in_use) {
+                return Err(Error::McStatus { status: 0x10 });
+            }
+            obj.plugged = plugged;
+        }
         Ok(())
     }
 
@@ -418,11 +638,77 @@ impl McControl for FakeBackend {
     fn dprc_set_locked(&self, _child: DprcId, _locked: bool) -> Result<(), Error> {
         Ok(())
     }
+
+    // The pool verbs record the create's `container` (None ⇒ root); each create stamps and
+    // plugs so `observe_pool` reads it back plugged and undrawn (pool-objects task 3.1; draw seeded separately, design D10).
+    fn dpbp_create(
+        &self,
+        container: Option<DprcId>,
+        label: &ConstructName,
+    ) -> Result<ObjectRef, Error> {
+        Ok(self.push_pool_object(container, Family::Dpbp, label))
+    }
+
+    fn dpmcp_create(
+        &self,
+        container: Option<DprcId>,
+        label: &ConstructName,
+    ) -> Result<ObjectRef, Error> {
+        Ok(self.push_pool_object(container, Family::Dpmcp, label))
+    }
+
+    fn dpcon_create(
+        &self,
+        container: Option<DprcId>,
+        _priorities: Priorities,
+        label: &ConstructName,
+    ) -> Result<ObjectRef, Error> {
+        Ok(self.push_pool_object(container, Family::Dpcon, label))
+    }
+
+    fn dpio_create(
+        &self,
+        container: Option<DprcId>,
+        _cfg: DpioCfg,
+        label: &ConstructName,
+    ) -> Result<ObjectRef, Error> {
+        Ok(self.push_pool_object(container, Family::Dpio, label))
+    }
+
+    fn pool_destroy(&self, object: &ObjectRef) -> Result<(), Error> {
+        self.state
+            .borrow_mut()
+            .pool_objects
+            .retain(|(_, o)| &o.object != object);
+        Ok(())
+    }
+
+    fn observe_pool(
+        &self,
+        container: Option<DprcId>,
+        family: Family,
+    ) -> Result<Vec<ObservedPoolObject>, Error> {
+        let want = container.unwrap_or(DprcId::ROOT);
+        Ok(self
+            .state
+            .borrow()
+            .pool_objects
+            .iter()
+            .filter(|(c, o)| *c == want && o.object.family() == family)
+            .map(|(_, o)| o.clone())
+            .collect())
+    }
 }
 
 impl KernelControl for FakeBackend {
     fn bind(&self, _dpni: DpniId) -> Result<(), Error> {
         // Binding is automatic on plug for `dpaa2-eth`; nothing to force here.
+        Ok(())
+    }
+
+    fn unbind(&self, dpni: DpniId) -> Result<(), Error> {
+        // The fake clears the netdev on disconnect/destroy; the eth unbind is a board sysfs write with no in-memory state (ADR-0008 §8), so only the audit records it.
+        self.state.borrow_mut().audit.push(format!("unbind:{dpni}"));
         Ok(())
     }
 
@@ -432,6 +718,18 @@ impl KernelControl for FakeBackend {
             return Ok(None);
         };
         Ok(Self::visible_netdev(&st, obj))
+    }
+
+    // One honest source: the fake reports fsl_dpaa2_eth bound exactly when its netdev is
+    // visible, so dpni_driver and netdev_of never disagree (DPNI-I4 read-back).
+    fn dpni_driver(&self, dpni: DpniId) -> Result<Option<RawDriver>, Error> {
+        let st = self.state.borrow();
+        Ok(st
+            .dpnis
+            .iter()
+            .find(|d| d.id == dpni)
+            .and_then(|obj| Self::visible_netdev(&st, obj))
+            .map(|_| RawDriver::from("fsl_dpaa2_eth")))
     }
 
     // The reconcile/convergence tests never bind VFIO (that face is board-only, design
@@ -445,12 +743,15 @@ impl KernelControl for FakeBackend {
         Ok(())
     }
 
-    fn vfio_unbind(&self, _dprc: DprcId) -> Result<(), Error> {
+    fn vfio_unbind(&self, dprc: DprcId) -> Result<(), Error> {
+        let mut st = self.state.borrow_mut();
+        st.audit.push(format!("vfio_unbind:{dprc}"));
+        st.bound.remove(&dprc);
         Ok(())
     }
 
-    fn bound_driver(&self, _dprc: DprcId) -> Result<Option<String>, Error> {
-        Ok(None)
+    fn bound_driver(&self, dprc: DprcId) -> Result<Option<RawDriver>, Error> {
+        Ok(self.state.borrow().bound.get(&dprc).cloned())
     }
 
     fn driver_override(&self, _dprc: DprcId) -> Result<Option<String>, Error> {
@@ -459,5 +760,51 @@ impl KernelControl for FakeBackend {
 
     fn iommu_group(&self, _dprc: DprcId) -> Result<Option<u32>, Error> {
         Ok(None)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Both directions plus the idempotent re-connect path (pool-objects design D11).
+    #[test]
+    fn connect_in_then_endpoint_reads_back_and_is_idempotent() {
+        let backend = FakeBackend::new();
+        let label = ConstructName::from("tenant-port");
+        let dpni = backend
+            .create_dpni_in(DprcId::new(2), &DpniCfg::defaults(), &label)
+            .expect("create child dpni");
+        let peer = ObjectRef::new(Family::Dpmac, 7);
+
+        assert_eq!(backend.observe_endpoint(dpni).expect("read"), None);
+
+        backend
+            .connect_in(DprcId::new(1), dpni, peer)
+            .expect("connect");
+        assert_eq!(backend.observe_endpoint(dpni).expect("read"), Some(peer));
+
+        backend
+            .connect_in(DprcId::new(1), dpni, peer)
+            .expect("re-connect");
+        assert_eq!(backend.observe_endpoint(dpni).expect("read"), Some(peer));
+    }
+
+    // A dpni↔dpni peer reads back with its own family (the cross-container case, DPNI-I9).
+    #[test]
+    fn endpoint_reads_back_a_dpni_peer() {
+        let backend = FakeBackend::new();
+        let dpni = backend
+            .create_dpni_in(
+                DprcId::new(2),
+                &DpniCfg::defaults(),
+                &ConstructName::from("a"),
+            )
+            .expect("create");
+        let peer = ObjectRef::new(Family::Dpni, 9);
+        backend
+            .connect_in(DprcId::new(1), dpni, peer)
+            .expect("connect");
+        assert_eq!(backend.observe_endpoint(dpni).expect("read"), Some(peer));
     }
 }

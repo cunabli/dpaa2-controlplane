@@ -111,9 +111,15 @@ For families that exist as *capacity consumed by other families*, not as
 individuals: the reconciler reasons about counts and draw arithmetic
 (ADR-0012), never about companion #7. A per-object identity type here
 would lie — these objects carry no intent-side identity (ADR-0015 keys
-identity by name; companions wear their consumer's name).
+identity by name; companions wear their provider's name — the
+consumer in a child container, the pooling drawer at root,
+ADR-0015 decision 14).
 
 - **Members:** dpio, dpbp, dpmcp, dpcon.
+- **Reference implementation:** `families/pool_lifecycle.rs` — one generic
+  shape over the family tag + `Ceiling` for the allocator trio; census/sizing
+  types and convergence predicates isomorphic to `pool_lifecycle.qnt`; the
+  seat-typed dpio variant is `families/dpio.rs`.
 - **Idioms:** plain counts and sizing functions; pool custody as
   membership for the allocator trio (dpbp/dpmcp/dpcon, `pooled: true`);
   regime-typed per-CPU seats for dpio (`pooled: false` — DPIO-I1/I2:
@@ -171,10 +177,10 @@ cross-checking every row against `FamilyParams`).
 | dpdmai | P2 configured object (degenerate) | `creatable`, `draw.dpmcp: 1` | |
 | dprtc  | P2 configured object (degenerate) | `creatable`, `singleton: true` (DPRTC-I1) | singleton refusal is part of its P2 refusal surface |
 | dpdbg  | P2 configured object (degenerate) | `creatable`, `singleton: true`, `placement: RootOnly` (DPDBG-I1) | singleton + placement refusals |
-| dpio   | P3 counted companion | `pooled: false`, regime-typed (DPIO-I1/I2), per-CPU seats | seat arithmetic, not pool custody |
-| dpbp   | P3 counted companion | `pooled: true`, allocator custody | pool free is no reset (DPBP-I3) |
-| dpmcp  | P3 counted companion | `pooled: true`, allocator custody | |
-| dpcon  | P3 counted companion | `pooled: true`, allocator custody | |
+| dpio   | P3 counted companion | `pooled: false`, regime-typed (DPIO-I1/I2), per-CPU seats | seat arithmetic, not pool custody; no cfg facet — `channel_mode` is kernel-dead (DPIO-I3) and immutable-cfg repair is count-level destroy+create, never live (a seat has no runtime teardown), so across the reboot boundary it renders as RebootRequired residue (ADR-0020 / ADR-0008 §4 rationale; `dpio.qnt` SeatResidue carries it); a DPDK-regime cfg refusal or probe reopens the judgment |
+| dpbp   | P3 counted companion | `pooled: true`, allocator custody | reference implementation; pool free is no reset (DPBP-I3) |
+| dpmcp  | P3 counted companion | `pooled: true`, allocator custody | reference implementation |
+| dpcon  | P3 counted companion | `pooled: true`, allocator custody | reference implementation |
 | dpmac  | P4 boot-born offer | `creatable: false` (DPMAC-I1), `placement: RootOnly` | offer feeds inventory; custody per ADR-0003 matrix |
 | dpaiop | P4 boot-born offer | `creatable: false` (platform-refused, DPAIOP-I1) | driver-less |
 
@@ -324,6 +330,8 @@ only when a change already touches the surface, never as churn:
 - `crates/dpaa2-api/src/families/dprc.rs` — P1 reference
   implementation.
 - `crates/dpaa2-api/src/families/dpni.rs` — P2 reference
+  implementation.
+- `crates/dpaa2-api/src/families/pool_lifecycle.rs` — P3 reference
   implementation.
 - ADR-0018 — module tree and crate boundaries; the companion record.
 - ADR-0002 §3 — structural isomorphism; what a typestate can and cannot

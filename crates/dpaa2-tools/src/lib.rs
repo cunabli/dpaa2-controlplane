@@ -12,7 +12,8 @@ pub mod render;
 pub mod status;
 
 pub use engine::{
-    ContainerOutcome, ConvergeConfig, Outcome, apply, converge_containers, ensure, observe,
-    plan_containers,
+    ContainerOutcome, ConvergeConfig, Outcome, PoolDrift, PoolFamilyDrift, PoolOutcome,
+    PopulationOutcome, apply, converge_containers, converge_pools, converge_population, ensure,
+    observe, plan_containers, plan_pools, plan_population,
 };
 pub use status::{PortStatus, StatusReport};

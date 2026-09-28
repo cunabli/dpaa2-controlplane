@@ -1,0 +1,51 @@
+# The high-water grow operand of suite V-MVP-1's residue leg (pool-objects task
+# 3.19, bead dpaa2-controlplane-960.33; ADR-0020 decisions 1-2): intent.toml
+# verbatim PLUS a raise-only `[extra.kernel]` +2 on dpcon, so the derived ROOT
+# dpcon sits ABOVE the plain intent's derived 32 by exactly the extra. The suite
+# grows the root with THIS operand, then reconciles the PLAIN intent.toml back
+# down: root capacity is grow-only, so the +2 surplus is NOT reclaimed — it
+# renders as typed reboot-required residue (the leg's assertion). It persists to
+# the closing reboot (the suite runs LAST; ADR-0003 §7).
+#
+# The intent/TOML vocabulary carries no pool count directly (ADR-0012; a
+# non-goal): `[extra.kernel]` is the only raise channel (ADR-0013, additive
+# raise-only), mirroring V-POOL-6 intent-a. This file and intent.toml differ ONLY
+# by these extras, so the ports/dpni/child are identical and the delta is pure
+# root pool trio surplus — no port churn. Its derivation is pinned offline by
+# crates/dpaa2-tools/tests/vmvp_intents.rs alongside intent.toml.
+
+[intent]
+schema = 1
+
+# The reserved kernel terminates the wired 10G port, so its dpni + pool
+# companions compile into the ROOT container (Tenant::container => Root,
+# pool-objects design D5). The `kernel` tenant is never a `[tenant.kernel]`
+# table (ADR-0013: declaring it is refused) — the tools shell injects it
+# (crates/dpaa2-tools/src/main.rs `complete_kernel`). dpmac.7 is the flagged
+# wired pair (ADR-0003 §4), permitted here under the suite's link-signaling
+# class; the kernel netdev witnesses real carrier on it.
+[port.kern0]
+dpmac = "dpmac.7"
+rate = 10000
+tenant = "kernel"
+
+# The isolated userspace tenant: a poll-mode dataplane the child DPRC hands off
+# to VFIO. max_cores is the board's online-CPU count (T sits well under it).
+[tenant.router]
+dataplane = "userspace-poll"
+max_cores = 16
+
+# One router port terminates the unwired 25G dpmac.5 (lifecycle-safe: link-up is
+# never asserted, ADR-0003 §4). Its dpni + companions land in the router's own
+# child container — the spec's "a dpni and its derived companions".
+[port.rtr0]
+dpmac = "dpmac.5"
+rate = 25000
+tenant = "router"
+
+# The raise-only surplus (ADR-0013 raise-only): +2 dpcon over the plain intent's
+# derived 32 on the ROOT (reserved kernel) container. dpbp/dpmcp/dpio are left at
+# the plain derivation, so the residue leg isolates the dpcon surplus. This is the
+# grow-only high-water intent.toml narrows back below (ADR-0020 decisions 1-2).
+[extra.kernel]
+dpcon = 2

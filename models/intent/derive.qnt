@@ -455,12 +455,19 @@ module intent_derive {
   // dpnis still run cpus transmit queues and price cpus dpcons each (the online
   // CPUs are still there to poll). The implicit root kernel keeps drawCpus =
   // online CPUs, its full per-CPU dpio draw unchanged.
+  //
+  // The kernel arm additionally folds each terminated port's kernel-probe draw
+  // (pool-objects design D9): dpaa2-eth draws +1 dpbp, +1 dpmcp, and +numQueues
+  // dpcon per port from the container pool at probe (the per-port provisioning
+  // chain retired at pool-objects task 3.6 — the pool is the sole provider).
+  // dpio is untouched (per-CPU seats, pool-objects design D4).
   pure def sizeTenant(intent: Intent, inv: Inventory, c: Tenant): Sizing =
     val nm = c.name
     val isK = c.dataplane == KernelNetlink
     val isRoot = c.name == KERNEL
     val isRestr = match c.isolation { | Restricted(_) => true | _ => false }
     val dpnis = originList(intent, nm).length()
+    val np = terminatedPorts(intent, nm).length()
     val t = tOf(intent, c)
     val cpus = kernelCores(inv, c)
     val drawCpus = if (isRoot) cpus else 0
@@ -470,11 +477,11 @@ module intent_derive {
     val base = if (isK) comp::companionDraw(comp::Kernel, drawCpus, 0, 1, dpnis)
                else comp::companionDraw(comp::PollMode, 0, t, 1, dpnis)
     val reqDpio = base.dpio
-    val reqDpbp = if (isK) base.dpbp + nDpsw * dpswParams.draw.dpbp + nDpseci * dpseciParams.draw.dpbp
+    val reqDpbp = if (isK) base.dpbp + np + nDpsw * dpswParams.draw.dpbp + nDpseci * dpseciParams.draw.dpbp
                   else base.dpbp
-    val reqDpmcp = if (isK) base.dpmcp + nDpsw * dpswParams.draw.dpmcp + nDpseci * dpseciParams.draw.dpmcp
+    val reqDpmcp = if (isK) base.dpmcp + np + nDpsw * dpswParams.draw.dpmcp + nDpseci * dpseciParams.draw.dpmcp
                    else base.dpmcp
-    val reqDpcon = if (isK) dpnis * imin(cpus, numQ) else dpnis * t
+    val reqDpcon = if (isK) dpnis * imin(cpus, numQ) + np * numQ else dpnis * t
     { name: nm, isKernel: isK, isRootKernel: isRoot, isRestricted: isRestr, container: containerOf(c),
       dpnis: dpnis, t: t, cpus: cpus, drawCpus: drawCpus, numQueues: numQ,
       effectiveDpio: effective(intent, nm, Dpio, reqDpio),
@@ -658,17 +665,17 @@ module intent_derive {
 
   pure def dpbpNode(s: Sizing): ProvenanceNode =
     { rule: "dpbp",
-      anchor: if (s.isKernel) "ADR-0012 (companions.qnt companionDraw); families/dpsw.qnt + dpseci.qnt draw"
+      anchor: if (s.isKernel) "ADR-0012 (companions.qnt companionDraw); families/dpsw.qnt + dpseci.qnt draw; pool-objects design D9 per-port probe draw"
               else "ADR-0012 (companions.qnt companionDraw)",
       mark: Measured, request: s.effectiveDpbp.request, extra: s.effectiveDpbp.extra, value: s.effectiveDpbp.value,
-      inputs: if (s.isKernel) Set({ tenant: s.name, rule: "dpnis", construct: "" }) else Set(), constructs: Set() }
+      inputs: if (s.isKernel) Set({ tenant: s.name, rule: "dpnis", construct: "" }, { tenant: s.name, rule: "ports", construct: "" }) else Set(), constructs: Set() }
 
   pure def dpmcpNode(s: Sizing): ProvenanceNode =
     { rule: "dpmcp",
-      anchor: if (s.isKernel) "ADR-0012 (companions.qnt companionDraw); families/dpsw.qnt + dpseci.qnt draw"
+      anchor: if (s.isKernel) "ADR-0012 (companions.qnt companionDraw); families/dpsw.qnt + dpseci.qnt draw; pool-objects design D9 per-port probe draw"
               else "companions.qnt: one MC portal per process",
       mark: Measured, request: s.effectiveDpmcp.request, extra: s.effectiveDpmcp.extra, value: s.effectiveDpmcp.value,
-      inputs: if (s.isKernel) Set({ tenant: s.name, rule: "cpus", construct: "" }, { tenant: s.name, rule: "dpnis", construct: "" }) else Set(),
+      inputs: if (s.isKernel) Set({ tenant: s.name, rule: "cpus", construct: "" }, { tenant: s.name, rule: "dpnis", construct: "" }, { tenant: s.name, rule: "ports", construct: "" }) else Set(),
       constructs: Set() }
 
   pure def dpniQueuesNode(s: Sizing): ProvenanceNode =
@@ -679,9 +686,13 @@ module intent_derive {
       inputs: Set({ tenant: s.name, rule: if (s.isKernel) "cpus" else "T", construct: "" }), constructs: Set() }
 
   pure def dpconNode(s: Sizing): ProvenanceNode =
-    { rule: "dpcon", anchor: "dpcon.md DPCON-I1: one dpcon per polled queue", mark: Measured,
+    { rule: "dpcon",
+      anchor: if (s.isKernel) "dpcon.md DPCON-I1: one dpcon per polled queue; pool-objects design D9 per-port probe draw"
+              else "dpcon.md DPCON-I1: one dpcon per polled queue",
+      mark: Measured,
       request: s.effectiveDpcon.request, extra: s.effectiveDpcon.extra, value: s.effectiveDpcon.value,
-      inputs: Set({ tenant: s.name, rule: "dpnis", construct: "" }, { tenant: s.name, rule: "dpni-queues", construct: "" }),
+      inputs: if (s.isKernel) Set({ tenant: s.name, rule: "dpnis", construct: "" }, { tenant: s.name, rule: "dpni-queues", construct: "" }, { tenant: s.name, rule: "ports", construct: "" })
+              else Set({ tenant: s.name, rule: "dpnis", construct: "" }, { tenant: s.name, rule: "dpni-queues", construct: "" }),
       constructs: Set() }
 
   // One dpsw node per Hardware fabric, keyed by the fabric name (construct).

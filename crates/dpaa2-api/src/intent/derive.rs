@@ -526,12 +526,19 @@ struct Sizing {
 /// child-resident: `draw_cpus = 0`, so it draws zero extra dpio (dpio services are one
 /// kernel-global per-CPU list every container shares) while its dpnis still run `cpus`
 /// transmit queues and price `cpus` dpcons each (design D6a; `derive.qnt` `sizeTenant`).
+///
+/// The kernel arm additionally folds each terminated port's kernel-probe draw
+/// (pool-objects design D9): dpaa2-eth draws +1 dpbp, +1 dpmcp, and +`num_queues` dpcon
+/// per port from the container pool at probe (the per-port provisioning chain retired at
+/// pool-objects task 3.6 — the pool is the sole provider). dpio is untouched (per-CPU
+/// seats, pool-objects design D4).
 fn size_tenant(intent: &Intent, inv: &Inventory, c: &Tenant) -> Sizing {
     let nm = c.name.clone();
     let is_kernel = c.dataplane == Dataplane::KernelNetlink;
     let is_root_kernel = c.name.is_kernel();
     let is_restricted = matches!(c.isolation, crate::intent::Isolation::Restricted { .. });
     let dpnis = i64::try_from(origin_list(intent, &nm).len()).unwrap_or(0);
+    let np = i64::try_from(terminated_ports(intent, &nm).len()).unwrap_or(0);
     let t = thread_count(&terminated_ports(intent, &nm)).unwrap_or(0);
     let cpus = kernel_cores(inv, c);
     let draw_cpus = if is_root_kernel { cpus } else { 0 };
@@ -547,17 +554,17 @@ fn size_tenant(intent: &Intent, inv: &Inventory, c: &Tenant) -> Sizing {
     };
     let req_dpio = base_dpio;
     let req_dpbp = if is_kernel {
-        base_dpbp + num_dpsw * DPSW_DRAW_DPBP + num_dpseci * DPSECI_DRAW_DPBP
+        base_dpbp + np + num_dpsw * DPSW_DRAW_DPBP + num_dpseci * DPSECI_DRAW_DPBP
     } else {
         base_dpbp
     };
     let req_dpmcp = if is_kernel {
-        base_dpmcp + num_dpsw * DPSW_DRAW_DPMCP + num_dpseci * DPSECI_DRAW_DPMCP
+        base_dpmcp + np + num_dpsw * DPSW_DRAW_DPMCP + num_dpseci * DPSECI_DRAW_DPMCP
     } else {
         base_dpmcp
     };
     let req_dpcon = if is_kernel {
-        dpnis * imin(cpus, num_queues)
+        dpnis * imin(cpus, num_queues) + np * num_queues
     } else {
         dpnis * t
     };
@@ -717,7 +724,7 @@ fn dpbp_node(s: &Sizing) -> ProvenanceNode {
     ProvenanceNode {
         rule: "dpbp".into(),
         anchor: if s.is_kernel {
-            "ADR-0012 (companions.qnt companionDraw); families/dpsw.qnt + dpseci.qnt draw"
+            "ADR-0012 (companions.qnt companionDraw); families/dpsw.qnt + dpseci.qnt draw; pool-objects design D9 per-port probe draw"
                 .to_owned()
         } else {
             "ADR-0012 (companions.qnt companionDraw)".to_owned()
@@ -727,7 +734,10 @@ fn dpbp_node(s: &Sizing) -> ProvenanceNode {
         extra: s.effective_dpbp.extra,
         value: s.effective_dpbp.value,
         inputs: if s.is_kernel {
-            provkeys(&[(s.name.as_str(), "dpnis", "")])
+            provkeys(&[
+                (s.name.as_str(), "dpnis", ""),
+                (s.name.as_str(), "ports", ""),
+            ])
         } else {
             BTreeSet::new()
         },
@@ -739,7 +749,7 @@ fn dpmcp_node(s: &Sizing) -> ProvenanceNode {
     ProvenanceNode {
         rule: "dpmcp".into(),
         anchor: if s.is_kernel {
-            "ADR-0012 (companions.qnt companionDraw); families/dpsw.qnt + dpseci.qnt draw"
+            "ADR-0012 (companions.qnt companionDraw); families/dpsw.qnt + dpseci.qnt draw; pool-objects design D9 per-port probe draw"
                 .to_owned()
         } else {
             "companions.qnt: one MC portal per process".to_owned()
@@ -752,6 +762,7 @@ fn dpmcp_node(s: &Sizing) -> ProvenanceNode {
             provkeys(&[
                 (s.name.as_str(), "cpus", ""),
                 (s.name.as_str(), "dpnis", ""),
+                (s.name.as_str(), "ports", ""),
             ])
         } else {
             BTreeSet::new()
@@ -781,15 +792,28 @@ fn dpni_queues_node(s: &Sizing) -> ProvenanceNode {
 fn dpcon_node(s: &Sizing) -> ProvenanceNode {
     ProvenanceNode {
         rule: "dpcon".into(),
-        anchor: "dpcon.md DPCON-I1: one dpcon per polled queue".to_owned(),
+        anchor: if s.is_kernel {
+            "dpcon.md DPCON-I1: one dpcon per polled queue; pool-objects design D9 per-port probe draw"
+                .to_owned()
+        } else {
+            "dpcon.md DPCON-I1: one dpcon per polled queue".to_owned()
+        },
         mark: Measurement::Measured,
         request: s.effective_dpcon.request,
         extra: s.effective_dpcon.extra,
         value: s.effective_dpcon.value,
-        inputs: provkeys(&[
-            (s.name.as_str(), "dpnis", ""),
-            (s.name.as_str(), "dpni-queues", ""),
-        ]),
+        inputs: if s.is_kernel {
+            provkeys(&[
+                (s.name.as_str(), "dpnis", ""),
+                (s.name.as_str(), "dpni-queues", ""),
+                (s.name.as_str(), "ports", ""),
+            ])
+        } else {
+            provkeys(&[
+                (s.name.as_str(), "dpnis", ""),
+                (s.name.as_str(), "dpni-queues", ""),
+            ])
+        },
         constructs: BTreeSet::new(),
     }
 }

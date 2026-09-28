@@ -141,7 +141,13 @@ models/
 │                         dpni.qnt also carry a grown lifecycle twin
 │                         (dprc_lifecycle; dpni_lifecycle, the dpni
 │                         create-option surface and its named invariants) —
-│                         model-first sums the typestate changes mirror
+│                         model-first sums the typestate changes mirror.
+│                         pool_lifecycle.qnt is the const-parameterized P3
+│                         allocator-custody+convergence substrate (one machine
+│                         over a single FAMILY); dpbp/dpmcp/dpcon.qnt each carry
+│                         a thin <fam>_lifecycle instantiating it, and dpio.qnt
+│                         carries a standalone dpio_lifecycle (unpooled seats +
+│                         probe-time dpmcp draw), the ADR-0019 focused-machine tier
 ├── helpers/              source-derived generators: mc-ioctl-policy.py writes
 │                         core/ioctl_policy.qnt and docs/baseline/mc-ioctl-policy.md
 │                         from the reference kernel whitelist; intent-inventory.py

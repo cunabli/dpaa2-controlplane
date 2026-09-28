@@ -1,0 +1,44 @@
+# The grow operand of suite V-POOL-6 (pool-objects task 4.1, bead
+# dpaa2-controlplane-960.10): a reserved-kernel interface plus a raise-only
+# `[extra.kernel]` on the trio, so the derived ROOT pool counts sit ABOVE
+# intent-b's by exactly the extras. One port terminates the kernel (its dpni
+# and pool companions compile into the root container, Tenant::container =>
+# Root, pool-objects design D5), materialising the reserved kernel through the
+# tools shell `complete_kernel` (crates/dpaa2-tools/src/main.rs) — the reserved
+# `kernel` is never a `[tenant.kernel]` table (ADR-0013: declaring it is
+# refused). `dpaa2ctl ensure --allow disruptive` grows the root pool to these
+# counts (pool creates are Class::Disruptive; a hitless run refuses, changing
+# nothing — the suite's refusal leg). The extras are the shrinkable surplus
+# intent-b removes through a free-only shrink (pool-objects design D3).
+#
+# The intent/TOML vocabulary carries no pool count directly (ADR-0012; a
+# change non-goal): the base counts are derived from the kernel regime + the
+# board's online-CPU count, and `[extra.kernel]` is the only raise channel
+# (ADR-0013, additive raise-only). intent-a and intent-b differ only by these
+# extras, so the port/dpni is identical across the pair and the shrink is pure
+# pool trio — no port churn.
+#
+# Lives in the suite dir, not models/intent/scenarios/, for the reason
+# intent-a.toml of V-DPRC-9 does: a board-suite operand is an input to a
+# dpaa2ctl sitting, not a models/intent/scenarios pairing (no `.qnt`, no
+# frozen trace); its derivation is pinned offline by
+# crates/dpaa2-tools/tests/vpool6_intents.rs.
+
+[intent]
+schema = 1
+
+# dpmac.4 is an unwired lifecycle-safe port (not the flagged wired pair 7/9,
+# not the total-deny 3/17). The kernel terminates it, so its dpni + companions
+# land in the root pool.
+[port.kern0]
+dpmac = "dpmac.4"
+rate = 25000
+tenant = "kernel"
+
+# The raise-only surplus (ADR-0013 raise-only): +2 on each trio family over
+# the derived base. dpio takes no extra — it is a per-CPU seat, grow-only, and
+# equal across the pair (pool-objects design D4).
+[extra.kernel]
+dpbp = 2
+dpcon = 2
+dpmcp = 2

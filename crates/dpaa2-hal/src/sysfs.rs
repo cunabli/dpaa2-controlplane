@@ -9,14 +9,15 @@ use std::io;
 use std::path::PathBuf;
 
 const FSL_MC_DEVICES: &str = "/sys/bus/fsl-mc/devices";
-const ETH_DRIVER_BIND: &str = "/sys/bus/fsl-mc/drivers/fsl_dpaa2_eth/bind";
 const FSL_MC_DRIVERS: &str = "/sys/bus/fsl-mc/drivers";
+
+/// The `dpaa2-eth` driver directory name under the drivers root.
+pub const ETH_DRIVER: &str = "fsl_dpaa2_eth";
 
 /// The fsl-mc sysfs bus rooted at one container (typically `dprc.1`).
 pub struct FslMcSysfs {
     container: String,
     devices_root: PathBuf,
-    bind_path: PathBuf,
     drivers_root: PathBuf,
 }
 
@@ -27,7 +28,6 @@ impl FslMcSysfs {
         Self {
             container: container.into(),
             devices_root: PathBuf::from(FSL_MC_DEVICES),
-            bind_path: PathBuf::from(ETH_DRIVER_BIND),
             drivers_root: PathBuf::from(FSL_MC_DRIVERS),
         }
     }
@@ -50,18 +50,37 @@ impl FslMcSysfs {
     /// Whether the `dpaa2-eth` driver exposes its bind attribute at all.
     #[must_use]
     pub fn eth_bind_exists(&self) -> bool {
-        self.bind_path.exists()
+        self.drivers_root.join(ETH_DRIVER).join("bind").exists()
     }
 
-    /// Writes `<container>/<device>` to the `dpaa2-eth` driver bind attribute.
+    /// Writes the bare bus device name (`device`, e.g. `dpni.1`) to the `dpaa2-eth` driver
+    /// bind attribute. fsl-mc names bus devices `<type>.<id>` flat, with no container
+    /// prefix (`fsl-mc-bus.c` `dev_set_name`), and the driver bind attribute resolves the
+    /// written string by bus device name (`bus.c` `bus_find_device_by_name`) — a
+    /// `<container>/<device>` string matches nothing and returns `ENODEV`.
     ///
     /// # Errors
     ///
     /// Propagates the write error verbatim — `ResourceBusy` for an
     /// already-bound device, `NotFound` when the driver is not loaded.
     pub fn bind_eth(&self, device: &str) -> io::Result<()> {
-        let id = format!("{}/{device}", self.container);
-        std::fs::write(&self.bind_path, id.as_bytes())
+        let path = self.drivers_root.join(ETH_DRIVER).join("bind");
+        std::fs::write(path, device.as_bytes())
+    }
+
+    /// Writes the bare bus device name (`device`) to the `dpaa2-eth` driver unbind
+    /// attribute — the reverse of [`bind_eth`](Self::bind_eth), releasing the netdev
+    /// driver. The attribute resolves the string by bus device name, which fsl-mc names
+    /// `<type>.<id>` flat (`fsl-mc-bus.c` `dev_set_name`; `bus.c`
+    /// `bus_find_device_by_name`) — no container prefix.
+    ///
+    /// # Errors
+    ///
+    /// Propagates the write error verbatim — `NoDevice` when the device is not bound
+    /// to this driver.
+    pub fn unbind_eth(&self, device: &str) -> io::Result<()> {
+        let path = self.drivers_root.join(ETH_DRIVER).join("unbind");
+        std::fs::write(path, device.as_bytes())
     }
 
     /// First netdev name under `<container>/<device>/net`, if any.
@@ -154,6 +173,27 @@ impl FslMcSysfs {
         Self::link_basename(&self.devices_root.join(dprc).join("driver"))
     }
 
+    /// The name of the driver bound to a NESTED bus device — the basename of the `driver`
+    /// symlink at `<devices_root>/<container>/<device>/driver`, or `Ok(None)` when it has
+    /// no driver. A dpni sits nested under its container (the netdev path's layout), unlike
+    /// the flat `<devices_root>/<dprc>` a [`bound_driver`](Self::bound_driver) reads. A raw
+    /// report — a present `fsl_dpaa2_eth` link is the per-target probe read-back the caller
+    /// judges bind liveness by, never the bind write itself (`docs/baseline/dpni.md`
+    /// DPNI-I4 the probe precondition; `docs/baseline/dpio.md` DPIO-I5 the write-is-not-the-
+    /// judgment). Missing link ⇒ `Ok(None)`, sysfs layout, not policy.
+    ///
+    /// # Errors
+    /// Propagates any I/O error other than a missing link.
+    pub fn device_driver(&self, device: &str) -> io::Result<Option<String>> {
+        Self::link_basename(
+            &self
+                .devices_root
+                .join(&self.container)
+                .join(device)
+                .join("driver"),
+        )
+    }
+
     /// The IOMMU-group id of `<dprc>` — the basename of the `iommu_group` symlink,
     /// parsed — or `Ok(None)` when the device has no group (or a non-numeric one).
     ///
@@ -193,6 +233,45 @@ mod tests {
         assert_eq!(bus.netdev_of("dpni.7").unwrap(), Some("eth1".to_owned()));
         assert_eq!(bus.netdev_of("dpni.8").unwrap(), None);
         std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn device_driver_reads_fixture_tree() {
+        let root = std::env::temp_dir().join("dpaa2-hal-driver-test");
+        let _ = std::fs::remove_dir_all(&root);
+        let dev = root.join("dprc.1/dpni.7");
+        std::fs::create_dir_all(&dev).unwrap();
+        let driver = root.join("drivers/fsl_dpaa2_eth");
+        std::fs::create_dir_all(&driver).unwrap();
+        std::os::unix::fs::symlink(&driver, dev.join("driver")).unwrap();
+        let bus = FslMcSysfs::new("dprc.1").with_devices_root(&root);
+        assert_eq!(
+            bus.device_driver("dpni.7").unwrap(),
+            Some("fsl_dpaa2_eth".to_owned())
+        );
+        assert_eq!(bus.device_driver("dpni.8").unwrap(), None);
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn bind_eth_writes_the_derived_driver_bind_attribute() {
+        // The bind face derives its path from `drivers_root` like unbind, so a fixture drivers
+        // tree exercises it board-free (ADR-0020 pass3 F9).
+        let base = std::env::temp_dir().join("dpaa2-hal-bind-eth-test");
+        let _ = std::fs::remove_dir_all(&base);
+        let drivers = base.join("drivers");
+        std::fs::create_dir_all(drivers.join(ETH_DRIVER)).unwrap();
+        let bus = FslMcSysfs::new("dprc.1").with_drivers_root(&drivers);
+
+        bus.bind_eth("dpni.7").unwrap();
+        assert_eq!(
+            std::fs::read_to_string(drivers.join(ETH_DRIVER).join("bind")).unwrap(),
+            "dpni.7"
+        );
+        // The bind attribute now resolves under the fixture root, not the hardcoded sysfs path.
+        assert!(bus.eth_bind_exists());
+
+        std::fs::remove_dir_all(&base).unwrap();
     }
 
     #[test]

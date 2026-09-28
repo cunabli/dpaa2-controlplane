@@ -13,9 +13,12 @@ use dpaa2_api::contract::McControl;
 use dpaa2_api::contract::fake::FakeBackend;
 use dpaa2_api::core::error::Error;
 use dpaa2_api::core::family::Family;
-use dpaa2_api::core::model::{DpmacId, DprcId, MacMode, ObjectRef};
+use dpaa2_api::core::model::{DpmacId, DpniId, DprcId, MacMode, ObjectRef, ObservedDpni};
 use dpaa2_api::core::types::ConstructName;
 use dpaa2_api::families::dprc::{ContainerState, ObservedResident, Options, ResidentKind};
+use dpaa2_api::families::pool_lifecycle::{
+    ObservedPoolObject, PoolDisposition, RawDriver, RawLabel,
+};
 use dpaa2_api::intent::compiled::Container;
 use dpaa2_api::intent::refuse::{Compiled, compile};
 use dpaa2_api::intent::{Dataplane, Intent, Isolation, Port, Tenant, TenantRef};
@@ -24,7 +27,10 @@ use dpaa2_api::plan::dprc::{
     Attribution, ContainerVerdict, ObservedContainer, OptionBit, PruneBucket, plan_prune,
 };
 use dpaa2_api::testkit::ref_inventory;
-use dpaa2_tools::engine::{self, ContainerOutcome, ConvergeConfig, PruneOutcome};
+use dpaa2_tools::engine::{
+    self, ContainerOutcome, ConvergeConfig, PoolOutcome, PoolPass, PopulationOutcome, PruneOutcome,
+    RootDpniPruneOutcome,
+};
 use dpaa2_tools::render;
 
 /// A single isolated userspace-poll consumer ("router") on one 10G port — the smallest
@@ -232,7 +238,8 @@ fn full_fingerprint_orphan_is_pruned_and_reruns_clean() {
         orphan_container("foreign", Options::DEFAULT, Container::Root),
     );
     assert!(matches!(
-        engine::prune_containers(&compiled.plan, &backend, prune_disruptive_cfg()).unwrap(),
+        engine::prune_containers(&compiled.plan, &backend, &backend, prune_disruptive_cfg())
+            .unwrap(),
         PruneOutcome::Pruned { .. }
     ));
     assert!(
@@ -240,7 +247,8 @@ fn full_fingerprint_orphan_is_pruned_and_reruns_clean() {
         "the orphan was torn down"
     );
     assert_eq!(
-        engine::prune_containers(&compiled.plan, &backend, prune_disruptive_cfg()).unwrap(),
+        engine::prune_containers(&compiled.plan, &backend, &backend, prune_disruptive_cfg())
+            .unwrap(),
         PruneOutcome::Clean
     );
 }
@@ -254,7 +262,8 @@ fn prune_verdict_reobserves_destroyed_id_as_absent() {
         orphan_container("foreign", Options::DEFAULT, Container::Root),
     );
     assert!(matches!(
-        engine::prune_containers(&compiled.plan, &backend, prune_disruptive_cfg()).unwrap(),
+        engine::prune_containers(&compiled.plan, &backend, &backend, prune_disruptive_cfg())
+            .unwrap(),
         PruneOutcome::Pruned { .. }
     ));
     assert!(backend.observe_container(DprcId::new(5)).unwrap().is_none());
@@ -274,7 +283,8 @@ fn partial_fingerprint_orphan_is_pruned_under_the_double_gate() {
         orphan_container("foreign", partial, Container::Root),
     );
     assert!(matches!(
-        engine::prune_containers(&compiled.plan, &backend, prune_disruptive_cfg()).unwrap(),
+        engine::prune_containers(&compiled.plan, &backend, &backend, prune_disruptive_cfg())
+            .unwrap(),
         PruneOutcome::Pruned { .. }
     ));
     assert!(backend.observe_containers().unwrap().is_empty());
@@ -289,7 +299,9 @@ fn empty_label_container_is_report_only_and_untouched() {
         DprcId::new(5),
         orphan_container("", Options::DEFAULT, Container::Root),
     );
-    match engine::prune_containers(&compiled.plan, &backend, prune_disruptive_cfg()).unwrap() {
+    match engine::prune_containers(&compiled.plan, &backend, &backend, prune_disruptive_cfg())
+        .unwrap()
+    {
         PruneOutcome::ReportOnly { items } => {
             assert_eq!(
                 items[&DprcId::new(5)].classification.bucket,
@@ -319,7 +331,7 @@ fn candidate_without_prune_is_reported_not_dispatched() {
         ..ConvergeConfig::default()
     };
     assert!(matches!(
-        engine::prune_containers(&compiled.plan, &backend, cfg).unwrap(),
+        engine::prune_containers(&compiled.plan, &backend, &backend, cfg).unwrap(),
         PruneOutcome::ReportOnly { .. }
     ));
     assert_eq!(backend.observe_containers().unwrap().len(), 1);
@@ -338,7 +350,7 @@ fn candidate_below_disruptive_is_refused_not_dispatched() {
         allow: Class::Hitless,
         ..ConvergeConfig::default()
     };
-    match engine::prune_containers(&compiled.plan, &backend, cfg).unwrap() {
+    match engine::prune_containers(&compiled.plan, &backend, &backend, cfg).unwrap() {
         PruneOutcome::DisruptionRefused {
             headline, allowed, ..
         } => {
@@ -365,12 +377,12 @@ fn declared_consumer_is_torn_down_once_intent_empties() {
 
     let empty = compiled_empty();
     assert!(matches!(
-        engine::prune_containers(&empty.plan, &backend, prune_disruptive_cfg()).unwrap(),
+        engine::prune_containers(&empty.plan, &backend, &backend, prune_disruptive_cfg()).unwrap(),
         PruneOutcome::Pruned { .. }
     ));
     assert!(backend.observe_containers().unwrap().is_empty());
     assert_eq!(
-        engine::prune_containers(&empty.plan, &backend, prune_disruptive_cfg()).unwrap(),
+        engine::prune_containers(&empty.plan, &backend, &backend, prune_disruptive_cfg()).unwrap(),
         PruneOutcome::Clean
     );
 }
@@ -387,10 +399,11 @@ fn plugged_resident_orphan_prune_is_refused_not_aborted() {
         .plugged = true;
     let backend = FakeBackend::new().with_container(DprcId::new(5), orphan);
 
-    let outcome = engine::prune_containers(&compiled.plan, &backend, prune_disruptive_cfg())
-        .expect(
-            "a plugged-resident candidate must be a per-candidate refusal, not an aborting Err",
-        );
+    let outcome =
+        engine::prune_containers(&compiled.plan, &backend, &backend, prune_disruptive_cfg())
+            .expect(
+                "a plugged-resident candidate must be a per-candidate refusal, not an aborting Err",
+            );
     assert!(
         !matches!(outcome, PruneOutcome::Clean),
         "a refused candidate is reported, not silently clean"
@@ -411,7 +424,8 @@ fn locked_orphan_prune_is_lock_gated_and_survives() {
     let backend = FakeBackend::new().with_container(DprcId::new(5), orphan);
 
     let outcome =
-        engine::prune_containers(&compiled.plan, &backend, prune_disruptive_cfg()).unwrap();
+        engine::prune_containers(&compiled.plan, &backend, &backend, prune_disruptive_cfg())
+            .unwrap();
     assert!(
         !matches!(outcome, PruneOutcome::Pruned { .. }),
         "a locked candidate is lock-gated, not torn down"
@@ -455,4 +469,430 @@ fn render_prune_shows_candidate_partial_and_report_only() {
 #[test]
 fn render_prune_empty_says_none() {
     insta::assert_snapshot!(render::render_prune(&BTreeMap::new()));
+}
+
+// ---- child population after container convergence (pool-objects design D11) ----
+
+/// The reference router (two 10G ports, T = 5): its child derives TWO dpnis plus its
+/// poll-mode companions, the arity the population reads from the plan (never a constant).
+fn compiled_reference() -> Compiled {
+    let port = |name: &str, dpmac: u32| Port {
+        name: name.into(),
+        dpmac: DpmacId::new(dpmac),
+        rate: 10_000,
+        tenant: TenantRef::from_name("router".into()),
+        mac: None,
+        mac_mode: MacMode::Assert,
+        renamed: None,
+    };
+    let intent = Intent {
+        tenants: vec![Tenant {
+            name: "router".into(),
+            dataplane: Dataplane::UserspacePoll,
+            max_cores: 16,
+            isolation: Isolation::Isolated,
+            renamed: None,
+        }],
+        ports: vec![port("wan0", 7), port("wan1", 9)],
+        ..Intent::empty()
+    };
+    compile(&intent, &ref_inventory(16)).expect("reference intent must compile")
+}
+
+#[test]
+fn population_converges_the_child_then_reruns_clean() {
+    // pool-objects design D11 / system-integration req 1: converge the container, then populate
+    // it — two dpnis (plan arity), connected to their dpmac peers, plus the derived companions
+    // and dpio seats. A second population pass creates and binds nothing (idempotent; the
+    // vfio_handoff no-op on re-run rides the whole pass being empty).
+    let compiled = compiled_reference();
+    let backend = FakeBackend::new();
+
+    assert_eq!(
+        engine::converge_containers(&compiled.plan, &backend, disruptive_cfg()).unwrap(),
+        ContainerOutcome::Converged
+    );
+    assert_eq!(
+        engine::converge_population(&compiled.plan, &backend, &backend, disruptive_cfg()).unwrap(),
+        PopulationOutcome::Converged
+    );
+
+    let child = DprcId::new(2);
+    let count = |f: Family| backend.observe_pool(Some(child), f).unwrap().len();
+    assert_eq!(
+        count(Family::Dpni),
+        2,
+        "arity from the plan, not a constant"
+    );
+    assert_eq!(count(Family::Dpbp), 2);
+    assert_eq!(count(Family::Dpmcp), 1);
+    assert_eq!(count(Family::Dpcon), 10);
+    assert_eq!(count(Family::Dpio), 10);
+
+    // The plan re-reads converged and a second pass leaves the census untouched.
+    let plans = engine::plan_population(&compiled.plan, &backend, &backend).unwrap();
+    assert_eq!(plans.len(), 1);
+    assert!(plans[0].is_converged(), "the re-plan is converged");
+    assert_eq!(
+        engine::converge_population(&compiled.plan, &backend, &backend, disruptive_cfg()).unwrap(),
+        PopulationOutcome::Converged
+    );
+    assert_eq!(count(Family::Dpni), 2, "re-run creates no third dpni");
+    assert_eq!(count(Family::Dpio), 10, "re-run creates no extra seats");
+}
+
+#[test]
+fn population_refuses_drift_inside_a_bound_child() {
+    // ADR-0017: a child already bound to vfio-fsl-mc whose plan still needs residents is a typed
+    // drift refusal — residents added while bound stay invisible until a rebind — and nothing is
+    // populated or healed here.
+    let compiled = compiled_reference();
+    // dprc_create mints dprc.2; seed it bound before it is created so the empty child reads bound.
+    let backend =
+        FakeBackend::new().with_bound_dprc(DprcId::new(2), RawDriver::from("vfio-fsl-mc"));
+    assert_eq!(
+        engine::converge_containers(&compiled.plan, &backend, disruptive_cfg()).unwrap(),
+        ContainerOutcome::Converged
+    );
+
+    assert_eq!(
+        engine::converge_population(&compiled.plan, &backend, &backend, disruptive_cfg()).unwrap(),
+        PopulationOutcome::DriftRefused {
+            label: "router".into()
+        }
+    );
+    assert!(
+        backend
+            .observe_pool(Some(DprcId::new(2)), Family::Dpni)
+            .unwrap()
+            .is_empty(),
+        "a bound-child drift refusal actuates nothing"
+    );
+}
+
+#[test]
+fn render_population_shows_the_converged_child() {
+    // The dry-run/status block for a converged child: two present, connected dpnis, the trio
+    // and dpio seats all hitless — the idempotent run's zero-action proof, printed.
+    let compiled = compiled_reference();
+    let backend = FakeBackend::new();
+    engine::converge_containers(&compiled.plan, &backend, disruptive_cfg()).unwrap();
+    engine::converge_population(&compiled.plan, &backend, &backend, disruptive_cfg()).unwrap();
+    let plans = engine::plan_population(&compiled.plan, &backend, &backend).unwrap();
+    insta::assert_snapshot!(render::render_population(&plans));
+}
+
+// ---- pool-objects task 3.14: teardown-to-baseline (design D10/D11) ----
+
+/// A root topology dpni fixture (pool-objects design D10/D11 root-dpni prune): id, an optional
+/// managed label, and an optional dpmac connection. An empty (`None`) label is the DPL/foreign
+/// sentinel the one-label law exempts.
+fn root_dpni(id: u32, label: Option<ConstructName>, connected: Option<u32>) -> ObservedDpni {
+    ObservedDpni {
+        id: DpniId::new(id),
+        label,
+        connected_to: connected.map(DpmacId::new),
+        mac: None,
+        netdev: None,
+        attributes: BTreeMap::new(),
+        cfg_observation: None,
+    }
+}
+
+/// A root pool row wearing the kernel interface's construct label (pool-objects design D10): a
+/// plugged, census-free row a consumer holds via the hidden in-use set.
+fn kern_row(family: Family, ord: u32) -> ObservedPoolObject {
+    ObservedPoolObject {
+        object: ObjectRef::new(family, ord),
+        label: RawLabel::from("kern0"),
+        plugged: true,
+        drawn: false,
+    }
+}
+
+#[test]
+fn undeclared_managed_labelled_root_dpni_prunes_under_the_double_gate() {
+    // pool-objects design D10/D11: compiled_router declares "wan0"; the board carries three root
+    // dpnis — the declared "wan0" (kept), an undeclared managed-labelled "kern0" (the target),
+    // and an empty-label DPL-born one (exempt by the one-label law).
+    let compiled = compiled_router();
+    let backend = FakeBackend::new()
+        .with_dpni(root_dpni(1, Some(ConstructName::from("wan0")), Some(7)))
+        .with_dpni(root_dpni(2, Some(ConstructName::from("kern0")), Some(4)))
+        .with_dpni(root_dpni(3, None, Some(17)));
+
+    // First gate: `--prune` withheld ⇒ report-only, nothing torn down.
+    match engine::prune_root_dpnis(&compiled.plan, &backend, &backend, disruptive_cfg()).unwrap() {
+        RootDpniPruneOutcome::ReportOnly { candidates } => {
+            assert_eq!(
+                candidates,
+                vec![DpniId::new(2)],
+                "only the undeclared managed-labelled dpni"
+            );
+        }
+        other => panic!("expected report-only, got {other:?}"),
+    }
+    assert_eq!(
+        backend.observe().unwrap().dpnis.len(),
+        3,
+        "report-only actuates nothing"
+    );
+    assert!(
+        !backend.audit().iter().any(|a| a.starts_with("unbind:")),
+        "report-only never touches the kernel seam: {:?}",
+        backend.audit()
+    );
+
+    // Both gates held ⇒ kern0 is torn down in ADR-0008 §8 order (disconnect, unbind, destroy); the declared "wan0" and the empty-label DPL dpni survive.
+    match engine::prune_root_dpnis(&compiled.plan, &backend, &backend, prune_disruptive_cfg())
+        .unwrap()
+    {
+        RootDpniPruneOutcome::Pruned { pruned } => assert_eq!(pruned, vec![DpniId::new(2)]),
+        other => panic!("expected pruned, got {other:?}"),
+    }
+    let surviving: Vec<u32> = backend
+        .observe()
+        .unwrap()
+        .dpnis
+        .iter()
+        .map(|d| d.id.into_inner())
+        .collect();
+    assert_eq!(
+        surviving,
+        vec![1, 3],
+        "declared and DPL-born dpnis are untouched"
+    );
+    let audit = backend.audit();
+    let pos = |needle: &str| {
+        audit
+            .iter()
+            .position(|a| a == needle)
+            .unwrap_or_else(|| panic!("{needle} not audited in {audit:?}"))
+    };
+    assert!(
+        pos("disconnect:dpni.2") < pos("unbind:dpni.2")
+            && pos("unbind:dpni.2") < pos("destroy:dpni.2"),
+        "kern0 is disconnected, then unbound, then destroyed: {audit:?}"
+    );
+}
+
+#[test]
+fn unconnected_candidate_still_unbinds_and_destroys() {
+    // ADR-0008 §8: a candidate with no peer skips the disconnect but is still unbound before the
+    // destroy — restool refuses a destroy of a driver-bound dpni client-side.
+    let compiled = compiled_empty();
+    let backend =
+        FakeBackend::new().with_dpni(root_dpni(2, Some(ConstructName::from("kern0")), None));
+
+    match engine::prune_root_dpnis(&compiled.plan, &backend, &backend, prune_disruptive_cfg())
+        .unwrap()
+    {
+        RootDpniPruneOutcome::Pruned { pruned } => assert_eq!(pruned, vec![DpniId::new(2)]),
+        other => panic!("expected pruned, got {other:?}"),
+    }
+    let audit = backend.audit();
+    assert!(
+        !audit.iter().any(|a| a == "disconnect:dpni.2"),
+        "an unconnected candidate emits no disconnect: {audit:?}"
+    );
+    assert!(
+        audit.iter().position(|a| a == "unbind:dpni.2")
+            < audit.iter().position(|a| a == "destroy:dpni.2"),
+        "unbind still precedes destroy: {audit:?}"
+    );
+}
+
+#[test]
+fn root_dpni_prune_gates_never_touch_the_kernel_seam() {
+    // pool-objects design D10/D11: `--prune` withheld ⇒ ReportOnly; a below-disruptive allow ⇒
+    // DisruptionRefused. Neither dispatches, so the kernel unbind seam stays untouched.
+    let compiled = compiled_empty();
+    let backend =
+        FakeBackend::new().with_dpni(root_dpni(2, Some(ConstructName::from("kern0")), Some(4)));
+
+    assert!(matches!(
+        engine::prune_root_dpnis(&compiled.plan, &backend, &backend, disruptive_cfg()).unwrap(),
+        RootDpniPruneOutcome::ReportOnly { .. }
+    ));
+    let refuse_cfg = ConvergeConfig {
+        prune: true,
+        allow: Class::Hitless,
+        ..ConvergeConfig::default()
+    };
+    match engine::prune_root_dpnis(&compiled.plan, &backend, &backend, refuse_cfg).unwrap() {
+        RootDpniPruneOutcome::DisruptionRefused {
+            headline, allowed, ..
+        } => {
+            assert_eq!(headline, Class::Disruptive);
+            assert_eq!(allowed, Class::Hitless);
+        }
+        other => panic!("expected disruption-refused, got {other:?}"),
+    }
+    assert!(
+        !backend.audit().iter().any(|a| a.starts_with("unbind:")),
+        "neither gate touches the kernel seam: {:?}",
+        backend.audit()
+    );
+}
+
+/// ADR-0020 decisions 1/4: PLUGGED root pool capacity is grow-only residue — the shrink pass reclaims it neither before nor after the consumer teardown; only the consumer dpni is pruned.
+#[test]
+fn root_pool_plugged_capacity_is_grow_only_residue_after_teardown() {
+    let compiled = compiled_empty();
+    let backend = FakeBackend::new()
+        .with_dpni(root_dpni(1, Some(ConstructName::from("kern0")), Some(4)))
+        .with_in_use_pool_object(DprcId::ROOT, kern_row(Family::Dpbp, 1))
+        .with_in_use_pool_object(DprcId::ROOT, kern_row(Family::Dpmcp, 2));
+
+    assert_eq!(
+        engine::converge_pools(
+            &compiled.plan,
+            &backend,
+            prune_disruptive_cfg(),
+            PoolPass::Shrink
+        )
+        .unwrap(),
+        PoolOutcome::Converged,
+        "root plugged capacity is residue, never a runtime reclaim"
+    );
+
+    assert_eq!(
+        engine::converge_pools(
+            &compiled.plan,
+            &backend,
+            prune_disruptive_cfg(),
+            PoolPass::Grow
+        )
+        .unwrap(),
+        PoolOutcome::Converged
+    );
+    assert!(matches!(
+        engine::prune_root_dpnis(&compiled.plan, &backend, &backend, prune_disruptive_cfg())
+            .unwrap(),
+        RootDpniPruneOutcome::Pruned { .. }
+    ));
+    assert_eq!(
+        engine::converge_pools(
+            &compiled.plan,
+            &backend,
+            prune_disruptive_cfg(),
+            PoolPass::Shrink
+        )
+        .unwrap(),
+        PoolOutcome::Converged
+    );
+    assert_eq!(
+        backend.observe_pool(None, Family::Dpbp).unwrap().len(),
+        1,
+        "root plugged capacity is grow-only residue, retained after teardown (ADR-0020)"
+    );
+    assert_eq!(backend.observe_pool(None, Family::Dpmcp).unwrap().len(), 1);
+    assert!(
+        backend.observe().unwrap().dpnis.is_empty(),
+        "the kernel dpni was pruned"
+    );
+
+    // The residue is reported, never silent: the grown, still-labelled root capacity renders on
+    // the dry-run surface even at the empty intent, where `managed` reads zero (ADR-0020 decision 2).
+    let drift = engine::plan_pools(&compiled.plan, &backend).unwrap();
+    let residue_families: Vec<Family> = drift
+        .families
+        .iter()
+        .filter(|f| f.residue() != PoolDisposition::Converged)
+        .map(|f| f.family.family())
+        .collect();
+    assert_eq!(
+        residue_families,
+        vec![Family::Dpmcp, Family::Dpbp],
+        "both grown root families report reboot-required residue"
+    );
+    let text = render::render_pool_drift(&compiled.plan, &drift);
+    assert!(
+        text.matches("reboot-required").count() >= 2,
+        "the dry-run carries a reboot-required residue line per grown family: {text}"
+    );
+}
+
+#[test]
+fn container_prune_unbinds_and_disconnects_before_destroy() {
+    // pool-objects design D11 teardown walk: a VFIO-bound child with a connected child dpni is
+    // unbound and its dpni disconnected BEFORE its residents are destroyed.
+    let compiled = compiled_empty();
+    let backend = FakeBackend::new()
+        .with_container(
+            DprcId::new(5),
+            orphan_container("foreign", Options::DEFAULT, Container::Root),
+        )
+        .with_bound_dprc(DprcId::new(5), RawDriver::from("vfio-fsl-mc"))
+        .with_pool_object(
+            DprcId::new(5),
+            ObservedPoolObject {
+                object: ObjectRef::new(Family::Dpni, 10),
+                label: RawLabel::from("foreign"),
+                plugged: true,
+                drawn: false,
+            },
+        );
+    // The child dpni is connected to a root dpmac from the common ancestor (DPNI-I9 form).
+    backend
+        .connect_in(
+            DprcId::ROOT,
+            DpniId::new(10),
+            ObjectRef::new(Family::Dpmac, 4),
+        )
+        .unwrap();
+
+    assert!(matches!(
+        engine::prune_containers(&compiled.plan, &backend, &backend, prune_disruptive_cfg())
+            .unwrap(),
+        PruneOutcome::Pruned { .. }
+    ));
+    let audit = backend.audit();
+    let pos = |needle: &str| {
+        audit
+            .iter()
+            .position(|a| a.contains(needle))
+            .unwrap_or_else(|| panic!("{needle} not audited in {audit:?}"))
+    };
+    assert!(
+        pos("vfio_unbind") < pos("disconnect"),
+        "unbind before disconnect: {audit:?}"
+    );
+    assert!(
+        pos("disconnect") < pos("dprc_destroy"),
+        "disconnect before destroy: {audit:?}"
+    );
+}
+
+#[test]
+fn dpio_seat_residue_renders_as_reboot_required() {
+    // pool-objects design D4/D10: an observed dpio seat count above the required renders the
+    // typed reboot-required residue (observed vs required, ADR-0003 §7) in the pool block the
+    // dry-run and status surfaces print — never a live destroy.
+    let compiled = compiled_empty(); // derived dpio requirement 0
+    let backend = FakeBackend::new()
+        .with_pool_object(
+            DprcId::ROOT,
+            ObservedPoolObject {
+                object: ObjectRef::new(Family::Dpio, 0),
+                label: RawLabel::from("kern0"),
+                plugged: true,
+                drawn: false,
+            },
+        )
+        .with_pool_object(
+            DprcId::ROOT,
+            ObservedPoolObject {
+                object: ObjectRef::new(Family::Dpio, 1),
+                label: RawLabel::from("kern0"),
+                plugged: true,
+                drawn: false,
+            },
+        );
+    let drift = engine::plan_pools(&compiled.plan, &backend).unwrap();
+    assert_eq!(drift.dpio_observed, 2);
+    assert_eq!(drift.dpio_required, 0);
+    let text = render::render_pool_drift(&compiled.plan, &drift);
+    assert!(text.contains("reboot-required"), "{text}");
+    assert!(text.contains("ADR-0003 §7"), "{text}");
 }

@@ -114,13 +114,18 @@ fn dry_run_reference() {
         ..Intent::empty()
     };
     let compiled = compile(&intent, &inventory()).expect("intent must compile");
-    let desired = compiled.desired_topology(&intent);
+    let desired = compiled.desired_topology_root(&intent);
     // Empty board: the dry-run prints the transitions that would build the ports.
     let observed = dpaa2_api::core::model::ObservedTopology {
         dpnis: vec![],
         dpmacs: vec![],
     };
-    let plan = reconcile_with(&desired, &observed, ReconcileOptions::default());
+    let plan = reconcile_with(
+        &desired,
+        &observed,
+        ReconcileOptions::default(),
+        &std::collections::BTreeSet::new(),
+    );
     insta::assert_snapshot!(render_dry_run(&compiled.plan, &compiled.warnings, &plan));
 }
 
@@ -141,12 +146,17 @@ fn dry_run_crypto_and_warning() {
         ..Intent::empty()
     };
     let compiled = compile(&intent, &inventory()).expect("intent must compile");
-    let desired = compiled.desired_topology(&intent);
+    let desired = compiled.desired_topology_root(&intent);
     let observed = dpaa2_api::core::model::ObservedTopology {
         dpnis: vec![],
         dpmacs: vec![],
     };
-    let plan = reconcile_with(&desired, &observed, ReconcileOptions::default());
+    let plan = reconcile_with(
+        &desired,
+        &observed,
+        ReconcileOptions::default(),
+        &std::collections::BTreeSet::new(),
+    );
     insta::assert_snapshot!(render_dry_run(&compiled.plan, &compiled.warnings, &plan));
 }
 

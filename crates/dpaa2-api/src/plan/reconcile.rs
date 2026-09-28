@@ -11,11 +11,14 @@
 //! matches. Ownership is implicit (design D7; ADR-0005): the function only ever iterates the
 //! configured ports, so foreign objects are never enumerated, let alone deleted.
 
+use std::collections::BTreeSet;
+
 use crate::core::model::{
-    DesiredPort, DesiredTopology, Lifecycle, LinkType, MacAddr, MacMode, ObservedTopology, Presence,
+    DesiredPort, DesiredTopology, DpniId, Lifecycle, LinkType, MacAddr, MacMode, ObservedTopology,
+    Presence,
 };
-use crate::families::dpni::{DpniCfg, DpniDisposition, drift_disposition};
-use crate::plan::{AssertMismatch, Plan, Transition};
+use crate::families::dpni::{DpniCfg, DpniDisposition, DpniObservation, drift_disposition};
+use crate::plan::{AssertMismatch, Plan, RebuildRefusal, Transition};
 
 /// Options controlling reconciliation policy.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
@@ -29,15 +32,26 @@ pub struct ReconcileOptions {
 /// (no pruning).
 #[must_use]
 pub fn reconcile(desired: &DesiredTopology, observed: &ObservedTopology) -> Plan {
-    reconcile_with(desired, observed, ReconcileOptions::default())
+    reconcile_with(
+        desired,
+        observed,
+        ReconcileOptions::default(),
+        &BTreeSet::new(),
+    )
 }
 
 /// Computes the plan to converge `observed` toward `desired` under `options`.
+///
+/// `run_created` names the dpnis this convergence run created: a create-immutable drift
+/// on one of them is a same-run rebuild, which the converge loop refuses instead of
+/// churning hardware (pool-objects design D12; ADR-0008 §9). An empty set is the standing
+/// behavior — every drift disposes normally.
 #[must_use]
 pub fn reconcile_with(
     desired: &DesiredTopology,
     observed: &ObservedTopology,
     options: ReconcileOptions,
+    run_created: &BTreeSet<DpniId>,
 ) -> Plan {
     let mut plan = Plan::new();
 
@@ -55,7 +69,7 @@ pub fn reconcile_with(
                     .plan()
                     .port_dpni_cfg(port.dpmac)
                     .unwrap_or_else(DpniCfg::defaults);
-                plan_present(port, observed, cfg, &mut plan);
+                plan_present(port, observed, cfg, run_created, &mut plan);
             }
             Presence::Absent => plan_absent(port, observed, options, &mut plan),
         }
@@ -65,7 +79,13 @@ pub fn reconcile_with(
 }
 
 /// Plans convergence for a port the operator wants present.
-fn plan_present(port: &DesiredPort, observed: &ObservedTopology, cfg: DpniCfg, plan: &mut Plan) {
+fn plan_present(
+    port: &DesiredPort,
+    observed: &ObservedTopology,
+    cfg: DpniCfg,
+    run_created: &BTreeSet<DpniId>,
+    plan: &mut Plan,
+) {
     let link_type = observed
         .dpmac(port.dpmac)
         .map_or(LinkType::Phy, |m| m.link_type);
@@ -84,11 +104,24 @@ fn plan_present(port: &DesiredPort, observed: &ObservedTopology, cfg: DpniCfg, p
     {
         let mac = dpni.mac.unwrap_or(MacAddr::ZERO);
         if drift_disposition(&cfg, mac, observed_cfg, mac) == DpniDisposition::DestroyThenCreate {
+            // A rebuild of a dpni this run created would churn live hardware into the
+            // phylink crash; refuse it, naming the diverging fields (pool-objects design
+            // D12; ADR-0008 §9). The refusal actuates nothing for this port.
+            if run_created.contains(&dpni.id) {
+                plan.refusals.push(RebuildRefusal {
+                    port: port.dpmac,
+                    dpni: dpni.id,
+                    diff: DpniObservation::project(&cfg).diff(observed_cfg),
+                });
+                return;
+            }
+            // Standing object: sever the edge while still bound, then unbind, then destroy
+            // (ADR-0008 §8 — unbind-first strands the dpmac).
+            plan.transitions
+                .push(Transition::Disconnect { dpni: dpni.id });
             if dpni.netdev.is_some() {
                 plan.transitions.push(Transition::Unbind { dpni: dpni.id });
             }
-            plan.transitions
-                .push(Transition::Disconnect { dpni: dpni.id });
             plan.transitions.push(Transition::Destroy { dpni: dpni.id });
             plan_create(port, cfg, needs_netdev, plan);
             return;
@@ -171,11 +204,13 @@ fn plan_absent(
     if !options.prune {
         return;
     }
+    // Sever while bound, then unbind, then destroy (ADR-0008 §8): the disconnect
+    // re-attaches the standalone MAC driver before the unbind, so the port keeps a driver.
+    plan.transitions
+        .push(Transition::Disconnect { dpni: dpni.id });
     if dpni.netdev.is_some() {
         plan.transitions.push(Transition::Unbind { dpni: dpni.id });
     }
-    plan.transitions
-        .push(Transition::Disconnect { dpni: dpni.id });
     plan.transitions.push(Transition::Destroy { dpni: dpni.id });
 }
 
@@ -183,7 +218,7 @@ fn plan_absent(
 mod tests {
     //! Engine unit tests, run against the neutral model and the in-memory fake (D10; restool-baseline).
 
-    use std::collections::BTreeMap;
+    use std::collections::{BTreeMap, BTreeSet};
 
     use crate::contract::McControl;
     use crate::contract::fake::FakeBackend;
@@ -191,7 +226,7 @@ mod tests {
         DesiredPort, DesiredTopology, DpmacId, DpniId, Lifecycle, LinkType, MacAddr, MacMode,
         ObservedDpmac, ObservedDpni, ObservedTopology, Presence,
     };
-    use crate::families::dpni::DpniCfg;
+    use crate::families::dpni::{DpniCfg, DpniObservation};
     use crate::plan::Transition;
     use crate::plan::reconcile::{ReconcileOptions, reconcile, reconcile_with};
 
@@ -568,15 +603,20 @@ mod tests {
         // Default: no prune -> nothing destroyed.
         assert!(reconcile(&desired, &observed).is_converged());
 
-        // With prune -> unbind, disconnect, destroy in order.
-        let plan = reconcile_with(&desired, &observed, ReconcileOptions { prune: true });
+        // With prune -> disconnect, unbind, destroy in order (ADR-0008 §8: sever first).
+        let plan = reconcile_with(
+            &desired,
+            &observed,
+            ReconcileOptions { prune: true },
+            &BTreeSet::new(),
+        );
         assert_eq!(
             plan.transitions,
             vec![
-                Transition::Unbind {
+                Transition::Disconnect {
                     dpni: DpniId::new(7)
                 },
-                Transition::Disconnect {
+                Transition::Unbind {
                     dpni: DpniId::new(7)
                 },
                 Transition::Destroy {
@@ -717,6 +757,119 @@ mod tests {
         assert_eq!(
             backend.netdev_for_dpmac(DpmacId::new(3)).as_deref(),
             Some("eth1")
+        );
+    }
+
+    /// A drifted, run-created port dpni whose observation projects `sized_cfg(4)` against
+    /// a `sized_desired(8)` intent — the same-run rebuild the loop-breaker refuses.
+    fn drifted_run_created() -> (DesiredTopology, ObservedTopology, BTreeSet<DpniId>) {
+        let observed = ObservedTopology {
+            dpnis: vec![observed_with_cfg(
+                7,
+                Some(3),
+                Some(MAC_3),
+                Some("eth7"),
+                Some("wan0"),
+                &sized_cfg(4),
+            )],
+            dpmacs: vec![phy(3, MAC_3)],
+        };
+        (sized_desired(8), observed, BTreeSet::from([DpniId::new(7)]))
+    }
+
+    #[test]
+    fn run_created_drift_is_refusal_not_churn() {
+        // pool-objects design D12: a same-run rebuild becomes a typed refusal naming the
+        // field, and emits no destroy/create for the port.
+        let (desired, observed, run_created) = drifted_run_created();
+        let plan = reconcile_with(
+            &desired,
+            &observed,
+            ReconcileOptions::default(),
+            &run_created,
+        );
+        assert!(
+            !plan
+                .transitions
+                .iter()
+                .any(|t| matches!(t, Transition::Destroy { .. } | Transition::Create { .. })),
+            "no hardware churn: {:?}",
+            plan.transitions
+        );
+        assert_eq!(plan.refusals.len(), 1);
+        assert_eq!(plan.refusals[0].dpni, DpniId::new(7));
+        assert_eq!(plan.refusals[0].port, DpmacId::new(3));
+        assert!(
+            plan.refusals[0]
+                .diff
+                .iter()
+                .any(|d| d.field == "num_queues"),
+            "diff names num_queues: {:?}",
+            plan.refusals[0].diff
+        );
+    }
+
+    #[test]
+    fn refusal_is_not_converged() {
+        let (desired, observed, run_created) = drifted_run_created();
+        let plan = reconcile_with(
+            &desired,
+            &observed,
+            ReconcileOptions::default(),
+            &run_created,
+        );
+        assert!(!plan.is_converged(), "a refusal leaves the board diverged");
+    }
+
+    #[test]
+    fn standing_drift_tears_down_sever_first_then_creates() {
+        // The identical drift on a standing (not run-created) dpni still rebuilds, in the
+        // ADR-0008 §8 order: disconnect while bound, then unbind, then destroy, then create.
+        let (desired, observed, _) = drifted_run_created();
+        let plan = reconcile_with(
+            &desired,
+            &observed,
+            ReconcileOptions::default(),
+            &BTreeSet::new(),
+        );
+        assert_eq!(
+            &plan.transitions[..3],
+            &[
+                Transition::Disconnect {
+                    dpni: DpniId::new(7)
+                },
+                Transition::Unbind {
+                    dpni: DpniId::new(7)
+                },
+                Transition::Destroy {
+                    dpni: DpniId::new(7)
+                },
+            ]
+        );
+        assert!(
+            matches!(plan.transitions[3], Transition::Create { .. }),
+            "rebuild recreates after the teardown: {:?}",
+            plan.transitions
+        );
+        assert!(plan.refusals.is_empty(), "standing drift is not a refusal");
+    }
+
+    #[test]
+    fn observation_diff_names_the_mutated_field_with_both_values() {
+        let desired = DpniObservation::project(&sized_cfg(8));
+        let observed = DpniObservation::project(&sized_cfg(4));
+        let diff = desired.diff(&observed);
+        assert_eq!(diff.len(), 1);
+        assert_eq!(diff[0].field, "num_queues");
+        assert!(
+            diff[0].desired.contains('8'),
+            "desired: {}",
+            diff[0].desired
+        );
+        assert!(
+            diff[0].observed.contains('4'),
+            "observed: {}",
+            diff[0].observed
         );
     }
 }

@@ -42,6 +42,7 @@ crates/dpaa2-verify/src/board/generate.rs:let pass = |name: &str| -> Option<Stri
 crates/dpaa2-verify/src/board/generate.rs:let results = |name: &str| -> Option<String> {
 crates/dpaa2-verify/src/board/generate.rs:name: &str,
 crates/dpaa2-verify/src/itf.rs:pub(crate) fn field<'a>(v: &'a Value, name: &str) -> Result<&'a Value, String> {
+crates/dpaa2-verify/src/itf.rs:pub(crate) fn state_var<'a>(state: &'a Value, name: &str) -> Result<&'a Value, String> {
 crates/dpaa2-verify/src/intent/lint.rs:fn model_spelling(adr_name: &str) -> &str {
 crates/dpaa2-verify/src/board/ledger.rs:label: &str,
 crates/dpaa2-verify/src/intent/lint.rs:let name: String = rest

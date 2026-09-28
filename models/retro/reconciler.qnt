@@ -6,7 +6,9 @@
 // only.
 //
 // Granularity (the D2; ADR-0002 risk, settled here): one reconciler plan step is
-// COARSER than one machine action. The expansion mirrors RestoolMc:
+// COARSER than one machine action. The expansion encodes the pre-fold
+// root-scope companion chain (retired at f06fbb3; pool-objects design D9)
+// — historical flow, not the live shim:
 //
 //   Create{port}   = ensure_dpio (dpio + its dpmcp, plugged) +
 //                    dep chain (dpbp, dpmcp, dpcon, plugged) +
@@ -57,8 +59,9 @@ module retro {
   // Forward association: desired = one present port anchored at dpmac.7.
   //
   // Epoch 0 (state 0, init): observe -> plan [Create, Connect, Bind].
-  //   states 1..11: Create expansion (RestoolMc::create_dpni order:
-  //   ensure_dpio, then dpbp/dpmcp/dpcon deps, then dpni, unplugged),
+  //   states 1..11: Create expansion (the historical RestoolMc::create_dpni
+  //   order the pool-objects design D9 fold retired: ensure_dpio, then
+  //   dpbp/dpmcp/dpcon deps, then dpni, unplugged),
   //   states 12..14: Connect expansion (plug, connect, sync), and the
   //   sync-triggered dpio kernel probe (state 15) — restool creates
   //   trigger no rescan (DPCI-I3), so dpio binds only after the sync.
@@ -94,11 +97,12 @@ module retro {
   // Teardown under prune: desired = the same port, presence Absent,
   // options.prune = true, starting from the converged forward state.
   //
-  // Epoch 0 (state 16): observe -> plan [Unbind, Disconnect, Destroy].
+  // Epoch 0 (state 16): observe -> plan [Disconnect, Unbind, Destroy]
+  // (ADR-0008 §8: sever the edge while bound before unbinding, else the port strands).
   // Epoch 1 (state 19, final): observe -> converged (port gone).
   run retroTeardownTest =
     retroAssociationTest
-      .then(unbindAt(dpni0))                        // 17
-      .then(disconnectEdgeAt(ep(dpni0)))            // 18
+      .then(disconnectEdgeAt(ep(dpni0)))            // 17
+      .then(unbindAt(dpni0))                        // 18
       .then(destroyAt(dpni0))                       // 19
 }

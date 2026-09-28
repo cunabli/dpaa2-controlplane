@@ -7,7 +7,10 @@
 //
 // Named invariants (modeled; dispositions in models/COVERAGE.md):
 //   DPMCP-I1 main.qnt DPMCP_I1Test; DPMCP-I2 main.qnt DPMCP_I2Test/DPMCP_I2ReturnTest;
-//   DPMCP-I3 main.qnt DPMCP_I3Test; DPMCP-I4 core/invariants.qnt DPRC_I1 (placement face).
+//   DPMCP-I3 main.qnt DPMCP_I3Test + dpmcp_lifecycle dirtyReturnTest
+//     (the never-reset custody return, shared with DPBP-I3, inherited from
+//     pool_lifecycle);
+//   DPMCP-I4 core/invariants.qnt DPRC_I1 (placement face).
 // Apalache-marked subset: DPMCP-I4.
 module dpmcp {
   import types.* from "../core/types"
@@ -24,4 +27,11 @@ module dpmcp {
     createTriggersRescan: false,
     draw: { dpmcp: 0, dpbp: 0, dpcon: 0 },
   }
+}
+
+// The dpmcp custody+convergence machine: a thin instantiation of the shared P3
+// substrate contextualized to dpmcp (pool-objects design D7 as amended, ADR-0019).
+module dpmcp_lifecycle {
+  import types.* from "../core/types"
+  import pool_lifecycle(FAMILY = Dpmcp, CEILING = 3).* from "./pool_lifecycle"
 }

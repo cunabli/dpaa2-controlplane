@@ -887,6 +887,30 @@ fn undeclared_reserved_kernel_full_percpu_draw_in_root() {
 }
 
 #[test]
+fn kernel_terminated_port_folds_the_probe_draw_into_the_pool() {
+    // dpaa2-eth's per-port probe draw folds into the pool (pool-objects design D9, task 3.7):
+    // on 16 cpus dpmcp 17+1=18, dpbp 1+1=2, dpcon 16+16=32; dpio stays 16 (per-CPU seats,
+    // pool-objects design D4). The dpmcp node lists the "ports" input.
+    let intent = Intent {
+        tenants: vec![kernel_tenant(16)],
+        ports: vec![port("lan0", 4, 25_000, "kernel")],
+        ..Intent::empty()
+    };
+    let c = ok(&intent, &ref_inv());
+    assert_eq!(count_fam(&c, "kernel", Family::Dpmcp), 18);
+    assert_eq!(count_fam(&c, "kernel", Family::Dpbp), 2);
+    assert_eq!(count_fam(&c, "kernel", Family::Dpcon), 32);
+    assert_eq!(count_fam(&c, "kernel", Family::Dpio), 16);
+    let dpmcp = provenance(&c, "kernel", "dpmcp", "");
+    assert_eq!(dpmcp.request, 18);
+    assert!(
+        dpmcp.inputs.iter().any(|k| k.rule.as_str() == "ports"),
+        "dpmcp node carries the ports input: {:?}",
+        dpmcp.inputs
+    );
+}
+
+#[test]
 fn kernel_netlink_namespace_child_resident_draws_dpio_zero() {
     // A declared kernel-netlink namespace with a wire to the kernel: child-
     // resident, so zero extra dpio, but its dpni still runs `cpus` queues and

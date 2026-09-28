@@ -156,7 +156,11 @@ impl Inventory {
 /// `"dpl"` sentinel (ADR-0010 §4 refined by ADR-0015): an empty label is the DPL
 /// resident `"dpl"`; a declared label is ours ([`Availability::Free`]); any other label
 /// is [`Availability::Foreign`] wearing that owner.
-fn judge_label(label: &str, declared: &BTreeSet<ConstructName>) -> Availability {
+///
+/// `pub(crate)` so the pool census reuses this one judgment rather than re-deriving the
+/// empty-label⇒DPL idiom (pool-objects design D3;
+/// [`census_of`](crate::families::pool_lifecycle::census_of)).
+pub(crate) fn judge_label(label: &str, declared: &BTreeSet<ConstructName>) -> Availability {
     if label.is_empty() {
         Availability::Foreign("dpl".to_owned())
     } else if declared.contains(&ConstructName::from(label)) {

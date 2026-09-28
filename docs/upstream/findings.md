@@ -394,3 +394,52 @@ cites the suite and the design record that carry the numbers.
     fails late and quietly (portal exhaustion mid-run, buffer setup
     failure, silent transmit drops with no MC error). Evidence:
     ADR-0012, dpio.md, dpbp.md, dpni.md. — candidate
+
+## From the pool-objects sittings (task 4.3, 2026-09-25)
+
+### Linux kernel
+
+49. **dpni create/destroy churn on a wired port crashes phylink**: a
+    create/connect/disconnect/destroy cycle at ~1.3 s cadence on a
+    PHY-typed dpmac Oopses in `phylink_mac_pcs_get_state` (NULL-ish
+    PCS dereference at offset 0x29, `phylink_resolve` worker on
+    `events_power_efficient`), then warns `refcount_t: underflow;
+    use-after-free` one cycle later and taints — power cycle required.
+    Reproduced on two consecutive boots. Each cycle also logs
+    `phy_power_on was called before phy_init` and a standalone
+    `fsl_dpaa2_mac` attach failure (the finding-34 driver ping-pong);
+    the likely mechanism is the dpaa2-mac PCS being destroyed without
+    cancelling the queued resolve worker. Evidence:
+    `phylink-dpni-churn-crash.md` (full traces and analysis pointers),
+    `results/V-MVP-1-rev1/console-transcript.txt`, ADR-0008 §9. —
+    candidate
+50. **An in-use allocatable object can be unbound from
+    `fsl_mc_allocator`, silently corrupting the pool bookkeeping.**
+    `fsl_mc_resource_pool_remove_device` correctly refuses a resource
+    that is absent from the pool's free list (`-EBUSY`, "the device
+    cannot be removed"), but its caller `fsl_mc_allocator_remove` is a
+    `void` remove callback and the driver model does not let a driver
+    refuse removal — `device_release_driver` proceeds regardless. A
+    sysfs unbind of an in-use dpbp/dpmcp/dpcon/dpio therefore succeeds
+    from userspace, logs one `dev_err`, and detaches the device from
+    the allocator while a consumer still holds its resource. The guard
+    is present but unenforceable where it is placed; it belongs before
+    removal (a bus-level check) or the allocator needs a removal that
+    can fail. Consequence for userspace: there is no safe way to ask
+    whether an allocatable object is currently lent out — the free
+    list has no sysfs attribute, and probing by unbind damages the
+    state it probes. Evidence: `fsl-mc-allocator.c`
+    (`fsl_mc_resource_pool_remove_device`, `fsl_mc_allocator_remove`),
+    ADR-0020, suite V-MVP-1 rev 4 step 9. — candidate
+51. **restool refuses a plugged-state change on any driver-bound
+    object client-side, so the MC is never asked.** `dprc assign
+    --plugged=0` on an object bound to `fsl_mc_allocator` (which is
+    every allocatable object plugged in the root container) prints
+    "cannot be changed plugged state because it is bound to driver ...
+    unbind it first" and issues no command. The refusal is identical
+    for a free and a drawn object, so it carries no information, and
+    whether the firmware would accept the unplug is unmeasurable
+    through the tool. Companion to finding 36 (a runtime child can
+    never be plugged) at the other end of the same attribute.
+    Evidence: ADR-0020, suite V-MVP-1 rev 4 step 9
+    (`results/V-MVP-1-rev4/step-9.log`). — candidate

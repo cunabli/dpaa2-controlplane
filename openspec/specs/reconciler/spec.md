@@ -319,13 +319,19 @@ candidate's refusal, and SHALL always run the re-observation naming survivors
 - **THEN** both outcomes are reported per id, the refusal is discriminated (not a fatal error), and the re-observation names the survivor
 
 ### Requirement: Consumer convergence is container-only in this change
-Converging a declared consumer SHALL produce the container itself — existence,
-options, label, placement, lock state, VFIO bindability — and SHALL NOT emit
-companion-set sizing (tile #6) or dpni option surface (tile #5).
+Converging a declared consumer SHALL produce the container itself —
+existence, options, label, placement, lock state, VFIO bindability — and its
+population SHALL converge through the pool passes this change adds: root pool
+convergence runs before the port loop and `converge_population` runs after
+container convergence (this delta's own ADDED requirements). Companion-set
+sizing is therefore emitted by those pool/population passes, not forbidden;
+the dpni option surface is tile #5's, delivered. The container-only fence is
+retired (review PASS4-F2).
 
 #### Scenario: Consumer declared on an empty board
 - **WHEN** intent declares one consumer and the board lacks its container
-- **THEN** the plan creates exactly the child DPRC with derived options/label/placement and contains no companion-population steps
+- **THEN** the plan creates the child DPRC with derived options/label/placement and its companion-population steps follow via `converge_population`
+
 
 ### Requirement: The resident census is family-qualified
 Observed residents SHALL be keyed by family-qualified object reference,
@@ -411,3 +417,101 @@ instead of rescanning every root child.
 - **THEN** exactly that container is re-observed through
   `observe_container(id)`
 
+### Requirement: The P3 counted-companion shape is one generic implementation
+`dpaa2-api` SHALL implement ADR-0019 P3 for the four pool families as
+one generic implementation parameterized by `FamilyParams` for the
+allocator trio (dpbp/dpmcp/dpcon) plus a seat-typed dpio variant
+(DPIO-I1/I2: regime-typed, never pooled). The surface SHALL expose
+census and sizing types and a pure count-drift disposition; it SHALL
+NOT mint per-object identity types, phase machinery, or any trait
+implemented across ADR-0019 patterns. Macros are admissible only where
+they carry semantic/structural sharing a generic cannot (e.g. ADR-0014
+linted-enum stamping) and every shape SHALL remain structurally
+isomorphic to the Quint model (ADR-0002 §3).
+
+#### Scenario: The trio instantiates one shape
+- **WHEN** dpbp, dpmcp, and dpcon are reviewed against the P3 module
+- **THEN** each is an instantiation of the same generic implementation
+  differing only in `FamilyParams` data, and no family carries a
+  bespoke lifecycle
+
+#### Scenario: No cross-pattern framework exists
+- **WHEN** the public API of `dpaa2-api` is inspected
+- **THEN** no trait or macro couples a P3 family's lifecycle to dprc
+  (P1) or dpni (P2) surfaces
+
+### Requirement: The disposition converges counts fully and prunes the undeclared
+The pure disposition SHALL judge each (container, family) pair from
+observed census versus intent-derived requirement (ADR-0012 counts,
+consumed unchanged from the compiled plan) and emit: creates for a
+deficit; destroys of free individuals only for a surplus in a child
+container, selected arbitrarily; a typed refusal when the requirement
+falls below the currently drawn count; and prune destroys for objects
+that are undeclared in intent, not DPL-born, and free. At root scope a
+surplus emits no destroy and renders as the typed reboot-required
+residue disposition (ADR-0020). The count→individual boundary SHALL
+sit at the dispatch edge: the disposition speaks deltas, the adapter
+resolves deltas to concrete object ids. Prune destroys keep reaching
+objects that are undeclared, not DPL-born, and — at root — never
+plugged; an undeclared plugged root object is residue (ADR-0020
+decision 4).
+
+#### Scenario: Surplus shrinks through free individuals only
+- **WHEN** a child container's census shows 3 dpbp against a derived
+  requirement of 2 and one dpbp is drawn
+- **THEN** the disposition emits one destroy resolvable only to a free
+  dpbp and the drawn individual is never a candidate
+
+#### Scenario: Requirement below draw refuses
+- **WHEN** the derived dpcon requirement is 4 and 5 dpcons are
+  currently drawn in a child container (root drawn-ness is
+  unobservable, ADR-0020)
+- **THEN** the disposition returns a typed refusal naming the family
+  and counts, and emits no destroy
+
+#### Scenario: Root surplus is typed residue
+- **WHEN** the root census shows plugged capacity above the derived
+  requirement
+- **THEN** the disposition emits no destroy and reports the
+  reboot-required residue naming observed vs. required and the
+  reconciliation path (ADR-0020)
+
+#### Scenario: Convergence is idempotent
+- **WHEN** the disposition runs twice over an unchanged converged
+  observation
+- **THEN** the second run emits an empty plan
+
+### Requirement: Child-scope pool refusals surface typed at both discovery paths
+The typed below-draw refusal the pure disposition returns SHALL survive
+to the operator-facing surface at child scope on both discovery paths:
+the planned path (`converge_population` consuming the disposition's
+`ShrinkBelowDraw`) and the probe-discovered path (a destroy dispatch
+refused `-EBUSY` revealing a draw the census could not see). Neither
+path SHALL collapse the refusal to an untyped configuration or backend
+error string — on the restool backend the probe path is the only way a
+child below-draw surfaces, so both paths type or neither does (review
+synthesis L4: PASS3-F1/F2).
+
+#### Scenario: Planned child shrink below draw reports the typed refusal
+- **WHEN** a child's derived requirement falls below its drawn count and convergence runs
+- **THEN** the operator-facing report carries the typed refusal naming the family and counts, not a stringly configuration error
+
+#### Scenario: Probe-discovered draw reports the same typed face
+- **WHEN** a planned child destroy is refused `-EBUSY` because the individual is drawn
+- **THEN** the dispatch surfaces the same typed refusal face as the planned path, and no further destroy of that family is attempted in the pass
+
+### Requirement: Child seat sizing converges through the seat gate and types its surplus
+Child dpio convergence SHALL judge seat counts through the pure seat
+gate rather than demanding exact equality around a grow-only dispatch:
+a seat deficit grows toward the requirement, and a seat SURPLUS in a
+bound or unbound child SHALL report the same typed grow-only residue
+its root twin reports (ADR-0020), never loop to an untyped
+"did not converge" backend error (review synthesis L10: PASS3-F3/F10).
+
+#### Scenario: Child seat surplus reports residue, not divergence
+- **WHEN** an unbound child holds more seats than its derived requirement and convergence runs
+- **THEN** the pass completes reporting the typed grow-only residue for the seat family, and no error claims non-convergence
+
+#### Scenario: The seat ceiling refusal has a production caller
+- **WHEN** a grow would exceed the seat ceiling
+- **THEN** the refusal is judged by the pure seat gate consumed by the production dispatch path, not re-derived inline

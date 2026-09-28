@@ -1,0 +1,11 @@
+---
+source: crates/dpaa2-tools/tests/dprc_convergence.rs
+expression: "render::render_population(&plans)"
+---
+child population (1 child(ren)) [headline: hitless]:
+  router [dprc.2] converged [headline: hitless] bound=false
+    dpni present=2/2 connected=2/2
+    Dpbp observed managed=2/2 required=2 [hitless] create=0 destroy=0 prune=0
+    Dpmcp observed managed=1/1 required=1 [hitless] create=0 destroy=0 prune=0
+    Dpcon observed managed=10/10 required=10 [hitless] create=0 destroy=0 prune=0
+    dpio seats observed=10 required=10 [hitless]

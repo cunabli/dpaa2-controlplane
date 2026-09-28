@@ -1,19 +1,22 @@
 use std::collections::BTreeMap;
 
 use crate::core::error::Error;
+use crate::core::family::Family;
 use crate::core::inventory::Inventory;
 use crate::core::model::{DpmacId, DpniId, DprcId, MacAddr, ObjectRef, ObservedTopology};
 use crate::core::types::ConstructName;
+use crate::families::dpio::{DpioCfg, Priorities};
+use crate::families::dpni::DpniCfg;
 use crate::families::dprc;
+use crate::families::pool_lifecycle::ObservedPoolObject;
 use crate::plan::dprc::ObservedContainer;
 
 /// Southbound MC-portal control at MC-command granularity.
 ///
 /// Each method corresponds to a single MC firmware command so a future ioctl
-/// implementation maps one-to-one behind the same trait (mc-backend spec) — with one
-/// exception: [`create_dpni`](Self::create_dpni) is a transactional
-/// companion-provisioning chain (shim policy today), which a portal backend would fork.
-/// Where that chain policy lives for the two backends (tile #10) is recorded in ADR-0018.
+/// implementation maps one-to-one behind the same trait (mc-backend spec):
+/// [`create_dpni`](Self::create_dpni) is a single create verb, with companions riding the
+/// pool passes the reconciler converges separately (backend split recorded in ADR-0018).
 pub trait McControl {
     /// Reads the current MC state (objects + connection edges) as authoritative.
     ///
@@ -43,16 +46,35 @@ pub trait McControl {
     /// `cfg` is the compiled, in-envelope create block the plan carries
     /// (dpni-typestate task 4.1; design D3): the backend renders it verbatim, never
     /// re-deriving an option or a size. Sizing rides inside as
-    /// [`DpniCfg::num_queues`](crate::families::dpni::DpniCfg::num_queues); 0 means
+    /// [`DpniCfg::num_queues`]; 0 means
     /// unsized and the backend applies its host-derived default (synthesis L2/B3),
     /// preserving the prior contract.
     ///
     /// # Errors
     /// Returns an error if creation fails.
-    fn create_dpni(
+    fn create_dpni(&self, label: &ConstructName, cfg: &DpniCfg) -> Result<DpniId, Error>;
+
+    /// Creates a **bare** DPNI in a child container `container`, stamped `label` and
+    /// plugged in that child — the child-population create (pool-objects design D2), the
+    /// deliberate divergence from [`create_dpni`](Self::create_dpni)'s root path. Unlike
+    /// that root create, this issues **no** private dependency chain and **no** connect:
+    /// a child's companions come from the pool disposition the reconciler converges
+    /// separately (`dpaa2_mc::populate::dispatch_child_population`), not from a consumer's own
+    /// transactional chain, and a VFIO-consumed child is never kernel-connected here.
+    ///
+    /// `cfg` is the same compiled, in-envelope create block [`create_dpni`](Self::create_dpni)
+    /// renders verbatim; sizing rides inside as
+    /// [`DpniCfg::num_queues`] (0 ⇒ the
+    /// backend's host-derived default).
+    ///
+    /// # Errors
+    /// Returns [`Error::McStatus`], [`Error::RestoolGuard`], [`Error::Backend`], or
+    /// [`Error::Parse`] if the created id cannot be read back.
+    fn create_dpni_in(
         &self,
+        container: DprcId,
+        cfg: &DpniCfg,
         label: &ConstructName,
-        cfg: &crate::families::dpni::DpniCfg,
     ) -> Result<DpniId, Error>;
 
     /// Connects a single DPNI↔DPMAC edge.
@@ -60,6 +82,38 @@ pub trait McControl {
     /// # Errors
     /// Returns an error if the connection fails.
     fn connect(&self, dpni: DpniId, dpmac: DpmacId) -> Result<(), Error>;
+
+    /// Connects `dpni` to `peer` issued from their common ancestor `ancestor` — the
+    /// DPNI-I9 connect form (`docs/baseline/dpni.md` DPNI-I9): `dprc connect <ancestor>
+    /// --endpoint1=<dpni> --endpoint2=<peer>`, with **no** root plug step. This is the
+    /// child-port divergence from the root-shaped [`connect`](Self::connect), whose
+    /// `dprc assign --plugged` targets the shim's own container — the wrong container for
+    /// a child dpni (pool-objects design D11). `peer` is an [`ObjectRef`] so both the
+    /// child-dpni↔root-dpmac and the cross-container dpni↔dpni cases render.
+    ///
+    /// The reconciler reads [`observe_endpoint`](Self::observe_endpoint) first, so a
+    /// re-run over an already-connected edge issues nothing (idempotence, DPNI-I9's
+    /// both-endpoints-disconnected precondition).
+    ///
+    /// **Board-witness marker:** dpni(child)↔dpmac(root) is DPNI-I9-*allowed* but board-
+    /// verified only for dpni↔dpni (kdpni pairs in production). The child↔dpmac case is
+    /// witnessed on the board or it fails loud (pool-objects task 4.3); there is no
+    /// runtime gating here.
+    ///
+    /// # Errors
+    /// Returns an error if the connection fails.
+    fn connect_in(&self, ancestor: DprcId, dpni: DpniId, peer: ObjectRef) -> Result<(), Error>;
+
+    /// Reads the object `dpni` is currently connected to from its `endpoint:` line, or
+    /// `Ok(None)` when disconnected (`No object associated`) — the idempotence read the
+    /// child-port converge issues before [`connect_in`](Self::connect_in) to ask "already
+    /// connected to X?" (pool-objects design D11). The peer is an [`ObjectRef`] so a
+    /// dpmac and a cross-container dpni peer both read back (`docs/baseline/dpni.md`
+    /// DPNI-I9).
+    ///
+    /// # Errors
+    /// Returns an error if the backend cannot be queried.
+    fn observe_endpoint(&self, dpni: DpniId) -> Result<Option<ObjectRef>, Error>;
 
     /// Sets the DPNI primary MAC (used only in actuate mode).
     ///
@@ -192,4 +246,105 @@ pub trait McControl {
     /// # Errors
     /// Returns [`Error::McStatus`] or [`Error::RestoolGuard`].
     fn dprc_set_locked(&self, child: DprcId, locked: bool) -> Result<(), Error>;
+
+    // ---- pool-family create/destroy verbs (pool-objects task 3.1) ----
+    // The delta→id dispatch edge (pool-objects design D2) resolves a count to N creates; each
+    // stamps its consumer's label and plugs (ADR-0015; ADR-0010 §4 ABA guard). `container` is
+    // `None` for the shim root. Per-verb create options are from the baselines (rustdoc below).
+
+    /// Creates one dpbp (buffer pool) in `container`, stamped `label` and plugged, and
+    /// returns its [`ObjectRef`]. dpbp has zero create options (`docs/baseline/dpbp.md`
+    /// "Option inventory": the `dpbp_cfg.options` placeholder is discarded by the flib).
+    ///
+    /// # Errors
+    /// Returns [`Error::McStatus`] (e.g. `0x8` No resources at the pool floor, DPBP-I7),
+    /// [`Error::RestoolGuard`], [`Error::Backend`], or [`Error::Parse`] if the created id
+    /// cannot be read back.
+    fn dpbp_create(
+        &self,
+        container: Option<DprcId>,
+        label: &ConstructName,
+    ) -> Result<ObjectRef, Error>;
+
+    /// Creates one dpmcp (MC command portal) in `container`, stamped `label` and plugged,
+    /// and returns its [`ObjectRef`]. dpmcp takes no create option the reconciler sets
+    /// (`docs/baseline/dpmcp.md` "Option inventory": the one option token and the
+    /// pool-assigned portal id are both left at their restool defaults).
+    ///
+    /// # Errors
+    /// Returns [`Error::McStatus`], [`Error::RestoolGuard`], [`Error::Backend`], or
+    /// [`Error::Parse`].
+    fn dpmcp_create(
+        &self,
+        container: Option<DprcId>,
+        label: &ConstructName,
+    ) -> Result<ObjectRef, Error>;
+
+    /// Creates one dpcon (concentrator) with `priorities` channel priority levels in
+    /// `container`, stamped `label` and plugged, and returns its [`ObjectRef`].
+    ///
+    /// `--num-priorities` is dpcon's sole create option (`docs/baseline/dpcon.md` "Option
+    /// inventory": 1–8, **default 2** — unlike dpio's default of 8). The `1..=8` range and
+    /// meaning are identical to dpio's, so the same [`Priorities`] newtype carries it (the
+    /// shared MC create-range refinement, `families::dpio`); nothing in the corpus drives
+    /// priority > 0 today (DPCON-I3), so the level count is opaque capacity.
+    ///
+    /// # Errors
+    /// Returns [`Error::McStatus`], [`Error::RestoolGuard`], [`Error::Backend`], or
+    /// [`Error::Parse`].
+    fn dpcon_create(
+        &self,
+        container: Option<DprcId>,
+        priorities: Priorities,
+        label: &ConstructName,
+    ) -> Result<ObjectRef, Error>;
+
+    /// Creates one dpio (`QBMan` software portal) with the create-cfg `cfg` in `container`,
+    /// stamped `label` and plugged, and returns its [`ObjectRef`]. dpio takes
+    /// `--channel-mode` and `--num-priorities` (`docs/baseline/dpio.md` "Option
+    /// inventory"); the mode is dead in the kernel (DPIO-I3) but is still rendered.
+    ///
+    /// This is the raw create only. The dpio→dpmcp probe-draw ordering (a dpmcp must
+    /// exist before a consumer probes the dpio, DPIO-I1/DPMCP-I1) is procedural in the
+    /// adapter, not a verb obligation (mc-backend spec; the set-MAC-before-plug
+    /// precedent) — the `dpaa2_mc::pool::create_dpio_seat` helper sequences the pair.
+    ///
+    /// # Errors
+    /// Returns [`Error::McStatus`] (e.g. `-ERANGE` past the online-CPU seat ceiling,
+    /// DPIO-I2), [`Error::RestoolGuard`], [`Error::Backend`], or [`Error::Parse`].
+    fn dpio_create(
+        &self,
+        container: Option<DprcId>,
+        cfg: DpioCfg,
+        label: &ConstructName,
+    ) -> Result<ObjectRef, Error>;
+
+    /// Destroys one pool object, addressed by its [`ObjectRef`] (which carries the
+    /// family). Renders `<family> destroy <object>` then a bus `sync`, mirroring the dpni
+    /// [`destroy`](Self::destroy) precedent. The one destroy verb serves all four families
+    /// — a pool object is anonymous, so its family (on the ref) is the only per-family
+    /// datum a destroy needs (pool-objects design D2).
+    ///
+    /// A driver-bound object is refused by the MC (`docs/baseline/dpbp.md`: `destroy`
+    /// refuses driver-bound objects) as a typed [`Error::McStatus`] — the enforcement
+    /// backstop behind the free-only shrink discipline (pool-objects design D3). The
+    /// caller selects only free victims; this verb never checks custody itself.
+    ///
+    /// # Errors
+    /// Returns [`Error::McStatus`], [`Error::RestoolGuard`], or [`Error::Backend`].
+    fn pool_destroy(&self, object: &ObjectRef) -> Result<(), Error>;
+
+    /// Observes one pool family's objects in `container` through a single `dprc show`,
+    /// filtered to `family`, each row reported verbatim as an [`ObservedPoolObject`] —
+    /// read-back is the only observation, exit status never is (pool-objects task 3.1;
+    /// mc-backend spec requirement 1). The adapter reports raw labels; the core judges
+    /// custody ([`census_of`](crate::families::pool_lifecycle::census_of); PASS5-F1).
+    ///
+    /// # Errors
+    /// Returns an error if the backend cannot be queried.
+    fn observe_pool(
+        &self,
+        container: Option<DprcId>,
+        family: Family,
+    ) -> Result<Vec<ObservedPoolObject>, Error>;
 }

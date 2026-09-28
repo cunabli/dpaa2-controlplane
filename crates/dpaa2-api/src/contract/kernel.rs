@@ -1,5 +1,6 @@
 use crate::core::error::Error;
 use crate::core::model::{DpniId, DprcId};
+use crate::families::pool_lifecycle::RawDriver;
 
 /// Southbound kernel-side control: driver binding and netdev observation.
 pub trait KernelControl {
@@ -10,6 +11,16 @@ pub trait KernelControl {
     /// Returns an error if an explicit bind is attempted and fails.
     fn bind(&self, dpni: DpniId) -> Result<(), Error>;
 
+    /// Releases `fsl_dpaa2_eth` from `dpni` via the driver's sysfs `unbind` attribute —
+    /// the §8-ordered teardown verb (ADR-0008 §8/§9; pool-objects design D12). The
+    /// disconnect has already severed the endpoint edge; unbind precedes destroy, since a
+    /// destroy issued against a still-bound dpni is refused client-side. Level-triggered:
+    /// an unbind of an already-unbound dpni is a no-op, so a teardown re-run converges.
+    ///
+    /// # Errors
+    /// Returns an error if the unbind write fails.
+    fn unbind(&self, dpni: DpniId) -> Result<(), Error>;
+
     /// Observes the netdev name for `dpni`, or `None` if none exists.
     ///
     /// A fixed-link DPMAC that `dpaa2-eth` does not bind yields `Ok(None)` — the
@@ -18,6 +29,18 @@ pub trait KernelControl {
     /// # Errors
     /// Returns an error only if the kernel state cannot be read at all.
     fn netdev_of(&self, dpni: DpniId) -> Result<Option<String>, Error>;
+
+    /// Observes the raw driver name bound to `dpni`'s device — the basename of its `driver`
+    /// link as a [`RawDriver`], reported verbatim, or `None` when it has no driver. The caller judges the name
+    /// (the same report-not-judge stance as [`bound_driver`](Self::bound_driver)): a present
+    /// `fsl_dpaa2_eth` link is the per-target probe read-back that decides bind liveness
+    /// ([`judge_bind_probe`](crate::core::model::judge_bind_probe)), never the bind write's
+    /// exit (`docs/baseline/dpio.md` DPIO-I5; `docs/baseline/dpni.md` DPNI-I4). No default
+    /// impl — every backend answers it verbatim.
+    ///
+    /// # Errors
+    /// Returns an error only if the kernel state cannot be read at all.
+    fn dpni_driver(&self, dpni: DpniId) -> Result<Option<RawDriver>, Error>;
 
     // ---- child-DPRC VFIO binding (dprc-encapsulation, task 3.2) ----
     //
@@ -61,13 +84,13 @@ pub trait KernelControl {
     fn vfio_unbind(&self, dprc: DprcId) -> Result<(), Error>;
 
     /// Observes the child DPRC's bound driver name — what the sysfs `driver` link
-    /// reports, or `None` when it has no driver. A raw report: the caller maps it to a
+    /// reports as a [`RawDriver`], or `None` when it has no driver. A raw report: the caller maps it to a
     /// bind state with [`dprc::VfioBind::classify`](crate::families::dprc::VfioBind::classify)
     /// (adapters report, never judge — design D5; ADR-0003).
     ///
     /// # Errors
     /// Returns an error only if the kernel state cannot be read at all.
-    fn bound_driver(&self, dprc: DprcId) -> Result<Option<String>, Error>;
+    fn bound_driver(&self, dprc: DprcId) -> Result<Option<RawDriver>, Error>;
 
     /// Observes the child DPRC's `driver_override` value, or `None` when it is unset —
     /// the propagation surface: a subsequently-added child of a bound container reads

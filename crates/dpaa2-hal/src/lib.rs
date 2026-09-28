@@ -12,4 +12,4 @@ pub mod command;
 pub mod sysfs;
 
 pub use command::CommandName;
-pub use sysfs::FslMcSysfs;
+pub use sysfs::{ETH_DRIVER, FslMcSysfs};

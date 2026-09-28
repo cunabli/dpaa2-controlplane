@@ -1,7 +1,8 @@
 # ADR-0015: Intent identity is the name, the runtime handle is N, and the label is the seam between them
 
 - **Status:** Accepted — 2026-09-05; amended 2026-09-05 with the
-  identity-across-time contract.
+  identity-across-time contract; amended 2026-09-22 with the
+  companion-custody narrowing.
 - **Date:** 2026-09-05
 - **Supersedes / relates to:** ADR-0010 (object ids are reused, names
   are not identities — this record carries its taxonomy forward);
@@ -222,6 +223,19 @@ and the board already carries objects from the last converge. Decisions
     directly as the netdev name with no second mapping; and id-confusion
     is unrepresentable — an N cannot creep in through the naming side
     door, re-sealing decisions 1–2 at the point the operator types.
+14. **A pool-family companion wears its provider's name, never its
+    own.** Pool-family objects (dpio, dpbp, dpmcp, dpcon) carry no
+    intent-side identity — decision 1 keys identity by name, and a
+    companion has none of its own. The label it wears names the
+    construct that provides it. In a child container the provider is
+    the consuming construct, so companions wear the consumer's name.
+    At root the sole provider is the pooling drawer — the kernel
+    container or a restricted drawer — so root pool-family objects
+    wear the drawer's name, never a consumer's (openspec change
+    `pool-objects` design D9). The fsl-mc allocator ignores the label,
+    so it is custody bookkeeping — which construct answers for the
+    object — not an allocation input; one provider per pool keeps that
+    bookkeeping single-owner.
 
 ## Consequences
 
