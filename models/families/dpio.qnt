@@ -131,6 +131,11 @@ module dpio_lifecycle {
   // The grow-only shrink disposition (pool-objects design D4/D10; ADR-0008 §4): a required
   // below the observed seat count cannot be met by a live destroy, so it reports residue —
   // the observed/required gap, reboot-required — instead of tearing a seat down.
+  // Scope-generic: every seat here lives in poolContainer, itself a CHILD of dprc0
+  // (initialState), and this reads only the regime-typed census, never a container scope —
+  // so the child seat-surplus state is the same one seatResidueReportedTest reaches, and the
+  // Rust child arm (ChildPlan::dpio_disposition, crates/dpaa2-mc populate.rs) binds this
+  // function's twin as the root arm does. No separate child arm exists to add or freeze.
   pure def seatDisposition(seats: ObjId -> DpioSeat, r: SeatRegime, required: int): SeatDisposition =
     val observed = dpioSeatCount(seats, r)
     if (observed <= required) Converged
