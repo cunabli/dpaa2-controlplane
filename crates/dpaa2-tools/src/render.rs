@@ -13,17 +13,18 @@ use std::fmt::Write as _;
 use dpaa2_api::core::family::Family;
 use dpaa2_api::core::model::DprcId;
 use dpaa2_api::families::dpio::SeatDisposition;
-use dpaa2_api::families::pool_lifecycle::PoolDisposition;
+use dpaa2_api::families::pool_lifecycle::{
+    PoolCensus, PoolDeltas, PoolDisposition, PoolFamily, ShrinkBelowDraw,
+};
 use dpaa2_api::intent::compiled::{
     AttachPoint, Attributes, CompiledPlan, Container, Measurement, ObjectKey, PlannedObject,
     ProvenanceKey,
 };
 use dpaa2_api::intent::refuse::{Refusal, Warning};
 use dpaa2_api::plan::dprc::{ConsumerConvergence, ContainerVerdict, FingerprintField, PruneItem};
+use dpaa2_api::plan::pool::PoolDrift;
+use dpaa2_api::plan::populate::ChildPlan;
 use dpaa2_api::plan::{Class, Plan, Transition};
-use dpaa2_mc::ChildPlan;
-
-use crate::engine::PoolDrift;
 
 /// Renders the whole dry-run text: the compiled objects with their provenance trees
 /// and edges, the transitions `reconcile` would execute, the plan-only report, and
@@ -231,10 +232,63 @@ pub fn render_container_convergence(
     out
 }
 
+/// Writes one pool family's observed-vs-derived counts and its class-tagged disposition (or the
+/// [`ShrinkBelowDraw`] refusal) at `indent`
+/// — the shared block of the root drift and the child population renders (pool-objects design D3).
+/// The per-surface residue line is left to the caller, whose indent differs.
+fn render_family_disposition(
+    out: &mut String,
+    indent: &str,
+    family: PoolFamily,
+    census: PoolCensus,
+    required: i64,
+    disposition: Result<PoolDeltas, ShrinkBelowDraw>,
+) {
+    match disposition {
+        Ok(deltas) => {
+            let class = if deltas.is_empty() {
+                Class::Hitless
+            } else {
+                Class::Disruptive
+            };
+            let _ = writeln!(
+                out,
+                "{indent}{} observed managed={}/{} required={required} [{class}] create={} destroy={} prune={}",
+                family.name(),
+                census.managed(),
+                census.population(),
+                deltas.create,
+                deltas.destroy,
+                deltas.prune,
+            );
+        }
+        // A requirement below the drawn count is surfaced, never a teardown (pool-objects design D3).
+        Err(refusal) => {
+            let _ = writeln!(
+                out,
+                "{indent}{} observed managed={}/{} required={required} REFUSED: {refusal}",
+                family.name(),
+                census.managed(),
+                census.population(),
+            );
+        }
+    }
+}
+
+/// The class a grow-only dpio seat line reports: a deficit is [`Class::Disruptive`], parity is
+/// [`Class::Hitless`] (pool-objects design D4). Shared by the root and child seat lines.
+fn seat_class(required: i64, observed: i64) -> Class {
+    if required > observed {
+        Class::Disruptive
+    } else {
+        Class::Hitless
+    }
+}
+
 /// Renders the root-scope pool convergence the run would drive (pool-objects task 3.4;
 /// pool-objects design D3): a header with the pass headline, then per trio family its
 /// observed-vs-derived counts, the class-tagged disposition (create/destroy/prune, or the
-/// [`ShrinkBelowDraw`](dpaa2_api::families::pool_lifecycle::ShrinkBelowDraw) refusal), and the
+/// [`ShrinkBelowDraw`] refusal), and the
 /// family's provenance node resolved to its baseline anchor — the same class-gating and
 /// per-object provenance conventions the container steps use. The dpio seats follow as a
 /// grow-only line. A converged root shows an all-hitless headline and empty dispositions:
@@ -249,37 +303,14 @@ pub fn render_pool_drift(plan: &CompiledPlan, drift: &PoolDrift) -> String {
         drift.headline(),
     );
     for f in &drift.families {
-        match f.disposition {
-            Ok(deltas) => {
-                let class = if deltas.is_empty() {
-                    Class::Hitless
-                } else {
-                    Class::Disruptive
-                };
-                let _ = writeln!(
-                    out,
-                    "  {} observed managed={}/{} required={} [{class}] create={} destroy={} prune={}",
-                    f.family.name(),
-                    f.census.managed(),
-                    f.census.population(),
-                    f.required,
-                    deltas.create,
-                    deltas.destroy,
-                    deltas.prune,
-                );
-            }
-            // A requirement below the drawn count is surfaced, never a teardown (pool-objects design D3).
-            Err(refusal) => {
-                let _ = writeln!(
-                    out,
-                    "  {} observed managed={}/{} required={} REFUSED: {refusal}",
-                    f.family.name(),
-                    f.census.managed(),
-                    f.census.population(),
-                    f.required,
-                );
-            }
-        }
+        render_family_disposition(
+            &mut out,
+            "  ",
+            f.family,
+            f.census,
+            f.required,
+            f.disposition,
+        );
         // A root managed surplus renders as grow-only reboot-required residue on every surface (ADR-0020; same voice as the dpio residue below).
         if let PoolDisposition::RebootRequired(residue) = f.residue() {
             let _ = writeln!(out, "    reboot-required: {residue}");
@@ -287,11 +318,7 @@ pub fn render_pool_drift(plan: &CompiledPlan, drift: &PoolDrift) -> String {
         render_root_provenance(plan, f.family.family(), &mut out);
     }
     // dpio is a seat, grown never shrunk (pool-objects design D4).
-    let dpio_class = if drift.dpio_required > drift.dpio_observed {
-        Class::Disruptive
-    } else {
-        Class::Hitless
-    };
+    let dpio_class = seat_class(drift.dpio_required, drift.dpio_observed);
     let _ = writeln!(
         out,
         "  dpio seats observed={} required={} [{dpio_class}]",
@@ -353,40 +380,9 @@ pub fn render_population(children: &[ChildPlan]) -> String {
             planned = cp.dpnis.len(),
         );
         for (family, (required, census, disposition)) in &cp.families {
-            match disposition {
-                Ok(deltas) => {
-                    let class = if deltas.is_empty() {
-                        Class::Hitless
-                    } else {
-                        Class::Disruptive
-                    };
-                    let _ = writeln!(
-                        out,
-                        "    {} observed managed={}/{} required={required} [{class}] create={} destroy={} prune={}",
-                        family.name(),
-                        census.managed(),
-                        census.population(),
-                        deltas.create,
-                        deltas.destroy,
-                        deltas.prune,
-                    );
-                }
-                Err(refusal) => {
-                    let _ = writeln!(
-                        out,
-                        "    {} observed managed={}/{} required={required} REFUSED: {refusal}",
-                        family.name(),
-                        census.managed(),
-                        census.population(),
-                    );
-                }
-            }
+            render_family_disposition(&mut out, "    ", *family, *census, *required, *disposition);
         }
-        let dpio_class = if cp.seats.0 > cp.seats.1 {
-            Class::Disruptive
-        } else {
-            Class::Hitless
-        };
+        let dpio_class = seat_class(cp.seats.0, cp.seats.1);
         let _ = writeln!(
             out,
             "    dpio seats observed={} required={} [{dpio_class}]",

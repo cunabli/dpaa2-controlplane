@@ -269,9 +269,8 @@ fn ensure(
     // A refused run changed nothing, so write no `.link` files either.
     if let Outcome::DisruptionRefused { headline, allowed } = &outcome {
         println!(
-            "refused: this plan's headline is `{headline}`, but the run allows only up to \
-             `{allowed}`.\nre-run with `--allow={headline}` to actuate it (disruptive is never \
-             implied)."
+            "{}",
+            gate_refusal_message("this plan's headline is", *headline, *allowed, false)
         );
         return Ok(ExitCode::FAILURE);
     }
@@ -288,9 +287,13 @@ fn ensure(
         ContainerOutcome::Converged => {}
         ContainerOutcome::DisruptionRefused { headline, allowed } => {
             println!(
-                "refused: a consumer container plan's headline is `{headline}`, but the run allows \
-                 only up to `{allowed}`.\nre-run with `--allow={headline}` to actuate it \
-                 (disruptive is never implied)."
+                "{}",
+                gate_refusal_message(
+                    "a consumer container plan's headline is",
+                    headline,
+                    allowed,
+                    false
+                )
             );
             return Ok(ExitCode::FAILURE);
         }
@@ -323,9 +326,13 @@ fn ensure(
         } => {
             print!("{}", render::render_prune(&items));
             println!(
-                "refused: pruning an undeclared container is `{headline}`, but the run allows \
-                 only up to `{allowed}`.\nre-run with `--prune --allow={headline}` to actuate it \
-                 (disruptive is never implied)."
+                "{}",
+                gate_refusal_message(
+                    "pruning an undeclared container is",
+                    headline,
+                    allowed,
+                    true
+                )
             );
             return Ok(ExitCode::FAILURE);
         }
@@ -392,6 +399,18 @@ fn ensure(
     }
 }
 
+/// The one ADR-0015 decision-12 gate refusal message every convergence/teardown stage shares:
+/// the plan's `what` exceeds the run's `--allow` ceiling, so nothing actuates until a wider
+/// re-run. `needs_prune` prefixes `--prune ` on the pruning stages. Only this law's text is
+/// shared — the six outcome enums stay distinct, since each carries a different refusal payload.
+fn gate_refusal_message(what: &str, headline: Class, allowed: Class, needs_prune: bool) -> String {
+    let flag = if needs_prune { "--prune " } else { "" };
+    format!(
+        "refused: {what} `{headline}`, but the run allows only up to `{allowed}`.\nre-run with \
+         `{flag}--allow={headline}` to actuate it (disruptive is never implied)."
+    )
+}
+
 /// Prints each refused same-run rebuild — port, dpni, and the diverging projection fields with desired vs observed (pool-objects design D12; ADR-0008 §9).
 fn print_rebuild_refusals(refusals: &[dpaa2_api::plan::RebuildRefusal]) {
     for r in refusals {
@@ -425,9 +444,8 @@ fn run_population(
         PopulationOutcome::Converged => Ok(None),
         PopulationOutcome::DisruptionRefused { headline, allowed } => {
             println!(
-                "refused: a child population's headline is `{headline}`, but the run allows only \
-                 up to `{allowed}`.\nre-run with `--allow={headline}` to actuate it (disruptive is \
-                 never implied)."
+                "{}",
+                gate_refusal_message("a child population's headline is", headline, allowed, false)
             );
             Ok(Some(ExitCode::FAILURE))
         }
@@ -454,9 +472,8 @@ fn report_pool_outcome(outcome: &PoolOutcome, stage: &str) -> Option<ExitCode> {
         PoolOutcome::Converged => None,
         PoolOutcome::DisruptionRefused { headline, allowed } => {
             println!(
-                "refused: root pool {stage} is `{headline}`, but the run allows only up to \
-                 `{allowed}`.\nre-run with `--allow={headline}` to actuate it (disruptive is \
-                 never implied)."
+                "{}",
+                gate_refusal_message(&format!("root pool {stage} is"), *headline, *allowed, false)
             );
             Some(ExitCode::FAILURE)
         }
@@ -487,10 +504,16 @@ fn report_root_dpni_prune(outcome: &RootDpniPruneOutcome) -> Option<ExitCode> {
             candidates,
         } => {
             println!(
-                "refused: pruning {} undeclared root dpni(s) {candidates:?} is `{headline}`, but \
-                 the run allows only up to `{allowed}`.\nre-run with `--prune --allow={headline}` \
-                 to actuate it (disruptive is never implied).",
-                candidates.len()
+                "{}",
+                gate_refusal_message(
+                    &format!(
+                        "pruning {} undeclared root dpni(s) {candidates:?} is",
+                        candidates.len()
+                    ),
+                    *headline,
+                    *allowed,
+                    true
+                )
             );
             Some(ExitCode::FAILURE)
         }
