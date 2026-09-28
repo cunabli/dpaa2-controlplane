@@ -235,7 +235,8 @@ offline first rather than on the board.
 | ShrinkBelowDraw | `shrinkBelowDrawRefusedTest` | simulate + itf-replay | pool-objects design D3; formal-models req 2 (refusal, not a teardown) |
 | Grow to count | `convergenceGrowTest` | simulate + itf-replay | pool-objects design D3 (deficit → create to the derived count) |
 | Born-drawn netting | envBornDrawnNetsTest | simulate + itf-replay | pool-objects design D3; V-POOL-6 (the DPL-born nets out of the draw guard) |
-| Foreign-drawn fold | envForeignDrawnFoldsTest | simulate + itf-replay | pool-objects design D2 (conservative bias; count-indistinguishable) |
+| Foreign-drawn split | envForeignDrawnFoldsTest | simulate + itf-replay | pool-objects design D2; bead dpaa2-controlplane-960.21 (census `foreign_drawn` facet, replayed; count-level fold retired, `managed()==managedCount` exactly) |
+| Foreign-drawn grow | envForeignDrawnGrowsTest | simulate + itf-replay | bead dpaa2-controlplane-960.21 (grow fires atop a drawn foreign; the count surface sees the true deficit) |
 | Cohabitant reclaim | envCohabitantPrunedTest | simulate + itf-replay | pool-objects design D9 (single provider; convergence under interference) |
 
 Not every guard arm rides a frozen trace. The root-scope suppression of

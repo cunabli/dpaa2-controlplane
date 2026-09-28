@@ -612,13 +612,12 @@ module pool_lifecycle {
       .then(retargetAt(0))
       .then(shrinkBelowDrawAt.fail())
 
-  // A drawn foreign folds into managed (count-indistinguishable; the conservative
-  // bias): the managed grow lands `second`, then EXTERNAL draws the cohabitant
-  // `first`, which stays drawn and is never a prune candidate (pool-objects design D2).
-  // The grow FIRES BEFORE the draw on purpose: a grow freezes only from states the
-  // count surface also grows from, and a drawn foreign masks a deficit at count level
-  // (the pool-objects design D2 fold, grow direction — the count surface does not grow
-  // atop a drawn foreign; the proxy refinement is tracked on the pool-objects follow-up bead).
+  // A drawn foreign is its own census facet (`foreign_drawn`), not a managed one: the
+  // managed grow lands `second`, then EXTERNAL draws the cohabitant `first`, which stays
+  // drawn and is never a prune candidate (pool-objects design D2). This run stays the
+  // isomorphism witness — the count surface's `foreign_drawn` facet nets out of `managed()`
+  // exactly as `managedCount` does here, so the two agree with no fold (bead
+  // dpaa2-controlplane-960.21).
   run envForeignDrawnFoldsTest =
     init
       .then(createPooledAt)
@@ -630,6 +629,24 @@ module pool_lifecycle {
         managedCount(conv) == 1,
         s.objs.get(first).allocatedBy == Some(EXTERNAL),
         not(anyPrunable(s, conv)),
+      })
+
+  // The count surface grows atop a drawn foreign (bead dpaa2-controlplane-960.21): EXTERNAL
+  // draws the cohabitant `first` BEFORE the managed grow, and the grow still fires `second`.
+  // The drawn-foreign facet (`foreign_drawn`) no longer masks the deficit at count level, so
+  // draw-then-grow replays through the Rust count surface where the old fold could not
+  // (pool-objects design D2).
+  run envForeignDrawnGrowsTest =
+    init
+      .then(createPooledAt)
+      .then(plugPooledAt(first))
+      .then(drawAt(EXTERNAL, first))
+      .then(retargetAt(1))
+      .then(growCreateAt)
+      .expect(and {
+        managedCount(conv) == 1,
+        s.objs.get(first).allocatedBy == Some(EXTERNAL),
+        conv.managed.contains(second),
       })
 
   // Convergence under interference (pool-objects design D9; ADR-0020 decision 4): the
