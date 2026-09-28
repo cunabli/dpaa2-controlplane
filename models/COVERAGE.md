@@ -65,7 +65,7 @@ and the adapter render must resolve inside the kernel's `/dev/dprc.N`
 command whitelist (`docs/baseline/mc-ioctl-policy.md`), and the two raw
 probes must resolve outside it.
 
-Tally: 59 modeled, 43 deferred, 7 board-settled, 0 board-pending — 109 candidates.
+Tally: 60 modeled, 42 deferred, 7 board-settled, 0 board-pending — 109 candidates.
 
 | Candidate | Disposition | Location / owning change / settling scenario | CI rung | Board status |
 |-----------|-------------|----------------------------------------------|---------|--------------|
@@ -86,7 +86,7 @@ Tally: 59 modeled, 43 deferred, 7 board-settled, 0 board-pending — 109 candida
 | DPNI-I2 | modeled | `main.qnt` `DPNI_I2Test` | simulate | falsified for the primary MAC 2026-08-29 (V-DPNI-3 rev 1): a second MAC set through restool while unbound was carried by both the firmware and the new netdev after the rebind — the probe did not reset it, because the driver keeps a non-zero firmware MAC and randomizes only a zero one (DPNI-I3). The law holds for other pre-bind state but not the primary MAC — the primary MAC landed at #5 as a `RuntimeState` slot, round-tripped by V-DPNI-10 (delivered 2026-09-19) |
 | DPNI-I3 | modeled | `retro/reconciler.qnt` association runs, replayed by `dpaa2-verify` against the reconciler; MAC value semantics → `dpmac-typestate` (#7) | itf-replay | verified (ADR-0001 C2) |
 | DPNI-I4 | modeled | `machine.qnt` kernelBind census guard + `main.qnt` `DPNI_I4Test` | simulate | verified (ADR-0001 C1) |
-| DPNI-I5 | deferred | family-model half landed at #5 (delivered 2026-09-19); the queue/channel draw half landed with `pool-objects` (#6) as the companion-draw census (ADR-0012), counts abstracted to draw=1 at core scope | — | — |
+| DPNI-I5 | modeled | family-model half landed at #5 (delivered 2026-09-19); the queue/channel draw half landed with `pool-objects` (#6) as the companion-draw census (ADR-0012), counts abstracted to draw=1 at core scope | — | — |
 | DPNI-I6 | deferred | this change ph.4 adapter — LAW 2: observation = read-back, never exit status | — | the class law is board-anchored on the dpni family itself 2026-08-29 (V-DPNI-2/probes-rev1, 12/12: `dpni create --max-senders=8` created the object and printed its id, then exited 234 on the dead option — exit status is no side-effect oracle, convergence rests on read-back), and twice before (ADR-0007 §2: restool exited 0 on an MC No privilege, the read-back caught it; V-LIFE-DPIO-1 rev 1: a refused teardown unplug went unseen while its stderr was discarded) |
 | DPNI-I7 | board-settled | V-READBACK-1 (`dpni info` of a bare create, from the suite hook) | — | verified 2026-08-29 (V-READBACK-1 rev 2, steps 6/6, hook 10/10): the corrected hook oracle confirms the rev-1 read-back — the MC defaults are 1 queue, 1 TC, 1 CG, 64 FS entries, VLAN filtering off, 16 MAC entries and 0 QoS entries; the 80/64 the baseline table first carried were restool's maxima, and the clean-boot reference's DPL-born dpni reads the same 16/0 |
 | DPNI-I8 | modeled | `main.qnt` `DPNI_I8Test` (unbind grants no reset — the no-guarantee form) | simulate | falsified for the primary MAC 2026-08-29 (V-DPNI-3 rev 1): a MAC set from the netdev survived the kernel unbind — the remove-path reset did not clear it — so the clean-unbind reset is not even best-effort on the primary MAC. Max frame length read 1536 while unbound. The primary MAC landed at #5 as a `RuntimeState` slot, V-DPNI-10 round-trip (delivered 2026-09-19) |
@@ -113,6 +113,7 @@ Tally: 59 modeled, 43 deferred, 7 board-settled, 0 board-pending — 109 candida
 | DPBP-I5 | modeled | `core/invariants.qnt` `LAW4_twoIdSpaces` + `main.qnt` `DPBP_I5Test` | apalache | board-read as equal 2026-09-22 (V-POOL-5 rev 2): `bpid` equals the object id (dpbp id=1, buffer pool id 1), so divergence stays unobserved on this board and the two-id-spaces law is kept as a prohibition, nothing relies on equality (dpbp.md unknown 2) — no successor work; a board where the two diverge is a re-run on different silicon, not a roadmap change. V-READBACK-1 (2026-08-25) first read the same; V-POOL-5 rev 1 (2026-09-22) re-read the face but the run was void (a `field` helper arity bug parsed empty ids, `bpid-equals-id=yes` empty-vs-empty and spurious; the helper is fixed and the raw `ceiling-dpbp-info.txt` capture survived, rev 2 re-read it for real) |
 | DPBP-I6 | deferred | landed with `pool-objects` (#6): per-consumer dpbp count below core scope (the two-dpbp rule, ADR-0012) | — | verified (ADR-0012) |
 | DPBP-I7 | board-settled | V-CEIL-1 (the dpbp pool floor of `dprc show mc.global --resources`) + `families/dpbp.qnt` `dpbp_lifecycle` `POOL_CENSUS`/`censusRefusesAtCeilingTest` (inherited from `pool_lifecycle`; the census-floor refusal modeled as a disabled create) in `pool-objects` (#6) | — | board-settled at the pool floor, V-CEIL-1 rev 1 (2026-08-29): a dpbp create is refused with No resources exactly when the buffer-pool free count reaches zero (63 created, the 64th refused, the count read zero at the ceiling), and every destroy returned its unit — the census predicts the refusal to the object (the suite's overall FAIL was the unrelated dpmcp-portal ambivalence, ADR-0011). Re-confirmed at ROOT scope 2026-09-22 (V-POOL-5 rev 1): the census predicted refusal after 62 root dpbp creates, the refusal landed at 62 with No resources, and every unit returned (`bp` free 62→62 after the spaced destroys); re-held at V-POOL-5 rev 2 (2026-09-22), the ceiling landing at 62 again |
+| VFIO rebind-drift (bead dpaa2-controlplane-w01) | deferred | `cross-dprc-links` (#9); ADR-0017: healing a bound child's config drift needs an unbind/rebind cycle only a live dataplane can schedule, deferred from `pool-objects` design D11 (dprc-hardening PASS3-F1/F2 typed the child refusal, not the heal); a locality rider recorded here beside the pool/population rows, not one of the baseline invariant candidates the tally above counts | — | the rebind heal rides `cross-dprc-links` (#9) |
 | DPIO-I1 | modeled | `core/invariants.qnt` `DPIO_I1` + `main.qnt` `DPMCP_I1Test` (the dpio→dpmcp arrow) | apalache | — |
 | DPIO-I2 | modeled | `families/dpio.qnt` `dpio_lifecycle` `DPIO_I2_seatBound` + `seatBoundRefusedTest` (regime-typed seat ceilings: ≤1 dpio/CPU kernel with the -ERANGE refusal, 2/thread DPDK; frozen for ITF-replay as a conformance twin in `crates/dpaa2-verify/tests/dpio_replay.rs`, pool-objects task 4.1) | apalache + itf-replay | verified (ADR-0012; board 16 + 10) |
 | DPIO-I3 | modeled | `families/dpio.qnt` `dpio_lifecycle` `DPIO_I3_modeDead` + `noChannelReportsPrioritiesTest` (capability from reported `num_priorities` alone, `channel_mode` mode-independent; frozen for ITF-replay as a conformance twin in `crates/dpaa2-verify/tests/dpio_replay.rs`, pool-objects task 4.1) | apalache + itf-replay | verified 2026-09-22 (V-DPIO-1 rev 1): the reported half held — boot dpio.0/dpio.15 read DPIO_LOCAL_CHANNEL at 0x8 priorities and the scratch runtime dpio.16 reads DPIO_NO_CHANNEL at 8 priorities mode-independently (V-READBACK-1, 2026-08-25, first read a NO_CHANNEL dpio at 8 priorities, `dpio info` reporting `0x8` with the mode not folding them away). The kernel half (what the driver does with a NO_CHANNEL dpio's priorities) is NAMED unreachable at root — a runtime dpio takes no `fsl_mc_dpio` seat (boot seats full, ADR-0008), a container-independent seat saturation the DPL-child escape cannot lift — so bead dpaa2-controlplane-960.13's DPL-child gate closed NOT FIRED 2026-09-27; the face rides bead dpaa2-controlplane-5y7 with the raw command path (#10) |
@@ -193,19 +194,24 @@ checked through the trio instantiations (representative: `dpbp_lifecycle`,
 they carry their own section here rather than a row in the 109-candidate table
 above (the same convention the Intent/Raw/Identity law sections follow). The
 five laws ride the `stateInvariants` conjunction (Apalache-marked); the
-accept/refuse shapes are directed runs in the same module. The fourteen runs are
+accept/refuse shapes are directed runs in the same module. The fifteen runs are
 frozen for ITF-replay (`pnpm model:freeze-pool`) and replayed as conformance
 twins against the `dpaa2-api` P3 count surface in
 `crates/dpaa2-verify/tests/pool_replay.rs` (pool-objects task 4.1), so a Rust
 predicate that drifts from the model census fails CI.
 
 Task 3.9 (pool-objects design D10) splits the two custody facets the census had
-collapsed — plugged (allocatable, DPBP-I2) distinct from drawn — so reclaim is
-the unplug-probe law (an unplug of a drawn individual is refused, the refusal is
-the drawn signal; a plugged-free individual unplugs then destroys) and the twins
-carry plugged explicitly. The dpio grow-only residue renders as a typed
-reboot-required disposition (`families/dpio.qnt` `seatDisposition`;
-`seatResidueReportedTest`), never a silent carve-out.
+collapsed — plugged (allocatable, DPBP-I2) distinct from drawn — so the
+unplug-probe reclaim law runs at child scope (ADR-0020 decision 3): an unplug of
+a drawn individual is refused, the refusal is the drawn signal; a plugged-free
+individual unplugs then destroys, and the twins carry plugged explicitly. Root
+capacity is grow-only (ADR-0020 decision 1); a departing port's surplus is never
+reclaimed at runtime but rendered as typed reboot-required residue (ADR-0020
+decision 2), one instance of the dpio grow-only residue (`families/dpio.qnt`
+`seatDisposition`; `seatResidueReportedTest`), never a silent carve-out. The
+shipped residue operand counts labeled-plugged capacity (`PoolFamilyDrift`
+engine-side), where the model's `poolDisposition` reads the `managedCount` ghost
+set — a recorded twin difference (ADR-0020 decision 2), not drift.
 
 The module carries an environment adversary (pool-objects task 3.8): every
 P-family model gains an environment section — here a non-reconciler `EXTERNAL`
@@ -223,6 +229,7 @@ offline first rather than on the board.
 | Idempotent converge | POOL_IDEMPOTENT + `idempotentReconvergeTest` | simulate + apalache + itf-replay | pool-objects design D3; formal-models req 2 (level-triggered) |
 | Free-only shrink | `freeOnlyShrinkTest` / `drawnNeverShrunkTest` | simulate + itf-replay | pool-objects design D3/D10; formal-models req 2 (surplus destroys free only, via the unplug probe) |
 | Unplug-probe reclaim | `managedSurplusReclaimsTest` / `drawnNeverShrunkTest` | simulate + itf-replay | pool-objects design D10; DPBP-I2 (allocatable ⟺ plugged; probe-succeeds-on-plugged-free, probe-refused-on-drawn) |
+| Root surplus is residue | `rootSurplusResidueTest` | simulate + itf-replay | ADR-0020 (root grow-only ⇒ root surplus refuses destroy, destroy=0, typed residue); pool-objects design D10 amendment; DPBP-I2 |
 | Teardown ordering | `teardownWalkTest` | simulate + itf-replay | pool-objects design D10; formal-models req (consumers release before pool shrink) |
 | dpio residue | `families/dpio.qnt` `seatDisposition` + `seatResidueReportedTest` | simulate | pool-objects design D4/D10; ADR-0008 §4 (grow-only seats; typed reboot-required residue) |
 | ShrinkBelowDraw | `shrinkBelowDrawRefusedTest` | simulate + itf-replay | pool-objects design D3; formal-models req 2 (refusal, not a teardown) |
@@ -230,6 +237,14 @@ offline first rather than on the board.
 | Born-drawn netting | envBornDrawnNetsTest | simulate + itf-replay | pool-objects design D3; V-POOL-6 (the DPL-born nets out of the draw guard) |
 | Foreign-drawn fold | envForeignDrawnFoldsTest | simulate + itf-replay | pool-objects design D2 (conservative bias; count-indistinguishable) |
 | Cohabitant reclaim | envCohabitantPrunedTest | simulate + itf-replay | pool-objects design D9 (single provider; convergence under interference) |
+
+Not every guard arm rides a frozen trace. The root-scope suppression of
+`shrinkBelowDrawAt` (root leaves residue rather than refuse — unit
+`root_never_refuses_below_draw`), the probe-skipped `shrinkDestroyAt` refusal,
+and `probeDpioAt`'s unplugged/already-probed refusal arms are simulate/unit
+twins only (pool-objects PASS2-F7); the pool-objects design D12 same-run-rebuild
+refusal (`dpni_rebuild`, `families/dpni.qnt`) is simulate-only — its Rust side
+rides `crates/dpaa2-tools/tests/convergence.rs` and V-MVP-1, with no ITF leg.
 
 ## Intent invariants (intent-layer task 5.1)
 

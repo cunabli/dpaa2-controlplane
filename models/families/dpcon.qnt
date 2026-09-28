@@ -6,8 +6,8 @@
 // Named invariants (modeled; dispositions in models/COVERAGE.md):
 //   DPCON-I2 core/invariants.qnt LAW4_twoIdSpaces + main.qnt DPCON_I2Test;
 //   DPCON-I4 families/dpcon.qnt NotificationEdge type (the mutable dpcon→dpio
-//     notification edge; the retarget dynamics land in a later #6 phase;
-//     docs/baseline/dpcon.md "Attribute mutability");
+//     notification edge; the retarget dynamics ride the traffic-bearing
+//     cross-dprc-links (#9) phase; docs/baseline/dpcon.md "Attribute mutability");
 //   DPCON-I5 main.qnt DPCON_I5Test + dpcon_lifecycle dirtyReturnTest
 //     (the never-reset custody return, shared with DPBP-I3, inherited from
 //     pool_lifecycle).
@@ -18,7 +18,8 @@ module dpcon {
   // DPCON-I4: the one mutable dpcon edge — set_notification retargets the
   // channel at a dpio at runtime (dpcon.md "Attribute mutability"). The address
   // is the qbman channel id, a second id space distinct from the object id
-  // (DPCON-I2). Type only here; the retarget dynamics are a later #6 phase.
+  // (DPCON-I2). Type only here; the retarget dynamics are the traffic-bearing
+  // cross-dprc-links (#9) phase.
   type NotificationEdge = {
     qbmanChId: int,        // the dequeue/CDAN address, not the object id (DPCON-I2)
     target: Option[int],   // notified dpio id; None == DPCON_INVALID_DPIO_ID (-1), disabled

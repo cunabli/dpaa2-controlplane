@@ -53,10 +53,10 @@ outside this change.
 
 ## 7. Bead D — COVERAGE + baseline ledger amend (dpaa2-controlplane-p6m.4)
 
-- [ ] 7.1 `models/COVERAGE.md` pool-law ledger: ADR-0020 anchors, root-surplus-residue law row, reclaim sentence scoped to child custody, run count corrected (L1); labeled-plugged residue operand row (L9 half)
-- [ ] 7.2 Honest marks for still-unreplayed arms (root shrink suppression, probe-skipped refusal, D12 simulate-only) after C's freezes (L25 residue)
-- [ ] 7.3 Baseline routing: `dpbp.md` DPBP-I4 + `dprc.md` DPRC-I8 5y7/#10 routing and closed window (L5); w01/#9 rider; dpcon #9 carrier; DPNI-I5 status; `dpbp.md` unknown #2 adds V-POOL-5 rev 2 (L19, L21)
-- [ ] 7.4 Gates + close bead p6m.4; commit
+- [x] 7.1 `models/COVERAGE.md` pool-law ledger: ADR-0020 anchors, root-surplus-residue law row, reclaim sentence scoped to child custody, run count corrected (L1); labeled-plugged residue operand row (L9 half)
+- [x] 7.2 Honest marks for still-unreplayed arms (root shrink suppression, probe-skipped refusal, D12 simulate-only) after C's freezes (L25 residue)
+- [x] 7.3 Baseline routing: `dpbp.md` DPBP-I4 + `dprc.md` DPRC-I8 5y7/#10 routing and closed window (L5); w01/#9 rider; dpcon #9 carrier; DPNI-I5 status; `dpbp.md` unknown #2 adds V-POOL-5 rev 2 (L19, L21)
+- [x] 7.4 Gates + close bead p6m.4; commit
 
 ## 8. Bead H — plan-type relocation and small folds (dpaa2-controlplane-p6m.8)
 
