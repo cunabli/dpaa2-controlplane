@@ -598,7 +598,8 @@ fn dispatch_teardown_step<M: McControl>(
 /// re-observation handle for [`ContainerStep::CreateContainer`] so the caller re-observes
 /// exactly it (dpni-typestate design D5). The container-only convergence path emits only
 /// that step (existence, options, label, placement); any other step is out of this
-/// change's scope (companion/dpni are tiles #5/#6) and is an error, not a silent no-op.
+/// change's scope (companion sets converge in the pool passes, `converge_pools`; child
+/// dpnis in the population pass, `converge_population`) and is an error, not a silent no-op.
 fn dispatch_container_step<M: McControl>(
     step: &ContainerStep,
     mc: &M,
@@ -622,7 +623,7 @@ fn dispatch_container_step<M: McControl>(
             Ok(Some(id))
         }
         other => Err(Error::Backend(format!(
-            "container-only convergence emits no {other:?} (companion/dpni are tiles #5/#6)"
+            "container-only convergence emits no {other:?} (companion sets ride converge_pools, child dpnis ride converge_population)"
         ))),
     }
 }
@@ -803,7 +804,7 @@ fn root_family_label(plan: &CompiledPlan, family: Family) -> ConstructName {
 
 /// The runtime ceiling for `family`, threaded the way the fit-check reads it — the
 /// inventory's listed ceiling, or [`Ceiling::Unknown`] (admit-and-warn) where the family's
-/// ceiling is unlistable (ADR-0011; consistent with the `populate_child` gap, bead
+/// ceiling is unlistable (ADR-0011; consistent with the `plan_child_population` gap, bead
 /// dpaa2-controlplane-amt).
 fn ceiling_of(inventory: &Inventory, family: PoolFamily) -> Ceiling {
     inventory
