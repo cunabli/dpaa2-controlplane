@@ -439,6 +439,10 @@ fn run_population(
             );
             Ok(Some(ExitCode::FAILURE))
         }
+        PopulationOutcome::ShrinkRefused { label, refusal } => {
+            println!("refused: child `{label}`: {refusal}");
+            Ok(Some(ExitCode::FAILURE))
+        }
     }
 }
 

@@ -950,10 +950,14 @@ pub fn converge_pools<M: McControl>(
             None,
             f.family,
             masked,
+            f.required,
             &label,
             &declared,
             CustodyScope::RootScope,
         )?;
+        if let Some(refusal) = dispatch.refusal {
+            return Ok(PoolOutcome::ShrinkRefused { refusal });
+        }
         let after = census_of(&dispatch.after, &declared);
         // Root shrink is grow-only: the verdict is the never-plugged prune cleared; surplus is residue (ADR-0020).
         let converged = match pass {
@@ -1017,6 +1021,16 @@ pub enum PopulationOutcome {
     DriftRefused {
         /// The bound child whose plan still carries pending residents.
         label: ConstructName,
+    },
+    /// A child pool family's derived requirement fell below its drawn count, at either
+    /// discovery path — the pre-dispatch census read or the probe-discovered draw — so a
+    /// free-only shrink cannot reach the live consumer and nothing is torn down. Mirrors the
+    /// root [`PoolOutcome::ShrinkRefused`] (ADR-0020 decision 3; pool-objects design D10).
+    ShrinkRefused {
+        /// The child whose family requirement fell below its draw.
+        label: ConstructName,
+        /// The typed below-draw refusal, naming the family and the two counts.
+        refusal: ShrinkBelowDraw,
     },
 }
 
@@ -1097,6 +1111,22 @@ pub fn converge_population<M: McControl, K: KernelControl>(
 ) -> Result<PopulationOutcome, Error> {
     let plans = plan_population(plan, mc, kernel)?;
 
+    // The pre-dispatch below-draw refusal, surfaced before any dispatch (mirroring root
+    // `converge_pools`; pool-objects design D10).
+    if let Some((label, refusal)) = plans
+        .iter()
+        .find_map(|cp| cp.shrink_refusal().map(|r| (cp.label.clone(), r)))
+    {
+        tracing::error!(
+            %label,
+            family = refusal.family.name(),
+            requirement = refusal.requirement,
+            drawn = refusal.drawn,
+            "child pool requirement below drawn count"
+        );
+        return Ok(PopulationOutcome::ShrinkRefused { label, refusal });
+    }
+
     // ADR-0017: a bound child with pending residents is a typed refusal, before any dispatch.
     if let Some(cp) = plans.iter().find(|c| c.bound && !c.is_converged()) {
         tracing::error!(label = %cp.label, "residents drift inside a bound child; a rebind cycle is required (ADR-0017)");
@@ -1123,6 +1153,19 @@ pub fn converge_population<M: McControl, K: KernelControl>(
     for cp in &plans {
         if !cp.is_converged() {
             let pop = dispatch_child_population(mc, cp, &declared)?;
+            if let Some(refusal) = pop.refusal {
+                tracing::error!(
+                    label = %cp.label,
+                    family = refusal.family.name(),
+                    requirement = refusal.requirement,
+                    drawn = refusal.drawn,
+                    "child pool requirement below drawn count discovered during dispatch"
+                );
+                return Ok(PopulationOutcome::ShrinkRefused {
+                    label: cp.label.clone(),
+                    refusal,
+                });
+            }
             if !pop.converged(cp.dpnis.len()) {
                 return Err(Error::Backend(format!(
                     "child `{}` did not converge after population dispatch: {pop:?}",
@@ -1603,6 +1646,107 @@ mod tests {
             let text = crate::render::render_pool_drift(&compiled.plan, &drift);
             assert!(text.contains("root pool convergence"), "{text}");
             assert!(text.contains("dpio seats"), "{text}");
+        }
+    }
+
+    /// Child-population convergence at the engine seam (pool-objects design D10): a probe-
+    /// discovered below-draw surfaces as the typed [`PopulationOutcome::ShrinkRefused`] on the
+    /// operator surface, not an [`Error`].
+    mod population {
+        use std::collections::BTreeMap;
+
+        use dpaa2_api::contract::fake::FakeBackend;
+        use dpaa2_api::core::model::{DpmacId, MacMode, ObjectRef};
+        use dpaa2_api::families::dprc::ContainerState;
+        use dpaa2_api::families::pool_lifecycle::{
+            ObservedPoolObject, RawLabel, derived_requirement,
+        };
+        use dpaa2_api::intent::refuse::{Compiled, compile};
+        use dpaa2_api::intent::{Dataplane, Intent, Isolation, Port, Tenant, TenantRef};
+        use dpaa2_api::plan::dprc::ObservedContainer;
+        use dpaa2_api::testkit::ref_inventory;
+
+        use super::*;
+
+        // The reference userspace-poll router (two 10G ports, T = 5), whose objects compile
+        // into a child container.
+        fn compiled_router() -> Compiled {
+            let router = Tenant {
+                name: "router".into(),
+                dataplane: Dataplane::UserspacePoll,
+                max_cores: 16,
+                isolation: Isolation::Isolated,
+                renamed: None,
+            };
+            let port = |name: ConstructName, dpmac: u32| Port {
+                name,
+                dpmac: DpmacId::new(dpmac),
+                rate: 10_000,
+                tenant: TenantRef::from_name("router".into()),
+                mac: None,
+                mac_mode: MacMode::Assert,
+                renamed: None,
+            };
+            let intent = Intent {
+                tenants: vec![router],
+                ports: vec![
+                    port(ConstructName::from("wan0"), 7),
+                    port(ConstructName::from("wan1"), 9),
+                ],
+                ..Intent::empty()
+            };
+            compile(&intent, &ref_inventory(16)).expect("intent compiles")
+        }
+
+        fn pop_cfg() -> ConvergeConfig {
+            ConvergeConfig {
+                deadline: Duration::from_secs(5),
+                poll_interval: Duration::ZERO,
+                prune: false,
+                allow: Class::Disruptive,
+            }
+        }
+
+        #[test]
+        fn child_discovered_draw_is_a_typed_shrink_refused_outcome() {
+            let compiled = compiled_router();
+            let child = DprcId::new(2);
+            let container = Container::Child("router".into());
+            let req = derived_requirement(&compiled.plan, &container, PoolFamily::Dpbp);
+
+            // A created, unbound child labelled "router" plus req+1 in-use dpbp: the census
+            // reads them free (restool-shaped), so the plan emits a destroy the probe refuses.
+            let mut mc = FakeBackend::new().with_container(
+                child,
+                ObservedContainer {
+                    state: ContainerState::Created,
+                    options: Options::DEFAULT,
+                    label: ConstructName::from("router"),
+                    placement: Container::Child("router".into()),
+                    residents: BTreeMap::new(),
+                },
+            );
+            for ord in 0..=req {
+                mc = mc.with_in_use_pool_object(
+                    child,
+                    ObservedPoolObject {
+                        object: ObjectRef::new(Family::Dpbp, u32::try_from(ord).unwrap()),
+                        label: RawLabel::from("router"),
+                        plugged: true,
+                        drawn: false,
+                    },
+                );
+            }
+
+            match converge_population(&compiled.plan, &mc, &mc, pop_cfg()).unwrap() {
+                PopulationOutcome::ShrinkRefused { label, refusal } => {
+                    assert_eq!(label.as_str(), "router");
+                    assert_eq!(refusal.family, PoolFamily::Dpbp);
+                    assert_eq!(refusal.requirement, req);
+                    assert_eq!(refusal.drawn, req + 1);
+                }
+                other => panic!("expected a typed ShrinkRefused, got {other:?}"),
+            }
         }
     }
 }

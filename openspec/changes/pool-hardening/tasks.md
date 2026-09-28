@@ -38,9 +38,9 @@ outside this change.
 
 ## 5. Bead A — typed child-scope pool refusal at both discovery paths (dpaa2-controlplane-p6m.1)
 
-- [ ] 5.1 `converge_population` (`engine.rs` ~:1091-1137) surfaces the child `ShrinkBelowDraw` typed; the dead `ChildPlan::shrink_refusal` (`populate.rs` ~:141-146) is consumed or deleted (L4)
-- [ ] 5.2 Probe `-EBUSY` discovered-draw path (`pool.rs` ~:240-246) becomes the same typed face its docs promise (L4)
-- [ ] 5.3 Gates + close bead p6m.1; commit
+- [x] 5.1 `converge_population` (`engine.rs` ~:1091-1137) surfaces the child `ShrinkBelowDraw` typed; the dead `ChildPlan::shrink_refusal` (`populate.rs` ~:141-146) is consumed or deleted (L4)
+- [x] 5.2 Probe `-EBUSY` discovered-draw path (`pool.rs` ~:240-246) becomes the same typed face its docs promise (L4)
+- [x] 5.3 Gates + close bead p6m.1; commit
 
 ## 6. Bead F — code-comment residue (dpaa2-controlplane-p6m.6)
 
