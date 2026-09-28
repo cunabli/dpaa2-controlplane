@@ -14,7 +14,7 @@ outside this change.
 - [x] 1.5 `crates/dpaa2-api/src/families/dpio.rs` (~:314,330): same double citation as 1.2 on the Rust twin (L20, Rust side)
 - [x] 1.6 Directed DpdkSeat run added to the dpio freeze harness; trace frozen under `models/traces/`, replays green (L25)
 - [x] 1.7 Gates: `pnpm model:freeze-pool && pnpm model:freeze-dpio && git diff --exit-code models/traces` clean; pool + dpio replay suites green; `scripts/checks/quality-floor.sh` PASS
-- [ ] 1.8 Close bead p6m.3; commit
+- [x] 1.8 Close bead p6m.3; commit
 
 ## 2. Rule-amendment disposition (epic acceptance)
 
@@ -65,7 +65,12 @@ outside this change.
 - [x] 8.3 Small folds: shim `prunable_at_scope` twin; gate-message copies in main.rs; render family block; `bind_eth` honors `drivers_root`; `effective_queues` fallback fold (L24)
 - [x] 8.4 Gates + close bead p6m.8; commit
 
+## 8b. Carried bead 960.21 — drawn-foreign census facet (dpaa2-controlplane-960.21)
+
+- [x] 8b.1 Revisit trigger re-judged fired: beads A–H gave every observed row a label + drawn facet, the readback the bead waited on. Census `foreign_drawn` facet netted out of `managed()` (== the model's `managedCount` exactly); `envForeignDrawnGrowsTest` (draw-then-grow) frozen and replaying; pool_replay isomorphism tightened to strict equality; `drawn_managed()` keeps its conservative foreign count
+- [x] 8b.2 Gates + close bead 960.21; commits split per crate
+
 ## 9. Close-out
 
-- [ ] 9.1 Epic bead p6m acceptance check (all children closed, rule amendment dispositioned); docs/ROADMAP.md touch if #6-adjacent state changed
-- [ ] 9.2 `openspec validate --strict` green; ready for review + archive
+- [x] 9.1 Epic bead p6m acceptance check (all children closed, rule amendment dispositioned); docs/ROADMAP.md touch if #6-adjacent state changed
+- [x] 9.2 `openspec validate --strict` green; ready for review + archive
