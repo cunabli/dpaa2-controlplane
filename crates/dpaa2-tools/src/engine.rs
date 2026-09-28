@@ -970,7 +970,8 @@ pub fn converge_pools<M: McControl>(
         }
     }
 
-    // dpio seats grow the deficit on the grow half only (the dpmcp probe pairing is the kernel driver's own draw; pool-objects design D4); grown never shrunk, a surplus is the reboot-required residue.
+    // dpio seats grow the deficit on the grow half only, grown never shrunk (pool-objects design D4).
+    // `required = derived_seats` is the KernelSeat `seat_ceiling` (ADR-0012), so the deficit loop cannot pass it and the `admit_seat` gate stays count-level; a short board surfaces raw MC status.
     if pass == PoolPass::Grow {
         let deficit = (drift.dpio_required - drift.dpio_observed).max(0);
         if deficit > 0 {

@@ -31,10 +31,10 @@ outside this change.
 
 ## 4. Bead B — seat gate and typed child seat surplus (dpaa2-controlplane-p6m.2)
 
-- [ ] 4.1 Model side FIRST: answer the child seat-surplus question in `dpio.qnt` (grow-only residue at child scope, twin of the root arm); freeze/replay any new arm
-- [ ] 4.2 Wire the pure seat gate as the production caller for the grow loops (`engine.rs` ~:974-989, `populate.rs` ~:332-339); raw McStatus no longer surfaces (L10)
-- [ ] 4.3 Child seat surplus reports the typed grow-only residue instead of looping to untyped `Error::Backend "did not converge"` (`populate.rs` ~:109-118)
-- [ ] 4.4 Gates + close bead p6m.2; commit
+- [x] 4.1 Model side FIRST: answer the child seat-surplus question in `dpio.qnt` (grow-only residue at child scope, twin of the root arm); freeze/replay any new arm
+- [x] 4.2 Wire the pure seat gate as the production caller for the grow loops (`engine.rs` ~:974-989, `populate.rs` ~:332-339); raw McStatus no longer surfaces (L10)
+- [x] 4.3 Child seat surplus reports the typed grow-only residue instead of looping to untyped `Error::Backend "did not converge"` (`populate.rs` ~:109-118)
+- [x] 4.4 Gates + close bead p6m.2; commit
 
 ## 5. Bead A — typed child-scope pool refusal at both discovery paths (dpaa2-controlplane-p6m.1)
 

@@ -365,6 +365,12 @@ fn ensure(
     if let SeatDisposition::RebootRequired(residue) = residue_drift.dpio_disposition() {
         println!("residue: {residue}");
     }
+    // The child half: each VFIO child's seat surplus is the same grow-only residue (pool-objects design D4/D10).
+    for cp in engine::plan_population(&compiled.plan, mc, kernel)? {
+        if let SeatDisposition::RebootRequired(residue) = cp.dpio_disposition() {
+            println!("residue: {residue}");
+        }
+    }
 
     // Apply stable names *after* convergence: the matchable MAC lives on the DPNI,
     // which does not exist until provisioning creates it. `link::apply` writes the

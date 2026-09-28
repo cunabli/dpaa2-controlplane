@@ -392,6 +392,9 @@ pub fn render_population(children: &[ChildPlan]) -> String {
             "    dpio seats observed={} required={} [{dpio_class}]",
             cp.seats.1, cp.seats.0,
         );
+        if let SeatDisposition::RebootRequired(residue) = cp.dpio_disposition() {
+            let _ = writeln!(out, "      reboot-required: {residue}");
+        }
     }
     out
 }
