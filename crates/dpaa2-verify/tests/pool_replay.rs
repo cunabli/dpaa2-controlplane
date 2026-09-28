@@ -10,7 +10,8 @@
 //! replayer reduces each state to its [`PoolCensus`] count vocabulary and infers the
 //! transition from the count delta (mirroring `pool_lifecycle`'s action set). The
 //! conformance is threefold: at every state the count↔individual boundary isomorphism
-//! (`managed() == managedCount + drawn-foreign`, pool-objects design D2) and the
+//! (`managed() == managedCount` exactly, the drawn-foreign facet netted out; bead
+//! dpaa2-controlplane-960.21, pool-objects design D2) and the
 //! shrink-below-draw duality hold; at every create/grow/shrink/prune transition the enabling
 //! predicate ([`PoolCensus::admits_create`]/`grow_enabled`/`shrink_enabled`) that let the
 //! model action fire is asserted true; and the two `.fail()` refusals and the
@@ -88,7 +89,11 @@ const TRACES: &[(&str, &str)] = &[
     ),
     (
         "dpbp_lifecycle::pool_lifecycle::envForeignDrawnFoldsTest",
-        "a drawn foreign folds into managed (the conservative bias, design D2)",
+        "a drawn foreign is its own facet netted out of managed (the isomorphism witness, design D2)",
+    ),
+    (
+        "dpbp_lifecycle::pool_lifecycle::envForeignDrawnGrowsTest",
+        "grow fires atop a drawn foreign — the count surface sees the true deficit",
     ),
     (
         "dpbp_lifecycle::pool_lifecycle::envCohabitantPrunedTest",
@@ -124,15 +129,13 @@ fn check_state(file: &str, i: usize, w: &PoolWorld) {
         w.present.contains(&BORN),
         "{file} step {i}: POOL_DPL_SURVIVES (pool-objects design D3, rule 12) — the DPL-born object is absent"
     );
-    // The model's `managedCount` is the reconciler-owned count; the Rust `managed()` folds in
-    // any drawn foreign (count-indistinguishable, the conservative bias). The exact relation
-    // is the count↔individual boundary law.
-    if w.census.managed() != w.managed_count + w.foreign_drawn {
+    // managed() nets the drawn-foreign facet out, so it equals managedCount exactly — the count↔individual boundary law (bead dpaa2-controlplane-960.21).
+    if w.census.managed() != w.managed_count {
         finding(
             file,
             i,
             &format!(
-                "census.managed() {} != managedCount {} + drawn-foreign {}",
+                "census.managed() {} != managedCount {} (drawn-foreign facet {} netted out)",
                 w.census.managed(),
                 w.managed_count,
                 w.foreign_drawn
@@ -384,11 +387,12 @@ fn born_drawn_nets_out_of_the_draw_guard() {
     );
 }
 
-/// A drawn foreign folds into managed (the conservative bias, pool-objects design D2): the
-/// environment draws the undeclared cohabitant, and [`PoolCensus::managed`] folds it in, so the
-/// count↔individual isomorphism `managed() == managedCount + foreign_drawn` runs non-vacuously.
+/// A drawn foreign splits out of managed (bead dpaa2-controlplane-960.21): the environment draws
+/// the undeclared cohabitant, [`PoolCensus::foreign_drawn`] carries it as its own facet, and
+/// [`PoolCensus::managed`] nets it out — so the count↔individual isomorphism `managed() ==
+/// managedCount` holds with `foreign_drawn > 0` witnessing the split non-vacuously.
 #[test]
-fn drawn_foreign_folds_into_managed() {
+fn drawn_foreign_splits_out_of_managed() {
     let steps = parse_pool_trace(&load(
         "dpbp_lifecycle::pool_lifecycle::envForeignDrawnFoldsTest",
     ))
@@ -396,15 +400,18 @@ fn drawn_foreign_folds_into_managed() {
     let w = steps
         .iter()
         .find_map(|s| match s {
-            PoolStep::World(w) if w.foreign_drawn > 0 => Some(w),
+            PoolStep::World(w) if w.census.foreign_drawn() > 0 => Some(w),
             _ => None,
         })
         .expect("the run reaches a drawn foreign");
-    assert!(w.foreign_drawn > 0, "the fold is witnessed, not vacuous");
+    assert!(
+        w.census.foreign_drawn() > 0,
+        "the split is witnessed, not vacuous"
+    );
     assert_eq!(
         w.census.managed(),
-        w.managed_count + w.foreign_drawn,
-        "the drawn foreign folds into managed"
+        w.managed_count,
+        "the drawn foreign is netted out of managed, not folded in"
     );
 }
 

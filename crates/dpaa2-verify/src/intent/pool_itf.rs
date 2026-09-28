@@ -182,7 +182,8 @@ fn census_of(s: &Value, managed: &BTreeSet<(Family, u32)>) -> Result<Decoded, St
     }
     Ok(Decoded {
         census: PoolCensus::new(population, free, drawn_n, born, foreign_free, born_drawn)
-            .with_foreign_free_plugged(foreign_free_plugged),
+            .with_foreign_free_plugged(foreign_free_plugged)
+            .with_foreign_drawn(foreign_drawn),
         foreign_drawn,
         present,
         unplugged,
