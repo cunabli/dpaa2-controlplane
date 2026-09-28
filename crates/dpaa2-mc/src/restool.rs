@@ -650,8 +650,7 @@ impl<R: Runner> McControl for RestoolMc<R> {
 
     fn create_dpni(&self, label: &ConstructName, cfg: &DpniCfg) -> Result<DpniId, Error> {
         // The compiled block is rendered verbatim (dpni-typestate task 4.1); only
-        // `num_queues == 0` keeps the host-derived fallback (`self.queues`), which the
-        // private DPCON count follows (`ls-addni` min(num_queues, nproc)). `root_container`
+        // `num_queues == 0` keeps the host-derived fallback (`self.queues`). `root_container`
         // does not retarget the container here — the shim already operates in its own
         // (dpni-typestate design D1); placement is the assign/move tile's concern.
         let queues = if cfg.num_queues.get() == 0 {
