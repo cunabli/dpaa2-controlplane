@@ -30,7 +30,7 @@ use dpaa2_api::core::family::Family;
 use dpaa2_api::core::inventory::Ceiling;
 use dpaa2_api::core::model::{DpniId, DprcId, ObjectRef};
 use dpaa2_api::core::types::ConstructName;
-use dpaa2_api::families::dpio::derived_seats;
+use dpaa2_api::families::dpio::{SeatDisposition, SeatRegime, derived_seats, seat_disposition};
 use dpaa2_api::families::dpni::DpniCfg;
 use dpaa2_api::families::dprc::VfioBind;
 use dpaa2_api::families::pool_lifecycle::{
@@ -103,14 +103,15 @@ pub struct ChildPlan {
 
 impl ChildPlan {
     /// Whether the child is converged: every planned dpni present and connected, every trio
-    /// census meets its requirement, and the dpio seats equal their requirement. The
-    /// idempotence witness a second pass reproduces.
+    /// census meets its requirement, and the dpio seats MEET their requirement — a surplus
+    /// converges grow-only and is reported as the typed residue (`dpio.qnt` `seatDisposition`;
+    /// pool-objects design D4/D10). The idempotence witness a second pass reproduces.
     #[must_use]
     pub fn is_converged(&self) -> bool {
         self.dpnis
             .iter()
             .all(|d| !d.needs_create() && !d.needs_connect())
-            && self.seats.0 == self.seats.1
+            && self.seats.1 >= self.seats.0
             && self
                 .families
                 .values()
@@ -138,6 +139,14 @@ impl ChildPlan {
         }
     }
 
+    /// The child seat disposition — the `dpio.qnt` `seatDisposition` at child scope, DPDK
+    /// regime (a VFIO child's dpios are userspace-consumed): a surplus is the typed
+    /// grow-only reboot-required residue, never a destroy (pool-objects design D4/D10).
+    #[must_use]
+    pub fn dpio_disposition(&self) -> SeatDisposition {
+        seat_disposition(SeatRegime::DpdkSeat, self.seats.1, self.seats.0)
+    }
+
     /// The first below-draw refusal across the trio, if any (pool-objects design D3).
     #[must_use]
     pub fn shrink_refusal(&self) -> Option<ShrinkBelowDraw> {
@@ -160,13 +169,15 @@ pub struct ChildPopulation {
 
 impl ChildPopulation {
     /// Whether the child is converged for `dpnis_required` planned dpnis: every trio census
-    /// meets its requirement ([`PoolCensus::converged`]), the dpio seats equal their
-    /// requirement, and every planned dpni is present. The read-back census is the
-    /// observation, so a `true` here is the idempotence witness a second pass reproduces.
+    /// meets its requirement ([`PoolCensus::converged`]), the dpio seats MEET their
+    /// requirement — a surplus converges grow-only and is reported as the typed residue
+    /// (`dpio.qnt` `seatDisposition`; pool-objects design D4/D10) — and every planned dpni is
+    /// present. The read-back census is the observation, so a `true` here is the idempotence
+    /// witness a second pass reproduces.
     #[must_use]
     pub fn converged(&self, dpnis_required: usize) -> bool {
         self.dpnis.len() >= dpnis_required
-            && self.seats.0 == self.seats.1
+            && self.seats.1 >= self.seats.0
             && self
                 .families
                 .values()
@@ -332,6 +343,9 @@ pub fn dispatch_child_population<M: McControl>(
     let (required, _observed) = cplan.seats;
     let observed =
         i64::try_from(mc.observe_pool(Some(child), Family::Dpio)?.len()).unwrap_or(i64::MAX);
+    // The `(required - observed).max(0)` bound (`required = derived_seats`, 2·T, the DpdkSeat
+    // `seat_ceiling` by ADR-0012 construction) is the count-level `admit_seat` gate; a typed
+    // pre-gate needs regime-typed observed seats the census cannot read, so a short board surfaces raw MC status.
     for _ in 0..(required - observed).max(0) {
         mc.dpio_create(Some(child), default_dpio_cfg(), label)?;
     }
@@ -555,6 +569,71 @@ mod tests {
         let dpbps = mc.observe_pool(Some(child), Family::Dpbp).unwrap();
         assert!(!dpbps.iter().any(|o| o.object == foreign.object), "pruned");
         assert_eq!(dpbps.len(), 2);
+    }
+
+    #[test]
+    fn child_seat_surplus_reports_typed_residue() {
+        use dpaa2_api::families::dpio::SeatResidue;
+
+        let compiled = compiled_router();
+        let child = DprcId::new(2);
+        let label = ConstructName::from("router");
+        let mc = FakeBackend::new();
+
+        let (_cplan, first) = populate(&mc, child, &compiled);
+        assert_eq!(first.seats, (10, 10), "the derived seat count 2·T");
+
+        for _ in 0..3 {
+            mc.dpio_create(Some(child), default_dpio_cfg(), &label)
+                .expect("seed extra dpio");
+        }
+        assert_eq!(
+            count(&mc, child, Family::Dpio),
+            13,
+            "seeded surplus present"
+        );
+
+        let container = Container::Child("router".into());
+        let cplan = plan_child_population(
+            &mc,
+            &mc,
+            child,
+            &compiled.plan,
+            &container,
+            &label,
+            &declared(),
+        )
+        .expect("plan");
+        assert_eq!(
+            cplan.dpio_disposition(),
+            SeatDisposition::RebootRequired(SeatResidue {
+                regime: SeatRegime::DpdkSeat,
+                observed: 13,
+                required: 10,
+            }),
+            "the surplus is the typed DpdkSeat residue"
+        );
+        assert!(
+            cplan.is_converged(),
+            "a seat surplus stays converged (grow-only)"
+        );
+        assert_eq!(cplan.headline(), Class::Hitless, "surplus-only is hitless");
+
+        let pop = dispatch_child_population(&mc, &cplan, &declared()).expect("dispatch");
+        assert_eq!(
+            count(&mc, child, Family::Dpio),
+            13,
+            "no seat created, no destroy"
+        );
+        assert_eq!(
+            pop.seats,
+            (10, 13),
+            "grow-only outcome: required 10, observed 13"
+        );
+        assert!(
+            pop.converged(cplan.dpnis.len()),
+            "the typed grow-only outcome converges: {pop:?}"
+        );
     }
 
     #[test]
