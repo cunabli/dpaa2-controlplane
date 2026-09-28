@@ -268,13 +268,11 @@ fn select_reclaimable<'a>(
     count: i64,
     scope: CustodyScope,
 ) -> Vec<&'a ObservedPoolObject> {
-    // A plugged root foreign is residue, never a prune victim — the count-level `prunable`'s twin (ADR-0020 decision 4).
-    let prunable_at_scope = |r: &ObservedPoolObject| {
-        membership != PoolMembership::Foreign || scope == CustodyScope::ChildScope || !r.plugged
-    };
     let n = usize::try_from(count).unwrap_or(0);
     rows.iter()
-        .filter(|r| r.is_free() && r.membership(declared) == membership && prunable_at_scope(r))
+        .filter(|r| {
+            r.is_free() && r.membership(declared) == membership && r.prunable_at(scope, membership)
+        })
         .take(n)
         .collect()
 }

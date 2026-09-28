@@ -480,6 +480,17 @@ impl<R: Runner> RestoolMc<R> {
             residents,
         })
     }
+
+    /// The queue count a create carries — the compiled `num_queues`, or the host-derived
+    /// fallback (`self.queues`) when it is 0: the unsized port-only projection
+    /// (dpni-typestate task 4.1; synthesis L2/B3).
+    fn effective_queues(&self, cfg: &DpniCfg) -> usize {
+        if cfg.num_queues.get() == 0 {
+            self.queues
+        } else {
+            usize::from(cfg.num_queues.get())
+        }
+    }
 }
 
 impl<R: Runner> McControl for RestoolMc<R> {
@@ -649,15 +660,10 @@ impl<R: Runner> McControl for RestoolMc<R> {
     }
 
     fn create_dpni(&self, label: &ConstructName, cfg: &DpniCfg) -> Result<DpniId, Error> {
-        // The compiled block is rendered verbatim (dpni-typestate task 4.1); only
-        // `num_queues == 0` keeps the host-derived fallback (`self.queues`). `root_container`
+        // The compiled block is rendered verbatim (dpni-typestate task 4.1). `root_container`
         // does not retarget the container here — the shim already operates in its own
         // (dpni-typestate design D1); placement is the assign/move tile's concern.
-        let queues = if cfg.num_queues.get() == 0 {
-            self.queues
-        } else {
-            usize::from(cfg.num_queues.get())
-        };
+        let queues = self.effective_queues(cfg);
         // Probe-time companions come from the pool construct's root pool (pool-objects design D9).
         let create_args = dpni_create_args(cfg, queues);
         let arg_refs: Vec<&str> = create_args.iter().map(String::as_str).collect();
@@ -676,11 +682,7 @@ impl<R: Runner> McControl for RestoolMc<R> {
         cfg: &DpniCfg,
         label: &ConstructName,
     ) -> Result<DpniId, Error> {
-        let queues = if cfg.num_queues.get() == 0 {
-            self.queues
-        } else {
-            usize::from(cfg.num_queues.get())
-        };
+        let queues = self.effective_queues(cfg);
         let mut create_args = dpni_create_args(cfg, queues);
         create_args.push(format!("--container={container}"));
         let arg_refs: Vec<&str> = create_args.iter().map(String::as_str).collect();

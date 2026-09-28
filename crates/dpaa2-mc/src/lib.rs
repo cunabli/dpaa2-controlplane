@@ -26,9 +26,9 @@ pub mod runner;
 
 pub use kernel::SysfsKernel;
 pub use pool::{PoolDispatch, create_dpio_seat, default_dpio_cfg, dispatch_pool_deltas};
+pub use dpaa2_api::plan::populate::{ChildPlan, PlannedChildDpni};
 pub use populate::{
-    ChildPlan, ChildPopulation, PlannedChildDpni, dispatch_child_population, plan_child_population,
-    vfio_handoff,
+    ChildPopulation, dispatch_child_population, plan_child_population, vfio_handoff,
 };
 pub use probe::observe_bind_probe;
 pub use restool::{DEFAULT_CONTAINER, RestoolMc};
