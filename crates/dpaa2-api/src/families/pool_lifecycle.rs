@@ -439,7 +439,7 @@ impl PoolCensus {
     }
 
     /// Grow is enabled at a deficit that the ceiling admits — the model's `growEnabled`
-    /// (`managedCount < derivedReq and censusAdmitsCreate`; `pool_lifecycle` :106).
+    /// (`managedCount < derivedReq and censusAdmitsCreate`).
     #[must_use]
     pub fn grow_enabled(self, requirement: i64, ceiling: &Ceiling) -> bool {
         self.managed() < requirement && self.admits_create(ceiling)
@@ -447,7 +447,7 @@ impl PoolCensus {
 
     /// Shrink is enabled at a surplus with a free reconciler-owned individual to
     /// destroy — the model's `shrinkEnabled` (`managedCount > derivedReq and` a free
-    /// managed exists; `pool_lifecycle` :108). Free-only: the drawn population and the
+    /// managed exists). Free-only: the drawn population and the
     /// prune-exempt born are never candidates (pool-objects design D3).
     #[must_use]
     pub fn shrink_enabled(self, requirement: i64) -> bool {
@@ -455,7 +455,7 @@ impl PoolCensus {
     }
 
     /// Converged in full — the model's `isConverged` (`managedCount == derivedReq and
-    /// not(anyPrunable)`; `pool_lifecycle` :116): the reconciler-owned count meets the
+    /// not(anyPrunable)`): the reconciler-owned count meets the
     /// requirement AND no prune candidate remains. The prune half is realized at the count
     /// level as `foreign_free == 0`, since a foreign-free member is exactly a `prunable`
     /// one (undeclared, non-DPL-born, free; pool-objects design D3). A converged census is
@@ -502,8 +502,8 @@ pub fn derived_requirement(plan: &CompiledPlan, container: &Container, family: P
 }
 
 /// The typed refusal a requirement below the drawn count raises — the Rust twin of the
-/// model's observable `refusal` flag written by `shrinkBelowDrawAt` (`pool_lifecycle`
-/// :228; pool-objects design D3). A free-only shrink cannot reach a live consumer, so a
+/// model's observable `refusal` flag written by `shrinkBelowDrawAt`
+/// (pool-objects design D3). A free-only shrink cannot reach a live consumer, so a
 /// requirement under the drawn count surfaces to the operator by name and count, never a
 /// forced teardown; [`drift_disposition`] returns it in place of any deltas.
 ///
@@ -551,10 +551,10 @@ impl From<ShrinkBelowDraw> for Error {
 /// twin of the model's three disposition actions, each field the count of one action's
 /// firings needed to reach the derived requirement (pool-objects task 2.2; pool-objects design D2/D3).
 ///
-/// Each field maps 1:1 onto a model action: `create` ↔ `growCreateAt` (`pool_lifecycle`
-/// :197), `destroy` ↔ `shrinkDestroyAt` (:208, free managed only), `prune` ↔ `pruneAt`
-/// (:219, undeclared ∧ non-DPL-born ∧ free); an empty deltas ([`is_empty`](Self::is_empty))
-/// ↔ `isConverged` (:116), the idempotence witness. All three counts are non-negative.
+/// Each field maps 1:1 onto a model action: `create` ↔ `growCreateAt`, `destroy` ↔
+/// `shrinkDestroyAt` (free managed only), `prune` ↔ `pruneAt`
+/// (undeclared ∧ non-DPL-born ∧ free); an empty deltas ([`is_empty`](Self::is_empty))
+/// ↔ `isConverged`, the idempotence witness. All three counts are non-negative.
 ///
 /// Grow and prune can co-occur — a deficit standing alongside foreign free objects — so the
 /// emission is a struct of counts, not a single-verdict enum: one pass both grows toward the

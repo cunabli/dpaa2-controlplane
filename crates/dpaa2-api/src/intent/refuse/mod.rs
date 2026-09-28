@@ -67,9 +67,8 @@ pub enum Referrer {
 /// D4 (ADR-0003) added the three parity twins [`Refusal::LinkSelfLoop`],
 /// [`Refusal::RenameDoubleClaim`], [`Refusal::KernelDeclared`]).
 ///
-/// `#[non_exhaustive]`: a `PoolShortfall` variant is reserved for `reconcile`
-/// (change #6, drift against a live census) and a passthrough value is change #4's,
-/// so callers must not assume the set is closed.
+/// `#[non_exhaustive]`: a passthrough value is change #4's, so callers must not assume
+/// the set is closed.
 ///
 /// `Ord` is derived so [`compile`] can return the *complete* refusal set as a
 /// deterministic [`std::collections::BTreeSet`] — the model's `Set[Refusal]` (design

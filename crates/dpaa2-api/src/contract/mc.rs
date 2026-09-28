@@ -14,10 +14,9 @@ use crate::plan::dprc::ObservedContainer;
 /// Southbound MC-portal control at MC-command granularity.
 ///
 /// Each method corresponds to a single MC firmware command so a future ioctl
-/// implementation maps one-to-one behind the same trait (mc-backend spec) — with one
-/// exception: [`create_dpni`](Self::create_dpni) is a transactional
-/// companion-provisioning chain (shim policy today), which a portal backend would fork.
-/// Where that chain policy lives for the two backends (tile #10) is recorded in ADR-0018.
+/// implementation maps one-to-one behind the same trait (mc-backend spec):
+/// [`create_dpni`](Self::create_dpni) is a single create verb, with companions riding the
+/// pool passes the reconciler converges separately (backend split recorded in ADR-0018).
 pub trait McControl {
     /// Reads the current MC state (objects + connection edges) as authoritative.
     ///
@@ -60,7 +59,7 @@ pub trait McControl {
     /// deliberate divergence from [`create_dpni`](Self::create_dpni)'s root path. Unlike
     /// that root create, this issues **no** private dependency chain and **no** connect:
     /// a child's companions come from the pool disposition the reconciler converges
-    /// separately (`dpaa2_mc::populate::populate_child`), not from a consumer's own
+    /// separately (`dpaa2_mc::populate::dispatch_child_population`), not from a consumer's own
     /// transactional chain, and a VFIO-consumed child is never kernel-connected here.
     ///
     /// `cfg` is the same compiled, in-envelope create block [`create_dpni`](Self::create_dpni)

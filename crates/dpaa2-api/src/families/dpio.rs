@@ -42,9 +42,8 @@
 //! ([`DpioSeat::notify_capable`]/[`DpioSeat::eight_priority`]), never the mode
 //! (`docs/baseline/dpio.md` "Kernel-side behavior"; model `DPIO_I3_modeDead`). A wrong
 //! mode changes nothing in the kernel path, so the kernel-regime create-cfg carries no
-//! kernel-side hazard class. Whether that earns an ADR-0019 cfg facet is the main loop's
-//! and the user's call (pool-objects design D4); this tile reports the evidence, it does
-//! not legislate it.
+//! kernel-side hazard class: no cfg facet — ADR-0019 dpio row (`channel_mode` kernel-dead,
+//! DPIO-I3).
 
 use crate::core::error::Error;
 use crate::core::family::Family;
@@ -172,8 +171,10 @@ impl Priorities {
 /// object API). The two cfg fields of the model's `DpioSeat` record.
 ///
 /// Held by value inside a [`DpioSeat`] with no setter, so a created seat's cfg never
-/// mutates — a wrong-cfg repair is destroy + recreate, never mutation
-/// (`docs/baseline/dpio.md` "Attribute mutability"). The `channel_mode` half is dead in
+/// mutates — a wrong-cfg repair is a grow-only destroy + recreate, never live mutation
+/// (a seat has no runtime teardown), so across the reboot boundary it renders as the
+/// `RebootRequired` residue (ADR-0020; ADR-0008 §4; `docs/baseline/dpio.md`
+/// "Attribute mutability"). The `channel_mode` half is dead in
 /// the kernel (DPIO-I3): capability reads `priorities` alone, so a mode difference changes
 /// no kernel-observable behavior (see the module-level pool-objects design D4 facet marker).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]

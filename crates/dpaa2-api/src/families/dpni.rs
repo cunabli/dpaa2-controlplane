@@ -835,7 +835,7 @@ impl From<DeadOptionRefusal> for Error {
 ///
 /// Placement (`root_container`) is likewise absent: it is the container placement, not a
 /// resize-triggering cfg field, and the model's `observe` omits it too — a dpni's
-/// container is the assign/move machinery's concern (companion tile #6), not this
+/// container is the assign/move machinery's concern, not this
 /// cfg-drift surface (dpni-typestate design D4).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DpniObservation {
