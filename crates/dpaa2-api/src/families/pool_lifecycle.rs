@@ -774,6 +774,26 @@ pub enum PoolMembership {
     Foreign,
 }
 
+/// Judges one label's pool-custody membership against the declared-name set — the one
+/// label law (pool-objects design D10): the empty column is the DPL/report-only sentinel,
+/// structurally prune-exempt everywhere (ADR-0001 §4); a declared name is ours; any other
+/// owner is foreign. The ours/foreign split delegates to the single judge
+/// [`judge_label`](crate::core::inventory); the empty sentinel is read directly from the
+/// empty label, never via a `"dpl"` string a foreign owner could spoof into exemption
+/// (board rev1/rev3: the out-of-band empty-label dpbp is never a prune candidate). The
+/// label-level custody predicate the root dpni prune and [`ObservedPoolObject::membership`]
+/// share (pool-objects task 3.10).
+#[must_use]
+pub fn label_membership(label: &RawLabel, declared: &BTreeSet<ConstructName>) -> PoolMembership {
+    if label.as_str().is_empty() {
+        return PoolMembership::DplBorn;
+    }
+    match judge_label(label.as_str(), declared) {
+        Availability::Free => PoolMembership::Managed,
+        _ => PoolMembership::Foreign,
+    }
+}
+
 impl ObservedPoolObject {
     /// Whether the object reads as free — undrawn (in the pool, not held by a consumer).
     /// The plugged facet is orthogonal (pool-objects design D10): a free object is usually
@@ -783,23 +803,25 @@ impl ObservedPoolObject {
         !self.drawn
     }
 
-    /// Judges this object's custody membership against the declared-name set — the one
-    /// label law (pool-objects design D10): the empty column is the DPL/report-only
-    /// sentinel, structurally prune-exempt everywhere (ADR-0001 §4); a declared name is
-    /// ours; any other owner is foreign. The ours/foreign split delegates to the single
-    /// judge [`judge_label`](crate::core::inventory); the empty sentinel is read directly
-    /// from the empty label, never via a `"dpl"` string a foreign owner could spoof into
-    /// exemption (board rev1/rev3: the out-of-band empty-label dpbp is never a prune
-    /// candidate).
+    /// Judges this object's custody membership against the declared-name set — delegates to
+    /// [`label_membership`], the label-level home of the one label law (pool-objects design D10).
     #[must_use]
     pub fn membership(&self, declared: &BTreeSet<ConstructName>) -> PoolMembership {
-        if self.label.is_empty() {
-            return PoolMembership::DplBorn;
-        }
-        match judge_label(self.label.as_str(), declared) {
-            Availability::Free => PoolMembership::Managed,
-            _ => PoolMembership::Foreign,
-        }
+        label_membership(&self.label, declared)
+    }
+
+    /// Whether this object is a reclaim victim at `scope`, given its custody `membership` — the
+    /// row-level home of the count-level `prunable` gate (ADR-0020 decision 4; the model's
+    /// `prunable` `scope == ChildScope or not(plugged)`). A [`Foreign`](PoolMembership::Foreign)
+    /// victim at [`RootScope`](CustodyScope::RootScope) must be NOT plugged — a plugged root
+    /// foreign is `fsl_mc_allocator`-bound residue prune must not reach; at
+    /// [`ChildScope`](CustodyScope::ChildScope), or for a non-foreign membership, it is
+    /// unrestricted (the child prunes a plugged foreign through the unplug probe). The count
+    /// [`drift_disposition`] emits is already the never-plugged foreign count, so this aligns the
+    /// concrete victims with that count.
+    #[must_use]
+    pub fn prunable_at(&self, scope: CustodyScope, membership: PoolMembership) -> bool {
+        membership != PoolMembership::Foreign || scope == CustodyScope::ChildScope || !self.plugged
     }
 }
 
@@ -1619,6 +1641,44 @@ mod tests {
         assert_eq!(
             pool_row(0, "dpl", false).membership(&declared),
             PoolMembership::Foreign
+        );
+        // The label-level predicate the root dpni prune shares reads the three arms directly.
+        assert_eq!(
+            label_membership(&RawLabel::from("wan0"), &declared),
+            PoolMembership::Managed
+        );
+        assert_eq!(
+            label_membership(&RawLabel::from("vendor"), &declared),
+            PoolMembership::Foreign
+        );
+        assert_eq!(
+            label_membership(&RawLabel::from(""), &declared),
+            PoolMembership::DplBorn
+        );
+    }
+
+    // prunable_at is the row-level `prunable` gate (ADR-0020 decision 4): a plugged root foreign
+    // is allocator-bound residue prune must not reach; a child plugged foreign is reclaimed
+    // through the probe.
+    #[test]
+    fn prunable_at_refuses_root_plugged_foreign_admits_child() {
+        let plugged_foreign = row(0, "vendor", true, false);
+        assert!(
+            !plugged_foreign.prunable_at(CustodyScope::RootScope, PoolMembership::Foreign),
+            "a plugged root foreign is residue, never a prune victim"
+        );
+        assert!(
+            plugged_foreign.prunable_at(CustodyScope::ChildScope, PoolMembership::Foreign),
+            "a child prunes a plugged foreign through the probe"
+        );
+        // A never-plugged root foreign is the prune target; a non-foreign membership is unrestricted.
+        assert!(
+            row(1, "vendor", false, false)
+                .prunable_at(CustodyScope::RootScope, PoolMembership::Foreign)
+        );
+        assert!(
+            plugged_foreign.prunable_at(CustodyScope::RootScope, PoolMembership::Managed),
+            "a managed victim is not gated by the foreign-plugged rule"
         );
     }
 }

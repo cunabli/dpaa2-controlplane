@@ -13,6 +13,8 @@
 
 pub mod dprc;
 pub mod matcher;
+pub mod pool;
+pub mod populate;
 pub mod reconcile;
 
 mod report;
