@@ -9,7 +9,6 @@ use std::io;
 use std::path::PathBuf;
 
 const FSL_MC_DEVICES: &str = "/sys/bus/fsl-mc/devices";
-const ETH_DRIVER_BIND: &str = "/sys/bus/fsl-mc/drivers/fsl_dpaa2_eth/bind";
 const FSL_MC_DRIVERS: &str = "/sys/bus/fsl-mc/drivers";
 
 /// The `dpaa2-eth` driver directory name under the drivers root.
@@ -19,7 +18,6 @@ pub const ETH_DRIVER: &str = "fsl_dpaa2_eth";
 pub struct FslMcSysfs {
     container: String,
     devices_root: PathBuf,
-    bind_path: PathBuf,
     drivers_root: PathBuf,
 }
 
@@ -30,7 +28,6 @@ impl FslMcSysfs {
         Self {
             container: container.into(),
             devices_root: PathBuf::from(FSL_MC_DEVICES),
-            bind_path: PathBuf::from(ETH_DRIVER_BIND),
             drivers_root: PathBuf::from(FSL_MC_DRIVERS),
         }
     }
@@ -53,7 +50,7 @@ impl FslMcSysfs {
     /// Whether the `dpaa2-eth` driver exposes its bind attribute at all.
     #[must_use]
     pub fn eth_bind_exists(&self) -> bool {
-        self.bind_path.exists()
+        self.drivers_root.join(ETH_DRIVER).join("bind").exists()
     }
 
     /// Writes the bare bus device name (`device`, e.g. `dpni.1`) to the `dpaa2-eth` driver
@@ -67,7 +64,8 @@ impl FslMcSysfs {
     /// Propagates the write error verbatim — `ResourceBusy` for an
     /// already-bound device, `NotFound` when the driver is not loaded.
     pub fn bind_eth(&self, device: &str) -> io::Result<()> {
-        std::fs::write(&self.bind_path, device.as_bytes())
+        let path = self.drivers_root.join(ETH_DRIVER).join("bind");
+        std::fs::write(path, device.as_bytes())
     }
 
     /// Writes the bare bus device name (`device`) to the `dpaa2-eth` driver unbind
@@ -253,6 +251,27 @@ mod tests {
         );
         assert_eq!(bus.device_driver("dpni.8").unwrap(), None);
         std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn bind_eth_writes_the_derived_driver_bind_attribute() {
+        // The bind face derives its path from `drivers_root` like unbind, so a fixture drivers
+        // tree exercises it board-free (ADR-0020 pass3 F9).
+        let base = std::env::temp_dir().join("dpaa2-hal-bind-eth-test");
+        let _ = std::fs::remove_dir_all(&base);
+        let drivers = base.join("drivers");
+        std::fs::create_dir_all(drivers.join(ETH_DRIVER)).unwrap();
+        let bus = FslMcSysfs::new("dprc.1").with_drivers_root(&drivers);
+
+        bus.bind_eth("dpni.7").unwrap();
+        assert_eq!(
+            std::fs::read_to_string(drivers.join(ETH_DRIVER).join("bind")).unwrap(),
+            "dpni.7"
+        );
+        // The bind attribute now resolves under the fixture root, not the hardcoded sysfs path.
+        assert!(bus.eth_bind_exists());
+
+        std::fs::remove_dir_all(&base).unwrap();
     }
 
     #[test]

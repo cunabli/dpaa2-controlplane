@@ -60,10 +60,10 @@ outside this change.
 
 ## 8. Bead H — plan-type relocation and small folds (dpaa2-controlplane-p6m.8)
 
-- [ ] 8.1 Move `PoolFamilyDrift`/`PoolDrift` and `PlannedChildDpni`/`ChildPlan` to `dpaa2-api::plan` beside `ContainerPlan`; observing fns stay adapter-side; render drops its dpaa2_mc+engine imports; seat-deficit arithmetic folds into the moved types (L22)
-- [ ] 8.2 `engine.rs` custody judgment delegates to `pool_lifecycle::membership` (L23)
-- [ ] 8.3 Small folds: shim `prunable_at_scope` twin; gate-message copies in main.rs; render family block; `bind_eth` honors `drivers_root`; `effective_queues` fallback fold (L24)
-- [ ] 8.4 Gates + close bead p6m.8; commit
+- [x] 8.1 Move `PoolFamilyDrift`/`PoolDrift` and `PlannedChildDpni`/`ChildPlan` to `dpaa2-api::plan` beside `ContainerPlan`; observing fns stay adapter-side; render drops its dpaa2_mc+engine imports; seat-deficit arithmetic folds into the moved types (L22)
+- [x] 8.2 `engine.rs` custody judgment delegates to `pool_lifecycle::membership` (L23)
+- [x] 8.3 Small folds: shim `prunable_at_scope` twin; gate-message copies in main.rs; render family block; `bind_eth` honors `drivers_root`; `effective_queues` fallback fold (L24)
+- [x] 8.4 Gates + close bead p6m.8; commit
 
 ## 9. Close-out
 
