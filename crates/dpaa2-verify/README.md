@@ -44,7 +44,7 @@ The **MBT harness** (phase 4), four components over one seam:
   to `dmesg.txt`, so ADR-0008 rescan markers and probe refusals are
   files, not operator memory. Mutating suites are
   refused until the recovery guarantee is verified (marker file
-  committed by task 5.1); the recovery-verification suite itself must
+  committed by verify-foundation task 5.1); the recovery-verification suite itself must
   mutate only the scratch set it creates, and takes a different shape:
   pre-state capture (`dprc show` + `generate-dpl`) before any mutation,
   no teardown trap — the reboot is the teardown — and a post-boot
@@ -201,7 +201,7 @@ spelling alias) and `COVERAGE.md`'s intent-coverage section; R12 the plan
 invariants — `invariants.qnt`'s `INTENT_I*` against ADR-0013 §6 by id and
 name; R13 the scenario set — every `scenarios/*.qnt` paired with a same-stem
 `.toml` and equal to ADR-0013 §7's five witnesses (the semantic
-toml→plan check is task 3.4). The model wins every disagreement.
+toml→plan check is intent-layer task 3.4). The model wins every disagreement.
 
 ## How the replay works
 

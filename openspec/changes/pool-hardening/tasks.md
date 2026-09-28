@@ -44,12 +44,12 @@ outside this change.
 
 ## 6. Bead F — code-comment residue (dpaa2-controlplane-p6m.6)
 
-- [ ] 6.1 Grow-only qualifier, code half: `dpaa2-api/src/families/dpio.rs` (~:176) (L6)
-- [ ] 6.2 `contract/mc.rs`: retire the "companion-provisioning chain" description and the nonexistent `populate::populate_child` citation (L13)
-- [ ] 6.3 Stale prose deletions: `restool.rs` private-DPCON clause; `engine.rs` tile #5/#6 rustdoc + operator-visible error string; `dpni.rs` tile-#6 clause (L14)
-- [ ] 6.4 `intent/refuse/mod.rs`: delete the orphaned `PoolShortfall` clause (L15)
-- [ ] 6.5 `pool_lifecycle.rs` + `dpio.rs` cite qnt predicates by name, not line number; dpio "main loop's call" cites the ADR-0019 dpio row (L16, L17)
-- [ ] 6.6 Gates + close bead p6m.6; commit
+- [x] 6.1 Grow-only qualifier, code half: `dpaa2-api/src/families/dpio.rs` (~:176) (L6)
+- [x] 6.2 `contract/mc.rs`: retire the "companion-provisioning chain" description and the nonexistent `populate::populate_child` citation (L13)
+- [x] 6.3 Stale prose deletions: `restool.rs` private-DPCON clause; `engine.rs` tile #5/#6 rustdoc + operator-visible error string; `dpni.rs` tile-#6 clause (L14)
+- [x] 6.4 `intent/refuse/mod.rs`: delete the orphaned `PoolShortfall` clause (L15)
+- [x] 6.5 `pool_lifecycle.rs` + `dpio.rs` cite qnt predicates by name, not line number; dpio "main loop's call" cites the ADR-0019 dpio row (L16, L17)
+- [x] 6.6 Gates + close bead p6m.6; commit
 
 ## 7. Bead D — COVERAGE + baseline ledger amend (dpaa2-controlplane-p6m.4)
 
