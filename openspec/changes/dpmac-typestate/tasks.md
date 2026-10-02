@@ -43,7 +43,7 @@ phase; one bead at a time through acceptance. Model gate before Rust
   spawn per dpmac, vocabulary-checked parse, deviating row count as a
   typed version-signal, dead-spawn (`assert(false)` hazard) as a typed
   observation failure; shim tests against captured fixtures.
-- [ ] 3.2 `dpaa2-hal` sysfs carrier primitive: per-arbitration netdev
+- [x] 3.2 `dpaa2-hal` sysfs carrier primitive: per-arbitration netdev
   resolution (dpni netdev / macN), NoObservable for the driverless
   case; policy-free; reference-pair property assertion hook for suites.
 

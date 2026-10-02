@@ -112,6 +112,65 @@ impl FslMcSysfs {
         Ok(None)
     }
 
+    /// The carrier state of the netdev under `device`, if one is present.
+    ///
+    /// Resolves the netdev with [`netdev_of`](Self::netdev_of), then reads
+    /// `<container>/<device>/net/<ifname>/carrier`, trimmed: `"1"` → `Some(true)`,
+    /// `"0"` → `Some(false)`. No netdev → `Ok(None)` — the same sysfs-layout-not-policy
+    /// reading as [`netdev_of`](Self::netdev_of)'s missing-`net/` case; upstream reads
+    /// that as the `NoObservable` driverless-port diagnosis (dpmac-typestate design D6),
+    /// while hal stays
+    /// untyped and policy-free.
+    ///
+    /// Per-arbitration resolution is the CALLER's policy. A `KernelOwned` port's caller
+    /// passes the peer dpni bus device (`dpni.N`, whose netdev appears only once the dpni
+    /// binds — `docs/baseline/dpni.md` DPNI-I4). An `Offered`/`RemoteOwned` port's caller
+    /// passes the dpmac bus device (`dpmac.N`, whose netdev is `macN` under
+    /// `CONFIG_FSL_DPAA2_MAC_NETDEVS` — `docs/baseline/dpmac.md` DPMAC-I6). One primitive
+    /// covers every port; hal never sees an arbitration type.
+    ///
+    /// This is the kernel/PHY-local carrier view. The MC-propagated view
+    /// (`dpni_get_link_state`) is a distinct, deliberately unread signal whose deferral
+    /// rides the #10 restool-absence ledger anchor (dpmac-typestate design D6 trade-off).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`io::ErrorKind::InvalidData`] when the carrier file holds anything but
+    /// `0`/`1`. The kernel returns `EINVAL` on a carrier read of an admin-down interface —
+    /// propagated verbatim; what it means is the caller's policy.
+    pub fn carrier_of(&self, device: &str) -> io::Result<Option<bool>> {
+        let Some(ifname) = self.netdev_of(device)? else {
+            return Ok(None);
+        };
+        let path = self
+            .devices_root
+            .join(&self.container)
+            .join(device)
+            .join("net")
+            .join(ifname)
+            .join("carrier");
+        match std::fs::read_to_string(&path)?.trim() {
+            "1" => Ok(Some(true)),
+            "0" => Ok(Some(false)),
+            other => Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("carrier: expected 0 or 1, got {other:?}"),
+            )),
+        }
+    }
+
+    /// Whether `dpmac`'s standalone driver exposes its `macN` netdev — the
+    /// `CONFIG_FSL_DPAA2_MAC_NETDEVS` reference-pair property (ADR-0008 class;
+    /// `docs/baseline/dpmac.md` DPMAC-I6). Suites assert it; everywhere else its absence
+    /// just degrades [`carrier_of`](Self::carrier_of) to `Ok(None)`.
+    ///
+    /// # Errors
+    ///
+    /// Propagates any I/O error other than a missing `net/` directory.
+    pub fn mac_netdev_present(&self, dpmac: &str) -> io::Result<bool> {
+        Ok(self.netdev_of(dpmac)?.is_some())
+    }
+
     // ---- child-DPRC VFIO binding (fsl-mc has no match table; driver_override only) ----
     //
     // A DPRC is its own bus device: it sits directly under the devices root as
@@ -232,6 +291,41 @@ mod tests {
         let bus = FslMcSysfs::new("dprc.1").with_devices_root(&root);
         assert_eq!(bus.netdev_of("dpni.7").unwrap(), Some("eth1".to_owned()));
         assert_eq!(bus.netdev_of("dpni.8").unwrap(), None);
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn carrier_of_reads_fixture_tree() {
+        let root = std::env::temp_dir().join("dpaa2-hal-carrier-test");
+        let _ = std::fs::remove_dir_all(&root);
+
+        // KernelOwned port: peer dpni's netdev carrier (docs/baseline/dpni.md DPNI-I4).
+        let dpni_net = root.join("dprc.1/dpni.7/net/eth1");
+        std::fs::create_dir_all(&dpni_net).unwrap();
+        std::fs::write(dpni_net.join("carrier"), "1\n").unwrap();
+
+        // Offered/RemoteOwned port: standalone driver's macN carrier (dpmac.md DPMAC-I6).
+        let mac_net = root.join("dprc.1/dpmac.4/net/mac4");
+        std::fs::create_dir_all(&mac_net).unwrap();
+        std::fs::write(mac_net.join("carrier"), "0\n").unwrap();
+
+        // Driverless port: a device dir with no net/ — upstream's NoObservable diagnosis.
+        std::fs::create_dir_all(root.join("dprc.1/dpmac.9")).unwrap();
+
+        let bus = FslMcSysfs::new("dprc.1").with_devices_root(&root);
+        assert_eq!(bus.carrier_of("dpni.7").unwrap(), Some(true));
+        assert_eq!(bus.carrier_of("dpmac.4").unwrap(), Some(false));
+        assert!(bus.mac_netdev_present("dpmac.4").unwrap());
+        assert_eq!(bus.carrier_of("dpmac.9").unwrap(), None);
+        assert!(!bus.mac_netdev_present("dpmac.9").unwrap());
+
+        // Malformed carrier content is a data error, not a 0/1.
+        std::fs::write(mac_net.join("carrier"), "gremlin\n").unwrap();
+        assert_eq!(
+            bus.carrier_of("dpmac.4").unwrap_err().kind(),
+            io::ErrorKind::InvalidData
+        );
+
         std::fs::remove_dir_all(&root).unwrap();
     }
 
