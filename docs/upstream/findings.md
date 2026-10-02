@@ -443,3 +443,27 @@ cites the suite and the design record that carry the numbers.
     never be plugged) at the other end of the same attribute.
     Evidence: ADR-0020, suite V-MVP-1 rev 4 step 9
     (`results/V-MVP-1-rev4/step-9.log`). — candidate
+
+## From the dpmac-typestate sitting (task 5.3, 2026-10-02)
+
+### Linux kernel
+
+52. **The wired-port teardown window has a second, milder failure
+    signature: a detached timer reaches the softirq expiry path.**
+    One ordered sever-then-unbind teardown of the bound dpni on a
+    PHY-typed dpmac logged the finding-34/49 ping-pong pair
+    (`phy_power_on was called before phy_init`, standalone
+    `fsl_dpaa2_mac` attach error), then 0.7 s later a `WARNING` at
+    `kernel/time/timer.c:1738` in `__run_timers` on an idle CPU's
+    timer softirq, with `x22 = dead000000000122` (`LIST_POISON2`): a
+    timer that had been detached was still reached from the expiry
+    list, pointing at a timer-lifetime race in the same
+    dpaa2-mac/phylink teardown family. Unlike finding 49 there was no
+    Oops, no refcount underflow, no taint and no kworker death; the
+    suite completed every later step and a reboot recovered cleanly.
+    The owning timer is not identified from the trace — recorded as a
+    sibling signature of the same per-transition window, not folded
+    into finding 49, until a recurrence or a kernel-side dig names the
+    timer. Evidence: `phylink-dpni-churn-crash.md` (second-signature
+    note), `~/dpaa2-board-evidence/V-DPMAC-3-rev1/dmesg.txt`, suite
+    V-DPMAC-3 rev 1. — candidate

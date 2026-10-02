@@ -62,7 +62,7 @@ phase; one bead at a time through acceptance. Model gate before Rust
 - [x] 5.2 Author Suite B (V-DPMAC-2 phantom create, scratch-child
   contained, own teardown + census, root face recorded untaken);
   offline gates green; pre-run record commit.
-- [ ] 5.3 Operator sitting: Suites A + B, one sitting, Suite B late;
+- [x] 5.3 Operator sitting: Suites A + B, one sitting, Suite B late;
   verdicts into VERDICTS.json and the suite ledger; divergences triaged
   implementation-first; banked verdicts cited, never re-run.
 

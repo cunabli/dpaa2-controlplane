@@ -254,6 +254,34 @@
       "refusals": []
     }
   },
+  "V-DPMAC-2": {
+    "V-DPMAC-2-rev1": {
+      "pass": true,
+      "date": "2026-10-02",
+      "kind": "probes",
+      "revision": 1,
+      "steps": "8/8",
+      "source_hash": "fnv1a64:42ed0289576a893f",
+      "hook": null,
+      "archive": "~/dpaa2-board-evidence/V-DPMAC-2-rev1",
+      "refusals": [
+        "Invalid state"
+      ]
+    }
+  },
+  "V-DPMAC-3": {
+    "V-DPMAC-3-rev1": {
+      "pass": true,
+      "date": "2026-10-02",
+      "kind": "batch",
+      "revision": 1,
+      "steps": "8/8",
+      "source_hash": "fnv1a64:77f042b24be20fe3",
+      "hook": null,
+      "archive": "~/dpaa2-board-evidence/V-DPMAC-3-rev1",
+      "refusals": []
+    }
+  },
   "V-DPNI-1": {
     "V-DPNI-1": {
       "pass": true,

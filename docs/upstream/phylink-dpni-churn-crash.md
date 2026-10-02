@@ -153,3 +153,18 @@ pacing cannot close it, which confirms the ADR-0008 §9 decision that
 the kernel fix, not control-plane throttling, is the mitigation.
 Evidence: the V-MVP-1 rev 5 sitting capture (dmesg: attach error at
 116.1 s, Oops at 117.2 s; board power-cycled after the sitting).
+
+## Second signature in the same window (2026-10-02, V-DPMAC-3 rev 1)
+
+The per-transition window can also fail milder and elsewhere: one
+ordered sever-then-unbind teardown logged the usual ping-pong pair
+(attach error at 119.3 s), then at 120.1 s a `WARNING` at
+`kernel/time/timer.c:1738` in `__run_timers` on an idle CPU's timer
+softirq with `x22 = dead000000000122` (`LIST_POISON2`) — a detached
+timer reached from the expiry list. No Oops, no refcount underflow,
+no taint, no kworker death; the suite completed and a plain reboot
+recovered. The owning timer is unidentified from the trace, so this
+is recorded as finding 52, a sibling signature of the same
+dpaa2-mac/phylink teardown lifetime family, not an amendment to the
+PCS mechanism above. Evidence:
+`~/dpaa2-board-evidence/V-DPMAC-3-rev1/dmesg.txt`.
