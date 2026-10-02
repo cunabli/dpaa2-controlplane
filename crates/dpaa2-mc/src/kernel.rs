@@ -12,6 +12,7 @@ use std::path::PathBuf;
 use dpaa2_api::contract::KernelControl;
 use dpaa2_api::core::error::Error;
 use dpaa2_api::core::model::{DpniId, DprcId};
+use dpaa2_api::families::dpmac::CarrierSource;
 use dpaa2_api::families::dprc;
 use dpaa2_api::families::pool_lifecycle::RawDriver;
 use dpaa2_hal::{ETH_DRIVER, FslMcSysfs};
@@ -104,6 +105,20 @@ impl KernelControl for SysfsKernel {
             .device_driver(&dpni.to_string())
             .map(|d| d.map(RawDriver::from))
             .map_err(Error::Io)
+    }
+
+    /// Reads the carrier of the bus device the core's arbitration mapping picked, via the one
+    /// `FslMcSysfs::carrier_of` sysfs route — no restool spawn (mc-backend spec "Carrier
+    /// resolves per owner"). The id→bus-device naming follows the module's convention:
+    /// `dpni.N` for a `KernelOwned` port's peer, `dpmac.N` for an `Offered`/`RemoteOwned` port, each
+    /// the bare `Display` the sysfs layout resolves by (`dpmac.N`'s netdev is `macN` under
+    /// `CONFIG_FSL_DPAA2_MAC_NETDEVS`; `docs/baseline/dpmac.md` DPMAC-I6).
+    fn carrier(&self, source: CarrierSource) -> Result<Option<bool>, Error> {
+        let device = match source {
+            CarrierSource::PeerDpni(dpni) => dpni.to_string(),
+            CarrierSource::Dpmac(dpmac) => dpmac.to_string(),
+        };
+        self.bus.carrier_of(&device).map_err(Error::Io)
     }
 
     // ---- child-DPRC VFIO binding (dprc-encapsulation task 3.2) ----
@@ -370,6 +385,43 @@ mod tests {
         fx.kernel
             .unbind(dpni)
             .expect("a lost release race is already-unbound, not a failure");
+    }
+
+    #[test]
+    fn carrier_reads_the_source_device_over_one_sysfs_route() {
+        // mc-backend spec "Carrier resolves per owner": the PeerDpni source reads dpni.N's
+        // netdev carrier, the Dpmac source reads dpmac.N's macN carrier, and a driverless
+        // dpmac (no net/) reads None — all via carrier_of, no restool spawn.
+        use dpaa2_api::core::model::DpmacId;
+        use dpaa2_api::families::dpmac::CarrierSource;
+
+        let fx = Fixture::new("carrier");
+        let dpni_net = fx.devices.join("dprc.1/dpni.7/net/eth1");
+        std::fs::create_dir_all(&dpni_net).unwrap();
+        std::fs::write(dpni_net.join("carrier"), "1\n").unwrap();
+        let mac_net = fx.devices.join("dprc.1/dpmac.4/net/mac4");
+        std::fs::create_dir_all(&mac_net).unwrap();
+        std::fs::write(mac_net.join("carrier"), "0\n").unwrap();
+        std::fs::create_dir_all(fx.devices.join("dprc.1/dpmac.9")).unwrap();
+
+        assert_eq!(
+            fx.kernel
+                .carrier(CarrierSource::PeerDpni(DpniId::new(7)))
+                .unwrap(),
+            Some(true)
+        );
+        assert_eq!(
+            fx.kernel
+                .carrier(CarrierSource::Dpmac(DpmacId::new(4)))
+                .unwrap(),
+            Some(false)
+        );
+        assert_eq!(
+            fx.kernel
+                .carrier(CarrierSource::Dpmac(DpmacId::new(9)))
+                .unwrap(),
+            None
+        );
     }
 
     #[test]

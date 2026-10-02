@@ -13,6 +13,9 @@ use std::fmt::Write as _;
 use dpaa2_api::core::family::Family;
 use dpaa2_api::core::model::DprcId;
 use dpaa2_api::families::dpio::SeatDisposition;
+use dpaa2_api::families::dpmac::{
+    CarrierReading, Counter, CounterRead, CounterReadout, FirmwareVersion, counter_vocabulary,
+};
 use dpaa2_api::families::pool_lifecycle::{
     PoolCensus, PoolDeltas, PoolDisposition, PoolFamily, ShrinkBelowDraw,
 };
@@ -25,6 +28,8 @@ use dpaa2_api::plan::dprc::{ConsumerConvergence, ContainerVerdict, FingerprintFi
 use dpaa2_api::plan::pool::PoolDrift;
 use dpaa2_api::plan::populate::ChildPlan;
 use dpaa2_api::plan::{Class, Plan, Transition};
+
+use crate::status::PortDetail;
 
 /// Renders the whole dry-run text: the compiled objects with their provenance trees
 /// and edges, the transitions `reconcile` would execute, the plan-only report, and
@@ -519,6 +524,82 @@ pub fn render_warnings(warnings: &BTreeSet<Warning>) -> String {
         let _ = writeln!(out, "  {w:?}");
     }
     out
+}
+
+/// Renders the read-only per-port detail view (provisioning-cli spec "The CLI exposes a
+/// read-only port-detail view"): one block per port with arbitration, the MAC relation, the
+/// link carrier, and the vocabulary counters — every value sourced from a read-back. The
+/// header states the view is read-only and never gates convergence (link readings lag PHY
+/// reality per V-LINK-2; counters are traffic-dependent), so the same text serves `status
+/// --detail` without touching the exit code.
+#[must_use]
+pub fn render_port_details(details: &[PortDetail]) -> String {
+    // The observation carries no firmware version, so the counter names pin the reference
+    // board's 10.39 vocabulary (dpmac-typestate design D4; the model's reference board). The
+    // model names a representative counter slice, so a board row past it renders positionally
+    // — the readout's row count, never a zero-fill, is the honest signal (DPMAC-I7).
+    let vocab = counter_vocabulary(FirmwareVersion::Mc1039);
+    let mut out = String::new();
+    let _ = writeln!(
+        out,
+        "port detail ({} port(s)) [read-only; never gates convergence]:",
+        details.len()
+    );
+    if details.is_empty() {
+        let _ = writeln!(out, "  (none)");
+    }
+    for d in details {
+        let _ = writeln!(
+            out,
+            "  {dpmac} {name}: arbitration={arb:?} mac={rel:?} carrier={carrier}",
+            dpmac = d.dpmac,
+            name = d.name.as_str(),
+            arb = d.arbitration,
+            rel = d.mac_relation,
+            carrier = render_carrier(d.carrier),
+        );
+        render_counters(&mut out, vocab, &d.counters);
+    }
+    out
+}
+
+/// The operator token for a carrier reading. `NoObservable` renders as the driverless-port
+/// diagnosis, never as `down` (provisioning-cli spec).
+fn render_carrier(carrier: CarrierReading) -> &'static str {
+    match carrier {
+        CarrierReading::Up => "up",
+        CarrierReading::Down => "down",
+        CarrierReading::NoObservable => "no-observable (driverless port)",
+    }
+}
+
+/// Renders a counter read-back under a port block. A [`CounterReadout::Vocabulary`] prints one
+/// row per value positionally against the firmware vocabulary `vocab` (name from the
+/// vocabulary where it reaches, else a positional `counter-N`; value from the readout, same
+/// order). A [`CounterReadout::VersionSignal`] prints the deviation line, never zero rows
+/// (DPMAC-I7).
+fn render_counters(out: &mut String, vocab: &[Counter], counters: &CounterReadout) {
+    match counters {
+        CounterReadout::Vocabulary(values) => {
+            let _ = writeln!(out, "    counters ({}):", values.len());
+            for (i, read) in values.iter().enumerate() {
+                let name = vocab
+                    .get(i)
+                    .map_or_else(|| format!("counter-{i}"), |c| format!("{c:?}"));
+                let value = match read {
+                    CounterRead::Known(v) => v.to_string(),
+                    CounterRead::NotInVocabulary => "n/a".to_owned(),
+                };
+                let _ = writeln!(out, "      {name} = {value}");
+            }
+        }
+        CounterReadout::VersionSignal { expected, got } => {
+            let _ = writeln!(
+                out,
+                "    counters: version-signal (expected {expected}, got {got})"
+            );
+        }
+    }
 }
 
 // ---- endpoint / attribute / container formatting ----

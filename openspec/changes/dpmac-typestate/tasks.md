@@ -49,7 +49,7 @@ phase; one bead at a time through acceptance. Model gate before Rust
 
 ## 4. Product
 
-- [ ] 4.1 `dpaa2ctl` read-only port-detail view (arbitration state, MAC
+- [x] 4.1 `dpaa2ctl` read-only port-detail view (arbitration state, MAC
   relation, carrier, counters) wired into status; display-only —
   no field gates convergence; integration tests.
 

@@ -40,7 +40,7 @@
 //! the connection surface and is dpmac-typestate task 2.2's parcel (ADR-0019 edge facet,
 //! ADR-0008 §8). This tile mints no sever/unbind verb and no connect-surface change.
 
-use crate::core::model::MacAddr;
+use crate::core::model::{DpmacId, DpniId, MacAddr};
 
 // ---- the port MAC (DPMAC-I2) ----
 
@@ -385,6 +385,70 @@ pub const fn judge_arbitration(peer: PeerObservation) -> Arbitration {
     }
 }
 
+// ---- the kernel-face link carrier (dpmac-typestate design D6; provisioning-cli spec) ----
+
+/// Which bus device a port's carrier is read from, resolved from its arbitration judgment
+/// ([`carrier_source`]). hal exposes one policy-free `carrier_of(device)` primitive that
+/// reads exactly one netdev, so the caller names the device: a `KernelOwned` port reads its
+/// peer dpni's netdev (`docs/baseline/dpni.md` DPNI-I4), an `Offered`/`RemoteOwned` port reads
+/// the standalone driver's `macN` netdev (`docs/baseline/dpmac.md` DPMAC-I6). Kernel-face
+/// only — outside `dpmac.qnt`, this never enters reconcile.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum CarrierSource {
+    /// A `KernelOwned` port's peer dpni — read its netdev carrier (DPNI-I4).
+    PeerDpni(DpniId),
+    /// An `Offered`/`RemoteOwned` port — read the dpmac's own `macN` netdev carrier (DPMAC-I6).
+    Dpmac(DpmacId),
+}
+
+/// Names the bus device a port's carrier is read from, given its arbitration phase, the
+/// dpmac id, and the peer dpni id (present only for a `KernelOwned` port) — the pure
+/// arbitration→source mapping the mc-backend spec's "`KernelControl` observes link carrier"
+/// resolves per owner. A `KernelOwned` port with a known peer reads the peer dpni; every
+/// other phase (and the defensive `KernelOwned`-without-peer gap) reads the dpmac itself.
+/// Pure and sans-io: the caller supplies the observed peer.
+#[must_use]
+pub const fn carrier_source(
+    arbitration: Arbitration,
+    dpmac: DpmacId,
+    peer_dpni: Option<DpniId>,
+) -> CarrierSource {
+    match (arbitration, peer_dpni) {
+        (Arbitration::KernelOwned, Some(dpni)) => CarrierSource::PeerDpni(dpni),
+        _ => CarrierSource::Dpmac(dpmac),
+    }
+}
+
+/// The display-only link carrier reading, judged from the raw `Option<bool>` the
+/// [`KernelControl::carrier`](crate::contract::KernelControl::carrier) seam reports
+/// (provisioning-cli spec "read-only port-detail view"). `None` → [`NoObservable`] is the
+/// diagnosis of a driverless port, never [`Down`] — a port with no netdev has no carrier
+/// to read, which is not a down link. Display-only by construct: the carrier lags PHY
+/// reality (V-LINK-2) and never gates convergence, so there is no model gate — this type
+/// is kernel-face, outside `dpmac.qnt`.
+///
+/// [`NoObservable`]: CarrierReading::NoObservable
+/// [`Down`]: CarrierReading::Down
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum CarrierReading {
+    /// The netdev's carrier reads `1` — the link is up.
+    Up,
+    /// The netdev's carrier reads `0` — the link is down.
+    Down,
+    /// No netdev to read — the driverless-port diagnosis, never down.
+    NoObservable,
+}
+
+impl From<Option<bool>> for CarrierReading {
+    fn from(raw: Option<bool>) -> Self {
+        match raw {
+            Some(true) => Self::Up,
+            Some(false) => Self::Down,
+            None => Self::NoObservable,
+        }
+    }
+}
+
 // ---- the dpni↔dpmac teardown sums (ADR-0008 §8; the law lands in dpmac-typestate task 2.2) ----
 
 /// The facing dpni's kernel-face across a teardown (`dpmac.qnt` `type KernelFace`;
@@ -507,6 +571,42 @@ mod tests {
             // DPMAC_I6 law: the standalone driver is bound iff the phase is not KernelOwned.
             assert_eq!(bound, phase != Arbitration::KernelOwned);
         }
+    }
+
+    // ---- dpmac-typestate design D6: the carrier source mapping and the display judgment ----
+
+    #[test]
+    fn carrier_source_follows_the_arbitration_owner() {
+        let dpmac = DpmacId::new(7);
+        let peer = DpniId::new(1);
+        // KernelOwned with a known peer reads the peer dpni's netdev (DPNI-I4).
+        assert_eq!(
+            carrier_source(Arbitration::KernelOwned, dpmac, Some(peer)),
+            CarrierSource::PeerDpni(peer)
+        );
+        // Offered/RemoteOwned read the dpmac's own macN netdev (DPMAC-I6); peer is absent.
+        assert_eq!(
+            carrier_source(Arbitration::Offered, dpmac, None),
+            CarrierSource::Dpmac(dpmac)
+        );
+        assert_eq!(
+            carrier_source(Arbitration::RemoteOwned, dpmac, None),
+            CarrierSource::Dpmac(dpmac)
+        );
+        // Defensive: KernelOwned without an observed peer falls back to the dpmac, never panics.
+        assert_eq!(
+            carrier_source(Arbitration::KernelOwned, dpmac, None),
+            CarrierSource::Dpmac(dpmac)
+        );
+    }
+
+    #[test]
+    fn carrier_reading_judges_none_as_no_observable_never_down() {
+        assert_eq!(CarrierReading::from(Some(true)), CarrierReading::Up);
+        assert_eq!(CarrierReading::from(Some(false)), CarrierReading::Down);
+        assert_eq!(CarrierReading::from(None), CarrierReading::NoObservable);
+        // The driverless-port diagnosis is distinct from a down link (provisioning-cli spec).
+        assert_ne!(CarrierReading::from(None), CarrierReading::Down);
     }
 
     // ---- dpmac-typestate design D5: the MAC relation judgment, all four classes ----

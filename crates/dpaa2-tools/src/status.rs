@@ -6,8 +6,14 @@
 
 use core::fmt;
 
-use dpaa2_api::core::model::{DesiredTopology, DpmacId, Lifecycle, ObservedTopology};
+use dpaa2_api::contract::{KernelControl, McControl};
+use dpaa2_api::core::error::Error;
+use dpaa2_api::core::model::{DesiredTopology, DpmacId, Lifecycle, MacAddr, ObservedTopology};
 use dpaa2_api::core::types::ConstructName;
+use dpaa2_api::families::dpmac::{
+    Arbitration, CarrierReading, CounterReadout, MacRelation, PeerObservation, carrier_source,
+    judge_arbitration, judge_mac_relation,
+};
 use dpaa2_api::plan::Plan;
 use dpaa2_api::plan::reconcile::reconcile;
 
@@ -64,6 +70,81 @@ impl StatusReport {
     pub fn has_diverged(&self) -> bool {
         !self.plan.is_converged() || self.plan.has_divergence()
     }
+}
+
+/// One port's read-only detail surface (provisioning-cli spec "The CLI exposes a read-only
+/// port-detail view"): the four observed facets an operator inspects. Display-only by
+/// construct — [`port_details`] computes it after `reconcile`, and no field here is ever an
+/// input to a plan, drift, or assertion (link readings lag PHY reality per V-LINK-2;
+/// counters are traffic-dependent).
+#[derive(Clone, Debug)]
+pub struct PortDetail {
+    /// The port's stable DPMAC anchor.
+    pub dpmac: DpmacId,
+    /// The configured stable name (rendered to a string only at the print site).
+    pub name: ConstructName,
+    /// Who owns the port, judged from the observed peer ([`judge_arbitration`]).
+    pub arbitration: Arbitration,
+    /// How the connected dpni's primary MAC relates to the port ([`judge_mac_relation`]).
+    pub mac_relation: MacRelation,
+    /// The link carrier, judged display-only from the read-back ([`CarrierReading`]).
+    pub carrier: CarrierReading,
+    /// The vocabulary-checked counter read-back (DPMAC-I7; dpmac-typestate design D4).
+    pub counters: CounterReadout,
+}
+
+/// Computes the read-only per-port detail surface from board read-backs (provisioning-cli
+/// spec). For each declared port it reads the dpmac observation
+/// ([`McControl::observe_dpmac`]), judges arbitration from the observed peer dpni
+/// ([`judge_arbitration`]), judges the MAC relation ([`judge_mac_relation`]) from the peer's
+/// primary MAC against the port's burned-in MAC and any intent-declared value, and reads the
+/// carrier of the device the arbitration mapping picks ([`carrier_source`] +
+/// [`KernelControl::carrier`]), judging it into a [`CarrierReading`]. Every facet is sourced
+/// from a read-back; none re-derives a judgment.
+///
+/// Display-only by construct: this runs after `reconcile` and feeds only the detail render —
+/// it is never an input to the plan the exit code gates on.
+///
+/// Cross-container peers are not derivable from the root topology, so a dpmac with no root
+/// peer reads as `Offered` here; a same-container kernel peer reads `KernelOwned`. That is
+/// the kernel-regime port the spec scenario covers; `RemoteOwned` needs a cross-container
+/// observation this root-scoped read does not carry.
+///
+/// # Errors
+/// Propagates a backend read failure ([`McControl::observe_dpmac`] or
+/// [`KernelControl::carrier`]).
+pub fn port_details<M: McControl, K: KernelControl>(
+    mc: &M,
+    kernel: &K,
+    desired: &DesiredTopology,
+    observed: &ObservedTopology,
+) -> Result<Vec<PortDetail>, Error> {
+    desired
+        .ports()
+        .iter()
+        .map(|p| {
+            let obs = mc.observe_dpmac(p.dpmac)?;
+            let peer = observed.dpni_connected_to(p.dpmac);
+            // A root same-container kernel peer ⇒ KernelOwned; no peer ⇒ Offered (DPMAC-I6).
+            let peer_observation = match peer {
+                Some(_) => PeerObservation::SameContainerKernelPeer,
+                None => PeerObservation::NoPeer,
+            };
+            let arbitration = judge_arbitration(peer_observation);
+            let observed_primary = peer.and_then(|d| d.mac).unwrap_or(MacAddr::ZERO);
+            let mac_relation = judge_mac_relation(observed_primary, obs.mac, p.mac);
+            let source = carrier_source(arbitration, p.dpmac, peer.map(|d| d.id));
+            let carrier = CarrierReading::from(kernel.carrier(source)?);
+            Ok(PortDetail {
+                dpmac: p.dpmac,
+                name: p.name.clone(),
+                arbitration,
+                mac_relation,
+                carrier,
+                counters: obs.counters,
+            })
+        })
+        .collect()
 }
 
 impl fmt::Display for StatusReport {

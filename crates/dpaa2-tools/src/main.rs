@@ -22,7 +22,7 @@ use dpaa2_tools::engine::{
     self, ContainerOutcome, ConvergeConfig, Outcome, PoolOutcome, PoolPass, PopulationOutcome,
     PruneOutcome, RootDpniPruneOutcome,
 };
-use dpaa2_tools::{StatusReport, link, render};
+use dpaa2_tools::{StatusReport, link, render, status};
 
 /// Declarative DPAA2 (DPNI↔DPMAC) provisioning for the LX2160A.
 #[derive(Parser, Debug)]
@@ -97,7 +97,13 @@ enum Command {
         timeout: u64,
     },
     /// Print each managed port's lifecycle and the delta from desired.
-    Status,
+    Status {
+        /// Also print a read-only per-port detail block: arbitration, the MAC relation,
+        /// the link carrier, and the vocabulary counters (provisioning-cli spec). Display-
+        /// only — no value shown gates convergence or changes the exit code.
+        #[arg(long)]
+        detail: bool,
+    },
     /// Print the plan reconcile would execute; change nothing.
     DryRun {
         /// Tear down declared-absent ports and, behind `--allow disruptive`,
@@ -143,7 +149,7 @@ fn run(cli: &Cli) -> Result<ExitCode, Error> {
                 ExitCode::FAILURE
             })
         }
-        Command::Status => {
+        Command::Status { detail } => {
             let Some((intent, compiled)) = compile_intent(&mc, &cli.config)? else {
                 return Ok(ExitCode::FAILURE);
             };
@@ -151,6 +157,13 @@ fn run(cli: &Cli) -> Result<ExitCode, Error> {
             let observed = engine::observe(&mc, &kernel)?;
             let report = StatusReport::compute(&desired, &observed);
             print!("{report}");
+            // The read-only per-port detail block, computed after reconcile off read-backs
+            // (provisioning-cli spec): arbitration, MAC relation, carrier, and the vocabulary
+            // counters. Display-only — the exit code stays port-driven, below.
+            if *detail {
+                let details = status::port_details(&mc, &kernel, &desired, &observed)?;
+                print!("{}", render::render_port_details(&details));
+            }
             // The root-scope pool drift per family, read-only off the board (pool-objects task
             // 3.4): observed-vs-derived counts and the disposition convergence would take.
             // Reported alongside the port lifecycle; the exit code stays port-driven.

@@ -24,7 +24,9 @@ use crate::core::model::{
 };
 use crate::core::types::ConstructName;
 use crate::families::dpio::{DpioCfg, Priorities};
-use crate::families::dpmac::{self, CounterRead, CounterReadout, DpmacObservation, EthIf};
+use crate::families::dpmac::{
+    self, CarrierSource, CounterRead, CounterReadout, DpmacObservation, EthIf,
+};
 use crate::families::dpni::{DpniCfg, DpniObservation, NumQueues};
 use crate::families::dprc::ContainerState;
 use crate::families::pool_lifecycle::{ObservedPoolObject, RawDriver, RawLabel};
@@ -103,6 +105,15 @@ struct FakeState {
     /// same-run rebuild becomes the loop-breaker refusal (pool-objects design D12) — the
     /// projection defect a real board mispredicts, without a board.
     readback_drift: bool,
+    /// Scripted carrier readings per [`CarrierSource`], the way the fake scripts its other
+    /// reads (dpmac-typestate design D6). [`KernelControl::carrier`] answers from this map;
+    /// an absent entry reads `Ok(None)` — the driverless-port `NoObservable` default.
+    carriers: HashMap<CarrierSource, bool>,
+    /// Scripted counter read-backs per dpmac (dpmac-typestate design D4). When set,
+    /// [`McControl::observe_dpmac`] returns this readout; absent, it answers the default
+    /// 28-row all-zero 10.39 vocabulary. Counters never enter reconcile, so a test varies
+    /// them freely to prove displayed values never reach the plan.
+    counters: HashMap<DpmacId, CounterReadout>,
 }
 
 /// In-memory fake implementing both southbound ports over a shared state.
@@ -134,6 +145,8 @@ impl FakeBackend {
                 bound: HashMap::new(),
                 audit: Vec::new(),
                 readback_drift: false,
+                carriers: HashMap::new(),
+                counters: HashMap::new(),
             }),
         }
     }
@@ -303,6 +316,37 @@ impl FakeBackend {
         self
     }
 
+    /// Scripts a carrier reading for one [`CarrierSource`], answered by
+    /// [`KernelControl::carrier`] (dpmac-typestate design D6). An unscripted source reads
+    /// `NoObservable` (the driverless default).
+    #[must_use]
+    pub fn with_carrier(self, source: CarrierSource, up: bool) -> Self {
+        self.state.borrow_mut().carriers.insert(source, up);
+        self
+    }
+
+    /// Re-scripts (or clears, with `None`) a carrier reading between runs, so a test can prove
+    /// a changed display never reaches the plan (dpmac-typestate design D6). Interior-mutable
+    /// like the other `&self` reads, so the same backend drives two status passes.
+    pub fn set_carrier(&self, source: CarrierSource, reading: Option<bool>) {
+        let mut st = self.state.borrow_mut();
+        match reading {
+            Some(up) => {
+                st.carriers.insert(source, up);
+            }
+            None => {
+                st.carriers.remove(&source);
+            }
+        }
+    }
+
+    /// Re-scripts a dpmac's counter read-back between runs, so a test can prove a changed
+    /// counter display never reaches the plan (dpmac-typestate design D4). Absent, the fake
+    /// answers the default 28-row all-zero 10.39 vocabulary.
+    pub fn set_counters(&self, dpmac: DpmacId, counters: CounterReadout) {
+        self.state.borrow_mut().counters.insert(dpmac, counters);
+    }
+
     /// Seeds an already-connected (and, for PHY, already-bound) DPNI, as if a prior
     /// run or the DPL had provisioned it. Used to test idempotence and foreign
     /// preservation.
@@ -404,13 +448,21 @@ impl McControl for FakeBackend {
             LinkType::Phy => dpmac::LinkType::PhyManaged,
             LinkType::Fixed => dpmac::LinkType::Fixed,
         };
+        let mac = m.mac;
+        // A test may script a readout per dpmac; absent, the fake answers the pinned 10.39
+        // vocabulary as all-zero counters. Counters never enter reconcile, so the values are
+        // immaterial to the loop either way (dpmac-typestate design D4).
+        let counters = st
+            .counters
+            .get(&dpmac)
+            .cloned()
+            .unwrap_or_else(|| CounterReadout::Vocabulary(vec![CounterRead::Known(0); 28]));
         Ok(DpmacObservation {
             eth_if: EthIf::OtherSerdesProtocol,
             link_type,
-            mac: m.mac,
+            mac,
             max_rate: 10_000,
-            // The fake answers the pinned 10.39 vocabulary as all-zero counters; counters never enter reconcile (dpmac-typestate design D4), so the values are immaterial to the loop.
-            counters: CounterReadout::Vocabulary(vec![CounterRead::Known(0); 28]),
+            counters,
         })
     }
 
@@ -738,6 +790,12 @@ impl KernelControl for FakeBackend {
             return Ok(None);
         };
         Ok(Self::visible_netdev(&st, obj))
+    }
+
+    // Scripted per source; an unscripted source reads None — the NoObservable default the
+    // caller judges as the driverless-port diagnosis (dpmac-typestate design D6).
+    fn carrier(&self, source: CarrierSource) -> Result<Option<bool>, Error> {
+        Ok(self.state.borrow().carriers.get(&source).copied())
     }
 
     // One honest source: the fake reports fsl_dpaa2_eth bound exactly when its netdev is

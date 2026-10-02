@@ -1,5 +1,6 @@
 use crate::core::error::Error;
 use crate::core::model::{DpniId, DprcId};
+use crate::families::dpmac::CarrierSource;
 use crate::families::pool_lifecycle::RawDriver;
 
 /// Southbound kernel-side control: driver binding and netdev observation.
@@ -29,6 +30,25 @@ pub trait KernelControl {
     /// # Errors
     /// Returns an error only if the kernel state cannot be read at all.
     fn netdev_of(&self, dpni: DpniId) -> Result<Option<String>, Error>;
+
+    /// Observes the link carrier of the bus device a port's arbitration judgment picked
+    /// ([`carrier_source`](crate::families::dpmac::carrier_source)): the peer dpni's netdev
+    /// for a `KernelOwned` port, the dpmac's own `macN` netdev for `Offered`/`RemoteOwned`
+    /// (mc-backend spec "`KernelControl` observes link carrier"; `docs/baseline/dpmac.md`
+    /// DPMAC-I6, `docs/baseline/dpni.md` DPNI-I4). One seam over the two-variant
+    /// [`CarrierSource`] mirrors hal's single `carrier_of` primitive — the arbitration→device
+    /// policy lives once in the core mapping, not split across the seam.
+    ///
+    /// Raw `Option<bool>` out: `Some(up)` is the netdev's carrier, `None` the absence of any
+    /// netdev to read. The caller judges it into
+    /// [`CarrierReading`](crate::families::dpmac::CarrierReading) — `None` is the
+    /// driverless-port diagnosis, never a down link (adapters report, never judge — design
+    /// D5; ADR-0003).
+    ///
+    /// # Errors
+    /// Returns an error only if the carrier state cannot be read at all (a malformed carrier
+    /// file, say); an absent netdev is `Ok(None)`, never an error.
+    fn carrier(&self, source: CarrierSource) -> Result<Option<bool>, Error>;
 
     /// Observes the raw driver name bound to `dpni`'s device — the basename of its `driver`
     /// link as a [`RawDriver`], reported verbatim, or `None` when it has no driver. The caller judges the name
