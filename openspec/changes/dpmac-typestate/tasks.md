@@ -55,7 +55,7 @@ phase; one bead at a time through acceptance. Model gate before Rust
 
 ## 5. Board
 
-- [ ] 5.1 Generate Suite A (e2e typestate suite: intent on dpmac.7,
+- [x] 5.1 Generate Suite A (e2e typestate suite: intent on dpmac.7,
   hooks for arbitration/MAC/attr-constancy/counters/carrier, typed
   sever-then-unbind teardown, RemoteOwned leg) inside the safety
   envelope; offline gates green; pre-run record commit.

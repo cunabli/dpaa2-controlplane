@@ -1,0 +1,51 @@
+# The operand of suite V-DPMAC-3 (dpmac-typestate task 5.1, bead
+# dpaa2-controlplane-0xu.10): ONE intent that stands up both arbitration faces
+# the typestate suite witnesses (dpmac-typestate design D7 "Suite A") — a KernelOwned port and a
+# RemoteOwned port — so a single `dpaa2ctl ensure` converges the kernel regime on
+# dpmac.7 AND the cross-container VFIO child whose port the RemoteOwned leg reads.
+#
+# Lives in the suite dir, not models/intent/scenarios/, for the reason
+# V-MVP-1/V-DPRC-9's operands do: a board-suite operand is an input to a
+# dpaa2ctl sitting, not a models/intent/scenarios pairing (no `.qnt`, no frozen
+# trace); its derivation is pinned offline by
+# crates/dpaa2-tools/tests/vdpmac3_intents.rs.
+#
+# Mixed dpmac choice (ADR-0003 §4): the typestate hooks (arbitration, MAC
+# inheritance, attr constancy, the 28-row counter read, carrier) need a
+# KernelOwned port with a live netdev, so the kernel port takes the wired 10G
+# dpmac.7 under a flagged link-signaling run (the operator's decision for this
+# suite). The RemoteOwned leg only reads what root scope shows across a container
+# boundary (dpmac-typestate design D6; task 4.1: RemoteOwned is not derivable from root-scoped
+# observation), so its port takes the unwired lifecycle-safe 25G dpmac.5 — never
+# asserted link-up — keeping production-wire exposure to the single kernel port.
+
+[intent]
+schema = 1
+
+# The reserved kernel terminates the wired 10G port, so its dpni + pool
+# companions compile into the ROOT container (Tenant::container => Root,
+# pool-objects design D5). The `kernel` tenant is never a `[tenant.kernel]`
+# table (ADR-0013: declaring it is refused) — the tools shell injects it
+# (crates/dpaa2-tools/src/main.rs `complete_kernel`). dpmac.7 is the flagged
+# wired pair (ADR-0003 §4), permitted here under the suite's link-signaling
+# class; the kernel dpni binds to dpaa2-eth and reads KernelOwned (DPMAC-I6).
+[port.kern0]
+dpmac = "dpmac.7"
+rate = 10000
+tenant = "kernel"
+
+# The isolated userspace tenant: a poll-mode dataplane the child DPRC hands off
+# to VFIO. max_cores is the board's online-CPU count (T sits well under it).
+[tenant.remote]
+dataplane = "userspace-poll"
+max_cores = 16
+
+# One remote port terminates the unwired 25G dpmac.5 (lifecycle-safe: link-up is
+# never asserted, ADR-0003 §4). Its dpni + companions land in the remote tenant's
+# own child container and VFIO-bind; from the ROOT scope the standalone driver
+# keeps dpmac.5's PHY while the datapath is remote — the RemoteOwned arrangement
+# the suite's cross-boundary leg reads (dpmac.md kernel-side behavior; DPMAC-I6).
+[port.rmt0]
+dpmac = "dpmac.5"
+rate = 25000
+tenant = "remote"
