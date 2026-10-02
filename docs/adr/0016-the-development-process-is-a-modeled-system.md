@@ -236,6 +236,14 @@ reader concludes is the measured drift.
   deltas that fails an ADDED requirement colliding with a base SHALL that
   carries no MODIFIED block. Recorded as a plan, not yet a protection; until
   promoted it rides the reviewer's delta-authoring checklist.
+- 2026-10-02 — the "hook blocks legitimate work" revisit trigger fired:
+  the one-writer-per-crate check refused dpmac-typestate 2.2's seal, an
+  atomic API change whose consumer crates must compile in the same
+  commit. The check keeps its default and gains a documented,
+  message-visible escape — a `One-Writer-Exempt: <reason>` trailer —
+  rather than a split that leaves intermediate commits unbuildable.
+  Validated as the only blocking rule before relaxing (bead
+  `dpaa2-controlplane-sen`).
 - At each phase close: the honesty check (per-gate catches, parcel
   economics, deviations flagged vs. discovered) is recorded on the epic.
 - The rule pile is re-triaged at each phase close, or immediately when

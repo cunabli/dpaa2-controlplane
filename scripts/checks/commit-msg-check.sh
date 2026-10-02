@@ -94,5 +94,5 @@ if git status --porcelain -- .beads/issues.jsonl | grep -Eq '^.M'; then
   fail "stage .beads/issues.jsonl — the close you just did belongs in this commit"
 fi
 
-# One writer per crate per task.
-"$here/one-writer-check.sh"
+# One writer per crate per task (message passed so it can honour an exemption trailer).
+"$here/one-writer-check.sh" "$msgfile"
