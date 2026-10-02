@@ -110,9 +110,9 @@ fn deltas(prev: &ModelView, next: &ModelView, port: u32) -> Option<Transition> {
                     return Some(Transition::Bind { port: anchor });
                 }
                 if p.bound && !d.bound {
-                    return Some(Transition::Unbind {
-                        dpni: DpniId::new(*n),
-                    });
+                    // The sever's Disconnect delta is emitted in the adjacent window (ADR-0008 §8); take only its proof here.
+                    let (_severed_edge, proof) = Transition::sever(DpniId::new(*n));
+                    return Some(Transition::unbind(DpniId::new(*n), proof));
                 }
                 if p.connected_to.is_some() && d.connected_to.is_none() {
                     return Some(Transition::Disconnect {

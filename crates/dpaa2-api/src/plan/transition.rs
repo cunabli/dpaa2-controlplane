@@ -38,6 +38,24 @@ impl fmt::Display for Class {
     }
 }
 
+/// Proof the dpni↔dpmac edge was severed before its kernel face unbinds (ADR-0008 §8).
+///
+/// The Rust twin of the model's severed witness (`models/core/connect.qnt`
+/// `edgeDemandsSeveredWitness`; `models/families/dpmac.qnt` `severAt`/`unbindKernelFaceAt`,
+/// `SeveredWitness`): `sever` consumes the bound edge and yields `Offered` plus this proof,
+/// and the kernel-face unbind demands it. The law lives on the dpni↔dpmac edge kind only
+/// (ADR-0019 edge facet; dpmac-typestate design D3) — it is carried here, beside the
+/// `Unbind` it guards, not lifted into a shared edge abstraction.
+///
+/// The private unit field is the whole mechanism: there is no public constructor, so the
+/// only mint is [`Transition::sever`]. A library consumer cannot fabricate one, so the
+/// unbind-before-sever order that strands a driverless port (ADR-0008 §8) does not
+/// typecheck. This is the plan-surface proof token; it is distinct from
+/// [`crate::families::dpmac::SeveredWitness`], the freely-constructible observation
+/// vocabulary — that enum judges a read-back and cannot serve as the token.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct SeveredProof(());
+
 /// A single MC- or kernel-granularity action in a plan.
 ///
 /// Operations are expressed one MC command at a time (mc-backend spec) so a future
@@ -83,10 +101,23 @@ pub enum Transition {
         /// The observed DPNI to disconnect.
         dpni: DpniId,
     },
-    /// Unbind an observed DPNI from `dpaa2-eth` (teardown).
+    /// Unbind an observed DPNI's kernel face from `dpaa2-eth` (teardown).
+    ///
+    /// This is the dpni↔dpmac edge's kernel-face unbind, the only `Unbind` the planner
+    /// emits — it is always dpmac-facing (the port teardown in
+    /// [`reconcile`](crate::plan::reconcile::reconcile)), so it carries the
+    /// [`SeveredProof`] its edge law demands (ADR-0008 §8; dpmac-typestate design D3). The
+    /// proof is mintable only by [`Transition::sever`], so no consumer can express
+    /// unbind-before-sever — build this through [`Transition::unbind`], never a struct
+    /// literal (the `proof` field is public but [`SeveredProof`] has no public constructor).
+    /// No dpni-facing `Unbind` variant exists, because none is emitted — the law types
+    /// exactly this one edge kind (dpmac-typestate design D3).
     Unbind {
         /// The observed DPNI to unbind.
         dpni: DpniId,
+        /// Proof the dpni↔dpmac edge was severed first (ADR-0008 §8) — unforgeable, so the
+        /// unbind-before-sever order does not typecheck for any library consumer.
+        proof: SeveredProof,
     },
     /// Destroy an observed DPNI object (teardown, prune only).
     Destroy {
@@ -110,6 +141,37 @@ pub enum Transition {
 }
 
 impl Transition {
+    /// Sever the dpni↔dpmac edge, minting the [`SeveredProof`] its kernel-face unbind
+    /// demands (ADR-0008 §8; `models/families/dpmac.qnt` `severAt`). Returns the
+    /// [`Transition::Disconnect`] step and the proof together — the planner pushes the
+    /// disconnect, then threads the proof into [`Transition::unbind`], so the ordering is
+    /// owned by the types, not by planner discipline (dpmac-typestate design D3). The
+    /// disconnect step is unchanged from before; the only new thing is the proof.
+    #[must_use]
+    pub fn sever(dpni: DpniId) -> (Self, SeveredProof) {
+        (Self::Disconnect { dpni }, SeveredProof(()))
+    }
+
+    /// Unbind a dpmac-facing dpni's kernel face, consuming the [`SeveredProof`] from the
+    /// edge's [`sever`](Self::sever) (ADR-0008 §8; `models/families/dpmac.qnt`
+    /// `unbindKernelFaceAt`, whose guard routes through `connect.edgeDemandsSeveredWitness`).
+    /// Because the proof has no public constructor, the unbind-before-sever order is
+    /// unrepresentable for any library consumer — the following does not compile:
+    ///
+    /// ```compile_fail
+    /// use dpaa2_api::core::model::DpniId;
+    /// use dpaa2_api::plan::{SeveredProof, Transition};
+    /// // `SeveredProof`'s only mint is `Transition::sever` — its field is private, so no
+    /// // consumer can forge the witness a kernel-face unbind demands (ADR-0008 §8; the
+    /// // dpni↔dpmac edge law, dpmac-typestate design D3). The illegal order is rejected.
+    /// let forged = SeveredProof(());
+    /// let _ = Transition::unbind(DpniId::new(7), forged);
+    /// ```
+    #[must_use]
+    pub fn unbind(dpni: DpniId, proof: SeveredProof) -> Self {
+        Self::Unbind { dpni, proof }
+    }
+
     /// The disruption class of this transition (ADR-0015 decision 12). Each port-edge
     /// action is classed by its honest traffic effect:
     // Each variant keeps its own arm and rationale even where two share a class
@@ -146,5 +208,40 @@ impl Transition {
             // per-pair class where the prior label is known.
             Self::SetLabel { .. } => Class::Boundary,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    //! The dpni↔dpmac sever-then-unbind proof path (ADR-0008 §8; the Rust twin of
+    //! `models/families/dpmac.qnt` `severThenUnbindTest`). The negative face — that
+    //! unbind-before-sever does not typecheck — is the `compile_fail` doctest on
+    //! [`Transition::unbind`].
+
+    use super::*;
+
+    #[test]
+    fn sever_mints_the_proof_unbind_consumes_it() {
+        let (disconnect, proof) = Transition::sever(DpniId::new(7));
+        assert_eq!(
+            disconnect,
+            Transition::Disconnect {
+                dpni: DpniId::new(7)
+            }
+        );
+        let unbind = Transition::unbind(DpniId::new(7), proof);
+        assert!(matches!(unbind, Transition::Unbind { dpni, .. } if dpni == DpniId::new(7)));
+        assert_eq!(unbind.class(), Class::Disruptive);
+    }
+
+    #[test]
+    fn the_proof_is_equal_by_construction() {
+        // ZST witness ⇒ plan transition sequences stay byte-identical (ADR-0015 decision 12).
+        let (_, p1) = Transition::sever(DpniId::new(7));
+        let (_, p2) = Transition::sever(DpniId::new(7));
+        assert_eq!(
+            Transition::unbind(DpniId::new(7), p1),
+            Transition::unbind(DpniId::new(7), p2)
+        );
     }
 }

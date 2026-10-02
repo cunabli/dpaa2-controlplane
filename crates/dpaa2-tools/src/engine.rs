@@ -1215,7 +1215,7 @@ pub fn apply<M: McControl, K: KernelControl>(
                 mc.disconnect(*dpni)?;
                 tracing::info!(%dpni, "disconnected dpni");
             }
-            Transition::Unbind { dpni } => {
+            Transition::Unbind { dpni, .. } => {
                 // After the disconnect severed the edge, before destroy — a destroy-while-bound is refused (ADR-0008 §8/§9).
                 kernel.unbind(*dpni)?;
                 tracing::info!(%dpni, "unbound dpni from fsl_dpaa2_eth");

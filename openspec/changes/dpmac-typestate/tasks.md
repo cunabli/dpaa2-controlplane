@@ -29,7 +29,7 @@ phase; one bead at a time through acceptance. Model gate before Rust
   (Inherited/Overridden/Pending/Mismatched, Pending never drift), the
   `Known | NotInVocabulary` counter types; TDD unit tests; quality
   floor green.
-- [ ] 2.2 The severed-witness edge type on the connection surface, with
+- [x] 2.2 The severed-witness edge type on the connection surface, with
   the negative face asserted (the unbind-before-sever order does not
   typecheck) and the planner consuming the types; existing plan tests
   for non-dpmac edges unchanged.

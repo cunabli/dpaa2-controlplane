@@ -353,9 +353,12 @@ pub enum KernelFace {
     KernelFaceReleased,
 }
 
-/// Proof the dpni↔dpmac edge was torn before the kernel-face unbinds (`dpmac.qnt` `type
-/// SeveredWitness`; ADR-0008 §8). Mirrored here as data; the demand that the unbind
-/// require it is dpmac-typestate task 2.2 (`sever` stamps it, the kernel-face unbind demands it).
+/// The observation vocabulary for whether the dpni↔dpmac edge was torn (`dpmac.qnt` `type
+/// SeveredWitness`; ADR-0008 §8). This is a freely-constructible read-back judgment, not a
+/// proof token: the plan-surface law that *demands* a witness before the kernel-face unbinds
+/// is [`crate::plan::SeveredProof`] (dpmac-typestate task 2.2 — `Transition::sever` mints it,
+/// `Transition::unbind` consumes it). The two are deliberately distinct: this enum describes
+/// an observed state, `SeveredProof` is the unforgeable compile-time token.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum SeveredWitness {
     /// The edge is not yet severed.

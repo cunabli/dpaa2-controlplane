@@ -21,4 +21,4 @@ mod report;
 mod transition;
 
 pub use report::{AssertMismatch, DriftReport, Plan, RebuildRefusal};
-pub use transition::{Class, Transition};
+pub use transition::{Class, SeveredProof, Transition};
