@@ -12,7 +12,7 @@ phase; one bead at a time through acceptance. Model gate before Rust
   firmware-version-indexed counter vocabulary (10.39's 28; 10.40 named
   unread), MAC immutability; invariants named under their baseline ids;
   typecheck + simulate green.
-- [ ] 1.2 Type the dpni–dpmac edge teardown law at the connection
+- [x] 1.2 Type the dpni–dpmac edge teardown law at the connection
   surface (sever consumes KernelOwned → Offered + severed witness;
   unbind demands the witness for dpmac-facing edges only); Apalache
   green on the marked invariants; frozen traces committed; existing

@@ -57,13 +57,26 @@ module dpmac {
 //             vocabulary is NotInVocabulary, a constructor distinct from
 //             Known(0): absence ≠ zero is unrepresentable (dpmac.md "MC API
 //             notes", V-DPMAC-1).
+//   DPMAC_SeverOrder  the dpni↔dpmac teardown ordering law: the kernel-face
+//             is released only after the edge is severed, so the ADR-0008 §8
+//             hazard order (unbind before sever, stranding the port) is
+//             unreachable; the law itself is typed on the edge kind at the
+//             connection surface (connect.edgeDemandsSeveredWitness, ADR-0019
+//             edge facet) and consumed by unbindKernelFaceAt (dpmac.md
+//             "Kernel-side behavior").
 // DPMAC-I4 (the directional link channels) is structural, not a predicate:
 //   the state-up and requests-down channels are distinct named types, and
 //   requests-down carries no readable payload (dpmac.md "MC API notes").
-// Apalache-marked subset: the stateInvariants conjunction — all four are
+// Apalache-marked subset: the stateInvariants conjunction — all five are
 //   state-expressible over world or finite-quantified constants, per the
 //   DoD model gate (mirrors dpni_lifecycle).
 module dpmac_lifecycle {
+  // Family constructors (Dpni/Dpmac/…) and the connection-surface teardown
+  // law (edgeDemandsSeveredWitness) the sever/unbind actions consume — the
+  // law lives on the edge kind, not in this family (ADR-0019 edge facet).
+  import types.* from "../core/types"
+  import connect.* from "../core/connect"
+
   // ---- the MAC address (DPMAC-I2) ----
 
   // The port MAC as six bytes (the Rust runtime slot MacAddr([u8;6])). It is
@@ -223,6 +236,27 @@ module dpmac_lifecycle {
       | SameContainerKernelPeer => KernelOwned
     }
 
+  // ---- the dpni↔dpmac teardown ordering (ADR-0008 §8) ----
+
+  // The facing dpni's kernel-face across a teardown (dpmac.md "Kernel-side
+  // behavior", ADR-0008 §8). A same-container dpni that binds fsl_dpaa2_eth
+  // takes the port's datapath (KernelFaceBound); the teardown releases it
+  // only after the edge is severed (KernelFaceReleased). NoKernelDpni is the
+  // boot state and the clean state after a full teardown cycle.
+  type KernelFace =
+    | NoKernelDpni
+    | KernelFaceBound
+    | KernelFaceReleased
+
+  // The severed witness: proof the dpni↔dpmac edge was torn — the dpmac
+  // handed back from KernelOwned to Offered, the standalone driver
+  // re-attached at once — before the kernel-face unbinds. sever stamps it;
+  // the kernel-face unbind demands it (ADR-0008 §8). The typed witness
+  // task 2.2 mirrors in Rust (dpmac-typestate; ADR-0002).
+  type SeveredWitness =
+    | NotSevered
+    | Severed
+
   // ---- state ----
 
   type World = {
@@ -235,6 +269,8 @@ module dpmac_lifecycle {
     firmware: FirmwareVersion,        // counter vocabulary index (DPMAC-I7)
     linkStateUp: LinkStateUp,         // readable directional channel (DPMAC-I4)
     requestsDown: RequestsDownChannel, // unreadable directional channel (DPMAC-I4)
+    kernelFace: KernelFace,            // facing dpni's kernel-face (ADR-0008 §8)
+    severed: SeveredWitness,           // edge-sever witness (ADR-0008 §8)
   }
 
   var world: World
@@ -252,6 +288,8 @@ module dpmac_lifecycle {
     firmware: Mc1039,
     linkStateUp: BOOT_LINK_STATE,
     requestsDown: Unreadable,
+    kernelFace: NoKernelDpni,   // boot: no kernel dpni holds the port
+    severed: NotSevered,        // boot: no edge torn yet
   }
 
   // ---- transitions (observation-judged; no create, no set-state) ----
@@ -274,6 +312,51 @@ module dpmac_lifecycle {
   // notes"; the DPMAC-I5 class: connection state is not link state).
   action observeLinkStateUpAt(ls: LinkStateUp): bool = all {
     world' = world.with("linkStateUp", ls),
+  }
+
+  // A same-container kernel dpni binds fsl_dpaa2_eth and takes the port: the
+  // eth driver force-unbinds the standalone driver (KernelOwned) and owns the
+  // MAC's kernel face. A fresh teardown opens — no edge severed yet (dpmac.md
+  // "Kernel-side behavior", ADR-0008 §8). Enabled only on an Offered port.
+  action kernelDpniTakesPortAt: bool = all {
+    world.arbitration == Offered,
+    world' = world
+      .with("peer", SameContainerKernelPeer)
+      .with("arbitration", KernelOwned)
+      .with("standaloneBound", false)
+      .with("macNetdev", false)
+      .with("kernelFace", KernelFaceBound)
+      .with("severed", NotSevered),
+  }
+
+  // sever: disconnect the dpni↔dpmac edge while the dpni is still bound. The
+  // peer's endpoint-changed interrupt runs the standalone driver's re-attach
+  // with the edge already gone, so it binds at once — KernelOwned → Offered —
+  // and the severed witness is stamped (ADR-0008 §8, "sever, then unbind").
+  // Enabled only while a kernel dpni holds the port; the kernel-face is NOT
+  // released here — the dpni's own eth driver is unbound separately, after.
+  action severAt: bool = all {
+    world.arbitration == KernelOwned,
+    world.kernelFace == KernelFaceBound,
+    world' = world
+      .with("peer", NoPeer)
+      .with("arbitration", Offered)
+      .with("standaloneBound", true)
+      .with("macNetdev", true)
+      .with("severed", Severed),
+  }
+
+  // The dpni kernel-face unbind (fsl_dpaa2_eth remove). Facing a dpmac, the
+  // per-edge-kind law (connect.edgeDemandsSeveredWitness) demands the severed
+  // witness first: unbinding before the sever is the §8 hazard order that
+  // strands the port driverless, so the action is disabled without the
+  // witness — the hazard order is unreachable, not merely unlikely. For a
+  // non-dpmac edge the demand is vacuous; this module only models the dpmac
+  // edge, so the guard is consulted with (Dpni, Dpmac) (ADR-0008 §8).
+  action unbindKernelFaceAt: bool = all {
+    world.kernelFace == KernelFaceBound,
+    edgeDemandsSeveredWitness(Dpni, Dpmac) implies world.severed == Severed,
+    world' = world.with("kernelFace", KernelFaceReleased),
   }
 
   action stutter: bool = world' = world
@@ -299,6 +382,9 @@ module dpmac_lifecycle {
   action step = any {
     doObserveArbitration,
     doObserveLinkStateUp,
+    kernelDpniTakesPortAt,
+    severAt,
+    unbindKernelFaceAt,
     stutter,
   }
 
@@ -346,14 +432,26 @@ module dpmac_lifecycle {
       not(counterVocabulary(world.firmware).contains(c))
         implies readCounter(world.firmware, c) == NotInVocabulary)
 
+  // DPMAC-I6.sever — the dpni↔dpmac teardown ordering law (ADR-0008 §8): the
+  // kernel-face is released only after the edge is severed. Whenever the
+  // facing dpni's kernel-face reads KernelFaceReleased, the severed witness is
+  // present — so the §8 hazard order (unbind before sever, which strands the
+  // port driverless) holds in no reachable state. The bad combination
+  // (KernelFaceReleased with NotSevered) is representable but unreachable: the
+  // unbindKernelFaceAt guard, routed through connect.edgeDemandsSeveredWitness,
+  // forbids it (dpmac.md "Kernel-side behavior").
+  val DPMAC_SeverOrder: bool =
+    (world.kernelFace == KernelFaceReleased) implies (world.severed == Severed)
+
   // The Apalache/simulator conjunction (pnpm model:simulate / model:verify
-  // pass --invariant=stateInvariants): all four named invariants, marked per
+  // pass --invariant=stateInvariants): all five named invariants, marked per
   // the DoD model gate (mirrors dpni_lifecycle).
   val stateInvariants: bool = and {
     DPMAC_I2,
     DPMAC_I3,
     DPMAC_I6,
     DPMAC_I7,
+    DPMAC_SeverOrder,
   }
 
   // A stutter-check step for directed runs.
@@ -456,4 +554,59 @@ module dpmac_lifecycle {
         world.linkStateUp.up,
         world.linkStateUp.rate == 25000,
       })
+
+  // ---- directed runs (rung 2a): the dpni↔dpmac teardown law (ADR-0008 §8) ----
+
+  // The legal teardown path: a kernel dpni takes the port, the edge is
+  // severed (handback to Offered, witness stamped), and only then is the
+  // kernel-face unbound — the §8 "sever, then unbind" order.
+  run severThenUnbindTest =
+    init
+      .then(kernelDpniTakesPortAt)
+      .then(check(and {
+        world.arbitration == KernelOwned,
+        world.kernelFace == KernelFaceBound,
+      }))
+      .then(severAt)
+      .then(check(and {
+        world.arbitration == Offered,
+        world.standaloneBound,
+        world.severed == Severed,
+        world.kernelFace == KernelFaceBound,
+      }))
+      .then(unbindKernelFaceAt)
+      .expect(world.kernelFace == KernelFaceReleased)
+
+  // The hazard order is unreachable: unbinding the kernel-face before the
+  // sever is disabled — no severed witness, so the per-edge-kind demand
+  // (connect.edgeDemandsSeveredWitness) is unmet (ADR-0008 §8).
+  run hazardUnbindBeforeSeverRefusedTest =
+    init
+      .then(kernelDpniTakesPortAt)
+      .then(unbindKernelFaceAt.fail())
+
+  // The sever-order law holds after each teardown step.
+  run severOrderLawTest =
+    init
+      .then(kernelDpniTakesPortAt)
+      .then(check(DPMAC_SeverOrder))
+      .then(severAt)
+      .then(check(DPMAC_SeverOrder))
+      .then(unbindKernelFaceAt)
+      .then(check(DPMAC_SeverOrder))
+
+  // Non-dpmac edges carry no witness demand — the law is typed on the edge
+  // kind and stays vacuous for every other edge (ADR-0019 edge facet): dpni↔
+  // dpni (no driver handback), dpni↔dpdmux and dpdmux↔dpmac (un-disconnectable,
+  // ADR-0009), dpsw↔dpmac, dpci↔dpci — each waits for its own change.
+  run nonDpmacEdgesNoWitnessTest =
+    init.then(check(and {
+      edgeDemandsSeveredWitness(Dpni, Dpmac),
+      edgeDemandsSeveredWitness(Dpmac, Dpni),
+      not(edgeDemandsSeveredWitness(Dpni, Dpni)),
+      not(edgeDemandsSeveredWitness(Dpni, Dpdmux)),
+      not(edgeDemandsSeveredWitness(Dpdmux, Dpmac)),
+      not(edgeDemandsSeveredWitness(Dpsw, Dpmac)),
+      not(edgeDemandsSeveredWitness(Dpci, Dpci)),
+    }))
 }

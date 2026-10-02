@@ -27,6 +27,21 @@ module connect {
     if (b.obj.fam == Dpdmux and a.obj.fam == Dpmac) b.port == 0 else true,
   }
 
+  // Teardown-ordering law, typed on the edge KIND (ADR-0019 edge facet):
+  // only a dpni↔dpmac edge demands that the edge be severed (the dpmac
+  // handed back from KernelOwned to Offered, producing a severed witness)
+  // before the dpni's kernel-face unbinds. Unbinding first strands the port
+  // driverless — the standalone MAC driver's re-attach defers while the edge
+  // still faces a dpni and nothing re-runs it (ADR-0008 §8; dpmac.md
+  // "Kernel-side behavior"). Every other edge kind is vacuous: dpni↔dpni has
+  // no driver-handback mechanism, dpdmux is un-disconnectable on the pinned
+  // firmware (ADR-0009), dpsw and dpci carry no recorded hazard — each waits
+  // for its own change. The dpmac family action consumes this guard
+  // (families/dpmac.qnt dpmac_lifecycle); dpmac-typestate task 2.2 mirrors
+  // it as the Rust typestate witness (ADR-0002).
+  pure def edgeDemandsSeveredWitness(a: Family, b: Family): bool =
+    (a == Dpni and b == Dpmac) or (a == Dpmac and b == Dpni)
+
   pure def endpointsOf(s: CoreState): Set[Endpoint] =
     s.conns.map(c => Set(c._1, c._2)).flatten()
 
