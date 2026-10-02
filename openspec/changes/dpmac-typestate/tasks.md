@@ -33,7 +33,7 @@ phase; one bead at a time through acceptance. Model gate before Rust
   the negative face asserted (the unbind-before-sever order does not
   typecheck) and the planner consuming the types; existing plan tests
   for non-dpmac edges unchanged.
-- [ ] 2.3 MBT conformance twins in `dpaa2-verify`: frozen-trace replay
+- [x] 2.3 MBT conformance twins in `dpaa2-verify`: frozen-trace replay
   of the arbitration transitions and edge law; property twins for the
   vocabulary and MAC-relation judgments; ITF replay green.
 

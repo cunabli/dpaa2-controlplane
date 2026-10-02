@@ -5,6 +5,9 @@
 /// Reader for frozen dpio-lifecycle ITF traces (pool-objects task 4.1); the seat-typed
 /// stepped-machine twin of [`pool_itf`], replayed by `tests/dpio_replay.rs`.
 pub mod dpio_itf;
+/// Reader for frozen dpmac-lifecycle ITF traces (dpmac-typestate task 2.3); the boot-born-offer
+/// stepped-machine twin of [`dpni_itf`], replayed by `tests/dpmac_replay.rs`.
+pub mod dpmac_itf;
 /// Reader for frozen dpni create-surface ITF traces (dpni-typestate task 5.1); the
 /// stepped-machine twin of [`dprc_itf`], replayed by `tests/dpni_replay.rs`.
 pub mod dpni_itf;
