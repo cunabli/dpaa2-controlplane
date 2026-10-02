@@ -6,7 +6,7 @@ phase; one bead at a time through acceptance. Model gate before Rust
 
 ## 1. Model
 
-- [ ] 1.1 Grow `models/families/dpmac.qnt` into the P4 reference shape:
+- [x] 1.1 Grow `models/families/dpmac.qnt` into the P4 reference shape:
   arbitration phase sum with observation-judged transitions, the two
   directional link channels (requests-down typed Unreadable), the
   firmware-version-indexed counter vocabulary (10.39's 28; 10.40 named
