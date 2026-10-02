@@ -4,7 +4,7 @@ Ordering per design D5: B7 ∥ B1 first, then B2, then B3+B4 together (one
 zero-sentinel story, design D3), B5/B6 anytime after B2. One bead at a time
 through acceptance; each group is one bead → one parcel → one commit.
 Verification commands live on the beads; synthesis cross-reference in
-openspec/changes/dpmac-typestate/review/synthesis.md §4.
+openspec/changes/archive/2026-10-03-dpmac-typestate/review/synthesis.md §4.
 
 ## 1. Bead B7 — doc/ledger amendment (dpaa2-controlplane-e6s.7)
 

@@ -3,7 +3,7 @@
 ## Context
 
 The dpmac-typestate review (synthesis at
-openspec/changes/dpmac-typestate/review/synthesis.md) left eight merged
+openspec/changes/archive/2026-10-03-dpmac-typestate/review/synthesis.md) left eight merged
 findings and two explicit disposition forks. This design records the forks
 so the parcels do not re-litigate them. The protected decisions of
 dpmac-typestate (D1–D7, the board outcomes, the #10/#13 deferral routings)

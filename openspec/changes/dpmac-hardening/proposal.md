@@ -2,7 +2,7 @@
 
 ## Why
 
-The dpmac-typestate epic review (openspec/changes/dpmac-typestate/review/
+The dpmac-typestate epic review (openspec/changes/archive/2026-10-03-dpmac-typestate/review/
 synthesis.md) merged the four passes into 8 findings: core promise YES with
 one typed-law qualification, ADR-0002 isomorphism YES. This change lands the
 dispositioned findings (epic bead dpaa2-controlplane-e6s). The qualification
