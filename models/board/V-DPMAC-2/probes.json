@@ -1,0 +1,54 @@
+{
+  "suite": "V-DPMAC-2",
+  "class": "lifecycle",
+  "steps": [
+    {
+      "label": "capture root container pre-probe",
+      "cmd": ["restool", "dprc", "show", "dprc.1"],
+      "expect": "zero exit; capture the root listing as the blast-radius reference — the closing census diffs against it for zero deltas (ADR-0003 §5 queries are lifecycle-only)",
+      "exit": "zero"
+    },
+    {
+      "label": "create + label scratch child dprc as vdpmac2",
+      "cmd": ["sh", "-c", "set -e; n=$(restool --script dprc create dprc.1); restool dprc set-label \"$n\" --label=vdpmac2; echo \"created $n labelled vdpmac2\""],
+      "expect": "zero exit; the child is created then labelled in one shell step, capturing the pool-assigned name from create stdout (the sanctioned sh -c use, V-DPRC-10). The scratch child sits under dprc.1 with the default child option mask SPAWN|ALLOC|OBJ_CREATE (DPRC-I4), so it can hold a created dpmac. Containment is the point (dpmac-typestate design D7): DPRC-I6 keeps the child's residents off the fsl-mc bus, so no kernel driver probes the phantom and the standalone dpmac driver's NULL-deref hazard (dpmac.md silent-failure notes) is structurally unreachable. Label-scoped teardown below. A divergence halts the face.",
+      "exit": "zero"
+    },
+    {
+      "label": "phantom create: dpmac --mac-id=11 (no DPC mac@11 entry) in the scratch child",
+      "cmd": ["sh", "-c", "c=$(restool dprc show dprc.1 | awk '$2==\"vdpmac2\"{print $1; exit}'); [ -n \"$c\" ] || { echo 'no vdpmac2 child resolved' >&2; exit 1; }; restool dpmac create --mac-id=11 --container=\"$c\"; restool dprc show \"$c\""],
+      "expect": "exit any — BOTH outcomes are findings (dpmac-typestate design D7, dpmac-typestate task 5.2). mac-id 11 has no DPC port entry: this board's DPC declares mac@3..mac@10 and mac@17 (reference-environment.md DPC/DPL snapshot; ADR-0003 §4 matrix), so 11 sits in the gap above the contiguous 3-10 block — a DPC-absent id, not an out-of-silicon one, which is exactly what baseline unknown #1 asks (dpmac.md unknown 1). REFUSAL = the DPC-gated answer to baseline unknown #1: capture the MC status verbatim. ACCEPTANCE = the phantom dpmac.11 stands in the child (dpmac ids equal the mac-id, DPMAC-I1), read back in the appended child listing here. The in-child read-back is the evidence; the next two steps are contingency on acceptance.",
+      "exit": "any"
+    },
+    {
+      "label": "contingency: attribute read-back of the accepted phantom",
+      "cmd": ["restool", "dpmac", "info", "dpmac.11"],
+      "expect": "skip (s) if the create was refused; else record the attributes the MC invented for a portless dpmac — any content is the finding (DPMAC-I3 attribute surface, discovery not PASS/FAIL). This is an attribute read-back, not a counter study: the 28-row 10.39 counter vocabulary is banked by V-DPMAC-1 (DPMAC-I7), cited and never re-run here.",
+      "exit": "any"
+    },
+    {
+      "label": "contingency: destroy the phantom in the child",
+      "cmd": ["restool", "dpmac", "destroy", "dpmac.11"],
+      "expect": "skip (s) if the create was refused; else remove dpmac.11 from the child (in-child destroy, dpmac-typestate design D7). Any exit — dpmac.md silent-failure notes warn destroy's exit status lies in a child container, so the next step's census is the real evidence of removal.",
+      "exit": "any"
+    },
+    {
+      "label": "child census: the phantom is absent after destroy",
+      "cmd": ["sh", "-c", "c=$(restool dprc show dprc.1 | awk '$2==\"vdpmac2\"{print $1; exit}'); [ -n \"$c\" ] || { echo 'no vdpmac2 child resolved — already gone'; exit 0; }; restool dprc show \"$c\" | awk '$1 ~ /^dpmac\\./{n++; print} END{print \"child dpmac rows: \" n+0}'"],
+      "expect": "any exit; the child holds no dpmac row — the phantom (if it was ever created) is gone. The awk count is the evidence (dpmac.md: destroy's exit status is unreliable in a child, so presence is read, never inferred from exit).",
+      "exit": "any"
+    },
+    {
+      "label": "teardown: destroy the scratch child (label-scoped, eviction law)",
+      "cmd": ["sh", "-c", "c=$(restool dprc show dprc.1 | awk '$2==\"vdpmac2\"{print $1; exit}'); [ -n \"$c\" ] || { echo 'no vdpmac2 child resolved — already gone'; exit 0; }; restool dprc destroy \"$c\""],
+      "expect": "any exit; label-scoped destroy of the vdpmac2 child — the eviction law releases any resident with the container (ADR-0007 §3). Skip (s) only if the create step never ran. This suite runs late in the sitting with its own teardown and census (dpmac-typestate task 5.3 runs LATE), so the board is returned census-clean before the next suite.",
+      "exit": "any"
+    },
+    {
+      "label": "capture root container post-probe (zero deltas; root face recorded untaken)",
+      "cmd": ["restool", "dprc", "show", "dprc.1"],
+      "expect": "zero exit; must match the pre-probe capture object-for-object — the scratch child is gone, no residue (self-cleaning plan). ROOT-FACE DELIBERATELY UNTAKEN, recorded loud not silent (dpmac-typestate design D7): this suite never issues the phantom create in dprc.1, so 'would the kernel bind a phantom created in the root container?' is NOT answered here — a root-container dpmac is bus-visible, the standalone dpmac driver would probe it, and its NULL-deref hazard (dpmac.md silent-failure notes) could fire. The root face is out of this change's envelope and is carried as untaken in the ledger (models/board/README.md). Every phantom create above targets the scratch child only.",
+      "exit": "zero"
+    }
+  ]
+}

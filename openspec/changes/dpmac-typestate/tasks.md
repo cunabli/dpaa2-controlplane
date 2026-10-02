@@ -59,7 +59,7 @@ phase; one bead at a time through acceptance. Model gate before Rust
   hooks for arbitration/MAC/attr-constancy/counters/carrier, typed
   sever-then-unbind teardown, RemoteOwned leg) inside the safety
   envelope; offline gates green; pre-run record commit.
-- [ ] 5.2 Author Suite B (V-DPMAC-2 phantom create, scratch-child
+- [x] 5.2 Author Suite B (V-DPMAC-2 phantom create, scratch-child
   contained, own teardown + census, root face recorded untaken);
   offline gates green; pre-run record commit.
 - [ ] 5.3 Operator sitting: Suites A + B, one sitting, Suite B late;
