@@ -17,7 +17,7 @@ phase; one bead at a time through acceptance. Model gate before Rust
   unbind demands the witness for dpmac-facing edges only); Apalache
   green on the marked invariants; frozen traces committed; existing
   edge-kind traces replay unchanged.
-- [ ] 1.3 COVERAGE sync: DPMAC-I2/I3/I4(reachable)/I6/I7 rows
+- [x] 1.3 COVERAGE sync: DPMAC-I2/I3/I4(reachable)/I6/I7 rows
   deferred→modeled with rungs named; out-of-scope re-anchors recorded
   loudly (requests-down channel, MC-view link read, bulk statistics →
   #10 restool-absence ledger rows; DPRTC-I4 off #7); ledger lint green.
