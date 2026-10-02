@@ -7,6 +7,7 @@
 //! quint mirror).
 
 pub mod dpio;
+pub mod dpmac;
 pub mod dpni;
 pub mod dprc;
 pub mod pool_lifecycle;

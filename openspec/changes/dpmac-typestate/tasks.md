@@ -24,7 +24,7 @@ phase; one bead at a time through acceptance. Model gate before Rust
 
 ## 2. Rust core
 
-- [ ] 2.1 `crates/dpaa2-api/src/families/dpmac.rs`: isomorphic
+- [x] 2.1 `crates/dpaa2-api/src/families/dpmac.rs`: isomorphic
   typestates, the MAC relation judgment
   (Inherited/Overridden/Pending/Mismatched, Pending never drift), the
   `Known | NotInVocabulary` counter types; TDD unit tests; quality
