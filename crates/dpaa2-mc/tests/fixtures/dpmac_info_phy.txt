@@ -4,3 +4,32 @@ DPMAC ethernet interface: DPMAC_ETH_IF_XFI
 DPMAC link type: DPMAC_LINK_TYPE_PHY
 MAC address: 00:00:00:00:00:29
 maximum supported rate 10000 Mbps
+Counters:
+rx all frames: 142537
+rx frames ok: 142530
+rx frame errors: 0
+rx frame discards: 3
+rx u-cast: 98211
+rx b-cast: 21044
+rx m-cast: 23275
+rx 64 bytes: 51200
+rx 65-127 bytes: 38114
+rx 128-255 bytes: 20590
+rx 256-511 bytes: 10233
+rx 512-1023 bytes: 8847
+rx 1024-1518 bytes: 13373
+rx 1519-max bytes: 180
+rx frags: 0
+rx jabber: 0
+rx align errors: 1
+rx oversized: 0
+rx pause: 44
+rx bytes: 20481993
+tx frames ok: 131002
+tx u-cast: 120443
+tx m-cast: 6120
+tx b-cast: 4439
+tx frame errors: 0
+tx undersized: 0
+tx b-pause: 12
+tx bytes: 18995221

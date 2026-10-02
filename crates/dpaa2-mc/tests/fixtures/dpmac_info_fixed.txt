@@ -4,3 +4,32 @@ DPMAC ethernet interface: DPMAC_ETH_IF_CAUI
 DPMAC link type: DPMAC_LINK_TYPE_FIXED
 MAC address: 00:00:00:00:00:1f
 maximum supported rate 25000 Mbps
+Counters:
+rx all frames: 77
+rx frames ok: 77
+rx frame errors: 0
+rx frame discards: 0
+rx u-cast: 60
+rx b-cast: 9
+rx m-cast: 8
+rx 64 bytes: 40
+rx 65-127 bytes: 25
+rx 128-255 bytes: 7
+rx 256-511 bytes: 3
+rx 512-1023 bytes: 2
+rx 1024-1518 bytes: 0
+rx 1519-max bytes: 0
+rx frags: 0
+rx jabber: 0
+rx align errors: 0
+rx oversized: 0
+rx pause: 0
+rx bytes: 9231
+tx frames ok: 64
+tx u-cast: 55
+tx m-cast: 5
+tx b-cast: 4
+tx frame errors: 0
+tx undersized: 0
+tx b-pause: 0
+tx bytes: 8102

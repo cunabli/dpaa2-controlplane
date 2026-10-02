@@ -24,6 +24,7 @@ use crate::core::model::{
 };
 use crate::core::types::ConstructName;
 use crate::families::dpio::{DpioCfg, Priorities};
+use crate::families::dpmac::{self, CounterRead, CounterReadout, DpmacObservation, EthIf};
 use crate::families::dpni::{DpniCfg, DpniObservation, NumQueues};
 use crate::families::dprc::ContainerState;
 use crate::families::pool_lifecycle::{ObservedPoolObject, RawDriver, RawLabel};
@@ -392,6 +393,25 @@ impl McControl for FakeBackend {
 
     fn read_inventory(&self) -> Result<Inventory, Error> {
         Ok(self.state.borrow().inventory.clone())
+    }
+
+    fn observe_dpmac(&self, dpmac: DpmacId) -> Result<DpmacObservation, Error> {
+        let st = self.state.borrow();
+        let Some(m) = st.dpmacs.get(&dpmac) else {
+            return Err(Error::Backend(format!("fake: no dpmac {dpmac}")));
+        };
+        let link_type = match m.link_type {
+            LinkType::Phy => dpmac::LinkType::PhyManaged,
+            LinkType::Fixed => dpmac::LinkType::Fixed,
+        };
+        Ok(DpmacObservation {
+            eth_if: EthIf::OtherSerdesProtocol,
+            link_type,
+            mac: m.mac,
+            max_rate: 10_000,
+            // The fake answers the pinned 10.39 vocabulary as all-zero counters; counters never enter reconcile (dpmac-typestate design D4), so the values are immaterial to the loop.
+            counters: CounterReadout::Vocabulary(vec![CounterRead::Known(0); 28]),
+        })
     }
 
     fn create_dpni(

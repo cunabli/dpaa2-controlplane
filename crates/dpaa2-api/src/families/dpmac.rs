@@ -274,6 +274,54 @@ pub fn read_counter(fw: FirmwareVersion, counter: Counter, raw: u64) -> CounterR
     }
 }
 
+// ---- the witnessable observation surface (dpmac-typestate design D4; DPMAC-I7) ----
+
+/// The witnessable dpmac observation surface — exactly what one `restool dpmac info
+/// dpmac.N` spawn renders, and no more (`docs/baseline/dpmac.md` "Command surface": eth
+/// interface, link type, MAC address, max rate; dpmac-typestate spec "The restool shim
+/// reads the dpmac observation surface"). The unwitnessable attributes (`fec_mode`,
+/// `serdes_cfg`, `ipg_length`) are deliberately absent: restool never prints them, so a
+/// read-back would be invention, not observation (dpmac-typestate design D4). `eth_if`
+/// rides along for completeness but drift is judged on [`StableAttributes`], which
+/// projects it out (DPMAC-I3).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DpmacObservation {
+    /// `DPMAC ethernet interface:` — `USXGMII` vs any other RCW `SerDes` protocol.
+    pub eth_if: EthIf,
+    /// `DPMAC link type:` — PHY / FIXED / BACKPLANE (DPMAC-I3).
+    pub link_type: LinkType,
+    /// `MAC address:` — the burned-in port MAC the connected dpni inherits (DPMAC-I2, ADR-0001 C2).
+    pub mac: MacAddr,
+    /// `maximum supported rate N Mbps` — DPC-born, read-only (DPMAC-I3).
+    pub max_rate: u32,
+    /// The counter read-back, vocabulary-checked (DPMAC-I7, dpmac-typestate design D4).
+    pub counters: CounterReadout,
+}
+
+/// The outcome of reading a port's counters against the pinned firmware's vocabulary
+/// (DPMAC-I7; dpmac-typestate design D4; `docs/baseline/dpmac.md` "Counter skew",
+/// "Silent-failure notes"). restool prints whatever the firmware answers and silently
+/// skips refusals, so the rendered row set — never a zero-fill — is the only honest
+/// signal: an exact vocabulary match reads the counters as [`CounterRead::Known`] values
+/// (a present-but-zero counter is `Known(0)`, never absent), and any deviation is a typed
+/// firmware-version signal, not a parse error.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CounterReadout {
+    /// The rendered rows matched the firmware vocabulary exactly: each counter a `Known`
+    /// value in the firmware's render order (DPMAC-I7: absence ≠ zero, so every entry is
+    /// `Known`, a present reading — never a defaulted zero).
+    Vocabulary(Vec<CounterRead>),
+    /// The rendered row set deviated from the vocabulary (short, over, reordered, or an
+    /// unknown name) — a firmware-version signal carrying the expected and observed row
+    /// counts, never a parse error and never a zero-fill (dpmac-typestate design D4).
+    VersionSignal {
+        /// The pinned firmware's vocabulary row count.
+        expected: usize,
+        /// The rendered row count actually observed.
+        got: usize,
+    },
+}
+
 // ---- the driver-arbitration phase (DPMAC-I6, dpmac-typestate design D2) ----
 
 /// The dpmac typestate — who owns the port, judged from observation (`dpmac.qnt` `type

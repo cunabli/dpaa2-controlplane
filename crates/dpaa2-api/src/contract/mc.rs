@@ -6,6 +6,7 @@ use crate::core::inventory::Inventory;
 use crate::core::model::{DpmacId, DpniId, DprcId, MacAddr, ObjectRef, ObservedTopology};
 use crate::core::types::ConstructName;
 use crate::families::dpio::{DpioCfg, Priorities};
+use crate::families::dpmac::DpmacObservation;
 use crate::families::dpni::DpniCfg;
 use crate::families::dprc;
 use crate::families::pool_lifecycle::ObservedPoolObject;
@@ -37,6 +38,29 @@ pub trait McControl {
     /// # Errors
     /// Returns an error if the backend cannot be queried.
     fn read_inventory(&self) -> Result<Inventory, Error>;
+
+    /// Reads one dpmac's witnessable observation surface through a single `restool dpmac
+    /// info dpmac.N` spawn — the DPC-born attributes, the burned-in MAC, and the
+    /// vocabulary-checked counters (dpmac-typestate spec "The restool shim reads the dpmac
+    /// observation surface"; dpmac-typestate design D4). One spawn per dpmac, by the
+    /// whitelist fence: this verb never drives `set_protocol`/`set_params`/MDIO or a dpmac
+    /// link command, which
+    /// are outside the `/dev/dprc.N` whitelist (dpmac-typestate design Non-Goals;
+    /// `docs/baseline/dpmac.md` "Command surface").
+    ///
+    /// A deviating counter row count is a typed
+    /// [`CounterReadout::VersionSignal`](crate::families::dpmac::CounterReadout::VersionSignal),
+    /// never a parse error, and restool's silent counter skips are never read as zeros
+    /// (DPMAC-I7; `docs/baseline/dpmac.md` "Counter skew"). A dead shim spawn — restool
+    /// aborts via `assert(false)` on out-of-enum values (`docs/baseline/dpmac.md`
+    /// "Silent-failure notes") — surfaces as a typed observation failure, never as
+    /// inherited partial state.
+    ///
+    /// # Errors
+    /// Returns [`Error::Backend`] on a dead/killed spawn, [`Error::McStatus`] or
+    /// [`Error::RestoolGuard`] on a refusal, or [`Error::Parse`] when a required attribute
+    /// line is absent or carries a token outside the typed vocabulary.
+    fn observe_dpmac(&self, dpmac: DpmacId) -> Result<DpmacObservation, Error>;
 
     /// Creates a DPNI object, stamped with the owning construct's name as its MC
     /// label, and returns its MC-assigned id. Stamping at create closes the read-back

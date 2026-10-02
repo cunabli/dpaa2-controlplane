@@ -18,6 +18,7 @@ use dpaa2_api::core::model::{
 };
 use dpaa2_api::core::types::ConstructName;
 use dpaa2_api::families::dpio::{ChannelMode, DpioCfg, Priorities};
+use dpaa2_api::families::dpmac::{CounterRead, CounterReadout, DpmacObservation, EthIf, LinkType};
 use dpaa2_api::families::dpni::{
     DpniCfg, DpniObservation, DpniOpt, FsEntries, MacFilterEntries, NumCeetmCh, NumCgs, NumOpr,
     NumQueues, NumTcs, OptionMask, QosEntries, RawEscape, VlanFilterEntries,
@@ -243,6 +244,93 @@ const fn channel_mode_arg(mode: ChannelMode) -> &'static str {
     match mode {
         ChannelMode::LocalChannel => "DPIO_LOCAL_CHANNEL",
         ChannelMode::NoChannel => "DPIO_NO_CHANNEL",
+    }
+}
+
+/// The 28 counter rows restool 2.4 renders on an MC 10.39 board, verbatim and in print
+/// order (`docs/baseline/dpmac.md` "Counter skew": 28 of 62 printed, the rest silently
+/// refused; DPMAC-I7). Adapter policy — the firmware-version vocabulary lives in the
+/// southbound, never on dpaa2-api's representative 5-row `Counter` slice (dpmac-typestate
+/// design D4; ADR-0018). Derived from restool's `dpaa2_mac_counters[]` table rows whose
+/// `fsl_dpmac.h` enum id is among the 10.39 flib's first 28, and cross-checked against an
+/// operator board capture (2026-10-02, values withheld); board re-validation rides
+/// dpmac-typestate task 5.3.
+const DPMAC_COUNTERS_1039: [&str; 28] = [
+    "rx all frames",
+    "rx frames ok",
+    "rx frame errors",
+    "rx frame discards",
+    "rx u-cast",
+    "rx b-cast",
+    "rx m-cast",
+    "rx 64 bytes",
+    "rx 65-127 bytes",
+    "rx 128-255 bytes",
+    "rx 256-511 bytes",
+    "rx 512-1023 bytes",
+    "rx 1024-1518 bytes",
+    "rx 1519-max bytes",
+    "rx frags",
+    "rx jabber",
+    "rx align errors",
+    "rx oversized",
+    "rx pause",
+    "rx bytes",
+    "tx frames ok",
+    "tx u-cast",
+    "tx m-cast",
+    "tx b-cast",
+    "tx frame errors",
+    "tx undersized",
+    "tx b-pause",
+    "tx bytes",
+];
+
+/// Maps restool's `DPMAC_ETH_IF_*` token to the typed interface (dpmac-typestate design D4;
+/// `docs/baseline/dpmac.md` "Option inventory"): `USXGMII` is the corpus's one named
+/// protocol; every other token (XFI, CAUI, …) rides the RCW `SerDes` protocol and reads
+/// [`EthIf::OtherSerdesProtocol`]. Adapter policy — the token spelling stays here (ADR-0018).
+fn map_dpmac_eth_if(token: &str) -> EthIf {
+    if token == "DPMAC_ETH_IF_USXGMII" {
+        EthIf::Usxgmii
+    } else {
+        EthIf::OtherSerdesProtocol
+    }
+}
+
+/// Maps restool's `DPMAC_LINK_TYPE_*` token to the typed link type, or `None` for a token
+/// outside the corpus (PHY/FIXED/BACKPLANE only; `docs/baseline/dpmac.md` "Option
+/// inventory"). `DPMAC_LINK_TYPE_NONE` has no typed home and reads `None` — an honest gap
+/// the caller surfaces as a parse failure, never an invented variant (DPMAC-I3).
+fn map_dpmac_link_type(token: &str) -> Option<LinkType> {
+    match token {
+        "DPMAC_LINK_TYPE_PHY" => Some(LinkType::PhyManaged),
+        "DPMAC_LINK_TYPE_FIXED" => Some(LinkType::Fixed),
+        "DPMAC_LINK_TYPE_BACKPLANE" => Some(LinkType::Backplane),
+        _ => None,
+    }
+}
+
+/// Classifies the rendered counter rows against the 10.39 vocabulary (DPMAC-I7;
+/// dpmac-typestate design D4). An exact sequence match (count and names, in render order)
+/// reads each row as a [`CounterRead::Known`] value — a present-but-zero counter is
+/// `Known(0)`, never absent. Any deviation — short, over, reordered, or an unknown name —
+/// is a typed [`CounterReadout::VersionSignal`] carrying expected-vs-got, never a parse
+/// error and never a zero-fill: restool silently skips refused counters, so the row set is
+/// the only honest signal (`docs/baseline/dpmac.md` "Silent-failure notes").
+fn classify_dpmac_counters(rows: &[(String, u64)]) -> CounterReadout {
+    let matches_vocabulary = rows.len() == DPMAC_COUNTERS_1039.len()
+        && rows
+            .iter()
+            .zip(DPMAC_COUNTERS_1039)
+            .all(|((rendered, _), expected)| rendered.as_str() == expected);
+    if matches_vocabulary {
+        CounterReadout::Vocabulary(rows.iter().map(|&(_, v)| CounterRead::Known(v)).collect())
+    } else {
+        CounterReadout::VersionSignal {
+            expected: DPMAC_COUNTERS_1039.len(),
+            got: rows.len(),
+        }
     }
 }
 
@@ -656,6 +744,40 @@ impl<R: Runner> McControl for RestoolMc<R> {
             // (empty ⇒ "dpl", a declared name ⇒ ours, anything else ⇒ that owner).
             labels,
             ceilings,
+        })
+    }
+
+    fn observe_dpmac(&self, dpmac: DpmacId) -> Result<DpmacObservation, Error> {
+        // One spawn per dpmac; restool's assert(false) abort on an out-of-enum value is a signal death `run_verb` reports as `Error::Backend`, so no partial state is ever parsed from a dead stdout (dpmac-typestate design D4; docs/baseline/dpmac.md "Silent-failure notes").
+        let out = self.run_verb(&["dpmac", "info", &dpmac.to_string()])?;
+        let raw = parse::parse_dpmac_observation(&out);
+        // DPMAC-I3: the witnessable attribute subset must be complete; a missing line is an honest parse gap, never an invented value (the read_inventory precedent).
+        let (Some(eth_if), Some(link_token), Some(mac), Some(max_rate)) = (
+            raw.eth_if.as_deref(),
+            raw.link_type.as_deref(),
+            raw.mac,
+            raw.max_rate,
+        ) else {
+            return Err(Error::Parse(format!(
+                "dpmac info {dpmac}: missing eth_if/link_type/mac/max_rate"
+            )));
+        };
+        let Some(link_type) = map_dpmac_link_type(link_token) else {
+            return Err(Error::Parse(format!(
+                "dpmac info {dpmac}: link type `{link_token}` outside the typed vocabulary"
+            )));
+        };
+        let max_rate = u32::try_from(max_rate).map_err(|_| {
+            Error::Parse(format!(
+                "dpmac info {dpmac}: max_rate {max_rate} out of range"
+            ))
+        })?;
+        Ok(DpmacObservation {
+            eth_if: map_dpmac_eth_if(eth_if),
+            link_type,
+            mac,
+            max_rate,
+            counters: classify_dpmac_counters(&raw.counters),
         })
     }
 

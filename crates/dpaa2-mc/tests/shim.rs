@@ -6,12 +6,14 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 
 use dpaa2_api::contract::McControl;
+use dpaa2_api::core::error::Error;
 use dpaa2_api::core::model::{DpmacId, DpniId, LinkType, MacAddr};
 use dpaa2_api::core::types::ConstructName;
+use dpaa2_api::families::dpmac::{self, CounterRead, CounterReadout};
 use dpaa2_api::families::dpni::{DpniCfg, NumQueues, Profile};
 use dpaa2_mc::RestoolMc;
 use dpaa2_mc::parse::{parse_dpmac_info, parse_dpni_info, parse_dpni_object_id, parse_dprc_show};
-use dpaa2_mc::runner::Runner;
+use dpaa2_mc::runner::{RunOutcome, Runner};
 
 /// The unsized port-only projection's create block (`num_queues` 0 ⇒ host fallback), the
 /// argument the reconciler's `from_ports` path carries into `create_dpni`.
@@ -341,4 +343,188 @@ impl RunnerCalls for RestoolMc<FailingRunner> {
     fn runner_calls(&self) -> Vec<Vec<String>> {
         self.runner().calls()
     }
+}
+
+// ---- dpmac observation surface (dpmac-typestate task 3.1, bead dpaa2-controlplane-0xu.7) ----
+//
+// Fixture provenance: the `Counters:` blocks appended to the two dpmac fixtures carry a
+// source-derived 28-row 10.39 vocabulary (restool 2.4 `dpaa2_mac_counters[]` ∩ the first
+// 28 `fsl_dpmac.h` enum ids), its structure cross-checked against an operator-supplied
+// board capture (2026-10-02, concrete values withheld — the row values here are
+// synthesized, varied, with zeros to exercise `Known(0)` vs absence). Board re-validation
+// rides dpmac-typestate task 5.3. The restool header is `Counters: ` with a trailing
+// space on the board; the parser trims it, so the fixtures carry `Counters:` verbatim-less
+// that cosmetic space.
+
+/// A runner that replays one canned [`RunOutcome`] for every call and records the commands
+/// issued — the dpmac-observation transcript double (dpmac-typestate task 3.1).
+struct OneShot {
+    outcome: RunOutcome,
+    calls: RefCell<Vec<Vec<String>>>,
+}
+
+impl OneShot {
+    fn ok(stdout: &str) -> Self {
+        Self {
+            outcome: RunOutcome {
+                stdout: stdout.to_owned(),
+                stderr: String::new(),
+                code: Some(0),
+            },
+            calls: RefCell::new(Vec::new()),
+        }
+    }
+
+    /// restool's `assert(false)` on an out-of-enum value raises SIGABRT: the process is
+    /// killed by a signal, so there is no exit code (`docs/baseline/dpmac.md`
+    /// "Silent-failure notes"; dpmac-typestate design D4).
+    fn dead() -> Self {
+        Self {
+            outcome: RunOutcome {
+                stdout: String::new(),
+                stderr: "dpmac.7: Assertion `0' failed.".to_owned(),
+                code: None,
+            },
+            calls: RefCell::new(Vec::new()),
+        }
+    }
+
+    fn calls(&self) -> Vec<Vec<String>> {
+        self.calls.borrow().clone()
+    }
+}
+
+impl Runner for OneShot {
+    fn run(&self, args: &[&str]) -> Result<String, Error> {
+        let out = self.run_capture(args)?;
+        if out.code == Some(0) {
+            Ok(out.stdout)
+        } else {
+            Err(Error::Backend(out.stderr))
+        }
+    }
+
+    fn run_capture(&self, args: &[&str]) -> Result<RunOutcome, Error> {
+        self.calls
+            .borrow_mut()
+            .push(args.iter().map(|s| (*s).to_owned()).collect());
+        Ok(self.outcome.clone())
+    }
+}
+
+fn observe(stdout: &str, id: u32) -> Result<dpaa2_api::families::dpmac::DpmacObservation, Error> {
+    RestoolMc::with_runner(OneShot::ok(stdout), "dprc.1").observe_dpmac(DpmacId::new(id))
+}
+
+#[test]
+fn observe_dpmac_round_trips_the_phy_fixture_counters_known() {
+    let obs = observe(DPMAC_PHY, 7).expect("observe");
+    assert_eq!(obs.eth_if, dpmac::EthIf::OtherSerdesProtocol);
+    assert_eq!(obs.link_type, dpmac::LinkType::PhyManaged);
+    assert_eq!(obs.mac, MacAddr::new([0, 0, 0, 0, 0, 0x29]));
+    assert_eq!(obs.max_rate, 10_000);
+    let CounterReadout::Vocabulary(vals) = &obs.counters else {
+        panic!("expected a vocabulary readout, got {:?}", obs.counters);
+    };
+    assert_eq!(vals.len(), 28);
+    assert_eq!(vals[0], CounterRead::Known(142_537));
+    // `rx frame errors: 0` — a present zero is Known(0), never absence (DPMAC-I7).
+    assert_eq!(vals[2], CounterRead::Known(0));
+    assert_eq!(vals[27], CounterRead::Known(18_995_221));
+}
+
+#[test]
+fn observe_dpmac_round_trips_the_fixed_fixture_caui_maps_other_serdes() {
+    // CAUI is the second non-USXGMII token mapping to OtherSerdesProtocol (coordinator calibration).
+    let obs = observe(DPMAC_FIXED, 5).expect("observe");
+    assert_eq!(obs.eth_if, dpmac::EthIf::OtherSerdesProtocol);
+    assert_eq!(obs.link_type, dpmac::LinkType::Fixed);
+    assert_eq!(obs.max_rate, 25_000);
+    assert!(matches!(obs.counters, CounterReadout::Vocabulary(ref v) if v.len() == 28));
+}
+
+#[test]
+fn observe_dpmac_usxgmii_maps_to_usxgmii() {
+    let block = DPMAC_PHY.replace("DPMAC_ETH_IF_XFI", "DPMAC_ETH_IF_USXGMII");
+    assert_eq!(
+        observe(&block, 7).expect("observe").eth_if,
+        dpmac::EthIf::Usxgmii
+    );
+}
+
+#[test]
+fn observe_dpmac_short_count_is_a_version_signal() {
+    // Drop the last counter row in memory: 27 rows ⇒ firmware-version signal (DPMAC-I7).
+    let short = DPMAC_PHY.trim_end().rsplit_once('\n').expect("rows").0;
+    assert_eq!(
+        observe(short, 7).expect("observe").counters,
+        CounterReadout::VersionSignal {
+            expected: 28,
+            got: 27
+        }
+    );
+}
+
+#[test]
+fn observe_dpmac_over_count_is_a_version_signal() {
+    // A 29th row (a 10.40-only counter restool would print on newer firmware) ⇒ signal.
+    let over = format!("{DPMAC_PHY}tx control: 7\n");
+    assert_eq!(
+        observe(&over, 7).expect("observe").counters,
+        CounterReadout::VersionSignal {
+            expected: 28,
+            got: 29
+        }
+    );
+}
+
+#[test]
+fn observe_dpmac_unknown_name_at_right_count_is_a_version_signal() {
+    // 28 rows but one name outside the vocabulary: sequence inequality ⇒ signal, not Known.
+    let bogus = DPMAC_PHY.replace("rx pause:", "rx bogus:");
+    assert!(matches!(
+        observe(&bogus, 7).expect("observe").counters,
+        CounterReadout::VersionSignal { got: 28, .. }
+    ));
+}
+
+#[test]
+fn observe_dpmac_tolerates_the_verbose_interrupt_trailer() {
+    // A `--verbose` run prints an interrupt/region trailer after the counters; it must not
+    // be misread as deviating rows (coordinator board capture 2026-10-02; dpmac-typestate task 5.3).
+    let verbose = format!(
+        "{DPMAC_PHY}number of mappable regions: 4\nnumber of interrupts: 1\n\
+         interrupt[0] mask: 0x1\ninterrupt[0] status: \n"
+    );
+    assert!(matches!(
+        observe(&verbose, 7).expect("observe").counters,
+        CounterReadout::Vocabulary(ref v) if v.len() == 28
+    ));
+}
+
+#[test]
+fn observe_dpmac_ignores_the_api_version_line_for_vocabulary() {
+    // The board reports `dpmac version: 4.10` yet still prints only 28 rows: the row set is
+    // the vocabulary signal, never the version line (DPMAC-I7; coordinator calibration).
+    let v410 = DPMAC_PHY.replace("dpmac version: 4.4", "dpmac version: 4.10");
+    assert!(matches!(
+        observe(&v410, 7).expect("observe").counters,
+        CounterReadout::Vocabulary(ref v) if v.len() == 28
+    ));
+}
+
+#[test]
+fn observe_dpmac_dead_spawn_is_a_typed_failure_with_no_state() {
+    // restool's assert(false) abort ⇒ Error::Backend (signal death), never partial state.
+    let mc = RestoolMc::with_runner(OneShot::dead(), "dprc.1");
+    let err = mc.observe_dpmac(DpmacId::new(7)).expect_err("dead spawn");
+    assert!(matches!(err, Error::Backend(_)), "got {err:?}");
+}
+
+#[test]
+fn observe_dpmac_issues_exactly_one_info_spawn() {
+    // The whitelist fence: one `dpmac info` and no other dpmac verb (dpmac-typestate design Non-Goals).
+    let mc = RestoolMc::with_runner(OneShot::ok(DPMAC_PHY), "dprc.1");
+    mc.observe_dpmac(DpmacId::new(7)).expect("observe");
+    assert_eq!(mc.runner().calls(), vec![vec!["dpmac", "info", "dpmac.7"]]);
 }

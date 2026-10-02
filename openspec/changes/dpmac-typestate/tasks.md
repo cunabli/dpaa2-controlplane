@@ -39,7 +39,7 @@ phase; one bead at a time through acceptance. Model gate before Rust
 
 ## 3. Adapters
 
-- [ ] 3.1 `dpaa2-mc` shim reads for dpmac attributes/MAC/counters: one
+- [x] 3.1 `dpaa2-mc` shim reads for dpmac attributes/MAC/counters: one
   spawn per dpmac, vocabulary-checked parse, deviating row count as a
   typed version-signal, dead-spawn (`assert(false)` hazard) as a typed
   observation failure; shim tests against captured fixtures.

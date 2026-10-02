@@ -456,6 +456,69 @@ pub fn parse_dpmac_offer(stdout: &str) -> RawDpmacOffer {
     offer
 }
 
+/// The raw `restool dpmac info dpmac.N` observation surface — tokens and rendered counter
+/// rows, left untyped so the adapter owns the token→vocabulary mapping (dpmac-typestate
+/// design D4; ADR-0018: policy stays in the southbound). Every attribute is optional so a
+/// missing line is an honest gap the assembling caller judges, never a guess.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct RawDpmacObservation {
+    /// The raw `DPMAC ethernet interface:` token (e.g. `DPMAC_ETH_IF_XFI`).
+    pub eth_if: Option<String>,
+    /// The raw `DPMAC link type:` token (e.g. `DPMAC_LINK_TYPE_PHY`).
+    pub link_type: Option<String>,
+    /// The burned-in MAC from `MAC address:`.
+    pub mac: Option<MacAddr>,
+    /// The rate in Mbps from `maximum supported rate N Mbps` (no colon in that line).
+    pub max_rate: Option<i64>,
+    /// The rendered counter rows in print order — the restool name and its u64 value
+    /// (`dpmac_commands.c` `print_dpmac_counters`: a `Counters:` header then `<name>: <u64>`).
+    pub counters: Vec<(String, u64)>,
+}
+
+/// Parses `restool dpmac info dpmac.N` into the raw observation surface (dpmac-typestate
+/// spec "The restool shim reads the dpmac observation surface").
+///
+/// The attribute lines are read by prefix up to the `Counters:` header; the counter block
+/// is then every following `<name>: <u64>` row until the first line that is not one. The
+/// `--verbose` run prints an interrupt/region trailer AFTER the counters (board capture
+/// 2026-10-02, dpmac-typestate task 5.3); those `number of …` / `interrupt…` lines end the
+/// block, so a trailer is never misread as a deviating counter row (DPMAC-I7).
+#[must_use]
+pub fn parse_dpmac_observation(stdout: &str) -> RawDpmacObservation {
+    let mut obs = RawDpmacObservation::default();
+    let mut lines = stdout.lines();
+    for raw in lines.by_ref() {
+        let line = raw.trim();
+        if line == "Counters:" {
+            break;
+        }
+        if let Some(rest) = line.strip_prefix("DPMAC ethernet interface:") {
+            obs.eth_if = Some(rest.trim().to_owned());
+        } else if let Some(rest) = line.strip_prefix("DPMAC link type:") {
+            obs.link_type = Some(rest.trim().to_owned());
+        } else if let Some(rest) = line.strip_prefix("MAC address:") {
+            obs.mac = rest.trim().parse::<MacAddr>().ok();
+        } else if let Some(rest) = line.strip_prefix("maximum supported rate") {
+            obs.max_rate = rest.split_whitespace().find_map(|t| t.parse::<i64>().ok());
+        }
+    }
+    for raw in lines {
+        let line = raw.trim();
+        // The verbose trailer section ends the counter block (board capture 2026-10-02).
+        if line.starts_with("number of") || line.starts_with("interrupt") {
+            break;
+        }
+        match line
+            .rsplit_once(':')
+            .map(|(n, v)| (n.trim(), v.trim().parse::<u64>()))
+        {
+            Some((name, Ok(value))) => obs.counters.push((name.to_owned(), value)),
+            _ => break,
+        }
+    }
+    obs
+}
+
 /// Parses `restool dprc show <container> --resources` into a pool-name → count map
 /// (task 3.5, ADR-0011; anchor `dprc.md` mc.global section: the listing carries the
 /// MC-level pools `bp 63, mcp 203, swp 49, …`).
