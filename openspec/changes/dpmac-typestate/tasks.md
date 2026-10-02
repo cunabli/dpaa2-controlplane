@@ -68,7 +68,7 @@ phase; one bead at a time through acceptance. Model gate before Rust
 
 ## 6. Close-out
 
-- [ ] 6.1 Baseline and docs sync: `docs/baseline/dpmac.md` amendments
+- [x] 6.1 Baseline and docs sync: `docs/baseline/dpmac.md` amendments
   (unknown #1's answer, carrier observability), ADR-0019 amendment (P4
   reference landed; phase-marker promotion trigger fired; edge
   teardown-law facet), ROADMAP row #7, CHANGELOG via commits; full

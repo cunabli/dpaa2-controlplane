@@ -134,8 +134,10 @@ constructor would lie, so none exists — the Rust surface is
 observation-only attribute types feeding the inventory offer
 (read-never-written, ADR-0003 safety matrix for custody).
 
-- **Members:** dpmac (reference shape: observed attributes + offer
-  types), dpaiop.
+- **Members:** dpmac (reference implementation: `families/dpmac.rs`
+  mirrors `dpmac_lifecycle` — observed attributes, driver arbitration,
+  the firmware-versioned counter vocabulary, and offer types, with no
+  constructor), dpaiop.
 
 ### Facets and promotion
 
@@ -156,7 +158,15 @@ primary:
   are representable.
 - **Edge facet.** Endpoint rules (`endpointPorts`, the dpci↔dpci
   same-family edge, the dpdmux uplink refusal of ADR-0009) are typed at
-  the connection surface, not inside the family.
+  the connection surface, not inside the family. An order-hazardous
+  *edge teardown* is typed the same way: unbinding a dpni bound to a
+  dpmac demands a severed witness (`connect.edgeDemandsSeveredWitness`;
+  the sever-then-unbind proof on the Rust transition surface, ADR-0008
+  §8) — the hazard is a property of the edge, so the witness attaches
+  to the connection surface and the phase-marker promotion trigger is
+  met without family-internal markers (board-witnessed: V-DPMAC-3
+  rev 1's teardown read back standalone-bound with no driverless
+  interval).
 
 ### The family→pattern table
 
@@ -181,7 +191,7 @@ cross-checking every row against `FamilyParams`).
 | dpbp   | P3 counted companion | `pooled: true`, allocator custody | reference implementation; pool free is no reset (DPBP-I3) |
 | dpmcp  | P3 counted companion | `pooled: true`, allocator custody | reference implementation |
 | dpcon  | P3 counted companion | `pooled: true`, allocator custody | reference implementation |
-| dpmac  | P4 boot-born offer | `creatable: false` (DPMAC-I1), `placement: RootOnly` | offer feeds inventory; custody per ADR-0003 matrix |
+| dpmac  | P4 boot-born offer | `creatable: false` (DPMAC-I1, create DPC-gated — V-DPMAC-2), `placement: RootOnly` | reference implementation; offer feeds inventory; custody per ADR-0003 matrix; edge facet (severed-witness teardown law) |
 | dpaiop | P4 boot-born offer | `creatable: false` (platform-refused, DPAIOP-I1) | driver-less |
 
 ### Library posture: prescriptive, orthogonal, open

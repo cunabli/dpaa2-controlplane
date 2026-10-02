@@ -33,7 +33,7 @@ restool v2.4 exposes 3 verbs (`dpmac_commands.c:711-729`) [read]:
 | Command | MC interaction | Notes |
 |---|---|---|
 | `info <dpmac.N> [--verbose]` | get_attributes, get_api_version, **get_mac_addr**, get_counter ×62, `dprc_get_connection` | prints id, plugged state, endpoint + "link is up/down" (which is the **DPRC connection state, not MAC link state**), link type, eth interface, MAC address, max rate, counters |
-| `create --mac-id=<n> [--container=<c>]` | `dpmac_create` | `--mac-id` mandatory, the only cfg field; an escape hatch — every shipped DPL pre-declares dpmacs, and what MC does with a mac-id that has no DPC port entry is unknown |
+| `create --mac-id=<n> [--container=<c>]` | `dpmac_create` | `--mac-id` mandatory, the only cfg field; an escape hatch — every shipped DPL pre-declares dpmacs, and a mac-id with no DPC port entry is refused by the MC with `Invalid state (status 0xc)` (unknown 1, V-DPMAC-2 rev 1) |
 | `destroy <dpmac.N>` | `dpmac_destroy` | refuses if driver-bound |
 
 Not exposed by restool (MC has it): link cfg/state, protocol change, IPG
@@ -148,6 +148,15 @@ counters), link settings — but tx is a drop stub, the MAC address is
 all-zero (never read from the object), there are no packet stats, and its
 mii ioctl hook is dead code (`ndo_do_ioctl` is never routed in 6.6)
 [read].
+
+For a dpmac whose peer dpni is kernel-bound, the carrier is read through
+the peer dpni's netdev instead (`/sys/class/net/<ifname>/carrier`); the
+read tracks the restool dpni `link status:` line with no observed lag
+[verified 2026-10-02, V-DPMAC-3 rev 1: carrier=1 and link=1 agreed at
+0 s on dpmac.7]. A cross-container peer leaves no root-scoped carrier
+observable at all — the arrangement is readable only as the standalone
+driver holding the PHY (DPMAC-I6); carrier is NoObservable from the
+root [same sitting, dpmac.5].
 
 Kernel link-state pushes always carry `state_valid = 0`, `supported = 0`,
 `advertising = 0` — only `up`, `rate`, and duplex/pause option bits are
@@ -264,19 +273,27 @@ either, and reading it as evidence of *anything* stable is unsafe
 |---|---|---|---|
 | DPMAC-I1 | Identity permanence: dpmac ids are DPC-fixed and never renumber across reboots or any action sequence; the set of dpmacs is constant at runtime (create/destroy are off-nominal) | `dprc show` dpmac set across reboots | verified (ADR-0001 §3) |
 | DPMAC-I2 | The dpmac MAC address is immutable through every API surface (no setter exists) and survives all connect/disconnect sequences; it is the address the connected dpni inherits (DPNI-I3) | `get_mac_addr` before/after suites; dpni primary MAC after connect | verified (ADR-0001 C2) |
-| DPMAC-I3 | Attribute immutability with two exceptions: `dpmac_attr` fields are constant except `eth_if` (via `set_protocol`) and IPG (via `set_params`) | `get_attributes` before/after | candidate |
+| DPMAC-I3 | Attribute immutability with two exceptions: `dpmac_attr` fields are constant except `eth_if` (via `set_protocol`) and IPG (via `set_params`) | `get_attributes` before/after | candidate — observe face verified 2026-10-02 (V-DPMAC-3 rev 1): max rate and link type constant across a full bind/sever/unbind/destroy cycle on dpmac.7; the two mutation exceptions remain unexercised |
 | DPMAC-I4 | Link channels are directional and distinct: `get_link_cfg` carries peer *requests* (from `dpni_set_link_cfg`), `set_link_state` carries PHY *reality* (to `dpni_get_link_state`); the model must not conflate them into one link variable | both queries under a forced peer request | candidate — no kernel-side observable (V-LINK-4 rev 2, 2026-08-29): dpmac.7 is a PHY-typed port, and for those the ethernet driver routes `ethtool -A`/`-a` through phylink — the read is phylink's own configuration (autoneg on, manual rx/tx bits) and the write never reaches `dpni_set_link_cfg`; rev 1's reading (the PHY's reality overwriting a probe-time request) was wrong, (a)'s off/off was phylink's default. Both channels need the raw `dpni_get_link_state`/`dpmac_get_link_cfg` reads → `dpmac-typestate` (#7) |
 | DPMAC-I5 | **Breaking:** the model must NOT read `dpmac info`'s "link is up" as MAC link state — it is the DPRC connection state; MAC link state has no restool observable at all | info output vs peer `dpni_get_link_state` with cable pulled | verified 2026-08-24 (V-LINK-2 rev 3): never read as MAC link state — but on a bound, enabled pair the connection-state text co-varies with the cable flap, so the two are not independent |
-| DPMAC-I6 | Driver arbitration: standalone driver bound ⟺ no same-container host-managed peer connected; cross-container peers leave the standalone driver owning the PHY while the datapath is remote | driver symlink under `/sys/bus/fsl-mc/devices/dpmac.N/`; `macN` presence | verified (in production use on this board) |
+| DPMAC-I6 | Driver arbitration: standalone driver bound ⟺ no same-container host-managed peer connected; cross-container peers leave the standalone driver owning the PHY while the datapath is remote | driver symlink under `/sys/bus/fsl-mc/devices/dpmac.N/`; `macN` presence | verified (in production use on this board; suite-witnessed 2026-10-02, V-DPMAC-3 rev 1: standalone evicted on dpni bind, typed sever-then-unbind re-attached it with no driverless read-back, and cross-container dpmac.5 stayed standalone-bound throughout) |
 | DPMAC-I7 | **Breaking:** the model must NOT assume the counter vocabulary: available counters are firmware-versioned (28 at 10.39, 62 at 10.40+) and refusals are silent; absence ≠ zero | per-counter MC status vs restool output | verified 2026-08-29 (V-DPMAC-1 rev 1): 28 of restool's 62 counters printed on every port, the rest refused and skipped without a trace in the output |
 | DPMAC-I8 | **Breaking:** exit 0 ⇒ destroyed is false in child containers (error overwritten) and always false under `ls-delete all` (result discarded) | object presence after "successful" destroy | candidate |
 | DPMAC-I9 | Every kernel link-state push carries `state_valid=0` and empty supported/advertising; the model carries emitted fields per action and treats MC's interpretation as an environment choice until board-probed | wire fields; peer-visible link state | candidate |
 
 ## Unknown / unverified register
 
-1. Does MC reject `dpmac create --mac-id=N` when the DPC has no
+1. ~~Does MC reject `dpmac create --mac-id=N` when the DPC has no
    `mac@N` port entry? (No firmware source; restool create is otherwise
-   an escape hatch of unknown semantics.)
+   an escape hatch of unknown semantics.)~~ **Answered** — board suite
+   V-DPMAC-2 rev 1, 2026-10-02: the create is DPC-gated. `dpmac create
+   --mac-id=11` (a DPC-absent id in the gap above this board's
+   `mac@3..mac@10` block, probed in a scratch child so no kernel driver
+   could touch an accepted phantom) is refused by the MC with
+   `Invalid state (status 0xc)` — no object is created, in-child census
+   unchanged. The root-container face (would the kernel bind an accepted
+   phantom?) is recorded deliberately untaken; it is moot while the
+   refusal holds.
 2. MC semantics of `state_valid = 0` in `set_link_state` — does the `up`
    bit take effect? Every kernel push depends on the answer.
    **Answered on the kernel path** — board suite V-LINK-2 rev 3,
