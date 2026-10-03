@@ -562,7 +562,7 @@ mod tests {
             dpmacs: vec![phy(3, MAC_3)],
         };
         let plan = reconcile(&desired, &observed);
-        assert!(plan.transitions.is_empty());
+        assert_eq!(plan.transitions.len(), 0);
         assert_eq!(plan.assertions.len(), 1);
         assert_eq!(plan.assertions[0].field, "mac");
     }
@@ -591,7 +591,7 @@ mod tests {
                 mac: MAC_3
             }]
         );
-        assert!(plan.assertions.is_empty());
+        assert_eq!(plan.assertions.len(), 0);
     }
 
     #[test]

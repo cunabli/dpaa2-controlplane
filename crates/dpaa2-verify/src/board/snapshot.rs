@@ -783,7 +783,7 @@ mod tests {
     #[test]
     fn diff_is_empty_on_itself_and_reports_every_delta_kind() {
         let a = parse(fixture(&sample_files())).unwrap();
-        assert!(diff(&a, &a).is_empty());
+        assert_eq!(diff(&a, &a), [] as [std::string::String; 0]);
 
         // Mutate a clone: add an object, drop a driver, change an info
         // value, remove a connection, bump the MC firmware.
@@ -976,7 +976,7 @@ some header with no colon count\n\
 
         // The baseline diffs clean against itself; dropping one object is
         // the only delta a removed object shows.
-        assert!(diff(&r, &r).is_empty());
+        assert_eq!(diff(&r, &r), [] as [std::string::String; 0]);
         let mut mutated = r.clone();
         let removed = mutated.objects.keys().next().unwrap().clone();
         mutated.objects.remove(&removed);

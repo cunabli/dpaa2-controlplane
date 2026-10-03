@@ -877,7 +877,7 @@ mod tests {
             "2026-09-04".to_owned(),
         );
         assert!(!v.pass);
-        assert!(!v.steps[0].mismatches.is_empty());
+        assert_ne!(v.steps[0].mismatches, [] as [std::string::String; 0]);
     }
 
     #[test]
@@ -955,7 +955,10 @@ mod tests {
                 "mcp: 203 -> 201".to_owned(),
             ]
         );
-        assert!(pool_moves_between(current, current).is_empty());
+        assert_eq!(
+            pool_moves_between(current, current),
+            [] as [std::string::String; 0]
+        );
     }
 
     #[test]

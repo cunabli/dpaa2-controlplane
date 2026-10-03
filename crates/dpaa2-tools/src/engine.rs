@@ -1530,7 +1530,10 @@ mod tests {
             assert_eq!(drift.headline(), Class::Disruptive);
             assert!(drift.shrink_refusal().is_none());
             // Read-only: the census dispatched nothing.
-            assert!(mc.observe_pool(None, Family::Dpbp).unwrap().is_empty());
+            assert_eq!(
+                mc.observe_pool(None, Family::Dpbp).unwrap(),
+                [] as [dpaa2_api::families::pool_lifecycle::ObservedPoolObject; 0]
+            );
             // The render names the pass and the families.
             let text = crate::render::render_pool_drift(&compiled.plan, &drift);
             assert!(text.contains("root pool convergence"), "{text}");

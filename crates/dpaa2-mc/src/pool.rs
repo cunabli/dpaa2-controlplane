@@ -495,7 +495,7 @@ mod tests {
         .expect("shrink dispatches");
 
         assert_eq!(out.destroyed, vec![ObjectRef::new(Family::Dpbp, 5)]);
-        assert!(out.pruned.is_empty());
+        assert_eq!(out.pruned, [] as [dpaa2_api::core::model::ObjectRef; 0]);
         let calls = mc.runner().calls();
         let unplug_at = calls
             .iter()
@@ -553,7 +553,7 @@ mod tests {
         .expect("prune dispatches");
 
         assert_eq!(out.pruned, vec![ObjectRef::new(Family::Dpbp, 1)]);
-        assert!(out.destroyed.is_empty());
+        assert_eq!(out.destroyed, [] as [dpaa2_api::core::model::ObjectRef; 0]);
         let destroys: Vec<_> = mc
             .runner()
             .calls()

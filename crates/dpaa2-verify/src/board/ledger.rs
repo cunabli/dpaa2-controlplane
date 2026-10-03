@@ -905,7 +905,7 @@ Tally: 1 modeled, 1 deferred, 0 board-settled, 0 board-pending — 2 candidates.
         assert_eq!(scenario_refs("V-DPRC-1's rev"), vec!["V-DPRC-1"]);
         assert_eq!(scenario_refs("bind (V-LIFE-DPNI-1)"), vec!["V-LIFE-DPNI-1"]);
         assert_eq!(scenario_refs("V-POOL-1..3 exhaustion"), vec!["V-POOL-1"]);
-        assert!(scenario_refs("no ids here").is_empty());
+        assert_eq!(scenario_refs("no ids here"), [] as [std::string::String; 0]);
     }
 
     #[test]

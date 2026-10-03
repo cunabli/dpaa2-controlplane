@@ -75,7 +75,10 @@ fn displayed_values_never_reach_the_plan() {
 
     let observed1 = engine::observe(&backend, &backend).unwrap();
     let report1 = StatusReport::compute(&desired, &observed1);
-    assert!(report1.plan.transitions.is_empty());
+    assert_eq!(
+        report1.plan.transitions,
+        [] as [dpaa2_api::plan::Transition; 0]
+    );
     assert!(!report1.has_diverged());
     let details1 = status::port_details(&backend, &backend, &desired, &observed1).unwrap();
 
@@ -92,7 +95,10 @@ fn displayed_values_never_reach_the_plan() {
 
     let observed2 = engine::observe(&backend, &backend).unwrap();
     let report2 = StatusReport::compute(&desired, &observed2);
-    assert!(report2.plan.transitions.is_empty());
+    assert_eq!(
+        report2.plan.transitions,
+        [] as [dpaa2_api::plan::Transition; 0]
+    );
     assert!(!report2.has_diverged());
     let details2 = status::port_details(&backend, &backend, &desired, &observed2).unwrap();
 

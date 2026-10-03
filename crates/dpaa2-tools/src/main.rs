@@ -635,6 +635,6 @@ mod tests {
             ..Intent::empty()
         };
         complete_kernel(&mut intent, 16);
-        assert!(intent.tenants.is_empty());
+        assert_eq!(intent.tenants, [] as [dpaa2_api::intent::Tenant; 0]);
     }
 }

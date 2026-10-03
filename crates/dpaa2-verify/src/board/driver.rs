@@ -1013,7 +1013,10 @@ mod tests {
         .unwrap();
         assert_eq!(outcome, Outcome::Aborted(0));
         // The aborted step is still on record, with nothing executed.
-        assert!(first_record(&transcript).commands.is_empty());
+        assert_eq!(
+            first_record(&transcript).commands,
+            [] as [std::string::String; 0]
+        );
     }
 
     #[test]

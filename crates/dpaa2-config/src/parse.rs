@@ -1332,7 +1332,7 @@ mod tests {
             "#,
         );
         assert_eq!(intent.ports.len(), 2);
-        assert!(intent.tenants.is_empty());
+        assert_eq!(intent.tenants, [] as [dpaa2_api::intent::Tenant; 0]);
         assert!(intent.ports.iter().all(|p| p.tenant.is_kernel()));
     }
 
@@ -1540,6 +1540,6 @@ mod tests {
         // The example installed to /etc/dpaa2/topology.toml must always parse.
         let example = include_str!("../../../packaging/dpaa2/topology.toml");
         let intent = parse_str(example).expect("shipped example topology parses");
-        assert!(!intent.ports.is_empty());
+        assert_ne!(intent.ports, [] as [dpaa2_api::intent::Port; 0]);
     }
 }

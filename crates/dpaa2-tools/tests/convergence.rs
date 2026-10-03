@@ -82,7 +82,10 @@ fn second_run_is_a_noop() {
     let observed = engine::observe(&backend, &backend).unwrap();
     let report = StatusReport::compute(&desired, &observed);
     assert!(!report.has_diverged(), "second run must be a no-op");
-    assert!(report.plan.transitions.is_empty());
+    assert_eq!(
+        report.plan.transitions,
+        [] as [dpaa2_api::plan::Transition; 0]
+    );
 }
 
 #[test]

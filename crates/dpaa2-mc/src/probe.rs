@@ -164,11 +164,9 @@ mod tests {
             before, after,
             "the deferral path creates or destroys nothing"
         );
-        assert!(
-            backend
-                .observe_pool(None, Family::Dpcon)
-                .unwrap()
-                .is_empty()
+        assert_eq!(
+            backend.observe_pool(None, Family::Dpcon).unwrap(),
+            [] as [dpaa2_api::families::pool_lifecycle::ObservedPoolObject; 0]
         );
     }
 }

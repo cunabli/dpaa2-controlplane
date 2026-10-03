@@ -1359,7 +1359,7 @@ mod tests {
             .lines()
             .filter(|l| l.contains(" destroy "))
             .collect();
-        assert!(!destroys.is_empty());
+        assert_ne!(destroys, [] as [&str; 0]);
         assert_eq!(settled, destroys, "settle follows destroys, and only those");
         assert_eq!(teardown.matches("sleep 2").count(), destroys.len());
 
