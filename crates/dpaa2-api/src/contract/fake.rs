@@ -449,14 +449,15 @@ impl McControl for FakeBackend {
             LinkType::Fixed => dpmac::LinkType::Fixed,
         };
         let mac = m.mac;
-        // A test may script a readout per dpmac; absent, the fake answers the pinned 10.39
-        // vocabulary as all-zero counters. Counters never enter reconcile, so the values are
-        // immaterial to the loop either way (dpmac-typestate design D4).
-        let counters = st
-            .counters
-            .get(&dpmac)
-            .cloned()
-            .unwrap_or_else(|| CounterReadout::Vocabulary(vec![CounterRead::Known(0); 28]));
+        // Default readout: the reference row count all-zero under placeholder names (verbatim
+        // names live in the shim, ADR-0018; immaterial — counters never reconcile, design D4).
+        let counters = st.counters.get(&dpmac).cloned().unwrap_or_else(|| {
+            CounterReadout::Vocabulary(
+                (0..dpmac::DPMAC_1039_COUNTER_ROWS)
+                    .map(|i| (format!("counter-{i}"), CounterRead::Known(0)))
+                    .collect(),
+            )
+        });
         Ok(DpmacObservation {
             eth_if: EthIf::OtherSerdesProtocol,
             link_type,

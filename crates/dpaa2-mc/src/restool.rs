@@ -317,7 +317,9 @@ fn map_dpmac_link_type(token: &str) -> Option<LinkType> {
 /// `Known(0)`, never absent. Any deviation — short, over, reordered, or an unknown name —
 /// is a typed [`CounterReadout::VersionSignal`] carrying expected-vs-got, never a parse
 /// error and never a zero-fill: restool silently skips refused counters, so the row set is
-/// the only honest signal (`docs/baseline/dpmac.md` "Silent-failure notes").
+/// the only honest signal (`docs/baseline/dpmac.md` "Silent-failure notes"). A match carries
+/// each verbatim restool row name beside its value, so the display labels rows by name rather
+/// than positionally against the model's representative slice (dpmac-hardening design D2).
 fn classify_dpmac_counters(rows: &[(String, u64)]) -> CounterReadout {
     let matches_vocabulary = rows.len() == DPMAC_COUNTERS_1039.len()
         && rows
@@ -325,7 +327,11 @@ fn classify_dpmac_counters(rows: &[(String, u64)]) -> CounterReadout {
             .zip(DPMAC_COUNTERS_1039)
             .all(|((rendered, _), expected)| rendered.as_str() == expected);
     if matches_vocabulary {
-        CounterReadout::Vocabulary(rows.iter().map(|&(_, v)| CounterRead::Known(v)).collect())
+        CounterReadout::Vocabulary(
+            rows.iter()
+                .map(|(name, v)| (name.clone(), CounterRead::Known(*v)))
+                .collect(),
+        )
     } else {
         CounterReadout::VersionSignal {
             expected: DPMAC_COUNTERS_1039.len(),

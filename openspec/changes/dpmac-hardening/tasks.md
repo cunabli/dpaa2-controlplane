@@ -51,17 +51,17 @@ openspec/changes/archive/2026-10-03-dpmac-typestate/review/synthesis.md §4.
 
 ## 3. Bead B2 — verbatim counter names (dpaa2-controlplane-e6s.2)
 
-- [ ] 3.1 `CounterReadout::Vocabulary` carries the verbatim restool row
+- [x] 3.1 `CounterReadout::Vocabulary` carries the verbatim restool row
   names (shim stops dropping them at `restool.rs:328`); fake's literal 28
   resolves to a named const (PASS3-F5)
-- [ ] 3.2 `crates/dpaa2-tools/src/render.rs:536-594`: rows render under
+- [x] 3.2 `crates/dpaa2-tools/src/render.rs:536-594`: rows render under
   their carried names; positional pairing against the model slice deleted
-- [ ] 3.3 Render/port_detail test: non-uniform scripted readout asserts the
+- [x] 3.3 Render/port_detail test: non-uniform scripted readout asserts the
   correct name at the pause position
-- [ ] 3.4 Doc tail: the dpmac-typestate formal-models delta wording +
+- [x] 3.4 Doc tail: the dpmac-typestate formal-models delta wording +
   `models/COVERAGE.md:106` name the representative-slice/adapter split
   (PASS4-F3)
-- [ ] 3.5 Gates + close bead e6s.2; commit
+- [x] 3.5 Gates + close bead e6s.2; commit
 
 ## 4. Beads B3 + B4 — the zero sentinel settles (e6s.3, e6s.4)
 

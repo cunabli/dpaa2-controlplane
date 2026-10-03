@@ -369,8 +369,10 @@ judged from observation (endpoint + driver-face read-backs), never
 commanded; the two directional MC link channels as distinct named types
 (DPMAC-I4) with the requests-down channel typed `Unreadable` on the
 restool transport; a firmware-version-indexed counter vocabulary
-(DPMAC-I7: the 28 rows of MC 10.39 readable, the 10.40 extension named
-but unread); and the MAC address as an immutable value (DPMAC-I2). The
+(DPMAC-I7: a representative counter slice readable at MC 10.39, the 10.40
+extension named but unread — the full 28-row board vocabulary and its
+verbatim names live in the adapter, not the model); and the MAC address
+as an immutable value (DPMAC-I2). The
 model SHALL NOT add a create action for the family
 (`creatable: false`, DPMAC-I1) and the core machine SHALL be unchanged.
 

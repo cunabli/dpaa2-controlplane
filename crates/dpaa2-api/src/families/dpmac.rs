@@ -307,10 +307,12 @@ pub struct DpmacObservation {
 /// firmware-version signal, not a parse error.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CounterReadout {
-    /// The rendered rows matched the firmware vocabulary exactly: each counter a `Known`
-    /// value in the firmware's render order (DPMAC-I7: absence ≠ zero, so every entry is
-    /// `Known`, a present reading — never a defaulted zero).
-    Vocabulary(Vec<CounterRead>),
+    /// The rendered rows matched the firmware vocabulary exactly: each counter its verbatim
+    /// restool row name beside a `Known` value, in the firmware's render order (DPMAC-I7:
+    /// absence ≠ zero, so every entry is `Known`, a present reading — never a defaulted
+    /// zero). The names ride as observed data (the shim carries them, ADR-0018); the display
+    /// labels each row by its own name rather than a positional guess (dpmac-hardening design D2).
+    Vocabulary(Vec<(String, CounterRead)>),
     /// The rendered row set deviated from the vocabulary (short, over, reordered, or an
     /// unknown name) — a firmware-version signal carrying the expected and observed row
     /// counts, never a parse error and never a zero-fill (dpmac-typestate design D4).
@@ -321,6 +323,13 @@ pub enum CounterReadout {
         got: usize,
     },
 }
+
+/// The reference board's 10.39 counter row count — how many verbatim rows restool renders
+/// and the backend answers (`docs/baseline/dpmac.md` "Counter skew": 28 of 62 printed).
+/// The model carries a representative [`Counter`] slice; the adapter carries the full board
+/// vocabulary with its verbatim names (dpmac-typestate design D4; ADR-0018). This is the
+/// count the backend-neutral surface shares so the fake need not restate the literal.
+pub const DPMAC_1039_COUNTER_ROWS: usize = 28;
 
 // ---- the driver-arbitration phase (DPMAC-I6, dpmac-typestate design D2) ----
 

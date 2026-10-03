@@ -83,7 +83,11 @@ fn displayed_values_never_reach_the_plan() {
     backend.set_carrier(CarrierSource::PeerDpni(DpniId::new(1)), Some(false));
     backend.set_counters(
         DpmacId::new(7),
-        CounterReadout::Vocabulary(vec![CounterRead::Known(4242); 28]),
+        CounterReadout::Vocabulary(
+            (0..28)
+                .map(|i| (format!("row-{i}"), CounterRead::Known(4242)))
+                .collect(),
+        ),
     );
 
     let observed2 = engine::observe(&backend, &backend).unwrap();
@@ -96,6 +100,25 @@ fn displayed_values_never_reach_the_plan() {
     assert_eq!(details1[0].carrier, CarrierReading::Up);
     assert_eq!(details2[0].carrier, CarrierReading::Down);
     assert_ne!(details1[0].counters, details2[0].counters);
+}
+
+#[test]
+fn counters_render_under_their_carried_names() {
+    // Board index 18 is the pause row; the old positional pairing mislabeled it against the
+    // 3-name model slice, so pin the carried name renders and no model name leaks (MERGED-2).
+    let (backend, desired) = converged_kernel_port();
+    let mut rows: Vec<(String, CounterRead)> = (0..28u64)
+        .map(|i| (format!("row-{i}"), CounterRead::Known(i)))
+        .collect();
+    rows[18] = ("rx pause".to_owned(), CounterRead::Known(9191));
+    backend.set_counters(DpmacId::new(7), CounterReadout::Vocabulary(rows));
+
+    let observed = engine::observe(&backend, &backend).unwrap();
+    let details = status::port_details(&backend, &backend, &desired, &observed).unwrap();
+    let text = render::render_port_details(&details);
+
+    assert!(text.contains("rx pause = 9191"));
+    assert!(!text.contains("IngressPauseFrames"));
 }
 
 #[test]

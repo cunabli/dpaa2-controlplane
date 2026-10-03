@@ -13,9 +13,7 @@ use std::fmt::Write as _;
 use dpaa2_api::core::family::Family;
 use dpaa2_api::core::model::DprcId;
 use dpaa2_api::families::dpio::SeatDisposition;
-use dpaa2_api::families::dpmac::{
-    CarrierReading, Counter, CounterRead, CounterReadout, FirmwareVersion, counter_vocabulary,
-};
+use dpaa2_api::families::dpmac::{CarrierReading, CounterRead, CounterReadout};
 use dpaa2_api::families::pool_lifecycle::{
     PoolCensus, PoolDeltas, PoolDisposition, PoolFamily, ShrinkBelowDraw,
 };
@@ -534,11 +532,6 @@ pub fn render_warnings(warnings: &BTreeSet<Warning>) -> String {
 /// --detail` without touching the exit code.
 #[must_use]
 pub fn render_port_details(details: &[PortDetail]) -> String {
-    // The observation carries no firmware version, so the counter names pin the reference
-    // board's 10.39 vocabulary (dpmac-typestate design D4; the model's reference board). The
-    // model names a representative counter slice, so a board row past it renders positionally
-    // — the readout's row count, never a zero-fill, is the honest signal (DPMAC-I7).
-    let vocab = counter_vocabulary(FirmwareVersion::Mc1039);
     let mut out = String::new();
     let _ = writeln!(
         out,
@@ -558,7 +551,7 @@ pub fn render_port_details(details: &[PortDetail]) -> String {
             rel = d.mac_relation,
             carrier = render_carrier(d.carrier),
         );
-        render_counters(&mut out, vocab, &d.counters);
+        render_counters(&mut out, &d.counters);
     }
     out
 }
@@ -574,18 +567,14 @@ fn render_carrier(carrier: CarrierReading) -> &'static str {
 }
 
 /// Renders a counter read-back under a port block. A [`CounterReadout::Vocabulary`] prints one
-/// row per value positionally against the firmware vocabulary `vocab` (name from the
-/// vocabulary where it reaches, else a positional `counter-N`; value from the readout, same
-/// order). A [`CounterReadout::VersionSignal`] prints the deviation line, never zero rows
-/// (DPMAC-I7).
-fn render_counters(out: &mut String, vocab: &[Counter], counters: &CounterReadout) {
+/// row per counter under its carried verbatim name (the shim parsed it; DPMAC-I7), each name
+/// travelling in the same tuple as its value. A [`CounterReadout::VersionSignal`] prints the deviation
+/// line, never zero rows (DPMAC-I7).
+fn render_counters(out: &mut String, counters: &CounterReadout) {
     match counters {
-        CounterReadout::Vocabulary(values) => {
-            let _ = writeln!(out, "    counters ({}):", values.len());
-            for (i, read) in values.iter().enumerate() {
-                let name = vocab
-                    .get(i)
-                    .map_or_else(|| format!("counter-{i}"), |c| format!("{c:?}"));
+        CounterReadout::Vocabulary(rows) => {
+            let _ = writeln!(out, "    counters ({}):", rows.len());
+            for (name, read) in rows {
                 let value = match read {
                     CounterRead::Known(v) => v.to_string(),
                     CounterRead::NotInVocabulary => "n/a".to_owned(),

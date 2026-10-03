@@ -427,10 +427,13 @@ fn observe_dpmac_round_trips_the_phy_fixture_counters_known() {
         panic!("expected a vocabulary readout, got {:?}", obs.counters);
     };
     assert_eq!(vals.len(), 28);
-    assert_eq!(vals[0], CounterRead::Known(142_537));
+    assert_eq!(
+        vals[0],
+        ("rx all frames".to_owned(), CounterRead::Known(142_537))
+    );
     // `rx frame errors: 0` — a present zero is Known(0), never absence (DPMAC-I7).
-    assert_eq!(vals[2], CounterRead::Known(0));
-    assert_eq!(vals[27], CounterRead::Known(18_995_221));
+    assert_eq!(vals[2].1, CounterRead::Known(0));
+    assert_eq!(vals[27].1, CounterRead::Known(18_995_221));
 }
 
 #[test]
