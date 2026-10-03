@@ -390,9 +390,10 @@ pub(crate) fn read_dpseci_over_portal(
     path: impl AsRef<Path>,
     dpseci_id: u32,
 ) -> Result<DpseciReadout, Error> {
+    let path = path.as_ref();
     let portal = match McPortal::open(path) {
         Ok(p) => p,
-        Err(e) => return classify_portal_io(&e, "open"),
+        Err(e) => return classify_portal_io(&e, &format!("open {}", path.display())),
     };
     let token = match portal.execute(DpseciRead::Open { dpseci_id }) {
         Ok(Outcome::Response(ReadResponse::Opened(t))) => t,
@@ -799,8 +800,11 @@ impl<R: Runner> RestoolMc<R> {
     /// Reads a dpseci's attributes over the `/dev/dprc.N` MC portal (`dpaa2_hal::portal`,
     /// ADR-0021): Open → `GetAttributes` → Close, returning the typed attributes or the typed
     /// [`DpseciReadout::Unobservable`] when the portal is unavailable this run
-    /// (dpseci-typestate task 3.2). `portal` is the container whose device node carries the
-    /// read — the options mask observable restool `info` cannot give (DPSECI-I3).
+    /// (dpseci-typestate task 3.2). `portal` is the container whose `/dev` device node carries
+    /// the read; callers must pass the shim's root container, never a child — a VFIO-bound
+    /// child has no host device node, so a child-addressed read opens nothing and types
+    /// `Unobservable` (dpseci-typestate design D5; witnessed V-DPSECI-3 rev 1 sitting). The
+    /// read yields the options mask observable restool `info` cannot give (DPSECI-I3).
     ///
     /// # Errors
     /// Returns [`Error::Backend`] on an MC refusal over an open portal or an unexpected
@@ -812,6 +816,20 @@ impl<R: Runner> RestoolMc<R> {
         dpseci_id: u32,
     ) -> Result<DpseciReadout, Error> {
         read_dpseci_over_portal(format!("/dev/dprc.{}", portal.into_inner()), dpseci_id)
+    }
+
+    /// The portal the privileged dpseci read must ride: the shim's own root container,
+    /// resolved from [`self.container`](Self). An id-addressed `DPSECI_OPEN` is
+    /// container-agnostic, and only the root node (`/dev/dprc.1` by default) is guaranteed
+    /// present on the host — a VFIO-bound child's node is not — so the read is routed here
+    /// rather than over the object's own container (dpseci-typestate design D5; witnessed
+    /// V-DPSECI-3 rev 1 sitting). Falls back to [`DprcId::ROOT`] if the root name is not a
+    /// `dprc.N` token (the `with_runner` default is `dprc.1`).
+    fn root_portal(&self) -> DprcId {
+        self.container
+            .rsplit_once('.')
+            .and_then(|(_, n)| n.parse::<u32>().ok())
+            .map_or(DprcId::ROOT, DprcId::new)
     }
 
     /// `restool dpseci info dpseci.N` through the one `run_verb` funnel, parsed into the
@@ -1032,12 +1050,10 @@ impl<R: Runner> McControl for RestoolMc<R> {
         })
     }
 
-    fn observe_dpseci(&self, container: DprcId, dpseci: ObjectRef) -> Result<DpseciDetail, Error> {
-        // The restool-witnessable half (queues/priorities) through the info spawn, then the
-        // privileged portal half (options + version) via the same read_dpseci_attributes path;
-        // the two faces assemble into the status detail row (dpseci-typestate task 4.1).
+    fn observe_dpseci(&self, _container: DprcId, dpseci: ObjectRef) -> Result<DpseciDetail, Error> {
+        // Portal half rides `root_portal`, never the passed container (the trait seam the fake keys on).
         let info = self.observe_dpseci_info(&dpseci)?;
-        let portal = match self.read_dpseci_attributes(container, dpseci.ordinal())? {
+        let portal = match self.read_dpseci_attributes(self.root_portal(), dpseci.ordinal())? {
             DpseciReadout::Observed(obs) => DpseciPortalReadout::Observed {
                 options: obs.options,
                 api_major: obs.api_major,
@@ -2739,6 +2755,30 @@ mod tests {
             matches!(detail.portal, DpseciPortalReadout::Unobservable { .. }),
             "{:?}",
             detail.portal
+        );
+    }
+
+    #[test]
+    fn observe_dpseci_reads_a_child_resident_over_the_root_portal() {
+        // A child-resident dpseci reads over the root node, witnessed by the path the failed
+        // open names — a sentinel root that cannot exist (dpseci-typestate design D5; V-DPSECI-3 rev 1 sitting).
+        let body = "dpseci id: 4\nnumber of transmit queues: 3\nnumber of receive queues: 3\n\
+                    tx priorities: 2,2,2\n";
+        let runner = ScriptedRunner::canned(&[("dpseci info dpseci.4", body)]);
+        let mc = RestoolMc::with_runner(runner, "dprc.64998");
+        let detail = mc
+            .observe_dpseci(DprcId::new(2), ObjectRef::new(Family::Dpseci, 4))
+            .expect("absent portal is unobservable, not an error");
+        let DpseciPortalReadout::Unobservable { reason } = detail.portal else {
+            panic!("expected unobservable, got {:?}", detail.portal);
+        };
+        assert!(
+            reason.contains("/dev/dprc.64998"),
+            "read must ride the root node: {reason}"
+        );
+        assert!(
+            !reason.contains("/dev/dprc.2"),
+            "read must not ride the child node: {reason}"
         );
     }
 
