@@ -17,6 +17,7 @@ dpaa2-api = { path = "crates/dpaa2-api" }
 dpaa2-config = { path = "crates/dpaa2-config" }
 dpaa2-hal = { path = "crates/dpaa2-hal" }
 dpaa2-mc = { path = "crates/dpaa2-mc" }
+libc = "0.2"
 thiserror = "2"
 proptest = "1"
 insta = "1"

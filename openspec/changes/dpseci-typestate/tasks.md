@@ -35,7 +35,7 @@ rust-developer; every parcel spec carries the settled-decisions block.
 
 ## 3. Adapters
 
-- [ ] 3.1 `dpaa2-hal` MC-ioctl read primitive (design D2): closed
+- [x] 3.1 `dpaa2-hal` MC-ioctl read primitive (design D2): closed
   command sum (OPEN / GET_ATTR / GET_API_VERSION / DPSECI_GET_TX_QUEUE
   / CLOSE), confined unsafe with layouts asserted against the pinned
   sources, three typed outcomes, fixture tests; policy-free.

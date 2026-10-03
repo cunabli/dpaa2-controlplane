@@ -8,6 +8,18 @@ repository.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+libc = { workspace = true }
 
-[lints]
-workspace = true
+# hal is the workspace's sole unsafe crate (ADR-0018, ADR-0021): it restates the
+# workspace lints rather than inheriting them, because workspace-wide
+# `unsafe_code = "forbid"` cannot be loosened at a crate scope. Here unsafe is
+# `deny`, overridden only by a scoped `#[allow(unsafe_code)]` at the ioctl call.
+[lints.rust]
+missing_docs = "warn"
+elided_lifetimes_in_paths = "warn"
+unsafe_code = "deny"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+self_named_module_files = "deny"

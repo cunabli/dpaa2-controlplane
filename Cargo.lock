@@ -172,6 +172,9 @@ dependencies = [
 [[package]]
 name = "dpaa2-hal"
 version = "0.1.0"
+dependencies = [
+ "libc",
+]
 
 [[package]]
 name = "dpaa2-mc"

@@ -9,7 +9,12 @@
 //! the adapters above (`dpaa2-mc`), never here.
 
 pub mod command;
+pub mod portal;
 pub mod sysfs;
 
 pub use command::CommandName;
+pub use portal::{
+    ApiVersion, DpseciAttributes, DpseciRead, McPortal, McStatus, Outcome, ReadResponse, Token,
+    TxQueue,
+};
 pub use sysfs::{ETH_DRIVER, FslMcSysfs};
