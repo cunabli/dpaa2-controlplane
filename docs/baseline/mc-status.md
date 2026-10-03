@@ -78,6 +78,7 @@ refusal; the lint resolves every citation to `models/board/VERDICTS.json`.
 | 0x8 | No resources | dprc · disconnect | The demux uplink end (bare name, interface 0) while nothing is connected there, even though the dpni sits on interface 1 | MC | V-DPDMUX-2 rev 5 |
 | — | — | dpseci · create | Priority 0, a priority above 8, or a priority-count that does not equal num-queues: restool's own parser refuses (exit 234, "Invalid priority value." / "Please set N priorities") before any MC command is built. The MC-layer validation is unreachable through restool | restool | V-DPSECI-1 rev 1 |
 | — | — | dpni · create `--max-senders` | A dead v9-era option: restool creates the dpni, prints its id, then exits 234 on the unconsumed option — the object stands and read-back is the only side-effect oracle | restool | V-DPNI-2 rev 1 |
+| 0xC | Invalid state | dpmac · create | A create for a mac-id the DPC never declared (no `mac@11` entry; issued in a labelled scratch child, settling baseline unknown #1 as DPC-gated) | MC | V-DPMAC-2 rev 1 |
 
 ## What the register does not hold yet
 
