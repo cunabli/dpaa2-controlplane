@@ -29,7 +29,7 @@ rust-developer; every parcel spec carries the settled-decisions block.
   compiled dpseci carries priorities `[2; num_queues]` and options
   `{HAS_CG}` with rule provenance; immutable-cfg repair plans as
   destroy+create; existing derivation tests unchanged.
-- [ ] 2.3 MBT conformance twins in `dpaa2-verify`: frozen-trace replay
+- [x] 2.3 MBT conformance twins in `dpaa2-verify`: frozen-trace replay
   of create/refuse transitions, property twins for length-coupling and
   range judgments; ITF replay green.
 

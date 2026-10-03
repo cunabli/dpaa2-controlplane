@@ -14,6 +14,9 @@ pub mod dpni_itf;
 /// Reader for frozen dprc-lifecycle ITF traces (2026-09-15-dprc-encapsulation task 2.3); the
 /// stepped-machine twin of [`intent_itf`], replayed by `tests/dprc_replay.rs`.
 pub mod dprc_itf;
+/// Reader for frozen dpseci create-surface ITF traces (dpseci-typestate task 2.3); the
+/// create-surface twin of [`dpni_itf`], replayed by `tests/dpseci_replay.rs`.
+pub mod dpseci_itf;
 pub mod edits_itf;
 pub mod intent_itf;
 /// The intent-layer copy lint (R11–R16): every ADR/COVERAGE enumeration that
