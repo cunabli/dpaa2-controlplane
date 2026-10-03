@@ -40,7 +40,8 @@
 //! the connection surface and is dpmac-typestate task 2.2's parcel (ADR-0019 edge facet,
 //! ADR-0008 §8). This tile mints no sever/unbind verb and no connect-surface change.
 
-use crate::core::model::{DpmacId, DpniId, MacAddr, ObservedDpni};
+use crate::core::inventory::DpmacLinkType;
+use crate::core::model::{DpmacId, DpniId, LinkType as TopoLinkType, MacAddr, ObservedDpni};
 
 // ---- the port MAC (DPMAC-I2) ----
 
@@ -63,6 +64,36 @@ pub enum LinkType {
     Fixed,
     /// A backplane port.
     Backplane,
+}
+
+/// `LinkType` reconciliation seam (review MERGED-6b; dpmac-hardening design D4).
+/// This family `LinkType` is the authority; the two older core sums convert
+/// through here, so no observation seam spells its own cross-sum match (the
+/// fake's `observe_dpmac` folds onto this `From`). The reverse inventory
+/// direction is partial — `DpmacLinkType::None` has no typed home — and stays
+/// in `parse::DPMAC_LINK_TYPES` (its `observed` column) as data, never an
+/// invented variant.
+///
+/// Collapse trigger: fold `core::model::LinkType` into this sum when the next
+/// P4 family lands and the reconciler gains a Backplane-aware path.
+impl From<TopoLinkType> for LinkType {
+    fn from(lt: TopoLinkType) -> Self {
+        match lt {
+            TopoLinkType::Phy => LinkType::PhyManaged,
+            TopoLinkType::Fixed => LinkType::Fixed,
+        }
+    }
+}
+
+/// Widens the authority into the inventory attribute; see the reconciliation seam above (review MERGED-6b).
+impl From<LinkType> for DpmacLinkType {
+    fn from(lt: LinkType) -> Self {
+        match lt {
+            LinkType::PhyManaged => DpmacLinkType::Phy,
+            LinkType::Fixed => DpmacLinkType::Fixed,
+            LinkType::Backplane => DpmacLinkType::Backplane,
+        }
+    }
 }
 
 /// `fec_mode` — the forward-error-correction mode (`dpmac.qnt` `type FecMode`;

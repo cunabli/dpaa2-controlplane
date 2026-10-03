@@ -444,10 +444,7 @@ impl McControl for FakeBackend {
         let Some(m) = st.dpmacs.get(&dpmac) else {
             return Err(Error::Backend(format!("fake: no dpmac {dpmac}")));
         };
-        let link_type = match m.link_type {
-            LinkType::Phy => dpmac::LinkType::PhyManaged,
-            LinkType::Fixed => dpmac::LinkType::Fixed,
-        };
+        let link_type: dpmac::LinkType = m.link_type.into();
         let mac = m.mac;
         // Default readout: the reference row count all-zero under placeholder names (verbatim
         // names live in the shim, ADR-0018; immaterial — counters never reconcile, design D4).

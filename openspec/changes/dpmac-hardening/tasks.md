@@ -86,11 +86,11 @@ openspec/changes/archive/2026-10-03-dpmac-typestate/review/synthesis.md §4.
 
 ## 6. Bead B6 — LinkType sums reconcile (dpaa2-controlplane-e6s.6)
 
-- [ ] 6.1 Search designs/ADRs for an acknowledged triplication (design D4
+- [x] 6.1 Search designs/ADRs for an acknowledged triplication (design D4
   here); if recorded deliberate → doc pointer naming the collapse trigger;
   else → `From` impls at one documented seam
   (`families/dpmac.rs:59` / `core/model.rs:377` / `core/inventory.rs:37`)
-- [ ] 6.2 Collapse decision recorded for the next P4 family; gates + close
+- [x] 6.2 Collapse decision recorded for the next P4 family; gates + close
   bead e6s.6; commit
 
 ## 7. Close-out
