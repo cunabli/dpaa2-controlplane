@@ -95,7 +95,7 @@ openspec/changes/archive/2026-10-03-dpmac-typestate/review/synthesis.md §4.
 
 ## 7. Close-out
 
-- [ ] 7.1 Epic bead e6s acceptance check (all children closed); ROADMAP
+- [x] 7.1 Epic bead e6s acceptance check (all children closed); ROADMAP
   touch only if #7-adjacent state changed
-- [ ] 7.2 `openspec validate --strict` green; epic review per standing
+- [x] 7.2 `openspec validate --strict` green; epic review per standing
   practice; ready for archive
