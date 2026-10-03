@@ -21,7 +21,7 @@ rust-developer; every parcel spec carries the settled-decisions block.
 
 ## 2. Rust core
 
-- [ ] 2.1 `crates/dpaa2-api/src/families/dpseci.rs`: isomorphic
+- [x] 2.1 `crates/dpaa2-api/src/families/dpseci.rs`: isomorphic
   typestates (design D1/D5), refined newtypes, options vocabulary with
   escape, congestion capability from `HAS_CG`, `compile_fail`
   immutability doctest; TDD unit tests; quality floor green.
