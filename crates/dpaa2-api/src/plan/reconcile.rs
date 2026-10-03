@@ -17,6 +17,7 @@ use crate::core::model::{
     DesiredPort, DesiredTopology, DpniId, Lifecycle, LinkType, MacAddr, MacMode, ObservedTopology,
     Presence,
 };
+use crate::families::dpmac::mac_read_back_observed;
 use crate::families::dpni::{DpniCfg, DpniDisposition, DpniObservation, drift_disposition};
 use crate::plan::{AssertMismatch, Plan, RebuildRefusal, Transition};
 
@@ -140,16 +141,19 @@ fn plan_present(
         });
     }
 
-    // MAC: actuate on mismatch, or assert-and-report (design D9; ADR-0006).
+    // MAC: actuate on mismatch, or assert-and-report (design D9; ADR-0006). A `None`/zero
+    // read-back is the bind-window transient (`mac_read_back_observed`): the model lands the
+    // unset MAC as ZERO_MAC until a setter writes it (dpni.qnt:673-676), so both arms skip it
+    // this run and the level-triggered next run judges the real read-back (MERGED-4).
     if let Some(mac) = port.mac {
         match port.mac_mode {
-            MacMode::Actuate if dpni.mac != Some(mac) => {
+            MacMode::Actuate if mac_read_back_observed(dpni.mac) && dpni.mac != Some(mac) => {
                 plan.transitions.push(Transition::SetMac {
                     port: port.dpmac,
                     mac,
                 });
             }
-            MacMode::Assert if dpni.mac.is_some() && dpni.mac != Some(mac) => {
+            MacMode::Assert if mac_read_back_observed(dpni.mac) && dpni.mac != Some(mac) => {
                 plan.assertions.push(AssertMismatch {
                     port: port.dpmac,
                     field: "mac".to_owned(),
@@ -588,6 +592,57 @@ mod tests {
             }]
         );
         assert!(plan.assertions.is_empty());
+    }
+
+    #[test]
+    fn assert_zero_mac_is_not_a_mismatch() {
+        let mut port = DesiredPort::new(DpmacId::new(3), "wan0");
+        port.mac = Some(MAC_3);
+        port.mac_mode = MacMode::Assert;
+        let desired = DesiredTopology::from_ports([port]);
+        let observed = ObservedTopology {
+            dpnis: vec![labelled(
+                7,
+                Some(3),
+                Some(MacAddr::ZERO),
+                Some("eth7"),
+                Some("wan0"),
+            )],
+            dpmacs: vec![phy(3, MAC_3)],
+        };
+        let plan = reconcile(&desired, &observed);
+        assert!(
+            plan.assertions.is_empty(),
+            "zero read-back is not a mismatch"
+        );
+        assert!(plan.is_converged(), "no work against the transient");
+    }
+
+    #[test]
+    fn actuate_zero_mac_defers_the_set_mac() {
+        let mut port = DesiredPort::new(DpmacId::new(3), "wan0");
+        port.mac = Some(MAC_3);
+        port.mac_mode = MacMode::Actuate;
+        let desired = DesiredTopology::from_ports([port]);
+        let observed = ObservedTopology {
+            dpnis: vec![labelled(
+                7,
+                Some(3),
+                Some(MacAddr::ZERO),
+                Some("eth7"),
+                Some("wan0"),
+            )],
+            dpmacs: vec![phy(3, MAC_3)],
+        };
+        let plan = reconcile(&desired, &observed);
+        assert!(
+            !plan
+                .transitions
+                .iter()
+                .any(|t| matches!(t, Transition::SetMac { .. })),
+            "no SetMac against the bind-window transient: {:?}",
+            plan.transitions
+        );
     }
 
     #[test]

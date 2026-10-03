@@ -69,12 +69,12 @@ openspec/changes/archive/2026-10-03-dpmac-typestate/review/synthesis.md §4.
   an `Option<MacAddr>`-taking relation judge in `families/dpmac.rs` with
   unit tests; `status.rs:128-134` consumes them —
   `SameContainerKernelPeer` and `MacAddr::ZERO` leave status.rs
-- [ ] 4.2 B4, model side first per house ordering: decide the Actuate
+- [x] 4.2 B4, model side first per house ordering: decide the Actuate
   posture for a zero read-back (skip vs defer), then
   `reconcile.rs:146/:152` treat `Some(MacAddr::ZERO)` as unobserved via
   the same family predicate; unit test: zero read-back + Assert ⇒ no
   mismatch
-- [ ] 4.3 Gates + close beads e6s.3, e6s.4; one commit each
+- [x] 4.3 Gates + close beads e6s.3, e6s.4; one commit each
 
 ## 5. Bead B5 — one dpmac-info scanner (dpaa2-controlplane-e6s.5)
 
