@@ -110,11 +110,12 @@ pub trait McControl {
 
     /// Reads one dpseci object's witnessable detail for the `status --detail` row
     /// (dpseci-typestate task 4.1): restool `info`'s queue counts and per-queue priorities,
-    /// plus the privileged MC-portal `GET_ATTR` options and `GET_API_VERSION` when the
-    /// `/dev/dprc.N` node of `container` is reachable. The portal half is honestly
+    /// plus the privileged MC-portal `GET_ATTR` options and `GET_API_VERSION` when a portal
+    /// node is reachable. The portal half is honestly
     /// [`DpseciPortalReadout::Unobservable`] on an unprivileged run, never an error
     /// (dpseci-typestate design D5). `dpseci` names the object for both the `info` spawn and
-    /// the portal OPEN; `container` names the dprc whose device node carries the portal read.
+    /// the portal OPEN; `container` names the container the census is scoped to, while which
+    /// portal node the read rides is backend policy (the restool backend rides the root node).
     ///
     /// This read is the observed half of the census seam (dpseci-typestate task 3.3): its
     /// signature feeds [`create_dpseci_in`](Self::create_dpseci_in)/[`destroy_dpseci`](Self::destroy_dpseci)

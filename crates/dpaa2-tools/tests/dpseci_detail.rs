@@ -67,7 +67,7 @@ fn unprivileged_run_renders_the_honest_unknown_and_exits_zero() {
         num_rx_queues: Some(2),
         tx_priorities: vec![1, 1],
         portal: DpseciPortalReadout::Unobservable {
-            reason: "permission denied opening /dev/dprc.5".to_owned(),
+            reason: "permission denied opening /dev/dprc.1".to_owned(),
         },
     };
     let backend = backend_with(object, true, detail);
@@ -79,6 +79,6 @@ fn unprivileged_run_renders_the_honest_unknown_and_exits_zero() {
     assert!(
         text.contains("dpseci.7 queues tx=2/rx=2 tx-priorities=[1,1] plugged=true drawn=false")
     );
-    assert!(text.contains("portal=no-observable (permission denied opening /dev/dprc.5)"));
+    assert!(text.contains("portal=no-observable (permission denied opening /dev/dprc.1)"));
     assert!(!text.contains("options=["));
 }

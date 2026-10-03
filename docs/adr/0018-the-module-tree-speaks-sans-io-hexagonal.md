@@ -109,16 +109,18 @@ payload types live in `families/<f>.rs`, referenced by new top-level
   backends behind the unchanged contract, differential-tested.
 - **dpaa2-hal** — typed, policy-free primitives for the kernel
   interfaces the hardware is reached through (ADR-0001 §6; carved
-  from dpaa2-mc in commit 5139cf2): fsl-mc sysfs today; VFIO,
-  netlink, and the MC-portal ioctl transport join only with the
-  change that consumes them. Zero dependencies, plain `io::Error`,
+  from dpaa2-mc in commit 5139cf2): fsl-mc sysfs today, with the
+  MC-portal ioctl read slice present (landed at roadmap row 8 per
+  ADR-0021); VFIO and netlink still join only with the change that
+  consumes them. Zero dependencies, plain `io::Error`,
   no trait seams — those belong above. It follows the embedded-Rust
   HAL pattern (embedded-hal, esp-hal and kin): the one crate where
   low-level code with narrow constraints — `unsafe`, interior
   mutability, invariant-guarding wrappers — is allowed to live, so
   everything above it builds on a safe typed surface and the
-  workspace's unsafe review burden stays in one place (roadmap
-  row 10's ioctl transport, the single unsafe module, lands here).
+  workspace's unsafe review burden stays in one place (the read
+  slice's unsafe module landed here at roadmap row 8 per ADR-0021;
+  row 10's mc-portal-backend extends it).
 - **dpaa2-config** — northbound adapter; parses declarative intent
   into the backend-neutral model. Stays flat (3 modules).
   Restructure trigger: tile #5+, when per-family intent options give

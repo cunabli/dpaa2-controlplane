@@ -1051,7 +1051,8 @@ impl<R: Runner> McControl for RestoolMc<R> {
     }
 
     fn observe_dpseci(&self, _container: DprcId, dpseci: ObjectRef) -> Result<DpseciDetail, Error> {
-        // Portal half rides `root_portal`, never the passed container (the trait seam the fake keys on).
+        // Portal half rides `root_portal`, never the passed container; `_container` is kept
+        // as the #10 (mc-portal-backend) seam.
         let info = self.observe_dpseci_info(&dpseci)?;
         let portal = match self.read_dpseci_attributes(self.root_portal(), dpseci.ordinal())? {
             DpseciReadout::Observed(obs) => DpseciPortalReadout::Observed {

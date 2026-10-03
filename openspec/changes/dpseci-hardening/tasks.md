@@ -6,7 +6,7 @@ dpseci-typestate review synthesis; this list sequences them).
 
 ## 1. Comment and fixture sync (bead dsx — S4, S5, S12, S13, S16)
 
-- [ ] 1.1 Reword `plan/dpseci.rs:6-8,26-36` to the desired-vs-desired role,
+- [x] 1.1 Reword `plan/dpseci.rs:6-8,26-36` to the desired-vs-desired role,
   rename the `observed` parameter, cite D9; sync `contract/mc.rs:111-117` +
   `restool.rs:1054` container doc (keep the parameter, T3); hal
   `lib.rs:6`/`portal.rs:121-122` + ADR-0018:112-121 attribution per

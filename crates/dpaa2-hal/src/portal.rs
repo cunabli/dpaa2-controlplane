@@ -119,7 +119,7 @@ pub enum DpseciRead {
 
 /// dpseci attributes decoded from a `GET_ATTR` response (`struct
 /// dpseci_rsp_get_attr`, `fsl_dpseci_cmd.h`). `options` is the raw mask; typing it
-/// into a flag vocabulary is `dpaa2-api`'s job, not the policy-free HAL's.
+/// into a flag vocabulary is `dpaa2-mc`'s job, not the policy-free HAL's.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DpseciAttributes {
     /// The dpseci object id.
