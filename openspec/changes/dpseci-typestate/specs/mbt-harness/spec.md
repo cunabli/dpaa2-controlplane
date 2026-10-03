@@ -23,7 +23,7 @@ The harness SHALL generate one operator suite for the sitting: converge
 a `[[crypto]]` intent on a scratch tenant, assert the child dprc and
 dpseci read-backs (`info`: queues and all-2 priorities; raw GET_ATTR:
 `HAS_CG` — V-DPSECI-2 rev 1), take the VFIO RemoteOwned leg, and tear
-down typed with a clean census (V-DPSECI-3 rev 1). Read-only
+down typed with a clean census (V-DPSECI-3 rev 2). Read-only
 boot-object hooks ride the same script: GET_API_VERSION (baseline
 unknown #2), GET_ATTR on the kernel dpseci (unknown #3), and the boot
 dpseci driver-link read. The suite SHALL be self-contained per the

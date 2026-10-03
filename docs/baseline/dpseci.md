@@ -224,15 +224,15 @@ runtime model.
 
 | Id | Proposition | Observables | Status |
 |---|---|---|---|
-| DPSECI-I1 | `options`, tx/rx queue counts, and per-queue tx priorities are immutable post-create; no setter exists (tx queues have no set path at all) | `get_attributes` + per-queue `get_tx_queue` before/after suites | candidate |
+| DPSECI-I1 | `options`, tx/rx queue counts, and per-queue tx priorities are immutable post-create; no setter exists (tx queues have no set path at all) | `get_attributes` + per-queue `get_tx_queue` before/after suites | modeled: `families/dpseci.qnt` `CfgImmutable` + `cfgImmutableTest` — immutability holds by construction (no mutating verb on the family surface) |
 | DPSECI-I2 | Create precondition (restool layer): priorities count = num-queues, each in 1–8; MC-layer validation is unknown and must not be assumed | restool exit on mismatch; MC status on out-of-range via DPL | restool layer board-anchored 2026-08-29 (V-DPSECI-1 rev 1: priority 0, a priority above 8, and a priority-count ≠ num-queues are each refused by restool's own parser, exit 234, before any MC command; also V-LIFE-DPSECI-1 rev 1 and production use); MC-layer validation unreachable through restool, board-pending → V-DPSECI-1 (MC layer) under `mc-portal-backend` (#10) |
-| DPSECI-I3 | **Breaking:** the model must NOT treat restool `info` output as the convergence observable for this family — the options mask is not printed; only raw `GET_ATTR` observes it | info output vs GET_ATTR response | candidate |
-| DPSECI-I4 | Safety: consumer backpressure exists iff `HAS_CG` was set at create; absent it, enqueue is unbounded (kernel consumer) | congestion config presence; enqueue behavior at saturation | candidate |
-| DPSECI-I5 | **Breaking:** the model must NOT assume unbind ⇒ clean MC state: the kernel reset is gated on API > 5.3, and rx-queue steering + armed CG (with dangling iova) persist when skipped | `get_rx_queue`/`get_congestion_notification` after unbind | modeled in `main.qnt` `DPSECI_I5Test` (simulate); the board reset path stays open — board API is 5.4 so the reset is expected live → V-DPSECI-2 under `dpseci-typestate` (#8) |
+| DPSECI-I3 | **Breaking:** the model must NOT treat restool `info` output as the convergence observable for this family — the options mask is not printed; only raw `GET_ATTR` observes it | info output vs GET_ATTR response | verified 2026-10-03 (V-DPSECI-3 rev 2 read-back hook: convergence reads the options mask over raw GET_ATTR); modeled at the adapter (dpseci-typestate design D5: the `info` parse type carries no options field, so the wrong observable is unrepresentable) |
+| DPSECI-I4 | Safety: consumer backpressure exists iff `HAS_CG` was set at create; absent it, enqueue is unbounded (kernel consumer) | congestion config presence; enqueue behavior at saturation | modeled: `families/dpseci.qnt` `CongestionBirthCapability` + the with/without-HAS_CG directed pair |
+| DPSECI-I5 | **Breaking:** the model must NOT assume unbind ⇒ clean MC state: the kernel reset is gated on API > 5.3, and rx-queue steering + armed CG (with dangling iova) persist when skipped | `get_rx_queue`/`get_congestion_notification` after unbind | modeled in `main.qnt` `DPSECI_I5Test` (simulate); board API 5.4 is confirmed (V-DPSECI-3 rev 2, 2026-10-03), so the kernel reset path is live (API > 5.3); the post-unbind dirt face (`get_rx_queue`/`get_congestion` after unbind) → `mc-portal-backend` (#10) — those reads are on no userspace `/dev/dprc.N` whitelist (`docs/baseline/mc-ioctl-policy.md`), refused −EACCES |
 | DPSECI-I6 | Liveness ceiling: a queue pair over-posted past its FLE depth wedges permanently with no MC-visible error; consumers must self-cap in-flight (≤ half the FLE pool) | enqueue returns 0 with in-flight 0; qp stats; 5.4 queue-status flags | verified (ADR-0005) |
 | DPSECI-I7 | **Breaking:** the model must NOT assume MC-enforced exclusivity: multiple open tokens are structurally permitted, and a VFIO close resets the object under any other opener; single-owner is a modeling assumption (ADR-0006), not an MC property | concurrent open success; config wiped after VFIO close | candidate |
 | DPSECI-I8 | Destroy precondition: all tokens closed and no bound driver; restool's destroy result is unreliable in child containers (error overwritten) | object presence after "successful" destroy | candidate |
-| DPSECI-I9 | SEC counters are block-global: two dpsecis observe one counter set; per-object accounting must come from queue-status/consumer stats, never `get_sec_counters` | counter deltas across both objects under single-object load | candidate |
+| DPSECI-I9 | SEC counters are block-global: two dpsecis observe one counter set; per-object accounting must come from queue-status/consumer stats, never `get_sec_counters` | counter deltas across both objects under single-object load | modeled: structural law `SEC_COUNTERS_BLOCK_GLOBAL` (`families/dpseci.qnt`) + `secCountersBlockGlobalTest` — counters are block-global and unreadable by every userspace transport, so no per-object counter observable exists |
 
 ## Unknown / unverified register
 
@@ -242,7 +242,10 @@ runtime model.
    suite V-DPSECI-1 rev 1, 2026-08-29]: restool's own parser refuses all
    three (priority 0, a priority above 8, and a count ≠ num-queues) with
    exit 234 before any MC command is built, so the MC-side rule stays
-   unreachable through restool — the ioctl portal is needed to reach it.
+   unreachable through restool — the ioctl portal is needed to reach it;
+   ioctl CREATE is excluded from the ADR-0021 read slice by
+   construction (the read primitive encodes no CREATE command id), so
+   the MC-side rule → `mc-portal-backend` (#10).
 2. Board confirmation that dpseci API reports 5.4 (drives DPSECI-I5's
    reset path) — one dmesg/`restool dpseci info` line. Answered [board
    suite V-DPSECI-3 rev 2, 2026-10-03]: both the boot dpseci.0 and a
@@ -258,10 +261,15 @@ runtime model.
    all-2 [verified in use]; what the SEC scheduler does with the
    difference is undocumented in the corpus.
 5. The legacy `sec_if_id` DPL property (single occurrence, no cfg field
-   anywhere) — dead or MC-parsed?
+   anywhere) — dead or MC-parsed? → DPL ingestion surface,
+   `dpl-tape-out` (#14).
 6. `DPSECI_OPT_HAS_OPR`/`OPR_SHARED` observable behavior: no consumer in
    the corpus inspects them (kernel sets order_preservation_en=0; OPR
-   wire code exists unused).
-7. What `dpseci_reset` covers (per-field) — same gap as dpni_reset.
+   wire code exists unused). → `dpl-tape-out` (#14); the family model
+   carries the option name only (dpseci-typestate design D4 attribution
+   rule).
+7. What `dpseci_reset` covers (per-field) — same gap as dpni_reset. →
+   raw command observation, `mc-portal-backend` (#10).
 8. Board values of `sec_attr` (era, accelerator counts) — never logged
-   by the kernel; relevant to algorithm capability modeling.
+   by the kernel; relevant to algorithm capability modeling. → raw
+   GET_ATTR beyond the read slice, `mc-portal-backend` (#10).
