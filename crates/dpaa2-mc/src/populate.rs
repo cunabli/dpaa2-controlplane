@@ -24,7 +24,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use dpaa2_api::contract::{KernelControl, McControl};
+use dpaa2_api::contract::{DpseciDetail, DpseciPortalReadout, KernelControl, McControl};
 use dpaa2_api::core::error::Error;
 use dpaa2_api::core::family::Family;
 use dpaa2_api::core::inventory::Ceiling;
@@ -32,12 +32,14 @@ use dpaa2_api::core::model::{DpniId, DprcId, ObjectRef};
 use dpaa2_api::core::types::ConstructName;
 use dpaa2_api::families::dpio::derived_seats;
 use dpaa2_api::families::dprc::VfioBind;
+use dpaa2_api::families::dpseci::DpseciCfg;
 use dpaa2_api::families::pool_lifecycle::{
     CustodyScope, PoolCensus, PoolFamily, RawDriver, ShrinkBelowDraw, census_of,
     derived_requirement, drift_disposition,
 };
 use dpaa2_api::intent::compiled::{Attributes, CompiledPlan, Container, ObjectKey};
-use dpaa2_api::plan::populate::{ChildPlan, PlannedChildDpni};
+use dpaa2_api::plan::dpseci::{ObservedSig, census_delta, observed_sig_of, sig_census, sig_of};
+use dpaa2_api::plan::populate::{ChildDpseci, ChildPlan, DpseciCensus, PlannedChildDpni};
 
 use crate::pool::{default_dpio_cfg, dispatch_pool_deltas};
 
@@ -57,6 +59,9 @@ pub struct ChildPopulation {
     pub families: BTreeMap<PoolFamily, (i64, PoolCensus)>,
     /// The dpio seats: `(required, observed-after)`.
     pub seats: (i64, i64),
+    /// The child's dpseci face re-judged from the post-dispatch read-back (the multiset census
+    /// of dpseci-typestate design D9): a converged census, or the typed unobservable outcome.
+    pub dpseci: ChildDpseci,
     /// The below-draw refusal the trio's managed destroy DISCOVERED through the probe — `Some`
     /// when a family's held rows could not shrink to its requirement (pool-objects design D10),
     /// which stops the pass (first family wins). The caller surfaces it typed, never an error.
@@ -79,6 +84,7 @@ impl ChildPopulation {
                 .families
                 .values()
                 .all(|(requirement, census)| census.converged(*requirement))
+            && self.dpseci.converged()
     }
 }
 
@@ -96,6 +102,68 @@ fn planned_peer(plan: &CompiledPlan, key: &ObjectKey) -> Option<ObjectRef> {
             .filter(|(k, _)| *k == key)
             .map(|(_, dpmac)| ObjectRef::new(Family::Dpmac, dpmac.into_inner()))
     })
+}
+
+/// The compiled dpseci create blocks for one container (dpseci-typestate design D9): the
+/// planned half of the census, in declaration order. Position is not a hardware identity, so
+/// the order is immaterial — the census is a multiset (ADR-0015 decision 5).
+fn planned_dpseci_cfgs(plan: &CompiledPlan, container: &Container) -> Vec<DpseciCfg> {
+    plan.objects
+        .iter()
+        .filter(|o| o.container() == container && o.key().family == Family::Dpseci)
+        .filter_map(|o| match o.attributes() {
+            Attributes::Dpseci { cfg } => Some(cfg.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+/// The reason a dpseci's signature could not be judged, for display on the unobservable face
+/// (dpseci-typestate design D9): the portal's own reason when it was unavailable, else the
+/// honest gap where an open portal named no vocabulary options or restool `info` gave no queue
+/// count.
+fn unobservable_reason(detail: &DpseciDetail) -> String {
+    match &detail.portal {
+        DpseciPortalReadout::Unobservable { reason } => reason.clone(),
+        DpseciPortalReadout::Observed { .. } => {
+            "dpseci signature not nameable (portal options or queue count absent)".to_owned()
+        }
+    }
+}
+
+/// Judges one child's dpseci population as a multiset census of the observable signature
+/// (dpseci-typestate design D9), filtered to the tenant's custody: only rows whose label
+/// equals the tenant's `ConstructName` are counted or ever destroyed — foreign/unlabelled rows
+/// are never touched (the pool `label_membership` precedent). If any custody-matched row's
+/// signature cannot be read, the whole face is [`ChildDpseci::Unobservable`] — absence of
+/// evidence is never drift, so the census judges nothing (ADR-0018; V-LIFE-DPSECI-1).
+fn judge_dpseci<M: McControl>(
+    mc: &M,
+    child: DprcId,
+    label: &ConstructName,
+    planned: &[DpseciCfg],
+) -> Result<ChildDpseci, Error> {
+    let rows = mc.observe_pool(Some(child), Family::Dpseci)?;
+    let mut observed = Vec::new();
+    for row in rows.iter().filter(|r| r.label.as_str() == label.as_str()) {
+        let detail = mc.observe_dpseci(child, row.object)?;
+        match observed_sig_of(&detail) {
+            ObservedSig::Observed(sig) => observed.push((sig, row.object)),
+            ObservedSig::Unobservable => {
+                return Ok(ChildDpseci::Unobservable {
+                    reason: unobservable_reason(&detail),
+                });
+            }
+        }
+    }
+    let planned_census = sig_census(planned.iter().map(sig_of));
+    let observed_census = sig_census(observed.iter().map(|(sig, _)| sig.clone()));
+    let delta = census_delta(&planned_census, &observed_census);
+    Ok(ChildDpseci::Census(DpseciCensus {
+        delta,
+        planned: planned.to_vec(),
+        observed,
+    }))
 }
 
 /// Reads a child dprc's population plan (pool-objects design D11): pure of any mutation —
@@ -170,12 +238,15 @@ pub fn plan_child_population<M: McControl, K: KernelControl>(
         VfioBind::BoundVfioFslMc
     );
 
+    let dpseci = judge_dpseci(mc, child, label, &planned_dpseci_cfgs(plan, container))?;
+
     Ok(ChildPlan {
         child,
         label: label.clone(),
         dpnis,
         families,
         seats: (required, observed_seats),
+        dpseci,
         bound,
     })
 }
@@ -224,6 +295,29 @@ pub fn dispatch_child_population<M: McControl>(
         }
     }
 
+    // dpseci: the census delta drives N creates and M destroys (dpseci-typestate design D9); a
+    // create renders a desired cfg of the surplus signature, a destroy drains a tenant-labelled
+    // observed row. The unobservable face judged nothing, so it actuates nothing.
+    if let ChildDpseci::Census(census) = &cplan.dpseci {
+        for (sig, count) in &census.delta.creates {
+            let count = usize::try_from(*count).unwrap_or(0);
+            for cfg in census
+                .planned
+                .iter()
+                .filter(|cfg| &sig_of(cfg) == sig)
+                .take(count)
+            {
+                mc.create_dpseci_in(Some(child), cfg, label)?;
+            }
+        }
+        for (sig, count) in &census.delta.destroys {
+            let count = usize::try_from(*count).unwrap_or(0);
+            for (_, object) in census.observed.iter().filter(|(s, _)| s == sig).take(count) {
+                mc.destroy_dpseci(Some(child), object)?;
+            }
+        }
+    }
+
     let mut families = BTreeMap::new();
     let mut refusal = None;
     for family in TRIO {
@@ -266,10 +360,20 @@ pub fn dispatch_child_population<M: McControl>(
         .map(|r| r.object)
         .collect();
 
+    // Re-judge the dpseci face from the post-dispatch read-back (dpseci-typestate design D9); the
+    // unobservable face dispatched nothing, so it carries forward unchanged.
+    let dpseci = match &cplan.dpseci {
+        ChildDpseci::Unobservable { reason } => ChildDpseci::Unobservable {
+            reason: reason.clone(),
+        },
+        ChildDpseci::Census(census) => judge_dpseci(mc, child, label, &census.planned)?,
+    };
+
     Ok(ChildPopulation {
         dpnis,
         families,
         seats: (required, observed_after),
+        dpseci,
         refusal,
     })
 }
@@ -309,9 +413,10 @@ mod tests {
     use dpaa2_api::contract::fake::FakeBackend;
     use dpaa2_api::core::model::{DpmacId, MacMode};
     use dpaa2_api::families::dpio::{SeatDisposition, SeatRegime};
+    use dpaa2_api::families::dpseci::{DpseciOpt, OptionMask};
     use dpaa2_api::families::pool_lifecycle::{ObservedPoolObject, RawLabel};
     use dpaa2_api::intent::refuse::compile;
-    use dpaa2_api::intent::{Dataplane, Intent, Isolation, Port, Tenant, TenantRef};
+    use dpaa2_api::intent::{Crypto, Dataplane, Intent, Isolation, Port, Tenant, TenantRef};
     use dpaa2_api::plan::Class;
     use dpaa2_api::testkit::ref_inventory;
 
@@ -743,5 +848,285 @@ mod tests {
         let mc = FakeBackend::new();
         let bind = vfio_handoff(&mc, DprcId::new(2)).expect("handoff");
         assert_eq!(bind, VfioBind::Unbound);
+    }
+
+    // ---- the dpseci observable-signature census (dpseci-typestate task 3.3; design D9) ----
+
+    // A `[[crypto]]` tenant "sec", one dpseci per `flows` block, isolated (dpseci-typestate design D3/D4).
+    fn compiled_crypto(flows: &[i64]) -> dpaa2_api::intent::refuse::Compiled {
+        let sec = Tenant {
+            name: "sec".into(),
+            dataplane: Dataplane::UserspacePoll,
+            max_cores: 16,
+            isolation: Isolation::Isolated,
+            renamed: None,
+        };
+        let crypto = flows
+            .iter()
+            .map(|&flows| Crypto {
+                tenant: "sec".into(),
+                flows,
+            })
+            .collect();
+        let intent = Intent {
+            tenants: vec![sec],
+            crypto,
+            ..Intent::empty()
+        };
+        compile(&intent, &ref_inventory(16)).expect("the crypto intent compiles")
+    }
+
+    fn sec_declared() -> BTreeSet<ConstructName> {
+        BTreeSet::from([ConstructName::from("sec")])
+    }
+
+    fn sec_populate(
+        mc: &FakeBackend,
+        child: DprcId,
+        compiled: &dpaa2_api::intent::refuse::Compiled,
+    ) -> (ChildPlan, ChildPopulation) {
+        let container = Container::Child("sec".into());
+        let label = ConstructName::from("sec");
+        let cplan = plan_child_population(
+            mc,
+            mc,
+            child,
+            &compiled.plan,
+            &container,
+            &label,
+            &sec_declared(),
+        )
+        .expect("plan");
+        let pop = dispatch_child_population(mc, &cplan, &sec_declared()).expect("dispatch");
+        (cplan, pop)
+    }
+
+    fn dpseci_rows(mc: &FakeBackend, child: DprcId) -> Vec<ObservedPoolObject> {
+        mc.observe_pool(Some(child), Family::Dpseci).unwrap()
+    }
+
+    // The read-back detail a dpseci of `num_queues`/`options` shows, for seeding a board state.
+    fn observed_detail(num_queues: u8, options: OptionMask) -> DpseciDetail {
+        DpseciDetail {
+            num_tx_queues: Some(num_queues),
+            num_rx_queues: Some(num_queues),
+            tx_priorities: vec![2; usize::from(num_queues)],
+            portal: DpseciPortalReadout::Observed {
+                options: Some(options),
+                api_major: 5,
+                api_minor: 4,
+            },
+        }
+    }
+
+    fn has_cg() -> OptionMask {
+        OptionMask::empty().with_flag(DpseciOpt::HasCg)
+    }
+
+    #[test]
+    fn dpseci_absent_creates_one_per_signature_and_is_idempotent() {
+        // dpseci-typestate design D9 / censusAbsentCreatesTest + censusTwoSignaturesTest: one create per signature, then idempotent.
+        let compiled = compiled_crypto(&[4, 8]);
+        let child = DprcId::new(2);
+        let mc = FakeBackend::new();
+
+        let (cplan, pop) = sec_populate(&mc, child, &compiled);
+        assert!(
+            cplan.dpseci.is_disruptive(),
+            "two absent signatures to create"
+        );
+        assert_eq!(cplan.headline(), Class::Disruptive);
+        assert_eq!(dpseci_rows(&mc, child).len(), 2, "one dpseci per signature");
+        assert!(pop.dpseci.converged());
+        assert!(pop.converged(cplan.dpnis.len()), "{pop:?}");
+
+        let (cplan2, _pop2) = sec_populate(&mc, child, &compiled);
+        assert!(
+            cplan2.dpseci.converged(),
+            "the re-plan reads the census converged"
+        );
+        assert!(!cplan2.dpseci.is_disruptive());
+        assert_eq!(dpseci_rows(&mc, child).len(), 2, "no third dpseci");
+    }
+
+    #[test]
+    fn dpseci_signature_mismatch_destroys_then_creates() {
+        // dpseci-typestate design D5/D9 / censusSignatureMismatchTest: a signature mismatch is one destroy AND one create.
+        let compiled = compiled_crypto(&[8]);
+        let child = DprcId::new(2);
+        let seeded = ObjectRef::new(Family::Dpseci, 50);
+        let mc = FakeBackend::new().with_dpseci_object(
+            child,
+            seeded,
+            &ConstructName::from("sec"),
+            observed_detail(8, OptionMask::empty()),
+        );
+
+        let (cplan, pop) = sec_populate(&mc, child, &compiled);
+        match &cplan.dpseci {
+            ChildDpseci::Census(c) => {
+                assert_eq!(c.delta.creates.values().sum::<i64>(), 1, "one create");
+                assert_eq!(c.delta.destroys.values().sum::<i64>(), 1, "one destroy");
+            }
+            other @ ChildDpseci::Unobservable { .. } => panic!("expected a census, got {other:?}"),
+        }
+        assert_eq!(cplan.headline(), Class::Disruptive);
+
+        let rows = dpseci_rows(&mc, child);
+        assert!(
+            !rows.iter().any(|r| r.object == seeded),
+            "the mismatched signature is destroyed"
+        );
+        assert_eq!(rows.len(), 1, "exactly the replacement dpseci");
+        let detail = mc.observe_dpseci(child, rows[0].object).unwrap();
+        assert!(
+            matches!(&detail.portal, DpseciPortalReadout::Observed { options: Some(m), .. } if m.contains(DpseciOpt::HasCg)),
+            "the replacement carries the desired HAS_CG signature"
+        );
+        assert!(pop.dpseci.converged());
+    }
+
+    #[test]
+    fn dpseci_matching_board_is_zero_actions() {
+        // dpseci-typestate design D9 / censusMatchEmptyDeltaTest: an already-observed board is zero actions.
+        let compiled = compiled_crypto(&[4, 8]);
+        let child = DprcId::new(2);
+        let four = ObjectRef::new(Family::Dpseci, 40);
+        let eight = ObjectRef::new(Family::Dpseci, 80);
+        let mc = FakeBackend::new()
+            .with_dpseci_object(
+                child,
+                four,
+                &ConstructName::from("sec"),
+                observed_detail(4, has_cg()),
+            )
+            .with_dpseci_object(
+                child,
+                eight,
+                &ConstructName::from("sec"),
+                observed_detail(8, has_cg()),
+            );
+
+        let (cplan, _pop) = sec_populate(&mc, child, &compiled);
+        assert!(
+            matches!(&cplan.dpseci, ChildDpseci::Census(c) if c.delta.is_empty()),
+            "a matching multiset is zero-delta: {:?}",
+            cplan.dpseci
+        );
+        let rows = dpseci_rows(&mc, child);
+        assert_eq!(rows.len(), 2, "no dpseci created");
+        assert!(
+            rows.iter().any(|r| r.object == four) && rows.iter().any(|r| r.object == eight),
+            "both seeded dpsecis survive — no destroy+recreate churn"
+        );
+    }
+
+    #[test]
+    fn dpseci_unobservable_portal_judges_nothing() {
+        // dpseci-typestate design D9 / V-LIFE-DPSECI-1: an unobservable portal makes the census judge nothing.
+        let compiled = compiled_crypto(&[8]);
+        let child = DprcId::new(2);
+        let seeded = ObjectRef::new(Family::Dpseci, 50);
+        let blind = DpseciDetail {
+            num_tx_queues: Some(8),
+            num_rx_queues: Some(8),
+            tx_priorities: vec![2; 8],
+            portal: DpseciPortalReadout::Unobservable {
+                reason: "no /dev/dprc portal this run".to_owned(),
+            },
+        };
+        let mc = FakeBackend::new().with_dpseci_object(
+            child,
+            seeded,
+            &ConstructName::from("sec"),
+            blind,
+        );
+
+        let (cplan, pop) = sec_populate(&mc, child, &compiled);
+        assert!(
+            matches!(cplan.dpseci, ChildDpseci::Unobservable { .. }),
+            "an unobservable signature judges nothing: {:?}",
+            cplan.dpseci
+        );
+        assert!(cplan.dpseci.converged(), "no pending dpseci work");
+        assert!(
+            !cplan.dpseci.is_disruptive(),
+            "unobservable contributes no drift"
+        );
+
+        let rows = dpseci_rows(&mc, child);
+        assert_eq!(rows.len(), 1, "no create and no destroy under unobservable");
+        assert!(
+            rows.iter().any(|r| r.object == seeded),
+            "the unobservable dpseci is never destroyed (a spurious rebuild is permanent loss)"
+        );
+        assert!(matches!(pop.dpseci, ChildDpseci::Unobservable { .. }));
+    }
+
+    #[test]
+    fn dpseci_reordering_crypto_blocks_is_position_independent() {
+        // dpseci-typestate design D9 / censusPositionIndependentTest: a crypto-block reorder is zero-delta (multiset).
+        let child = DprcId::new(2);
+        let mc = FakeBackend::new();
+        sec_populate(&mc, child, &compiled_crypto(&[4, 8]));
+        assert_eq!(dpseci_rows(&mc, child).len(), 2);
+
+        let reversed = compiled_crypto(&[8, 4]);
+        let container = Container::Child("sec".into());
+        let label = ConstructName::from("sec");
+        let cplan = plan_child_population(
+            &mc,
+            &mc,
+            child,
+            &reversed.plan,
+            &container,
+            &label,
+            &sec_declared(),
+        )
+        .expect("plan");
+        assert!(
+            matches!(&cplan.dpseci, ChildDpseci::Census(c) if c.delta.is_empty()),
+            "a reordered intent over a converged board is zero-delta: {:?}",
+            cplan.dpseci
+        );
+        assert!(cplan.dpseci.converged());
+    }
+
+    #[test]
+    fn dpseci_foreign_row_is_never_counted_or_destroyed() {
+        // dpseci-typestate custody (pool label_membership precedent): a foreign-labelled row is never counted or destroyed.
+        let compiled = compiled_crypto(&[8]);
+        let child = DprcId::new(2);
+        let foreign = ObjectRef::new(Family::Dpseci, 77);
+        let mc = FakeBackend::new().with_dpseci_object(
+            child,
+            foreign,
+            &ConstructName::from("vendor"),
+            observed_detail(8, has_cg()),
+        );
+
+        let (cplan, _pop) = sec_populate(&mc, child, &compiled);
+        match &cplan.dpseci {
+            ChildDpseci::Census(c) => {
+                assert!(c.observed.is_empty(), "custody excludes the vendor row");
+                assert_eq!(
+                    c.delta.creates.values().sum::<i64>(),
+                    1,
+                    "sec's dpseci is still absent — the foreign match does not count"
+                );
+                assert!(
+                    c.delta.destroys.is_empty(),
+                    "a foreign row is never destroyed"
+                );
+            }
+            other @ ChildDpseci::Unobservable { .. } => panic!("expected a census, got {other:?}"),
+        }
+
+        let rows = dpseci_rows(&mc, child);
+        assert!(
+            rows.iter().any(|r| r.object == foreign),
+            "the foreign dpseci survives"
+        );
+        assert_eq!(rows.len(), 2, "the foreign row plus one created sec dpseci");
     }
 }

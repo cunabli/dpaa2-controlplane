@@ -12,9 +12,11 @@ use crate::core::model::{DpniId, DprcId, ObjectRef};
 use crate::core::types::ConstructName;
 use crate::families::dpio::{SeatDisposition, SeatRegime, seat_disposition};
 use crate::families::dpni::DpniCfg;
+use crate::families::dpseci::DpseciCfg;
 use crate::families::pool_lifecycle::{PoolCensus, PoolDeltas, PoolFamily, ShrinkBelowDraw};
 use crate::intent::compiled::ObjectKey;
 use crate::plan::Class;
+use crate::plan::dpseci::{CensusDelta, Sig};
 
 /// One child dpni the population plans, read-only (pool-objects design D11): its compiled
 /// create block and label, the planned peer to connect it to (the plan edge, `None` when
@@ -54,6 +56,60 @@ impl PlannedChildDpni {
     }
 }
 
+/// One child's dpseci face: the multiset-census judgment of the observable signature, or the
+/// typed unobservable outcome (dpseci-typestate design D9). A dpseci is anonymous and
+/// shared-label, so there is no per-object planned dpseci type — the whole population is one
+/// census per container.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ChildDpseci {
+    /// At least one tenant-labelled dpseci could not be judged this run (its portal was
+    /// unavailable or named no vocabulary options), so the census judges nothing — zero
+    /// actions, no drift verdict (dpseci-typestate design D9; a spurious destroy+create is
+    /// permanent loss, V-LIFE-DPSECI-1).
+    Unobservable {
+        /// Why a signature could not be read (display only).
+        reason: String,
+    },
+    /// The multiset census: the planned-vs-observed signature delta and its dispatch sources.
+    Census(DpseciCensus),
+}
+
+/// The census judgment plus the two dispatch sources the create/destroy walk draws from
+/// (dpseci-typestate design D9). Pure and renderable; `dispatch_child_population` actuates it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DpseciCensus {
+    /// The signature delta: per-signature create and destroy counts (`dpseci.qnt` `censusDelta`).
+    pub delta: CensusDelta,
+    /// The compiled create blocks, the create dispatch's source — priorities ride from the
+    /// desired cfg, never an observed value (ADR-0018).
+    pub planned: Vec<DpseciCfg>,
+    /// The tenant-labelled observed rows paired with their signature, the destroy dispatch's
+    /// source — only these custody-matched rows are ever destroyed (the pool
+    /// `label_membership` precedent; dpseci-typestate custody).
+    pub observed: Vec<(Sig, ObjectRef)>,
+}
+
+impl ChildDpseci {
+    /// Whether the dpseci face has no pending work: an empty census delta, or the unobservable
+    /// outcome (no drift judged, so nothing to converge) — matching the model's no-drift-judged
+    /// branch (dpseci-typestate design D9).
+    #[must_use]
+    pub fn converged(&self) -> bool {
+        match self {
+            ChildDpseci::Unobservable { .. } => true,
+            ChildDpseci::Census(c) => c.delta.is_empty(),
+        }
+    }
+
+    /// Whether the dpseci face would actuate a disruptive change: any non-empty census delta is
+    /// the destroy+create disruption of dpseci-typestate design D5; the unobservable face
+    /// contributes nothing.
+    #[must_use]
+    pub fn is_disruptive(&self) -> bool {
+        matches!(self, ChildDpseci::Census(c) if !c.delta.is_empty())
+    }
+}
+
 /// The read-only population plan for one child dprc (pool-objects design D11): pure and
 /// renderable, computed from the compiled plan and the child's read-back census. Every
 /// count comes from the plan and every observation from a read — no mutation. The
@@ -71,6 +127,9 @@ pub struct ChildPlan {
     pub families: BTreeMap<PoolFamily, (i64, PoolCensus, Result<PoolDeltas, ShrinkBelowDraw>)>,
     /// The dpio seats: `(required, observed)`.
     pub seats: (i64, i64),
+    /// The child's dpseci face: the observable-signature census, or typed unobservable
+    /// (dpseci-typestate design D9).
+    pub dpseci: ChildDpseci,
     /// Whether the child reads back bound to `vfio-fsl-mc` (ADR-0017 drift gate).
     pub bound: bool,
 }
@@ -90,6 +149,7 @@ impl ChildPlan {
                 .families
                 .values()
                 .all(|(req, census, _)| census.converged(*req))
+            && self.dpseci.converged()
     }
 
     /// The pass headline (ADR-0015 decision 12): [`Class::Disruptive`] when any resident
@@ -105,7 +165,9 @@ impl ChildPlan {
                 .families
                 .values()
                 .any(|(_, _, d)| d.is_ok_and(|d| !d.is_empty()))
-            || self.seats.0 > self.seats.1;
+            || self.seats.0 > self.seats.1
+            // A non-empty dpseci census delta is the destroy+create disruption of dpseci-typestate design D5.
+            || self.dpseci.is_disruptive();
         if creates {
             Class::Disruptive
         } else {

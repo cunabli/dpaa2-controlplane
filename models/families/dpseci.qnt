@@ -416,4 +416,155 @@ module dpseci_lifecycle {
   // The DPSECI-I9 block-global counter law: per-object attribution is
   // structurally impossible, so the model offers no per-object counter.
   run secCountersBlockGlobalTest = init.then(check(SEC_COUNTERS_BLOCK_GLOBAL))
+
+  // ---- the observable-signature census (dpseci-typestate design D9) ----
+
+  // The dpseci population under a tenant is anonymous and shared-label, so convergence matches
+  // the planned and observed MULTISETS of the observable cfg signature — no per-object identity
+  // is minted (ADR-0015 decisions 4/5). The signature is the observable subset: queue shape and
+  // options, never the create-time-immutable priorities.
+  type ObservableSig = { numQueues: int, options: OptionMask }
+
+  // The projection that drops priorities (dpseci-typestate design D9: drift is judged over the
+  // observable subset only; the adapter never invents an unobserved value,
+  // ADR-0018). The Rust core mirrors this projection (ADR-0002 §3).
+  pure def observableSigOf(cfg: CreateCfg): ObservableSig =
+    { numQueues: cfg.numQueues, options: cfg.options }
+
+  // One object's read-back face, the Rust DpseciPortalReadout twin (ADR-0002
+  // §3): either the observed signature, or typed unobservable — absence of
+  // evidence, never drift (dpseci-typestate design D9).
+  type ObservedFace =
+    | SigObserved(ObservableSig)
+    | SigUnobservable
+
+  // Observable-subset drift: an unobservable face is no drift judged (ADR-0018); an observed
+  // signature equal to the desired projection is no drift; any other is drift — the plan renders
+  // it as the destroy+create disruption of dpseci-typestate design D5.
+  pure def classifyObservableMismatch(desired: CreateCfg, face: ObservedFace): bool =
+    match face {
+      | SigUnobservable => false
+      | SigObserved(sig) => sig != observableSigOf(desired)
+    }
+
+  // Quint carries no multiset type, so a census is a count map built from a
+  // signature list (planned from compiled cfgs via observableSigOf, observed
+  // from read-backs). sigCount reads a missing signature as zero.
+  pure def sigCount(census: ObservableSig -> int, sig: ObservableSig): int =
+    if (census.keys().contains(sig)) census.get(sig) else 0
+
+  pure def sigCensus(sigs: List[ObservableSig]): ObservableSig -> int =
+    sigs.foldl(Map(), (acc, sig) => acc.put(sig, sigCount(acc, sig) + 1))
+
+  // The multiset delta (dpseci-typestate design D9): the planned surplus is a create count, the
+  // observed surplus a destroy count — a signature mismatch is one create AND one destroy (the
+  // dpseci-typestate design D5 disruption read off the two maps).
+  type CensusDelta = { creates: ObservableSig -> int, destroys: ObservableSig -> int }
+
+  pure def censusDelta(planned: ObservableSig -> int, observed: ObservableSig -> int): CensusDelta =
+    val sigs = planned.keys().union(observed.keys())
+    {
+      creates: sigs.filter(sig => sigCount(planned, sig) > sigCount(observed, sig))
+                 .mapBy(sig => sigCount(planned, sig) - sigCount(observed, sig)),
+      destroys: sigs.filter(sig => sigCount(observed, sig) > sigCount(planned, sig))
+                 .mapBy(sig => sigCount(observed, sig) - sigCount(planned, sig)),
+    }
+
+  // Converged when the delta is empty both ways — the planned and observed
+  // multisets coincide (dpseci-typestate design D9).
+  pure def censusConverged(planned: ObservableSig -> int, observed: ObservableSig -> int): bool =
+    val d = censusDelta(planned, observed)
+    d.creates.keys().size() == 0 and d.destroys.keys().size() == 0
+
+  // ---- census directed runs (rung 2a; dpseci-typestate design D9) ----
+
+  // The two board-verified signatures plus a 4-queue sibling (the two-crypto-block case). sigNoCg
+  // shares sigProd's 8-queue shape but drops HAS_CG, so it is a distinct signature (options, not priority).
+  pure val sigProd: ObservableSig = observableSigOf(PRODUCTION_CFG)
+  pure val sigNoCg: ObservableSig = observableSigOf(NO_CG_CFG)
+  pure val sigFour: ObservableSig = { numQueues: 4, options: PRODUCTION_CFG.options }
+
+  // Absent → create: a planned signature with no observed peer yields one
+  // create of it, no destroy, and a non-converged verdict.
+  run censusAbsentCreatesTest =
+    init.then(check(
+      val planned = sigCensus([sigProd])
+      val observed = sigCensus([])
+      val d = censusDelta(planned, observed)
+      and {
+        sigCount(d.creates, sigProd) == 1,
+        d.destroys.keys().size() == 0,
+        not(censusConverged(planned, observed)),
+      }))
+
+  // Surplus → destroy: an observed signature with no planned peer yields one
+  // destroy of it, no create, and a non-converged verdict.
+  run censusSurplusDestroysTest =
+    init.then(check(
+      val planned = sigCensus([])
+      val observed = sigCensus([sigProd])
+      val d = censusDelta(planned, observed)
+      and {
+        sigCount(d.destroys, sigProd) == 1,
+        d.creates.keys().size() == 0,
+        not(censusConverged(planned, observed)),
+      }))
+
+  // A signature mismatch (same 8-queue shape, HAS_CG dropped) is one create of
+  // the planned signature AND one destroy of the observed — the destroy+create
+  // disruption (dpseci-typestate design D5) in multiset terms.
+  run censusSignatureMismatchTest =
+    init.then(check(
+      val planned = sigCensus([sigProd])
+      val observed = sigCensus([sigNoCg])
+      val d = censusDelta(planned, observed)
+      and {
+        sigCount(d.creates, sigProd) == 1,
+        sigCount(d.destroys, sigNoCg) == 1,
+        d.creates.keys().size() == 1,
+        d.destroys.keys().size() == 1,
+        not(censusConverged(planned, observed)),
+      }))
+
+  // Matching multisets → an empty delta both ways and a converged verdict.
+  run censusMatchEmptyDeltaTest =
+    init.then(check(
+      val planned = sigCensus([sigFour, sigProd])
+      val observed = sigCensus([sigProd, sigFour])
+      val d = censusDelta(planned, observed)
+      and {
+        d.creates.keys().size() == 0,
+        d.destroys.keys().size() == 0,
+        censusConverged(planned, observed),
+      }))
+
+  // A tenant carrying two signatures (4-queue and 8-queue) with only the
+  // 8-queue observed yields one create of the missing 4-queue signature.
+  run censusTwoSignaturesTest =
+    init.then(check(
+      val planned = sigCensus([sigFour, sigProd])
+      val observed = sigCensus([sigProd])
+      val d = censusDelta(planned, observed)
+      and {
+        sigCount(d.creates, sigFour) == 1,
+        d.destroys.keys().size() == 0,
+        not(censusConverged(planned, observed)),
+      }))
+
+  // The unobservable face is no drift judged; an observed signature equal to
+  // the desired projection is no drift; any other observed signature is drift.
+  run classifyObservableMismatchTest =
+    init.then(check(and {
+      not(classifyObservableMismatch(PRODUCTION_CFG, SigUnobservable)),
+      not(classifyObservableMismatch(PRODUCTION_CFG, SigObserved(sigProd))),
+      classifyObservableMismatch(PRODUCTION_CFG, SigObserved(sigNoCg)),
+    }))
+
+  // Position independence: reordering the planned list is zero-delta — position is not a
+  // hardware identity (ADR-0015 decision 5).
+  run censusPositionIndependentTest =
+    init.then(check(and {
+      sigCensus([sigFour, sigProd]) == sigCensus([sigProd, sigFour]),
+      censusConverged(sigCensus([sigFour, sigProd]), sigCensus([sigProd, sigFour])),
+    }))
 }

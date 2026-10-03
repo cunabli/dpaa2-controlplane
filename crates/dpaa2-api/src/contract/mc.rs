@@ -9,13 +9,15 @@ use crate::families::dpio::{DpioCfg, Priorities};
 use crate::families::dpmac::DpmacObservation;
 use crate::families::dpni::DpniCfg;
 use crate::families::dprc;
-use crate::families::dpseci::OptionMask;
+use crate::families::dpseci::{DpseciCfg, OptionMask};
 use crate::families::pool_lifecycle::ObservedPoolObject;
 use crate::plan::dprc::ObservedContainer;
 
 /// The witnessable detail of one dpseci object, assembled for the `status --detail` row
-/// (dpseci-typestate task 4.1). Observation-only: the create/destroy convergence seam is
-/// follow-on work on bead dpaa2-controlplane-lbk.12, so this type carries no mutation.
+/// (dpseci-typestate task 4.1) and projected to the observed signature the census judges
+/// (dpseci-typestate task 3.3; [`crate::plan::dpseci::observed_sig_of`]). This type is pure
+/// read-back; mutation rides the [`McControl::create_dpseci_in`]/[`McControl::destroy_dpseci`]
+/// verbs, never a field here.
 ///
 /// The queue counts and per-queue priorities are restool `info`'s honest witnesses — `None`
 /// / empty when a line was absent. The options mask and API version ride the privileged
@@ -114,8 +116,10 @@ pub trait McControl {
     /// (dpseci-typestate design D5). `dpseci` names the object for both the `info` spawn and
     /// the portal OPEN; `container` names the dprc whose device node carries the portal read.
     ///
-    /// Observation-only, mirroring [`observe_dpmac`](Self::observe_dpmac): no create/destroy
-    /// convergence rides this seam — that is follow-on work on bead dpaa2-controlplane-lbk.12.
+    /// This read is the observed half of the census seam (dpseci-typestate task 3.3): its
+    /// signature feeds [`create_dpseci_in`](Self::create_dpseci_in)/[`destroy_dpseci`](Self::destroy_dpseci)
+    /// through the pure census judgment, mirroring [`observe_dpmac`](Self::observe_dpmac)'s
+    /// report-only shape.
     ///
     /// # Errors
     /// Returns [`Error::McStatus`]/[`Error::RestoolGuard`] on a refusal of the `info` spawn or
@@ -418,6 +422,37 @@ pub trait McControl {
     /// # Errors
     /// Returns [`Error::McStatus`], [`Error::RestoolGuard`], or [`Error::Backend`].
     fn pool_destroy(&self, object: &ObjectRef) -> Result<(), Error>;
+
+    // ---- dpseci census create/destroy verbs (dpseci-typestate task 3.3; design D9) ----
+    // Distinct verbs: destroy re-observes presence to confirm it, unlike the pool destroy.
+
+    /// Creates one dpseci in `container` (`None` ⇒ the shim root), stamped `label` and
+    /// plugged, rendering the typed [`DpseciCfg`] verbatim — the compiled block the plan
+    /// carries (`Attributes::Dpseci`), never re-derived (dpseci-typestate design D3). The
+    /// create fills one planned-signature surplus the census resolved (the multiset judgment
+    /// of dpseci-typestate design D9); priorities ride from the desired cfg, never observed.
+    ///
+    /// # Errors
+    /// Returns [`Error::McStatus`]/[`Error::RestoolGuard`] on a refusal, [`Error::Backend`] on
+    /// a dead spawn, or [`Error::Parse`] when the created id cannot be read back.
+    fn create_dpseci_in(
+        &self,
+        container: Option<DprcId>,
+        cfg: &DpseciCfg,
+        label: &ConstructName,
+    ) -> Result<ObjectRef, Error>;
+
+    /// Destroys one dpseci in `container`, confirming destruction by re-observing presence,
+    /// not by the exit code: in a child container restool overwrites the destroy error with
+    /// the `dprc_close` result (`docs/baseline/dpseci.md` "Silent-failure notes"). The
+    /// destroy drains one observed-signature surplus the census resolved (the multiset
+    /// judgment of dpseci-typestate design D9); the caller selects only tenant-labelled
+    /// victims bearing that signature.
+    ///
+    /// # Errors
+    /// Returns [`Error::McStatus`]/[`Error::RestoolGuard`] on a refusal, or [`Error::Backend`]
+    /// when the object is still present after a success-reported destroy.
+    fn destroy_dpseci(&self, container: Option<DprcId>, dpseci: &ObjectRef) -> Result<(), Error>;
 
     /// Observes one pool family's objects in `container` through a single `dprc show`,
     /// filtered to `family`, each row reported verbatim as an [`ObservedPoolObject`] —

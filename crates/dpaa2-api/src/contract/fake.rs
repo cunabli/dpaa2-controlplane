@@ -14,7 +14,7 @@ use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::collections::HashSet;
 
-use crate::contract::{DpseciDetail, KernelControl, McControl};
+use crate::contract::{DpseciDetail, DpseciPortalReadout, KernelControl, McControl};
 use crate::core::error::Error;
 use crate::core::family::Family;
 use crate::core::inventory::Inventory;
@@ -29,6 +29,7 @@ use crate::families::dpmac::{
 };
 use crate::families::dpni::{DpniCfg, DpniObservation, NumQueues};
 use crate::families::dprc::ContainerState;
+use crate::families::dpseci::DpseciCfg;
 use crate::families::pool_lifecycle::{ObservedPoolObject, RawDriver, RawLabel};
 use crate::intent::compiled::Container;
 use crate::plan::dprc::ObservedContainer;
@@ -36,6 +37,24 @@ use crate::plan::dprc::ObservedContainer;
 /// The netdev name the fake assigns a DPNI once its PHY-backed link is up.
 fn netdev_name(id: DpniId) -> String {
     format!("eth{}", id.into_inner())
+}
+
+/// The read-back detail a freshly-created dpseci reads back (dpseci-typestate task 3.3): the
+/// queue counts and priorities verbatim, and the portal Observed with the create's own options
+/// mask, so the census judges the created object's true signature on the next pass. The API
+/// version is a fixed fake stand-in (it never enters the census).
+fn dpseci_detail_of(cfg: &DpseciCfg) -> DpseciDetail {
+    let queues = u8::try_from(cfg.num_queues()).unwrap_or(u8::MAX);
+    DpseciDetail {
+        num_tx_queues: Some(queues),
+        num_rx_queues: Some(queues),
+        tx_priorities: cfg.priorities().to_vec(),
+        portal: DpseciPortalReadout::Observed {
+            options: Some(cfg.options().clone()),
+            api_major: 5,
+            api_minor: 4,
+        },
+    }
 }
 
 /// A configured DPMAC the fake exposes (fixed board state).
@@ -364,6 +383,39 @@ impl FakeBackend {
             .borrow_mut()
             .dpseci_details
             .insert(dpseci, detail);
+        self
+    }
+
+    /// Seeds a dpseci row and its scripted detail into `container` in one call, as if a prior
+    /// run or bare restool had left it — the fixture the census convergence judges
+    /// (dpseci-typestate task 3.3). The row is plugged and stamped `label`; `detail` carries
+    /// its own portal readout, so a test seeds a matching signature, a mismatching one, or the
+    /// honest-unknown face the census reads as [`crate::plan::dpseci::ObservedSig::Unobservable`].
+    /// The ordinal advances the next-pool counter so a later create never collides.
+    #[must_use]
+    pub fn with_dpseci_object(
+        self,
+        container: DprcId,
+        object: ObjectRef,
+        label: &ConstructName,
+        detail: DpseciDetail,
+    ) -> Self {
+        {
+            let mut st = self.state.borrow_mut();
+            if object.ordinal() >= st.next_pool {
+                st.next_pool = object.ordinal() + 1;
+            }
+            st.pool_objects.push((
+                container,
+                ObservedPoolObject {
+                    object,
+                    label: RawLabel::from(label.as_str()),
+                    plugged: true,
+                    drawn: false,
+                },
+            ));
+            st.dpseci_details.insert(object, detail);
+        }
         self
     }
 
@@ -782,6 +834,31 @@ impl McControl for FakeBackend {
             .borrow_mut()
             .pool_objects
             .retain(|(_, o)| &o.object != object);
+        Ok(())
+    }
+
+    // A created dpseci is a plugged, stamped pool row plus a recorded detail, so the census
+    // converges on a second pass (dpseci-typestate task 3.3).
+    fn create_dpseci_in(
+        &self,
+        container: Option<DprcId>,
+        cfg: &DpseciCfg,
+        label: &ConstructName,
+    ) -> Result<ObjectRef, Error> {
+        let object = self.push_pool_object(container, Family::Dpseci, label);
+        self.state
+            .borrow_mut()
+            .dpseci_details
+            .insert(object, dpseci_detail_of(cfg));
+        Ok(object)
+    }
+
+    // Removes the object from the pool rows and detail map, auditing like the dpni destroy (dpseci-typestate task 3.3).
+    fn destroy_dpseci(&self, _container: Option<DprcId>, dpseci: &ObjectRef) -> Result<(), Error> {
+        let mut st = self.state.borrow_mut();
+        st.audit.push(format!("destroy:{dpseci}"));
+        st.pool_objects.retain(|(_, o)| &o.object != dpseci);
+        st.dpseci_details.remove(dpseci);
         Ok(())
     }
 

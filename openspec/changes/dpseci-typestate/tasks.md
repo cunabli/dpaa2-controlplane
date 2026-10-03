@@ -44,7 +44,7 @@ rust-developer; every parcel spec carries the settled-decisions block.
   destroy), `info` parse with no options field, GET_ATTR read path over
   the hal primitive with typed unobservable outcome; shim tests against
   captured fixtures.
-- [ ] 3.3 dpseci convergence dispatch (design D9): observe/destroy
+- [x] 3.3 dpseci convergence dispatch (design D9): observe/destroy
   seam on `McControl` with `FakeBackend` dpseci state; core
   observable-subset classify and multiset-census delta with Quint
   twins (model gate); `PlannedChildDpseci` on `ChildPlan` plus the

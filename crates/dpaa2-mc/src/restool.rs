@@ -789,69 +789,13 @@ impl<R: Runner> RestoolMc<R> {
     }
 }
 
-/// The dpseci create/read paths (dpseci-typestate task 3.2; bead dpaa2-controlplane-lbk.7).
+/// The dpseci portal-read paths (dpseci-typestate task 3.2; bead dpaa2-controlplane-lbk.7).
 ///
-/// These ride as inherent methods, not [`McControl`] verbs: wiring dpseci create/destroy
-/// into the generic convergence loop ([`crate::populate`]) would need a new trait method on
-/// `dpaa2-api`'s `McControl` seam, which this parcel's scope fence forbids. The paths here
-/// are reachable and fixture-tested directly; the convergence seam is a follow-on.
+/// These ride as inherent methods: the privileged MC-portal reads have no [`McControl`] verb
+/// of their own — they are assembled into [`observe_dpseci`](McControl::observe_dpseci), the
+/// census's observed half. The create/destroy convergence verbs are now full [`McControl`]
+/// methods (dpseci-typestate task 3.3), below in the trait impl.
 impl<R: Runner> RestoolMc<R> {
-    /// `restool --script dpseci create …` → plug into `container` → stamp `label`, returning
-    /// the created [`ObjectRef`] (the `create_and_plug` sequence a pool object follows, since
-    /// a dpseci is anonymous and labelled, not identity-bearing). The typed [`DpseciCfg`]
-    /// renders verbatim via `dpseci_create_args` — the compiled block the plan carries
-    /// (dpaa2-api's `Attributes::Dpseci`), never re-derived here.
-    ///
-    /// A re-observation of the created object is the caller's convergence oracle, as with
-    /// every family: presence via [`observe_pool`](McControl::observe_pool) and the options
-    /// mask via [`read_dpseci_attributes`](Self::read_dpseci_attributes); the exit code is
-    /// never the verdict (`docs/baseline/dpseci.md` "Silent-failure notes").
-    ///
-    /// # Errors
-    /// Returns [`Error::McStatus`]/[`Error::RestoolGuard`] on a refusal, [`Error::Backend`]
-    /// on a dead spawn, or [`Error::Parse`] when the created id cannot be read back.
-    pub fn create_dpseci_in(
-        &self,
-        container: Option<DprcId>,
-        cfg: &DpseciCfg,
-        label: &ConstructName,
-    ) -> Result<ObjectRef, Error> {
-        let args = dpseci_create_args(cfg, &self.container_name(container));
-        let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
-        self.pool_create(Family::Dpseci, &arg_refs, label, container)
-    }
-
-    /// Destroys a dpseci and verifies destruction by **re-observing presence**, not by the
-    /// exit code: in a child container restool overwrites the destroy error with the
-    /// `dprc_close` result, so a failed destroy can report success while the object survives
-    /// (`docs/baseline/dpseci.md` "Silent-failure notes"; `DoD` #1). The verb still funnels
-    /// through `run_verb`, so a real MC refusal (driver-bound, `-EBUSY`)
-    /// stays a typed [`Error::McStatus`]/[`Error::RestoolGuard`] — the dpni/pool destroy
-    /// precedent — but the verdict comes from the follow-up `dprc show`.
-    ///
-    /// # Errors
-    /// Returns [`Error::McStatus`]/[`Error::RestoolGuard`] on a refusal, or [`Error::Backend`]
-    /// when the object is still present after a success-reported destroy.
-    pub fn destroy_dpseci(
-        &self,
-        container: Option<DprcId>,
-        dpseci: &ObjectRef,
-    ) -> Result<(), Error> {
-        self.run_verb(&[Family::Dpseci.as_str(), "destroy", &dpseci.to_string()])?;
-        self.sync()?;
-        let show = self.run_verb(&["dprc", "show", &self.container_name(container)])?;
-        let survived = parse::parse_dprc_rows(&show)
-            .into_iter()
-            .any(|r| r.family == Family::Dpseci && r.num == dpseci.ordinal());
-        if survived {
-            return Err(Error::Backend(format!(
-                "dpseci destroy reported success but {dpseci} is still present \
-                 (silent child-container destroy, docs/baseline/dpseci.md)"
-            )));
-        }
-        Ok(())
-    }
-
     /// Reads a dpseci's attributes over the `/dev/dprc.N` MC portal (`dpaa2_hal::portal`,
     /// ADR-0021): Open → `GetAttributes` → Close, returning the typed attributes or the typed
     /// [`DpseciReadout::Unobservable`] when the portal is unavailable this run
@@ -1384,6 +1328,37 @@ impl<R: Runner> McControl for RestoolMc<R> {
         // backstop; `docs/baseline/dpbp.md`).
         self.run_verb(&[object.family().as_str(), "destroy", &object.to_string()])?;
         self.sync()
+    }
+
+    // Renders the typed `DpseciCfg` verbatim via `dpseci_create_args`; re-observation is the
+    // convergence oracle, the exit code never the verdict (`docs/baseline/dpseci.md`).
+    fn create_dpseci_in(
+        &self,
+        container: Option<DprcId>,
+        cfg: &DpseciCfg,
+        label: &ConstructName,
+    ) -> Result<ObjectRef, Error> {
+        let args = dpseci_create_args(cfg, &self.container_name(container));
+        let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
+        self.pool_create(Family::Dpseci, &arg_refs, label, container)
+    }
+
+    // Verifies destruction by re-observing presence, not the exit code: a child-container destroy
+    // can report success while the object survives (`docs/baseline/dpseci.md` "Silent-failure notes").
+    fn destroy_dpseci(&self, container: Option<DprcId>, dpseci: &ObjectRef) -> Result<(), Error> {
+        self.run_verb(&[Family::Dpseci.as_str(), "destroy", &dpseci.to_string()])?;
+        self.sync()?;
+        let show = self.run_verb(&["dprc", "show", &self.container_name(container)])?;
+        let survived = parse::parse_dprc_rows(&show)
+            .into_iter()
+            .any(|r| r.family == Family::Dpseci && r.num == dpseci.ordinal());
+        if survived {
+            return Err(Error::Backend(format!(
+                "dpseci destroy reported success but {dpseci} is still present \
+                 (silent child-container destroy, docs/baseline/dpseci.md)"
+            )));
+        }
+        Ok(())
     }
 
     fn observe_pool(
