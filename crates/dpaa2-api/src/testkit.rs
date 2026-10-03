@@ -17,10 +17,6 @@ use crate::core::inventory::{
 };
 use crate::core::model::DpmacId;
 
-/// The ADR-0003 §3 total-deny reservation reason carried by dpmac.3.
-pub const RESERVED_3: &str =
-    "ADR-0003 §3: wired to a peer that must never see traffic (total-deny)";
-
 /// One `(DpmacId, DpmacOffer)` entry of the reference inventory's dpmac map.
 #[must_use]
 pub fn offer(id: u32, rate: i64, avail: Availability) -> (DpmacId, DpmacOffer) {
@@ -43,7 +39,7 @@ pub fn offer(id: u32, rate: i64, avail: Availability) -> (DpmacId, DpmacOffer) {
 #[must_use]
 pub fn ref_inventory(cpus: u32) -> Inventory {
     let dpmacs = BTreeMap::from([
-        offer(3, 25_000, Availability::Reserved(RESERVED_3.to_owned())),
+        offer(3, 25_000, Availability::Free),
         offer(4, 25_000, Availability::Free),
         offer(5, 25_000, Availability::Free),
         offer(6, 25_000, Availability::Free),

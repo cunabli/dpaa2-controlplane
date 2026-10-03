@@ -104,7 +104,7 @@ reference snapshot; it SHALL NOT be operator-written.
 
 #### Scenario: Reserved and foreign anchors are inventory facts
 - **WHEN** the inventory is built for the reference board
-- **THEN** dpmac.3 reads `Reserved`, dpmac.17 reads `Reserved`, the
+- **THEN** dpmac.3 reads `Free`, dpmac.17 reads `Reserved`, the
   DPL-provisioned dpni.0 reads `Foreign`, the dpbp ceiling reads
   `Counted`, the dpni ceiling reads `Observed` citing ADR-0011, and
   dpcon's reads `Unknown`

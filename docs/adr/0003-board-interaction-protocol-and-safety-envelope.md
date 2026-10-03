@@ -1,7 +1,7 @@
 # ADR-0003: Board interaction protocol and port safety envelope
 
 - **Status:** Accepted — scoping session 2026-08-22; §8 amended
-  2026-08-22 by `verify-foundation` (change #2)
+  2026-08-22 by `verify-foundation` (change #2); §4 scope amended 2026-10-03
 - **Date:** 2026-08-22
 - **Supersedes / relates to:** OpenSpec change `restool-baseline` (design
   D4–D5); ADR-0002 (the MBT modes that run under this protocol)
@@ -54,6 +54,12 @@ The harness refuses to emit or execute a step that violates this matrix:
 | dpmac.17 / dpni.0 | total-deny | Management plane; foreign objects, never enumerated or touched (ADR-0001 §4). |
 | dpmac.4–6 (25G), dpmac.8/10 (10G) | lifecycle-only | Unwired: link-up can never be asserted, so they safely absorb all object-lifecycle and connect-edge churn. |
 | dpmac.7 / dpmac.9 | flagged use only | Wired to a production peer. Link-signaling and traffic-bearing scenarios run here only, each explicitly flagged. |
+
+This matrix binds the harness envelope — the emitted batch suites and the
+online driver — and nothing else. The control-plane library inventory
+transcribes only the management-plane row (dpmac.17 / dpni.0) as `Reserved`;
+dpmac.3 is an ordinary operator-claimable port in production intents, and the
+wire it carries is the operator's responsibility.
 
 ### 5. Every scenario declares its traffic class
 

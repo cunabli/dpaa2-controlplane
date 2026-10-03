@@ -47,7 +47,6 @@ const MC_GLOBAL: &str = "mc.global";
 /// [`RestoolMc::read_inventory`]).
 fn reserved_reason(id: DpmacId) -> Option<&'static str> {
     match id.into_inner() {
-        3 => Some("ADR-0003 §3: wired to a peer that must never see traffic (total-deny)"),
         17 => Some("ADR-0003 §3: management plane (dpni.0), never touched"),
         _ => None,
     }
@@ -1702,11 +1701,9 @@ mod tests {
         let inv = mc.read_inventory().expect("inventory");
 
         assert_eq!(inv.cpus, 16);
-        // The ADR-0003 matrix: dpmac.3 total-deny, dpmac.17 management, dpmac.4 free.
-        assert!(matches!(
-            inv.dpmacs[&DpmacId::new(3)].avail,
-            Availability::Reserved(_)
-        ));
+        // The library transcribes only the management-plane row: dpmac.17 Reserved,
+        // dpmac.3 and dpmac.4 free (ADR-0003 §4 binds the harness envelope, not the library).
+        assert_eq!(inv.dpmacs[&DpmacId::new(3)].avail, Availability::Free);
         assert!(matches!(
             inv.dpmacs[&DpmacId::new(17)].avail,
             Availability::Reserved(_)

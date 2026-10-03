@@ -16,7 +16,7 @@ use dpaa2_api::intent::{
 use dpaa2_api::plan::reconcile::{ReconcileOptions, reconcile_with};
 use dpaa2_tools::render::{render_dry_run, render_refusals};
 
-const RESERVED_3: &str = "ADR-0003 §3: total-deny";
+const RESERVED_17: &str = "ADR-0003 §3: management plane (dpni.0)";
 
 fn offer(id: u32, rate: i64, avail: Availability) -> (DpmacId, DpmacOffer) {
     let d = DpmacId::new(id);
@@ -34,7 +34,7 @@ fn offer(id: u32, rate: i64, avail: Availability) -> (DpmacId, DpmacOffer) {
 
 fn inventory() -> Inventory {
     let dpmacs = BTreeMap::from([
-        offer(3, 25_000, Availability::Reserved(RESERVED_3.to_owned())),
+        offer(17, 1_000, Availability::Reserved(RESERVED_17.to_owned())),
         offer(4, 25_000, Availability::Free),
         offer(7, 10_000, Availability::Free),
         offer(9, 10_000, Availability::Free),
@@ -166,7 +166,7 @@ fn dry_run_crypto_and_warning() {
 fn refusal_reserved_anchor() {
     let intent = Intent {
         tenants: vec![kernel_tenant(16)],
-        ports: vec![port("wan0", 3, 25_000, "kernel")],
+        ports: vec![port("wan0", 17, 1_000, "kernel")],
         ..Intent::empty()
     };
     let refusals = compile(&intent, &inventory()).expect_err("intent must be refused");

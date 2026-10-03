@@ -19,7 +19,7 @@ use crate::intent::{
 // The reference-board inventory is single-sourced in the testkit seam
 // (`crate::testkit`); both this unit-test suite and the `compile_props`
 // integration suite build it from there (ADR-0013 §7).
-use crate::testkit::{RESERVED_3, offer, ref_inventory};
+use crate::testkit::{offer, ref_inventory};
 
 // ---- builders ----
 
@@ -250,15 +250,15 @@ fn refuse_unanchored() {
 fn refuse_reserved() {
     let intent = Intent {
         tenants: vec![knl("t")],
-        ports: vec![port("wan0", 3, 25_000, "t")],
+        ports: vec![port("wan0", 17, 1_000, "t")],
         ..Intent::empty()
     };
     assert_eq!(
         err(&intent, &ref_inv()),
         BTreeSet::from([Refusal::Reserved {
             port: "wan0".into(),
-            dpmac: DpmacId::new(3),
-            why: RESERVED_3.to_owned(),
+            dpmac: DpmacId::new(17),
+            why: "ADR-0003 §3: management plane (dpni.0)".to_owned(),
         }])
     );
 }

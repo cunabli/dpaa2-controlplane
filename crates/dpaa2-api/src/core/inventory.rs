@@ -50,8 +50,8 @@ pub enum DpmacLinkType {
 pub enum Availability {
     /// Free to anchor a port.
     Free,
-    /// Reserved by the ADR-0003 §3 safety matrix (dpmac.3 total-deny, dpmac.17
-    /// management plane), with the reason.
+    /// Reserved by the ADR-0003 §3 management-plane reservation (dpmac.17,
+    /// which anchors dpni.0), with the reason.
     Reserved(String),
     /// Owned by a DPL object (ADR-0001 §4), with its owner label — the fit check
     /// classifies these as foreign rather than drift.

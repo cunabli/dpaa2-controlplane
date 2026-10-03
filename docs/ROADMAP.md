@@ -47,7 +47,8 @@ All 16 families are ported; tiers order the work, they do not cut it.
   traffic-bearing phase, so the decision fired early: (a) is exercised
   there at reachability level only; (b) stays open and is re-decided at
   #9 when sustained traffic arrives (ADR-0003 §8, amended). Until then
-  dpmac.3 remains total-deny.
+  dpmac.3 remains total-deny in the harness envelope; the control-plane
+  library carries no dpmac.3 reservation (ADR-0003 §4 scope).
 - **DPL tape-out (#14).** Stays on the table, deprioritized; nothing earlier
   depends on it, so it can never hold the series hostage.
 - **TLA+ or Alloy escalation (any model).** Taken per-model only when
