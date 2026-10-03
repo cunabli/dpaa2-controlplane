@@ -1,0 +1,33 @@
+# The operand of suite V-DPSECI-3 (dpseci-typestate task 5.1, bead
+# dpaa2-controlplane-lbk.9): ONE intent that stands up the crypto face the
+# typestate suite witnesses (dpseci-typestate design D6 "Suite A") — a single
+# `[[crypto]]` block on a scratch tenant, so one `dpaa2ctl ensure` converges a
+# child DPRC holding one dpseci the dual-transport read-back and the VFIO
+# RemoteOwned leg read.
+#
+# Lives in the suite dir, not models/intent/scenarios/, for the reason
+# V-DPMAC-3/V-MVP-1's operands do: a board-suite operand is an input to a
+# dpaa2ctl sitting, not a models/intent/scenarios pairing (no `.qnt`, no frozen
+# trace); its derivation is pinned offline by
+# crates/dpaa2-tools/tests/vdpseci3_intents.rs.
+
+[intent]
+schema = 1
+
+# The scratch tenant: a poll-mode dataplane the child DPRC hands off to VFIO
+# (default `isolation = isolated` ⇒ its own child container, so the dpseci reads
+# RemoteOwned across the boundary, dpseci-typestate design D6). A portless
+# crypto-only tenant is legal (ADR-0015 decision 4); `max_cores` is the board's
+# online-CPU count (T sits well under it).
+[tenant.scratch]
+dataplane = "userspace-poll"
+max_cores = 16
+
+# One accelerator for the scratch tenant, sized by its own flows (ADR-0013;
+# dpseci.md "Intent mapping"). flows = 2 ⇒ derived num_queues = 2, priorities
+# all-2 (the verified deployed profile, dpseci-typestate design D3), options
+# DPSECI_OPT_HAS_CG only (dpseci-typestate design D4) — small but non-trivial,
+# the signature the census converges on (design D9).
+[[crypto]]
+tenant = "scratch"
+flows = 2

@@ -60,7 +60,7 @@ rust-developer; every parcel spec carries the settled-decisions block.
 
 ## 5. Board
 
-- [ ] 5.1 Generate Suite A inside the safety envelope (design D6): e2e
+- [x] 5.1 Generate Suite A inside the safety envelope (design D6): e2e
   `[[crypto]]` converge on a scratch tenant, dual-transport read-backs,
   VFIO RemoteOwned leg, typed teardown + census, read-only boot-object
   hooks (unknowns #2/#3, driver link); offline gates green; pre-run
