@@ -841,6 +841,19 @@
       "refusals": []
     }
   },
+  "V-DPSECI-3": {
+    "V-DPSECI-3-rev2": {
+      "pass": true,
+      "date": "2026-10-03",
+      "kind": "batch",
+      "revision": 2,
+      "steps": "8/8",
+      "source_hash": "fnv1a64:cc66de749bdc9774",
+      "hook": "2/2",
+      "archive": "~/dpaa2-board-evidence/V-DPSECI-3-rev2",
+      "refusals": []
+    }
+  },
   "V-DPSW-1": {
     "V-DPSW-1-rev2": {
       "pass": true,

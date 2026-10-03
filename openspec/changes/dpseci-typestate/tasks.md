@@ -65,7 +65,7 @@ rust-developer; every parcel spec carries the settled-decisions block.
   VFIO RemoteOwned leg, typed teardown + census, read-only boot-object
   hooks (unknowns #2/#3, driver link); offline gates green; pre-run
   record commit.
-- [ ] 5.2 Operator sitting: Suite A, one sitting; verdicts
+- [x] 5.2 Operator sitting: Suite A, one sitting; verdicts
   V-DPSECI-2 rev 1 and V-DPSECI-3 rev 1 into VERDICTS.json and the
   suite ledger; divergences triaged implementation-first; banked
   verdicts cited, never re-run.
