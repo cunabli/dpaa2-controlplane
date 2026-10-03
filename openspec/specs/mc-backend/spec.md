@@ -109,7 +109,6 @@ dpaa2-controlplane-5y7 on the raw command path (`mc-portal-backend`, #10).
 - **WHEN** KernelControl unbinds the scratch child and clears the override
 - **THEN** the container is observed unbound and eligible for fsl_mc_dprc again
 
-
 ### Requirement: Every restool exit on the create chain is classified through the typed funnel
 The restool shim SHALL route `stamp_label` and `read_inventory` through
 `run_verb` so their refusals carry the typed McStatus/RestoolGuard
@@ -332,3 +331,23 @@ vocabulary.
 - **WHEN** the device node is absent or access is denied
 - **THEN** the primitive returns the typed transport refusal and no
   caller can mistake it for an observed attribute value
+
+### Requirement: An unknown firmware option bit is attributed, never merged and never erased
+
+The observe-side dpseci options decode SHALL carry an unnamed firmware
+bit through as a raw escape that preserves the bit's identity, alongside
+every named option it decodes. The decode MUST NOT collapse the mask to
+an undifferentiated unknown, and MUST NOT merge an unnamed bit into any
+named option (design D4 of the dpseci-typestate archive; review synthesis
+S1 arm (i)). The escape is display-face information only: the census
+projection and the family judgment signature are unchanged by its
+presence.
+
+#### Scenario: A readback with an unnamed bit keeps its identity
+
+- **WHEN** a raw GET_ATTR readback carries a named option plus one bit no
+  vocabulary name covers
+- **THEN** the decoded mask holds the named option and a raw escape
+  identifying that bit, and the census projection for the object is the
+  same as before this change
+
