@@ -14,7 +14,7 @@ rust-developer; every parcel spec carries the settled-decisions block.
   surface replaying banked V-DPSECI-1, DPSECI-I1 by construction,
   DPSECI-I4 as birth capability; consumer-facing consequences only;
   typecheck + simulate green.
-- [ ] 1.2 COVERAGE sync (design D7): DPSECI-I1/I4 deferred→modeled with
+- [x] 1.2 COVERAGE sync (design D7): DPSECI-I1/I4 deferred→modeled with
   rungs named; I3 → implemented-at-adapter; I2 MC layer, I5 board face,
   and I9 re-anchored loud with each fence stated (#10); ledger lint
   green.
