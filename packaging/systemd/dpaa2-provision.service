@@ -29,9 +29,9 @@ TimeoutStartSec=90
 # Block until the Management Complex answers an MC command (issues `restool`).
 ExecStartPre=/usr/bin/dpaa2ctl wait-ready --timeout 60
 # Generate .link naming, reload udev, then converge MC state to the topology.
-ExecStart=/usr/bin/dpaa2ctl ensure --deadline 60
+ExecStart=/usr/bin/dpaa2ctl ensure --deadline 60 --allow disruptive
 # Report divergence without failing the boot; status is a diagnostic surface.
-ExecReload=/usr/bin/dpaa2ctl ensure --deadline 60
+ExecReload=/usr/bin/dpaa2ctl ensure --deadline 60 --allow disruptive
 
 [Install]
 WantedBy=multi-user.target
