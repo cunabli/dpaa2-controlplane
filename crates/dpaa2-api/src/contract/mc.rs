@@ -41,11 +41,14 @@ pub struct DpseciDetail {
 /// Unavailability is never an error here: the status row shows honest-unknown.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DpseciPortalReadout {
-    /// The portal answered: the options mask (`None` when a set bit names no vocabulary flag
-    /// — the honest gap) and the dpseci API version.
+    /// The portal answered: the decoded options mask and the dpseci API version. The decode is
+    /// total, so there is no gap wrapper — the mask may carry attributed raw escapes
+    /// (dpseci-hardening design D1).
     Observed {
-        /// The decoded options mask, or `None` when a set bit names no vocabulary flag.
-        options: Option<OptionMask>,
+        /// The decoded options mask — named flags plus any unnamed bit attributed as a raw
+        /// escape. The escape is display-face information only; the census stays conservative
+        /// (dpseci-hardening design D2; [`crate::plan::dpseci::observed_sig_of`]).
+        options: OptionMask,
         /// The dpseci API major version from `GET_API_VERSION`.
         api_major: u16,
         /// The dpseci API minor version from `GET_API_VERSION`.

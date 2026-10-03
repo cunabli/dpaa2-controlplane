@@ -126,7 +126,7 @@ fn unobservable_reason(detail: &DpseciDetail) -> String {
     match &detail.portal {
         DpseciPortalReadout::Unobservable { reason } => reason.clone(),
         DpseciPortalReadout::Observed { .. } => {
-            "dpseci signature not nameable (portal options or queue count absent)".to_owned()
+            "dpseci signature not nameable (an unnamed option bit is attributed, or the queue count is absent)".to_owned()
         }
     }
 }
@@ -912,7 +912,7 @@ mod tests {
             num_rx_queues: Some(num_queues),
             tx_priorities: vec![2; usize::from(num_queues)],
             portal: DpseciPortalReadout::Observed {
-                options: Some(options),
+                options,
                 api_major: 5,
                 api_minor: 4,
             },
@@ -980,7 +980,7 @@ mod tests {
         assert_eq!(rows.len(), 1, "exactly the replacement dpseci");
         let detail = mc.observe_dpseci(child, rows[0].object).unwrap();
         assert!(
-            matches!(&detail.portal, DpseciPortalReadout::Observed { options: Some(m), .. } if m.contains(DpseciOpt::HasCg)),
+            matches!(&detail.portal, DpseciPortalReadout::Observed { options: m, .. } if m.contains(DpseciOpt::HasCg)),
             "the replacement carries the desired HAS_CG signature"
         );
         assert!(pop.dpseci.converged());

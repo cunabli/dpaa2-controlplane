@@ -14,8 +14,8 @@ use dpaa2_api::core::error::Error;
 use dpaa2_api::core::model::DprcId;
 use dpaa2_api::families::dpio::SeatDisposition;
 use dpaa2_api::families::pool_lifecycle::PoolDisposition;
+use dpaa2_api::intent::Intent;
 use dpaa2_api::intent::refuse::{Compiled, compile};
-use dpaa2_api::intent::{Intent, kernel_tenant};
 use dpaa2_api::plan::Class;
 use dpaa2_api::plan::reconcile::{ReconcileOptions, reconcile_with};
 use dpaa2_mc::{RestoolMc, SysfsKernel};
@@ -23,7 +23,7 @@ use dpaa2_tools::engine::{
     self, ContainerOutcome, ConvergeConfig, Outcome, PoolOutcome, PoolPass, PopulationOutcome,
     PruneOutcome, RootDpniPruneOutcome,
 };
-use dpaa2_tools::{StatusReport, link, render, status};
+use dpaa2_tools::{StatusReport, complete_kernel, link, render, status};
 
 /// Declarative DPAA2 (DPNI↔DPMAC) provisioning for the LX2160A.
 #[derive(Parser, Debug)]
@@ -574,20 +574,6 @@ fn compile_intent(
     }
 }
 
-/// Reserved-kernel completion (design D1; restool-baseline): the config parser never creates a kernel
-/// [`dpaa2_api::intent::Tenant`] — a port with no tenant defaults to the reserved name — so the
-/// frontend injects `kernel_tenant(cpus)` at index 0 when a port terminates the kernel
-/// and no kernel tenant is declared. A link naming the kernel is materialised inside
-/// `compile`'s `effective_tenants`, so this completes the port case only (the
-/// `dpaa2-verify` `intent_pairing` normative note; bead gqf.19).
-fn complete_kernel(intent: &mut Intent, cpus: u32) {
-    let declared = intent.tenants.iter().any(|t| t.name.is_kernel());
-    let port_names_kernel = intent.ports.iter().any(|p| p.tenant.is_kernel());
-    if port_names_kernel && !declared {
-        intent.tenants.insert(0, kernel_tenant(i64::from(cpus)));
-    }
-}
-
 fn init_logging() {
     use tracing_subscriber::{EnvFilter, fmt};
     let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
@@ -600,7 +586,7 @@ mod tests {
     use dpaa2_api::core::model::{DpmacId, MacMode};
     use dpaa2_api::intent::{Intent, Port, TenantRef, kernel_tenant};
 
-    use super::complete_kernel;
+    use dpaa2_tools::complete_kernel;
 
     fn port(tenant: &str) -> Port {
         Port {

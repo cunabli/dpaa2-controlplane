@@ -607,10 +607,12 @@ fn render_priorities(prios: &[u8]) -> String {
 }
 
 /// Renders the dpseci portal readout under its object line. An [`DpseciPortalReadout::Observed`]
-/// prints the decoded option flag names and the API version; `None` options (a set bit named no
-/// vocabulary flag — the honest gap) print as `unknown`. An
-/// [`DpseciPortalReadout::Unobservable`] prints the honest-unknown line carrying its reason —
-/// the carrier `no-observable (<reason>)` idiom — never an error (dpseci-typestate design D5).
+/// prints the named option flags, then each attributed raw escape as `raw:0x<value>`, and the
+/// API version — the desired-face idiom of [`render_attrs`] (flags then escapes). An unnamed
+/// bit therefore renders by its raw value, never a bare unknown token, closing the
+/// readback-vs-desired asymmetry (dpseci-hardening design D1). An [`DpseciPortalReadout::Unobservable`]
+/// prints the honest-unknown line carrying its reason — the carrier `no-observable (<reason>)`
+/// idiom — never an error (dpseci-typestate design D5).
 fn render_dpseci_portal(out: &mut String, portal: &DpseciPortalReadout) {
     match portal {
         DpseciPortalReadout::Observed {
@@ -618,15 +620,18 @@ fn render_dpseci_portal(out: &mut String, portal: &DpseciPortalReadout) {
             api_major,
             api_minor,
         } => {
-            let opts = match options {
-                Some(mask) => mask
-                    .flags()
+            let mut opts: Vec<String> = options
+                .flags()
+                .iter()
+                .map(|f| f.name().to_owned())
+                .collect();
+            opts.extend(
+                options
+                    .escapes()
                     .iter()
-                    .map(|f| f.name())
-                    .collect::<Vec<_>>()
-                    .join(","),
-                None => "unknown".to_owned(),
-            };
+                    .map(|e| format!("raw:0x{:x}", e.raw_value())),
+            );
+            let opts = opts.join(",");
             let _ = writeln!(out, "    options=[{opts}] version={api_major}.{api_minor}");
         }
         DpseciPortalReadout::Unobservable { reason } => {

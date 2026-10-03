@@ -76,20 +76,26 @@ pub enum ObservedSig {
 }
 
 /// Maps one dpseci's witnessable detail to its observed face (dpseci-typestate design D9). A
-/// missing queue line or a portal that could not name the options mask is typed
-/// [`ObservedSig::Unobservable`] — absence of evidence, so the census judges nothing rather
-/// than invent a value (ADR-0018; V-LIFE-DPSECI-1). The classification lives core-side; the
-/// adapter only reports the [`DpseciDetail`] (PASS5-F1).
+/// missing queue line, an unavailable portal, or a mask carrying an attributed raw escape is
+/// typed [`ObservedSig::Unobservable`] — absence of evidence, so the census judges nothing
+/// rather than invent a value (ADR-0018; V-LIFE-DPSECI-1). The classification lives core-side;
+/// the adapter only reports the [`DpseciDetail`] (PASS5-F1).
+///
+/// An attributed escape is nameable evidence of an *unnameable* option bit, so the census
+/// treats it exactly as the old unnamed-bit gap did: it judges nothing. Folding an escape into
+/// the signature would make the readback differ from every planned cfg and drive a
+/// destroy+create loop (dpseci-hardening design D2; V-LIFE-DPSECI-1). The escape thus changes
+/// only what the detail row displays, never the plan.
 #[must_use]
 pub fn observed_sig_of(detail: &DpseciDetail) -> ObservedSig {
     match &detail.portal {
-        // No portal, or an open portal with unnamed options: the face is unobservable (dpseci-typestate design D9).
-        DpseciPortalReadout::Unobservable { .. }
-        | DpseciPortalReadout::Observed { options: None, .. } => ObservedSig::Unobservable,
-        DpseciPortalReadout::Observed {
-            options: Some(options),
-            ..
-        } => match detail.num_tx_queues {
+        // No portal: the face is unobservable (dpseci-typestate design D9).
+        DpseciPortalReadout::Unobservable { .. } => ObservedSig::Unobservable,
+        // An attributed escape is an unnameable bit: the census judges nothing (dpseci-hardening design D2).
+        DpseciPortalReadout::Observed { options, .. } if !options.escapes().is_empty() => {
+            ObservedSig::Unobservable
+        }
+        DpseciPortalReadout::Observed { options, .. } => match detail.num_tx_queues {
             Some(queues) => ObservedSig::Observed(Sig {
                 num_queues: usize::from(queues),
                 options: options.clone(),
@@ -327,6 +333,37 @@ mod tests {
         assert_eq!(
             classify_observable_mismatch(&prod, &ObservedSig::Observed(sig_no_cg())),
             Some(Class::Disruptive)
+        );
+    }
+
+    #[test]
+    fn an_attributed_escape_projects_unobservable() {
+        // An escape is unobservable; the same detail without it is observed (dpseci-hardening design D2).
+        use crate::contract::{DpseciDetail, DpseciPortalReadout};
+        use crate::families::dpseci::RawEscape;
+
+        let detail = |options: OptionMask| DpseciDetail {
+            num_tx_queues: Some(8),
+            num_rx_queues: Some(8),
+            tx_priorities: vec![2; 8],
+            portal: DpseciPortalReadout::Observed {
+                options,
+                api_major: 5,
+                api_minor: 4,
+            },
+        };
+        let named = OptionMask::empty().with_flag(DpseciOpt::HasCg);
+
+        assert_eq!(
+            observed_sig_of(&detail(named.clone().with_escape(RawEscape::new(0x100)))),
+            ObservedSig::Unobservable
+        );
+        assert_eq!(
+            observed_sig_of(&detail(named.clone())),
+            ObservedSig::Observed(Sig {
+                num_queues: 8,
+                options: named,
+            })
         );
     }
 

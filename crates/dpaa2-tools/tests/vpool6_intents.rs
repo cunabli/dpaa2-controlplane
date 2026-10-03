@@ -4,8 +4,8 @@
 //! expects, so a drift in either operand fails here instead of on the board
 //! mid-sitting. No board is touched — the operands are parsed by the shipped
 //! `dpaa2-config` parser, completed exactly as `compile_intent` completes them
-//! (the reserved-kernel injection, crates/dpaa2-tools/src/main.rs
-//! `complete_kernel`), and compiled against a snapshot inventory.
+//! (the reserved-kernel injection via the dpaa2-tools lib
+//! `dpaa2_tools::complete_kernel`), and compiled against a snapshot inventory.
 //!
 //! Acceptance (mbt-harness spec "Suite generation renders the pool walks"):
 //! intent-a derives strictly MORE root trio capacity than intent-b (the
@@ -22,16 +22,16 @@
 
 use dpaa2_api::families::dpio::derived_seats;
 use dpaa2_api::families::pool_lifecycle::{PoolFamily, derived_requirement};
+use dpaa2_api::intent::Intent;
 use dpaa2_api::intent::compiled::Container;
 use dpaa2_api::intent::refuse::compile;
-use dpaa2_api::intent::{Intent, kernel_tenant};
 use dpaa2_api::testkit::ref_inventory;
 
 const CPUS: u32 = 16;
 
 /// Reads, completes and compiles one committed operand from the suite dir — the
 /// `compile_intent` pipeline (crates/dpaa2-tools/src/main.rs): parse, inject the
-/// reserved kernel when a port names it and none is declared (`complete_kernel`;
+/// reserved kernel when a port names it and none is declared (`dpaa2_tools::complete_kernel`;
 /// declaring `[tenant.kernel]` is refused, ADR-0013), then compile.
 fn compile_operand(file: &str) -> dpaa2_api::intent::refuse::Compiled {
     let toml = std::fs::read_to_string(format!(
@@ -41,12 +41,7 @@ fn compile_operand(file: &str) -> dpaa2_api::intent::refuse::Compiled {
     .unwrap_or_else(|e| panic!("read {file}: {e}"));
     let mut intent: Intent =
         dpaa2_config::parse_str(&toml).unwrap_or_else(|e| panic!("{file}: parse: {e}"));
-    // complete_kernel: a port names the kernel and none is declared (bead gqf.19).
-    let port_names_kernel = intent.ports.iter().any(|p| p.tenant.is_kernel());
-    let kernel_declared = intent.tenants.iter().any(|t| t.name.is_kernel());
-    if port_names_kernel && !kernel_declared {
-        intent.tenants.insert(0, kernel_tenant(i64::from(CPUS)));
-    }
+    dpaa2_tools::complete_kernel(&mut intent, CPUS);
     compile(&intent, &ref_inventory(CPUS)).unwrap_or_else(|e| panic!("{file}: compile: {e:?}"))
 }
 

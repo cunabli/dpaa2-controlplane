@@ -253,11 +253,13 @@ fn dpseci_options_mask(mask: &dpseci::OptionMask) -> u32 {
 }
 
 /// The inverse of [`dpseci_options_mask`]: decodes a raw `GET_ATTR` options mask into the
-/// typed set, the [`decode_dpni_options`] idiom. A set bit that names no vocabulary flag
-/// makes this return `None` — an honest gap, since the typed set cannot faithfully carry an
-/// unnamed bit (dpseci-typestate design D4). dpseci banks no fixed escape, so an unknown
-/// firmware bit is that gap, never silently merged into the named flags.
-fn decode_dpseci_options(raw: u32) -> Option<dpseci::OptionMask> {
+/// typed set, the [`decode_dpni_options`] idiom. Named vocabulary bits become flags; each
+/// remaining set bit is attributed per-bit as a [`RawEscape`](dpseci::RawEscape) carrying its
+/// value, so an unnamed firmware bit is attributed, never silently merged into the named flags
+/// and never erased (dpseci-typestate design D4; dpseci-hardening design D1). The per-bit
+/// escapes round-trip exactly through [`dpseci_options_mask`], matching the model's single-bit
+/// `RawBits` shape, so the decode is total — there is no gap.
+fn decode_dpseci_options(raw: u32) -> dpseci::OptionMask {
     let mut mask = dpseci::OptionMask::empty();
     let mut consumed = 0u32;
     for flag in dpseci::DpseciOpt::MC_VOCABULARY {
@@ -267,10 +269,14 @@ fn decode_dpseci_options(raw: u32) -> Option<dpseci::OptionMask> {
             consumed |= bit;
         }
     }
-    if raw & !consumed != 0 {
-        return None;
+    let unnamed = raw & !consumed;
+    for bit_pos in 0..u32::BITS {
+        let bit = 1u32 << bit_pos;
+        if unnamed & bit != 0 {
+            mask = mask.with_escape(dpseci::RawEscape::new(bit));
+        }
     }
-    Some(mask)
+    mask
 }
 
 /// Builds the `restool --script dpseci create …` argument vector from the typed create
@@ -333,9 +339,9 @@ pub struct DpseciObservation {
     pub num_tx_queues: u8,
     /// Queues back from the SEC.
     pub num_rx_queues: u8,
-    /// The options mask decoded into the typed vocabulary, or `None` when a set bit names no
-    /// vocabulary flag — the honest gap (`decode_dpseci_options`).
-    pub options: Option<dpseci::OptionMask>,
+    /// The options mask decoded into the typed vocabulary — named flags plus any unnamed bit
+    /// attributed per-bit as a raw escape (`decode_dpseci_options`; dpseci-hardening design D1).
+    pub options: dpseci::OptionMask,
     /// The dpseci API major version `GET_API_VERSION` echoed, read in the same portal session
     /// as the attributes (dpseci-typestate task 4.1; `GET_API_VERSION` is whitelist row 43).
     pub api_major: u16,
@@ -2681,14 +2687,18 @@ mod tests {
             .with_flag(dpseci::DpseciOpt::HasOpr)
             .with_flag(dpseci::DpseciOpt::OprShared);
         assert_eq!(dpseci_options_mask(&all), 0xe0);
-        assert_eq!(decode_dpseci_options(0xe0), Some(all));
+        assert_eq!(decode_dpseci_options(0xe0), all);
         assert_eq!(
             decode_dpseci_options(0x20),
-            Some(dpseci::OptionMask::empty().with_flag(dpseci::DpseciOpt::HasCg))
+            dpseci::OptionMask::empty().with_flag(dpseci::DpseciOpt::HasCg)
         );
-        // A bit outside the vocabulary (0x100) is an honest gap, never a guess.
-        assert_eq!(decode_dpseci_options(0x120), None);
-        assert_eq!(decode_dpseci_options(0), Some(dpseci::OptionMask::empty()));
+        // A bit outside the vocabulary (0x100) is attributed by value and round-trips (dpseci-hardening design D1).
+        let decoded = decode_dpseci_options(0x120);
+        assert!(decoded.contains(dpseci::DpseciOpt::HasCg));
+        assert!(decoded.contains_escape(dpseci::RawEscape::new(0x100)));
+        assert_eq!(decoded.escapes().len(), 1);
+        assert_eq!(dpseci_options_mask(&decoded), 0x120);
+        assert_eq!(decode_dpseci_options(0), dpseci::OptionMask::empty());
     }
 
     #[test]
@@ -2707,11 +2717,7 @@ mod tests {
         assert_eq!(obs.num_tx_queues, 16);
         assert_eq!(obs.num_rx_queues, 16);
         assert_eq!((obs.api_major, obs.api_minor), (5, 4));
-        assert!(
-            obs.options
-                .expect("named bits decode")
-                .contains(dpseci::DpseciOpt::HasCg)
-        );
+        assert!(obs.options.contains(dpseci::DpseciOpt::HasCg));
     }
 
     #[test]

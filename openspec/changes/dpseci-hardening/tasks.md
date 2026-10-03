@@ -16,14 +16,14 @@ dpseci-typestate review synthesis; this list sequences them).
 
 ## 2. Attribution and the complete_kernel fold (bead ne4 — S1, S14)
 
-- [ ] 2.1 Mint the raw-escape carrier through `decode_dpseci_options`
+- [x] 2.1 Mint the raw-escape carrier through `decode_dpseci_options`
   (restool.rs:260-274) per design D1/D2: unnamed bit keeps its identity on
   the decoded mask, census projection unchanged; decode test attributes
   raw bits; `families/dpseci.rs:92-94` true as written.
-- [ ] 2.2 Render the escaped bit by value in the detail row (render.rs:621
+- [x] 2.2 Render the escaped bit by value in the detail row (render.rs:621
   face), closing the :621 vs :170 asymmetry; repeated status still plans
   zero actions.
-- [ ] 2.3 Lift `complete_kernel` into the dpaa2-tools testkit — one
+- [x] 2.3 Lift `complete_kernel` into the dpaa2-tools testkit — one
   definition site; `grep -rn 'port_names_kernel' crates/dpaa2-tools` →
   one definition; all four operand pins green; quality-floor green.
 

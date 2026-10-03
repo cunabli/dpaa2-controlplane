@@ -50,7 +50,7 @@ fn dpseci_detail_of(cfg: &DpseciCfg) -> DpseciDetail {
         num_rx_queues: Some(queues),
         tx_priorities: cfg.priorities().to_vec(),
         portal: DpseciPortalReadout::Observed {
-            options: Some(cfg.options().clone()),
+            options: cfg.options().clone(),
             api_major: 5,
             api_minor: 4,
         },
@@ -988,7 +988,7 @@ mod tests {
             num_rx_queues: Some(3),
             tx_priorities: vec![2, 2, 2],
             portal: DpseciPortalReadout::Observed {
-                options: Some(OptionMask::empty().with_flag(DpseciOpt::HasCg)),
+                options: OptionMask::empty().with_flag(DpseciOpt::HasCg),
                 api_major: 5,
                 api_minor: 4,
             },
