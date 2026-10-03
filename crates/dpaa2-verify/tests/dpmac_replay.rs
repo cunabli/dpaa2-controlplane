@@ -177,7 +177,7 @@ fn replay_edge_law(actions: &[EdgeAction]) -> Result<Vec<Transition>, &'static s
                 let Some(p) = proof.take() else {
                     return Err("unbind before sever: no severed proof to consume (ADR-0008 §8)");
                 };
-                out.push(Transition::unbind(EDGE_DPNI, p));
+                out.push(Transition::unbind(p));
             }
         }
     }

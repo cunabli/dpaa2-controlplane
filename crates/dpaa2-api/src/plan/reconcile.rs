@@ -120,7 +120,7 @@ fn plan_present(
             let (disconnect, severed) = Transition::sever(dpni.id);
             plan.transitions.push(disconnect);
             if dpni.netdev.is_some() {
-                plan.transitions.push(Transition::unbind(dpni.id, severed));
+                plan.transitions.push(Transition::unbind(severed));
             }
             plan.transitions.push(Transition::Destroy { dpni: dpni.id });
             plan_create(port, cfg, needs_netdev, plan);
@@ -209,7 +209,7 @@ fn plan_absent(
     let (disconnect, severed) = Transition::sever(dpni.id);
     plan.transitions.push(disconnect);
     if dpni.netdev.is_some() {
-        plan.transitions.push(Transition::unbind(dpni.id, severed));
+        plan.transitions.push(Transition::unbind(severed));
     }
     plan.transitions.push(Transition::Destroy { dpni: dpni.id });
 }
@@ -615,7 +615,7 @@ mod tests {
             plan.transitions,
             vec![
                 disconnect,
-                Transition::unbind(DpniId::new(7), severed),
+                Transition::unbind(severed),
                 Transition::Destroy {
                     dpni: DpniId::new(7)
                 },
@@ -834,7 +834,7 @@ mod tests {
             &plan.transitions[..3],
             &[
                 disconnect,
-                Transition::unbind(DpniId::new(7), severed),
+                Transition::unbind(severed),
                 Transition::Destroy {
                     dpni: DpniId::new(7)
                 },

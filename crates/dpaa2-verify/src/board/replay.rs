@@ -27,7 +27,7 @@ use dpaa2_api::core::model::{
 };
 use dpaa2_api::core::types::ConstructName;
 use dpaa2_api::plan::reconcile::{ReconcileOptions, reconcile_with};
-use dpaa2_api::plan::{Plan, Transition};
+use dpaa2_api::plan::{Plan, SeveredProof, Transition};
 
 use crate::itf::ModelView;
 
@@ -85,6 +85,16 @@ fn project(v: &ModelView) -> ObservedTopology {
     }
 }
 
+/// Reconstructs the [`SeveredProof`] a replay unbind consumes. The frozen trace records the
+/// sever and the kernel-face unbind in adjacent windows (ADR-0008 §8; `severAt` then
+/// `unbindKernelFaceAt`), and `deltas` emits the sever's `Disconnect` from the earlier
+/// `connected_to` window — so this window re-mints only the edge-bound proof that same sever
+/// yields, dropping the duplicate `Disconnect`. The proof is unforgeable (no public
+/// constructor), so the mint must route through [`Transition::sever`]; there is no other seam.
+fn severed_proof(dpni: u32) -> SeveredProof {
+    Transition::sever(DpniId::new(dpni)).1
+}
+
 /// Classifies one model step into the plan step it serves, if any.
 /// Steps that change nothing an observer can see (companion creates,
 /// plugs, rescans, pool draws) return `None`.
@@ -110,9 +120,7 @@ fn deltas(prev: &ModelView, next: &ModelView, port: u32) -> Option<Transition> {
                     return Some(Transition::Bind { port: anchor });
                 }
                 if p.bound && !d.bound {
-                    // The sever's Disconnect delta is emitted in the adjacent window (ADR-0008 §8); take only its proof here.
-                    let (_severed_edge, proof) = Transition::sever(DpniId::new(*n));
-                    return Some(Transition::unbind(DpniId::new(*n), proof));
+                    return Some(Transition::unbind(severed_proof(*n)));
                 }
                 if p.connected_to.is_some() && d.connected_to.is_none() {
                     return Some(Transition::Disconnect {

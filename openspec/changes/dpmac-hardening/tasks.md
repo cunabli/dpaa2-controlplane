@@ -34,18 +34,18 @@ openspec/changes/archive/2026-10-03-dpmac-typestate/review/synthesis.md §4.
 
 ## 2. Bead B1 — SeveredProof binds its edge (dpaa2-controlplane-e6s.1)
 
-- [ ] 2.1 `crates/dpaa2-api/src/plan/transition.rs`: `SeveredProof` stores
+- [x] 2.1 `crates/dpaa2-api/src/plan/transition.rs`: `SeveredProof` stores
   `DpniId` privately; `Clone`/`Copy` dropped; `Unbind`'s proof field no
   longer publicly extractable; `unbind` takes its target from the proof
-- [ ] 2.2 `plan/reconcile.rs` call sites (:120-123, :209-212) pass the
+- [x] 2.2 `plan/reconcile.rs` call sites (:120-123, :209-212) pass the
   bound proof; behavior unchanged
-- [ ] 2.3 `crates/dpaa2-verify/src/board/replay.rs:113-115`: mint-and-
+- [x] 2.3 `crates/dpaa2-verify/src/board/replay.rs:113-115`: mint-and-
   discard replaced (named constructor or the sever delta emitted in the
   same window)
-- [ ] 2.4 Doctest pinned `compile_fail,E0423`; second compile_fail for the
+- [x] 2.4 Doctest pinned `compile_fail,E0423`; second compile_fail for the
   cross-dpni/reuse face; transition.rs doc claims (:45/:52, :147-149) true
   as written
-- [ ] 2.5 Gates: `cargo test -p dpaa2-api --doc unbind`, lib transition +
+- [x] 2.5 Gates: `cargo test -p dpaa2-api --doc unbind`, lib transition +
   dpmac tests, `dpmac_replay` green; quality floor PASS; close bead
   e6s.1; commit
 
