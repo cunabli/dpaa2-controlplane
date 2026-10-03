@@ -78,10 +78,10 @@ openspec/changes/archive/2026-10-03-dpmac-typestate/review/synthesis.md §4.
 
 ## 5. Bead B5 — one dpmac-info scanner (dpaa2-controlplane-e6s.5)
 
-- [ ] 5.1 `RawDpmacObservation` (plus the endpoint line) becomes the single
+- [x] 5.1 `RawDpmacObservation` (plus the endpoint line) becomes the single
   raw scanner in `crates/dpaa2-mc/src/parse.rs`; offer/info projections
   derive from it; one token→enum table per the `OPTION_BITS` precedent
-- [ ] 5.2 Gates: the link-type strip_prefix appears once; `cargo test -p
+- [x] 5.2 Gates: the link-type strip_prefix appears once; `cargo test -p
   dpaa2-mc` green; quality floor PASS; close bead e6s.5; commit
 
 ## 6. Bead B6 — LinkType sums reconcile (dpaa2-controlplane-e6s.6)

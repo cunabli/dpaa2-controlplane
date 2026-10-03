@@ -10,6 +10,7 @@ use dpaa2_api::core::family::{ALL_FAMILIES, Family};
 use dpaa2_api::core::inventory::{DpmacLinkType, EthInterface};
 use dpaa2_api::core::model::{DpmacId, DpniId, DprcId, LinkType, MacAddr, ObjectRef};
 use dpaa2_api::core::types::ConstructName;
+use dpaa2_api::families::dpmac::LinkType as ObservedLinkType;
 use dpaa2_api::families::dprc;
 
 /// Strips `prefix` from `tok` and parses the remainder as the numeric index behind
@@ -413,47 +414,94 @@ pub struct RawDpmacOffer {
     pub endpoint: Option<DpniId>,
 }
 
-/// Parses `restool dpmac info dpmac.N` for the inventory offer (task 3.5, design D2; ADR-0002).
+/// One `DPMAC_LINK_TYPE_*` token and the typed link value each `dpmac info` reader
+/// projects from it. restool spells the same four tokens for the inventory offer, the
+/// topology read, and the observation; this is the one place they are spelled, so the
+/// three readers cannot drift (review MERGED-6a; the [`OPTION_BITS`] single-source
+/// precedent). The spellings mirror `models/board/baselines/reference.json` (DPMAC-I3:
+/// the baseline is the spelling oracle).
+pub(crate) struct DpmacLinkTypeToken {
+    /// The token restool prints for this link type.
+    pub token: &'static str,
+    /// The inventory offer's media-complete view ([`parse_dpmac_offer`]).
+    pub offer: DpmacLinkType,
+    /// The topology read's PHY/FIXED view ([`parse_dpmac_info`]); `NONE`/`BACKPLANE`
+    /// read PHY, matching the pre-fold default.
+    pub topo: LinkType,
+    /// The dpmac observation's typed view (`RestoolMc::observe_dpmac`); `NONE` has no
+    /// typed home and reads `None` — a parse failure, never an invented variant.
+    pub observed: Option<ObservedLinkType>,
+}
+
+/// The four `DPMAC_LINK_TYPE_*` tokens the corpus carries, with each reader's projection.
+pub(crate) const DPMAC_LINK_TYPES: &[DpmacLinkTypeToken] = &[
+    DpmacLinkTypeToken {
+        token: "DPMAC_LINK_TYPE_NONE",
+        offer: DpmacLinkType::None,
+        topo: LinkType::Phy,
+        observed: None,
+    },
+    DpmacLinkTypeToken {
+        token: "DPMAC_LINK_TYPE_FIXED",
+        offer: DpmacLinkType::Fixed,
+        topo: LinkType::Fixed,
+        observed: Some(ObservedLinkType::Fixed),
+    },
+    DpmacLinkTypeToken {
+        token: "DPMAC_LINK_TYPE_PHY",
+        offer: DpmacLinkType::Phy,
+        topo: LinkType::Phy,
+        observed: Some(ObservedLinkType::PhyManaged),
+    },
+    DpmacLinkTypeToken {
+        token: "DPMAC_LINK_TYPE_BACKPLANE",
+        offer: DpmacLinkType::Backplane,
+        topo: LinkType::Phy,
+        observed: Some(ObservedLinkType::Backplane),
+    },
+];
+
+/// Looks up the [`DpmacLinkTypeToken`] for a raw `DPMAC_LINK_TYPE_*` token, or `None`
+/// for a token outside the corpus.
+#[must_use]
+pub(crate) fn dpmac_link_type(token: &str) -> Option<&'static DpmacLinkTypeToken> {
+    DPMAC_LINK_TYPES.iter().find(|e| e.token == token)
+}
+
+/// Maps a raw `DPMAC_ETH_IF_*` token to the inventory offer's [`EthInterface`], or `None`
+/// for a media type this board never showed (dpmac-typestate design D4; ADR-0018). The
+/// observation's `EthIf` view keeps its own USXGMII-vs-other split in the shim: it shares
+/// no token spelling with these three, so there is nothing to single-source.
+fn eth_interface(token: &str) -> Option<EthInterface> {
+    match token {
+        "DPMAC_ETH_IF_XFI" => Some(EthInterface::Xfi),
+        "DPMAC_ETH_IF_CAUI" => Some(EthInterface::Caui),
+        "DPMAC_ETH_IF_RGMII" => Some(EthInterface::Rgmii),
+        _ => None,
+    }
+}
+
+/// Projects the inventory offer from the raw observation (task 3.5, design D2; ADR-0002).
 ///
-/// The field spellings mirror the captured baseline in
-/// `models/board/baselines/reference.json` (e.g. `DPMAC ethernet interface`,
-/// `DPMAC link type`, `maximum supported rate 10000 Mbps`); no raw `dpmac info`
-/// text is committed in-repo, so the line shapes are transcribed from that snapshot.
-/// Unknown enum values (a media/link type this board never showed) parse to `None`
-/// rather than a wrong variant.
+/// DPMAC-I3 attributes read once by `dpmac info`; unknown enum values parse to `None`
+/// rather than a wrong variant. The `endpoint:` peer keeps only a `dpni.` reference;
+/// `No object associated` (and any future dpdmux/dpsw peer) leaves `None`.
 #[must_use]
 pub fn parse_dpmac_offer(stdout: &str) -> RawDpmacOffer {
-    let mut offer = RawDpmacOffer::default();
-    for line in stdout.lines() {
-        let line = line.trim();
-        if let Some(rest) = line.strip_prefix("DPMAC ethernet interface:") {
-            offer.eth_if = match rest.trim() {
-                "DPMAC_ETH_IF_XFI" => Some(EthInterface::Xfi),
-                "DPMAC_ETH_IF_CAUI" => Some(EthInterface::Caui),
-                "DPMAC_ETH_IF_RGMII" => Some(EthInterface::Rgmii),
-                _ => None,
-            };
-        } else if let Some(rest) = line.strip_prefix("DPMAC link type:") {
-            offer.link_type = match rest.trim() {
-                "DPMAC_LINK_TYPE_NONE" => Some(DpmacLinkType::None),
-                "DPMAC_LINK_TYPE_FIXED" => Some(DpmacLinkType::Fixed),
-                "DPMAC_LINK_TYPE_PHY" => Some(DpmacLinkType::Phy),
-                "DPMAC_LINK_TYPE_BACKPLANE" => Some(DpmacLinkType::Backplane),
-                _ => None,
-            };
-        } else if let Some(rest) = line.strip_prefix("maximum supported rate") {
-            // Line has no colon: "maximum supported rate 10000 Mbps".
-            offer.max_rate = rest.split_whitespace().find_map(|t| t.parse::<i64>().ok());
-        } else if let Some(rest) = line.strip_prefix("endpoint:") {
-            // `endpoint:` is lowercase where the dpmac's other fields are
-            // capitalized (`DPMAC link type:`, `MAC address:`) — the baseline is the
-            // spelling oracle, do not "align" it. Only a `dpni.` peer parses;
-            // `No object associated` (and any future dpdmux/dpsw peer) leaves None.
-            let obj = rest.split(',').next().unwrap_or("").trim();
-            offer.endpoint = parse_indexed(obj, "dpni.");
-        }
+    let obs = parse_dpmac_observation(stdout);
+    RawDpmacOffer {
+        max_rate: obs.max_rate,
+        eth_if: obs.eth_if.as_deref().and_then(eth_interface),
+        link_type: obs
+            .link_type
+            .as_deref()
+            .and_then(dpmac_link_type)
+            .map(|e| e.offer),
+        endpoint: obs
+            .endpoint
+            .as_deref()
+            .and_then(|o| parse_indexed(o, "dpni.")),
     }
-    offer
 }
 
 /// The raw `restool dpmac info dpmac.N` observation surface — tokens and rendered counter
@@ -470,6 +518,10 @@ pub struct RawDpmacObservation {
     pub mac: Option<MacAddr>,
     /// The rate in Mbps from `maximum supported rate N Mbps` (no colon in that line).
     pub max_rate: Option<i64>,
+    /// The raw peer object reference before the comma on the lowercase `endpoint:` line
+    /// (e.g. `dpni.0`), or `None` when the dpmac names no peer. Left untyped so the offer
+    /// projection owns the `dpni.`-only filter.
+    pub endpoint: Option<String>,
     /// The rendered counter rows in print order — the restool name and its u64 value
     /// (`dpmac_commands.c` `print_dpmac_counters`: a `Counters:` header then `<name>: <u64>`).
     pub counters: Vec<(String, u64)>,
@@ -500,6 +552,10 @@ pub fn parse_dpmac_observation(stdout: &str) -> RawDpmacObservation {
             obs.mac = rest.trim().parse::<MacAddr>().ok();
         } else if let Some(rest) = line.strip_prefix("maximum supported rate") {
             obs.max_rate = rest.split_whitespace().find_map(|t| t.parse::<i64>().ok());
+        } else if let Some(rest) = line.strip_prefix("endpoint:") {
+            // Lowercase where the dpmac's other fields capitalize — the baseline is the
+            // spelling oracle, do not "align" it (`endpoint state:` is not this line).
+            obs.endpoint = Some(rest.split(',').next().unwrap_or("").trim().to_owned());
         }
     }
     for raw in lines {
@@ -544,32 +600,22 @@ pub fn parse_resources(stdout: &str) -> BTreeMap<String, i64> {
     pools
 }
 
-/// Parses `restool dpmac info dpmac.N`.
+/// Projects the topology read from the raw observation.
 ///
-/// The field spellings mirror the captured baseline in
-/// `models/board/baselines/reference.json` (`DPMAC link type`, `MAC address`),
-/// matching [`parse_dpmac_offer`] above; restool prints these with a `DPMAC`
-/// prefix and capitalized `MAC`, so the lowercase forms never appear (DPMAC-I3:
-/// attributes are read once by `dpmac info`, the baseline is the spelling oracle).
-/// Recognizes `DPMAC_LINK_TYPE_PHY` or `DPMAC_LINK_TYPE_FIXED`; when absent,
-/// defaults to PHY.
+/// Only the PHY/FIXED distinction and the MAC matter here (DPMAC-I3; the baseline is the
+/// spelling oracle, so the lowercase forms never appear). A link type outside the corpus,
+/// or an absent line, reads PHY — the pre-fold default.
 #[must_use]
 pub fn parse_dpmac_info(stdout: &str) -> RawDpmacInfo {
-    let mut info = RawDpmacInfo::default();
-    for line in stdout.lines() {
-        let line = line.trim();
-        if let Some(rest) = line.strip_prefix("DPMAC link type:") {
-            let v = rest.trim();
-            if v.contains("FIXED") {
-                info.link_type = LinkType::Fixed;
-            } else if v.contains("PHY") {
-                info.link_type = LinkType::Phy;
-            }
-        } else if let Some(rest) = line.strip_prefix("MAC address:") {
-            info.mac = rest.trim().parse::<MacAddr>().ok();
-        }
+    let obs = parse_dpmac_observation(stdout);
+    RawDpmacInfo {
+        link_type: obs
+            .link_type
+            .as_deref()
+            .and_then(dpmac_link_type)
+            .map_or(LinkType::Phy, |e| e.topo),
+        mac: obs.mac,
     }
-    info
 }
 
 /// Builds a `restool dprc info dprc.N` body — the mask line then one tab-indented

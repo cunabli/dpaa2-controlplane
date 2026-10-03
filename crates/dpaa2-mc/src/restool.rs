@@ -18,7 +18,7 @@ use dpaa2_api::core::model::{
 };
 use dpaa2_api::core::types::ConstructName;
 use dpaa2_api::families::dpio::{ChannelMode, DpioCfg, Priorities};
-use dpaa2_api::families::dpmac::{CounterRead, CounterReadout, DpmacObservation, EthIf, LinkType};
+use dpaa2_api::families::dpmac::{CounterRead, CounterReadout, DpmacObservation, EthIf};
 use dpaa2_api::families::dpni::{
     DpniCfg, DpniObservation, DpniOpt, FsEntries, MacFilterEntries, NumCeetmCh, NumCgs, NumOpr,
     NumQueues, NumTcs, OptionMask, QosEntries, RawEscape, VlanFilterEntries,
@@ -295,19 +295,6 @@ fn map_dpmac_eth_if(token: &str) -> EthIf {
         EthIf::Usxgmii
     } else {
         EthIf::OtherSerdesProtocol
-    }
-}
-
-/// Maps restool's `DPMAC_LINK_TYPE_*` token to the typed link type, or `None` for a token
-/// outside the corpus (PHY/FIXED/BACKPLANE only; `docs/baseline/dpmac.md` "Option
-/// inventory"). `DPMAC_LINK_TYPE_NONE` has no typed home and reads `None` — an honest gap
-/// the caller surfaces as a parse failure, never an invented variant (DPMAC-I3).
-fn map_dpmac_link_type(token: &str) -> Option<LinkType> {
-    match token {
-        "DPMAC_LINK_TYPE_PHY" => Some(LinkType::PhyManaged),
-        "DPMAC_LINK_TYPE_FIXED" => Some(LinkType::Fixed),
-        "DPMAC_LINK_TYPE_BACKPLANE" => Some(LinkType::Backplane),
-        _ => None,
     }
 }
 
@@ -768,7 +755,9 @@ impl<R: Runner> McControl for RestoolMc<R> {
                 "dpmac info {dpmac}: missing eth_if/link_type/mac/max_rate"
             )));
         };
-        let Some(link_type) = map_dpmac_link_type(link_token) else {
+        // The link-type token table is single-sourced in `parse` (review MERGED-6a); the
+        // observation reads its `observed` projection, `None` for a token with no typed home.
+        let Some(link_type) = parse::dpmac_link_type(link_token).and_then(|e| e.observed) else {
             return Err(Error::Parse(format!(
                 "dpmac info {dpmac}: link type `{link_token}` outside the typed vocabulary"
             )));
