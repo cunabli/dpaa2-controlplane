@@ -72,7 +72,7 @@ rust-developer; every parcel spec carries the settled-decisions block.
 
 ## 6. Close-out
 
-- [ ] 6.1 Docs sync: `docs/baseline/dpseci.md` amendments (unknowns
+- [x] 6.1 Docs sync: `docs/baseline/dpseci.md` amendments (unknowns
   #2/#3 answers, read-slice observability note), the new ADR for the
   ioctl read slice (design D2), ADR-0019 note (P2 member landed),
   ROADMAP row #8, CHANGELOG via commits; full quality floor; epic

@@ -105,6 +105,13 @@ created-then-failed shape as the dpni dead options [read]. restool's
 `mc_v10/dpseci.c` also skips the `cpu_to_le32` on the options field that
 mc-utils performs (a real divergence, moot on little-endian) [read].
 
+The ADR-0021 kernel-whitelist read slice (OPEN / GET_ATTR /
+GET_API_VERSION / DPSECI_GET_TX_QUEUE / CLOSE over `/dev/dprc.N`) is the
+only userspace observable for the options mask restool `info` discards
+(DPSECI-I3), and the read must ride the ROOT container's node — a
+VFIO-bound child exposes no `/dev` node [board suite V-DPSECI-3 rev 1,
+2026-10-03], corrected at the shim (dpseci-typestate bead lbk.14).
+
 `dpseci_get_sec_attr` (CMDID V2) returns SEC era plus per-algorithm
 accelerator counts; `dpseci_get_sec_counters` returns seven u64 counters
 that are **global to the SEC block, not per-dpseci** — two dpsecis (our
@@ -218,7 +225,7 @@ runtime model.
 | Id | Proposition | Observables | Status |
 |---|---|---|---|
 | DPSECI-I1 | `options`, tx/rx queue counts, and per-queue tx priorities are immutable post-create; no setter exists (tx queues have no set path at all) | `get_attributes` + per-queue `get_tx_queue` before/after suites | candidate |
-| DPSECI-I2 | Create precondition (restool layer): priorities count = num-queues, each in 1–8; MC-layer validation is unknown and must not be assumed | restool exit on mismatch; MC status on out-of-range via DPL | restool layer board-anchored 2026-08-29 (V-DPSECI-1 rev 1: priority 0, a priority above 8, and a priority-count ≠ num-queues are each refused by restool's own parser, exit 234, before any MC command; also V-LIFE-DPSECI-1 rev 1 and production use); MC-layer validation unreachable through restool, board-pending → V-DPSECI-1 (MC layer) under `dpseci-typestate` (#8) |
+| DPSECI-I2 | Create precondition (restool layer): priorities count = num-queues, each in 1–8; MC-layer validation is unknown and must not be assumed | restool exit on mismatch; MC status on out-of-range via DPL | restool layer board-anchored 2026-08-29 (V-DPSECI-1 rev 1: priority 0, a priority above 8, and a priority-count ≠ num-queues are each refused by restool's own parser, exit 234, before any MC command; also V-LIFE-DPSECI-1 rev 1 and production use); MC-layer validation unreachable through restool, board-pending → V-DPSECI-1 (MC layer) under `mc-portal-backend` (#10) |
 | DPSECI-I3 | **Breaking:** the model must NOT treat restool `info` output as the convergence observable for this family — the options mask is not printed; only raw `GET_ATTR` observes it | info output vs GET_ATTR response | candidate |
 | DPSECI-I4 | Safety: consumer backpressure exists iff `HAS_CG` was set at create; absent it, enqueue is unbounded (kernel consumer) | congestion config presence; enqueue behavior at saturation | candidate |
 | DPSECI-I5 | **Breaking:** the model must NOT assume unbind ⇒ clean MC state: the kernel reset is gated on API > 5.3, and rx-queue steering + armed CG (with dangling iova) persist when skipped | `get_rx_queue`/`get_congestion_notification` after unbind | modeled in `main.qnt` `DPSECI_I5Test` (simulate); the board reset path stays open — board API is 5.4 so the reset is expected live → V-DPSECI-2 under `dpseci-typestate` (#8) |
@@ -237,9 +244,16 @@ runtime model.
    exit 234 before any MC command is built, so the MC-side rule stays
    unreachable through restool — the ioctl portal is needed to reach it.
 2. Board confirmation that dpseci API reports 5.4 (drives DPSECI-I5's
-   reset path) — one dmesg/`restool dpseci info` line.
+   reset path) — one dmesg/`restool dpseci info` line. Answered [board
+   suite V-DPSECI-3 rev 2, 2026-10-03]: both the boot dpseci.0 and a
+   runtime-created dpseci report API 5.4 (restool `dpseci info` and portal
+   `GET_API_VERSION` agree), so DPSECI-I5's kernel reset path is expected
+   live (API > 5.3).
 3. Whether the kernel container's dpseci carries `HAS_CG` (it predates
-   our script; restool cannot show it — needs raw GET_ATTR).
+   our script; restool cannot show it — needs raw GET_ATTR). Answered
+   [board suite V-DPSECI-3 rev 1+2, 2026-10-03]: raw GET_ATTR on the boot
+   dpseci reads an empty options mask — the kernel container's dpseci does
+   NOT carry `HAS_CG`.
 4. Priority semantics 1 vs 2: kernel DPLs use all-1, our VPP profile
    all-2 [verified in use]; what the SEC scheduler does with the
    difference is undocumented in the corpus.

@@ -11,7 +11,11 @@
   per-family blocks does not scale to sixteen families; amended
   2026-10-03 by dpmac-typestate 6.1 (bead dpaa2-controlplane-e6s.7): the
   P4 reference implementation and the edge-facet severed-witness teardown
-  law ship for dpmac, board-witnessed V-DPMAC-3 rev 1
+  law ship for dpmac, board-witnessed V-DPMAC-3 rev 1; amended 2026-10-03
+  by dpseci-typestate 6.1 (bead dpaa2-controlplane-lbk.11): the dpseci P2
+  model + isomorphic Rust twins land under `dpseci-typestate`, convergence
+  a multiset census on the observable cfg signature, board-witnessed
+  V-DPSECI-3 rev 2
 - **Date:** 2026-09-19
 - **Supersedes / relates to:** ADR-0018 (the module tree this catalog
   fills: 0018 names where a family's pieces live, this record names what

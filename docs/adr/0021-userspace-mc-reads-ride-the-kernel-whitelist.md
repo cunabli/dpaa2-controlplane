@@ -80,6 +80,10 @@ fixture frames, so a wrong layout fails a unit test, never the board.
 
 - The dpseci options mask (DPSECI-I3) becomes an implemented convergence
   observable; the HAS_CG backstop is read, not trusted.
+- The read slice is board-witnessed (V-DPSECI-3 rev 2: `GET_ATTR` +
+  `GET_API_VERSION` over `/dev/dprc.1` on a live object), and the routing
+  law — the read rides the root container's node, never a child's — is
+  recorded at the shim.
 - #10 starts from a read-only primitive proven against the board, with no
   write or differential machinery pre-decided by its shape.
 - The one unsafe site in the workspace is a single reviewed ioctl call;
