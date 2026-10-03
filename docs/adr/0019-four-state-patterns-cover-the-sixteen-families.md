@@ -8,7 +8,10 @@
   2026-09-20 during pool-objects phase 1 (bead dpaa2-controlplane-960.3
   review): pattern files own shared mechanisms, family files own their
   `_lifecycle`/`_scenario` machines — one shared file accreting
-  per-family blocks does not scale to sixteen families
+  per-family blocks does not scale to sixteen families; amended
+  2026-10-03 by dpmac-typestate 6.1 (bead dpaa2-controlplane-e6s.7): the
+  P4 reference implementation and the edge-facet severed-witness teardown
+  law ship for dpmac, board-witnessed V-DPMAC-3 rev 1
 - **Date:** 2026-09-19
 - **Supersedes / relates to:** ADR-0018 (the module tree this catalog
   fills: 0018 names where a family's pieces live, this record names what

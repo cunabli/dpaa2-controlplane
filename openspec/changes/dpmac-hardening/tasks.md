@@ -8,28 +8,28 @@ openspec/changes/archive/2026-10-03-dpmac-typestate/review/synthesis.md §4.
 
 ## 1. Bead B7 — doc/ledger amendment (dpaa2-controlplane-e6s.7)
 
-- [ ] 1.1 `docs/baseline/dpmac.md:277`: raw link reads re-route "(#7)" →
+- [x] 1.1 `docs/baseline/dpmac.md:277`: raw link reads re-route "(#7)" →
   `mc-portal-backend` (#10); optional one-clause #10 pointer for bulk
   statistics (PASS1-F1, F2-downgraded)
-- [ ] 1.2 `models/COVERAGE.md:87` DPNI-I3: replace the never-synced
+- [x] 1.2 `models/COVERAGE.md:87` DPNI-I3: replace the never-synced
   "→ dpmac-typestate (#7)" with `families/dpmac.rs` `MacRelation` +
   V-DPMAC-3 rev 1 (PASS1-F4; brief erratum)
-- [ ] 1.3 `models/core/invariants.qnt:154-159`: comment cites the DPC-gated
+- [x] 1.3 `models/core/invariants.qnt:154-159`: comment cites the DPC-gated
   answer (V-DPMAC-2 rev 1); destroy caveat moves to its real anchor;
   invariant body untouched (PASS4-F1)
-- [ ] 1.4 `models/board/README.md:85,:605,:881`: forward pointer only
+- [x] 1.4 `models/board/README.md:85,:605,:881`: forward pointer only
   ("re-anchored to #10 by dpmac-typestate 1.3"); sealed V-LINK-4 verdict
   prose never rewritten (PASS1-F5)
-- [ ] 1.5 `crates/dpaa2-verify/src/intent/dpmac_itf.rs:20-22`: comment
+- [x] 1.5 `crates/dpaa2-verify/src/intent/dpmac_itf.rs:20-22`: comment
   reworded to "structural by construction; MC-view read deferred to #10
   (D6)" (PASS2-F3)
-- [ ] 1.6 `models/families/dpmac.qnt`: one comment naming the planner's
+- [x] 1.6 `models/families/dpmac.qnt`: one comment naming the planner's
   wider Disconnect emission vs `severAt`'s guard, citing D3's single-edge
   scope (MERGED-7)
-- [ ] 1.7 ADR-0019 Status trail gains the one-line dpmac-typestate 6.1
+- [x] 1.7 ADR-0019 Status trail gains the one-line dpmac-typestate 6.1
   entry; dpmac-typestate design D2's "in the P1 phase-marker idiom" phrase
   softened to the shipped observation-judged enum (MERGED-8)
-- [ ] 1.8 Gates: ledger lint green; `scripts/checks/quality-floor.sh` PASS;
+- [x] 1.8 Gates: ledger lint green; `scripts/checks/quality-floor.sh` PASS;
   close bead e6s.7; commit
 
 ## 2. Bead B1 — SeveredProof binds its edge (dpaa2-controlplane-e6s.1)

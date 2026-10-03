@@ -153,10 +153,12 @@ module invariants {
 
   // DPMAC-I1 — identity permanence (verified, ADR-0001 §3): dpmacs are
   // DPC-born — the runtime set never grows past the boot inventory —
-  // and RootOnly-pinned to the Linux root container. Whether restool
-  // destroy of a DPC-born dpmac is accepted at all is off-nominal and
-  // board-pending (dpmac.md unknown #1), so the invariant asserts
-  // no-additions and no-drift, not constancy.
+  // and RootOnly-pinned to the Linux root container. The create face is
+  // answered DPC-gated (a DPC-absent mac-id is refused Invalid state,
+  // V-DPMAC-2 rev 1). Whether restool destroy of a DPC-born dpmac is
+  // accepted is off-nominal and board-pending (dpmac.md destroy caveat,
+  // DPMAC-I1 row), so the invariant asserts no-additions and no-drift,
+  // not constancy.
   pure def DPMAC_I1(s: CoreState, bootMacs: Set[int]): bool =
     s.objs.keys().filter(o => o.fam == Dpmac).forall(m => and {
       bootMacs.contains(m.num),

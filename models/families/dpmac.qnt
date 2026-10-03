@@ -335,6 +335,10 @@ module dpmac_lifecycle {
   // and the severed witness is stamped (ADR-0008 §8, "sever, then unbind").
   // Enabled only while a kernel dpni holds the port; the kernel-face is NOT
   // released here — the dpni's own eth driver is unbound separately, after.
+  // The planner emits Disconnect more widely than this guard admits (for
+  // never-bound dpnis too); severAt is narrower by design, firing only on
+  // the bound dpni↔dpmac edge of dpmac-typestate design D3's single-edge
+  // scope — no hardware hazard, guard-for-guard holds on the unbind side.
   action severAt: bool = all {
     world.arbitration == KernelOwned,
     world.kernelFace == KernelFaceBound,

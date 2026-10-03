@@ -19,7 +19,8 @@
 //! `KernelFace`/`SeveredWitness` and the attribute sums); the `macAddr` `List[int]` ⇒ the
 //! runtime `MacAddr`; the `attributes` record ⇒ `DpmacAttributes`. The two directional
 //! link channels (`linkStateUp`/`requestsDown`) carry no judgment on this parcel's surface, so
-//! they are not decoded (DPMAC-I4 is structural, covered in the Rust tile's own tests).
+//! they are not decoded (DPMAC-I4 is structural by construction; the MC-view read is deferred to
+//! `mc-portal-backend` (#10) by dpmac-typestate design D6).
 
 use serde_json::Value;
 

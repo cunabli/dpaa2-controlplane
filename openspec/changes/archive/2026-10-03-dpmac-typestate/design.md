@@ -64,7 +64,10 @@ near-empty one.
 ### D2 — The typestate axis is driver arbitration, as phase markers
 
 The arbitration sum **Offered / KernelOwned / RemoteOwned** (DPMAC-I6,
-board-verified) with typed transitions, in the P1 phase-marker idiom.
+board-verified) with typed transitions, judged as a plain observation
+enum rather than family-internal phase-marker typestates (the ADR-0019
+promotion trigger is met at the edge facet, without family-internal
+markers).
 The promotion trigger ADR-0019 names has fired: the library surface is
 usable outside the planner, so the transitions are order-sensitive verbs
 on a typed surface, and ordering must hold by construct for any
