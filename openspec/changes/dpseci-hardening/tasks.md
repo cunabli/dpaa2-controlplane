@@ -29,11 +29,11 @@ dpseci-typestate review synthesis; this list sequences them).
 
 ## 3. Model parity and trace coverage (bead vje — S7, S15)
 
-- [ ] 3.1 State the census-poisoning law in `models/families/dpseci.qnt`
+- [x] 3.1 State the census-poisoning law in `models/families/dpseci.qnt`
   with `censusUnobservableMemberJudgesNothingTest`, twinning
   `populate.rs:150-157`; one-line corpus check whether dpni/pool share the
   idiom gap (bead if yes, note if no); quint test green.
-- [ ] 3.2 Extend `model:freeze-dpseci` with census/destroy runs plus a
+- [x] 3.2 Extend `model:freeze-dpseci` with census/destroy runs plus a
   dpaa2-verify replay arm, or land the recorded sufficiency note in
   COVERAGE (design D5 either/or); trace count grows with replay green, or
   the note lands; synthesis B5/B7 greps pass.

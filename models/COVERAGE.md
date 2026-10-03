@@ -247,6 +247,17 @@ twins only (pool-objects PASS2-F7); the pool-objects design D12 same-run-rebuild
 refusal (`dpni_rebuild`, `families/dpni.qnt`) is simulate-only — its Rust side
 rides `crates/dpaa2-tools/tests/convergence.rs` and V-MVP-1, with no ITF leg.
 
+The dpseci census operators (`families/dpseci.qnt` `judgeCensus`, `censusDelta`,
+`sigCensus` and the `census*` directed runs) are pure functions whose runs never
+move `world` — an ITF freeze of them carries only the untouched `world` and no
+census state, a ceremony trace pinning nothing (dpseci-hardening design D5,
+synthesis S15). They are pinned instead by the model's directed census runs plus
+the structurally isomorphic Rust twins and unit tests in
+`crates/dpaa2-api/src/plan/dpseci.rs` (ADR-0002 §3). The world-mutating destroy
+surface, by contrast, does move `world` (Absent → Created → Absent), so it is
+trace-frozen as `destroySoleResizePathTest` and replayed by the
+`crates/dpaa2-verify/tests/dpseci_replay.rs` arm.
+
 ## Intent invariants (intent-layer task 5.1)
 
 These are the `intent-layer` change's own plan invariants

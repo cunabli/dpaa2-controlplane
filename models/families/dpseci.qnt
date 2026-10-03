@@ -417,6 +417,18 @@ module dpseci_lifecycle {
   // structurally impossible, so the model offers no per-object counter.
   run secCountersBlockGlobalTest = init.then(check(SEC_COUNTERS_BLOCK_GLOBAL))
 
+  // Destroy is the sole resize path (baseline "Attribute mutability"; dpseci-typestate design D5):
+  // a created production object destroyed returns to Absent, accepted. The world-mutating run
+  // (Absent → Created → Absent) is the census/destroy surface's frozen ITF trace.
+  run destroySoleResizePathTest =
+    init
+      .then(createAt(PRODUCTION_CFG))
+      .then(destroy)
+      .expect(and {
+        world.dpseci == Absent,
+        world.lastOutcome == Accepted,
+      })
+
   // ---- the observable-signature census (dpseci-typestate design D9) ----
 
   // The dpseci population under a tenant is anonymous and shared-label, so convergence matches
@@ -475,6 +487,32 @@ module dpseci_lifecycle {
   pure def censusConverged(planned: ObservableSig -> int, observed: ObservableSig -> int): bool =
     val d = censusDelta(planned, observed)
     d.creates.keys().size() == 0 and d.destroys.keys().size() == 0
+
+  // The faces-level judgment, the structural twin of Rust ChildDpseci (crates/dpaa2-api/src/plan/populate.rs
+  // ChildDpseci): the law carries the delta alone — Unobservable's reason string is display-face only and
+  // Census's planned/observed lists are dispatch sources, neither convergence-affecting (ADR-0002 §3).
+  type FamilyJudgment =
+    | JudgesNothing
+    | Judges(CensusDelta)
+
+  // Project the observed signatures off the read-back faces (dpseci-typestate design D9): SigObserved
+  // contributes its signature, SigUnobservable nothing.
+  pure def observedSigsOf(faces: List[ObservedFace]): List[ObservableSig] =
+    faces.foldl([], (acc, face) =>
+      match face {
+        | SigObserved(sig) => acc.append(sig)
+        | SigUnobservable => acc
+      })
+
+  // The whole-census-poisoning law, the Rust twin crates/dpaa2-mc/src/populate.rs judge_dpseci: any
+  // unobservable member makes the whole face judge nothing — absence of evidence is never drift, and a
+  // spurious destroy+create is permanent loss (V-LIFE-DPSECI-1; ADR-0018). Only an all-observed census
+  // yields a delta.
+  pure def judgeCensus(planned: List[ObservableSig], faces: List[ObservedFace]): FamilyJudgment =
+    val anyUnobservable = faces.foldl(false, (acc, face) =>
+      acc or match face { | SigUnobservable => true | SigObserved(_) => false })
+    if (anyUnobservable) JudgesNothing
+    else Judges(censusDelta(sigCensus(planned), sigCensus(observedSigsOf(faces))))
 
   // ---- census directed runs (rung 2a; dpseci-typestate design D9) ----
 
@@ -566,5 +604,20 @@ module dpseci_lifecycle {
     init.then(check(and {
       sigCensus([sigFour, sigProd]) == sigCensus([sigProd, sigFour]),
       censusConverged(sigCensus([sigFour, sigProd]), sigCensus([sigProd, sigFour])),
+    }))
+
+  // Both arms in one run (the Rust twin judge_dpseci): a poisoned census (one observed, one
+  // unobservable) judges nothing — it does NOT create the missing sigFour — while the unpoisoned
+  // control over the same plan judges one create of sigFour, no destroy (V-LIFE-DPSECI-1; ADR-0018).
+  run censusUnobservableMemberJudgesNothingTest =
+    init.then(check(and {
+      judgeCensus([sigFour, sigProd], [SigObserved(sigProd), SigUnobservable]) == JudgesNothing,
+      match judgeCensus([sigFour, sigProd], [SigObserved(sigProd)]) {
+        | JudgesNothing => false
+        | Judges(d) => and {
+            sigCount(d.creates, sigFour) == 1,
+            d.destroys.keys().size() == 0,
+          }
+      },
     }))
 }

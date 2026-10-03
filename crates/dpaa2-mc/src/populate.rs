@@ -137,6 +137,8 @@ fn unobservable_reason(detail: &DpseciDetail) -> String {
 /// are never touched (the pool `label_membership` precedent). If any custody-matched row's
 /// signature cannot be read, the whole face is [`ChildDpseci::Unobservable`] — absence of
 /// evidence is never drift, so the census judges nothing (ADR-0018; V-LIFE-DPSECI-1).
+///
+/// Model twin: `dpseci.qnt` `judgeCensus`, run `censusUnobservableMemberJudgesNothingTest`.
 fn judge_dpseci<M: McControl>(
     mc: &M,
     child: DprcId,

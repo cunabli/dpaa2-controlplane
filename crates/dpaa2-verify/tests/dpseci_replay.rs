@@ -61,6 +61,10 @@ const TRACES: &[(&str, &str)] = &[
         "congestionBirthWithoutCgTest",
         "DPSECI-I4 without HAS_CG: the production shape carries no backstop",
     ),
+    (
+        "destroySoleResizePathTest",
+        "destroy is the sole resize path (D5): Absent → Created → Absent",
+    ),
 ];
 
 fn load(file: &str) -> String {

@@ -60,6 +60,8 @@ impl PlannedChildDpni {
 /// typed unobservable outcome (dpseci-typestate design D9). A dpseci is anonymous and
 /// shared-label, so there is no per-object planned dpseci type — the whole population is one
 /// census per container.
+///
+/// Model twin: `dpseci.qnt` `FamilyJudgment` (`JudgesNothing | Judges(CensusDelta)`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ChildDpseci {
     /// At least one tenant-labelled dpseci could not be judged this run (its portal was
