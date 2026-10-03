@@ -194,6 +194,45 @@ CLI parcels small. The main loop gathers context, writes parcel specs,
 reviews, gates acceptance, commits — one bead at a time through
 acceptance, close-then-commit per the repo hook.
 
+### D9 — dpseci converges as a multiset census on the observable cfg signature
+
+The dpseci population under a tenant is counted and shared-label: every
+object carries the tenant's label and a `[[crypto]]` block is genuinely
+anonymous (ADR-0015 decision 4), so neither the dpni identity-by-label
+arm nor the pool count-only census covers it. Convergence matches the
+planned and observed multisets of the observable cfg signature
+`(num_queues, options)` per container: create the missing signatures,
+destroy the surplus, and treat a signature mismatch as D5's
+destroy+create disruption. No per-object identity exists or is minted:
+
+- Matching by ordinal-derived labels is rejected. It would make document
+  position a hardware identity, which ADR-0015 decision 5 forbids
+  (reordering never rewires hardware), and V-LIFE-DPSECI-1 makes the
+  failure mode expensive — a recreated dpseci never kernel-binds for the
+  rest of the boot, so any spurious destroy+create permanently degrades
+  it. `set-label` is also operator-mutable, a fragile identity channel.
+- Drift is judged by a core classify over the observable subset only
+  (options and queue shape — D5's own scope). Priorities are
+  create-time-immutable with no read-back on any userspace transport;
+  the adapter never invents an observed value (ADR-0018: adapters
+  report, never judge). `classify_cfg_mismatch` (full cfg) remains the
+  plan-layer repair law for desired-versus-desired comparisons.
+- The pool trio census (`pool_lifecycle.qnt`, `TrioCensus`) is the
+  precedent: the same anonymous-population convergence, refined from a
+  bare count to a signature multiset because dpseci carries per-object
+  immutable cfg.
+- The multiset delta and the observable-subset classify are pure core
+  judgments and carry Quint twins (`quint-is-the-spec` isomorphism);
+  the model stays cfg-only P2 (D1) — no identity is introduced there.
+- Portal-read unavailability is D5's typed Unobservable: absence of
+  evidence, never drift.
+- Future path, recorded not taken: when a per-block knob (the priority
+  knob, baseline unknown #4, is the candidate) or an external binder
+  arrives, ADR-0015's revisit trigger promotes `[[crypto]]` to named
+  `[crypto.<name>]` tables — declared identity at the intent surface.
+  The #10 transport change is identity-neutral (the MC assigns ids in
+  allocation order on every transport) and alters nothing here.
+
 ## Risks / Trade-offs
 
 - **[Unsafe debut: wrong struct layout or ioctl misuse]** → the encoded
