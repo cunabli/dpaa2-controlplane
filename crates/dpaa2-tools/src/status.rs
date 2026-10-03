@@ -8,11 +8,11 @@ use core::fmt;
 
 use dpaa2_api::contract::{KernelControl, McControl};
 use dpaa2_api::core::error::Error;
-use dpaa2_api::core::model::{DesiredTopology, DpmacId, Lifecycle, MacAddr, ObservedTopology};
+use dpaa2_api::core::model::{DesiredTopology, DpmacId, Lifecycle, ObservedTopology};
 use dpaa2_api::core::types::ConstructName;
 use dpaa2_api::families::dpmac::{
-    Arbitration, CarrierReading, CounterReadout, MacRelation, PeerObservation, carrier_source,
-    judge_arbitration, judge_mac_relation,
+    Arbitration, CarrierReading, CounterReadout, MacRelation, carrier_source, judge_arbitration,
+    judge_mac_relation_observed, peer_observation_from_root,
 };
 use dpaa2_api::plan::Plan;
 use dpaa2_api::plan::reconcile::reconcile;
@@ -85,7 +85,7 @@ pub struct PortDetail {
     pub name: ConstructName,
     /// Who owns the port, judged from the observed peer ([`judge_arbitration`]).
     pub arbitration: Arbitration,
-    /// How the connected dpni's primary MAC relates to the port ([`judge_mac_relation`]).
+    /// How the connected dpni's primary MAC relates to the port ([`judge_mac_relation_observed`]).
     pub mac_relation: MacRelation,
     /// The link carrier, judged display-only from the read-back ([`CarrierReading`]).
     pub carrier: CarrierReading,
@@ -96,8 +96,8 @@ pub struct PortDetail {
 /// Computes the read-only per-port detail surface from board read-backs (provisioning-cli
 /// spec). For each declared port it reads the dpmac observation
 /// ([`McControl::observe_dpmac`]), judges arbitration from the observed peer dpni
-/// ([`judge_arbitration`]), judges the MAC relation ([`judge_mac_relation`]) from the peer's
-/// primary MAC against the port's burned-in MAC and any intent-declared value, and reads the
+/// ([`judge_arbitration`]), judges the MAC relation ([`judge_mac_relation_observed`]) from the
+/// peer's primary MAC against the port's burned-in MAC and any intent-declared value, and reads the
 /// carrier of the device the arbitration mapping picks ([`carrier_source`] +
 /// [`KernelControl::carrier`]), judging it into a [`CarrierReading`]. Every facet is sourced
 /// from a read-back; none re-derives a judgment.
@@ -125,14 +125,9 @@ pub fn port_details<M: McControl, K: KernelControl>(
         .map(|p| {
             let obs = mc.observe_dpmac(p.dpmac)?;
             let peer = observed.dpni_connected_to(p.dpmac);
-            // A root same-container kernel peer ⇒ KernelOwned; no peer ⇒ Offered (DPMAC-I6).
-            let peer_observation = match peer {
-                Some(_) => PeerObservation::SameContainerKernelPeer,
-                None => PeerObservation::NoPeer,
-            };
-            let arbitration = judge_arbitration(peer_observation);
-            let observed_primary = peer.and_then(|d| d.mac).unwrap_or(MacAddr::ZERO);
-            let mac_relation = judge_mac_relation(observed_primary, obs.mac, p.mac);
+            let arbitration = judge_arbitration(peer_observation_from_root(peer));
+            let mac_relation =
+                judge_mac_relation_observed(peer.and_then(|d| d.mac), obs.mac, p.mac);
             let source = carrier_source(arbitration, p.dpmac, peer.map(|d| d.id));
             let carrier = CarrierReading::from(kernel.carrier(source)?);
             Ok(PortDetail {

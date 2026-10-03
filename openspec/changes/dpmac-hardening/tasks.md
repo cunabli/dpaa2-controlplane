@@ -65,7 +65,7 @@ openspec/changes/archive/2026-10-03-dpmac-typestate/review/synthesis.md §4.
 
 ## 4. Beads B3 + B4 — the zero sentinel settles (e6s.3, e6s.4)
 
-- [ ] 4.1 B3: pure `peer_observation_from_root(Option<&ObservedDpni>)` and
+- [x] 4.1 B3: pure `peer_observation_from_root(Option<&ObservedDpni>)` and
   an `Option<MacAddr>`-taking relation judge in `families/dpmac.rs` with
   unit tests; `status.rs:128-134` consumes them —
   `SameContainerKernelPeer` and `MacAddr::ZERO` leave status.rs

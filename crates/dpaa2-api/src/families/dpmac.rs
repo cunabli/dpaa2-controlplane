@@ -40,7 +40,7 @@
 //! the connection surface and is dpmac-typestate task 2.2's parcel (ADR-0019 edge facet,
 //! ADR-0008 §8). This tile mints no sever/unbind verb and no connect-surface change.
 
-use crate::core::model::{DpmacId, DpniId, MacAddr};
+use crate::core::model::{DpmacId, DpniId, MacAddr, ObservedDpni};
 
 // ---- the port MAC (DPMAC-I2) ----
 
@@ -394,6 +394,20 @@ pub const fn judge_arbitration(peer: PeerObservation) -> Arbitration {
     }
 }
 
+/// Draws the peer-observation alphabet from a root-topology lookup — the display path's
+/// judgment, hoisted out of the imperative shell (MERGED-5; dpmac-hardening design D3). A
+/// same-container kernel peer present in the root reads
+/// [`PeerObservation::SameContainerKernelPeer`]; no root peer reads
+/// [`PeerObservation::NoPeer`]. `CrossContainerPeer` is not derivable from a root-scoped
+/// read, so it never arises here (`docs/baseline/dpmac.md` "Kernel-side behavior"; DPMAC-I6).
+#[must_use]
+pub const fn peer_observation_from_root(peer: Option<&ObservedDpni>) -> PeerObservation {
+    match peer {
+        Some(_) => PeerObservation::SameContainerKernelPeer,
+        None => PeerObservation::NoPeer,
+    }
+}
+
 // ---- the kernel-face link carrier (dpmac-typestate design D6; provisioning-cli spec) ----
 
 /// Which bus device a port's carrier is read from, resolved from its arbitration judgment
@@ -545,6 +559,37 @@ pub fn judge_mac_relation(
     }
 }
 
+/// Whether an observed primary-MAC read-back counts as an observation (dpmac-typestate
+/// design D5; dpmac-hardening design D3). A `None` (unreadable) or all-zeros
+/// ([`MacAddr::is_zero`]) read-back is the bind-window transient — the unset MAC a create
+/// lands until a setter writes it (`models/families/dpni.qnt` `ZERO_MAC`) — which is
+/// absence, not an observation. The one family judgment both the display path
+/// ([`judge_mac_relation_observed`]) and the reconciler's MAC compare consult, so neither
+/// acts on the transient (DPNI-I3 value semantics; the V-MVP-1 rev 1 churn-loop lesson).
+#[must_use]
+pub fn mac_read_back_observed(observed: Option<MacAddr>) -> bool {
+    observed.is_some_and(|m| !m.is_zero())
+}
+
+/// Classifies an *optional* observed primary MAC against the port — [`judge_mac_relation`]
+/// lifted to the display path's `Option<MacAddr>` read-back (MERGED-5; the
+/// dpmac-hardening design D3 single zero-sentinel story). An absent or zeroed read-back is
+/// not an observation ([`mac_read_back_observed`]) and judges [`MacRelation::Pending`]
+/// (never drift); a real read-back delegates to [`judge_mac_relation`]. Pure and sans-io.
+#[must_use]
+pub fn judge_mac_relation_observed(
+    observed: Option<MacAddr>,
+    burned_in: MacAddr,
+    intent_declared: Option<MacAddr>,
+) -> MacRelation {
+    match observed {
+        Some(mac) if mac_read_back_observed(observed) => {
+            judge_mac_relation(mac, burned_in, intent_declared)
+        }
+        _ => MacRelation::Pending,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     //! Parity of the observation surface with `models/families/dpmac.qnt`
@@ -683,6 +728,57 @@ mod tests {
             MacRelation::Mismatched {
                 intent_declared: false
             }
+        );
+    }
+
+    // ---- MERGED-5: the display-path judgments hoisted out of the shell (dpmac-hardening design D3) ----
+
+    fn observed_dpni(mac: Option<MacAddr>) -> ObservedDpni {
+        ObservedDpni {
+            id: DpniId::new(1),
+            label: None,
+            connected_to: Some(DpmacId::new(7)),
+            mac,
+            netdev: None,
+            attributes: std::collections::BTreeMap::new(),
+            cfg_observation: None,
+        }
+    }
+
+    #[test]
+    fn peer_observation_from_root_draws_the_alphabet() {
+        // A root peer reads SameContainerKernelPeer; its absence reads NoPeer (DPMAC-I6).
+        let peer = observed_dpni(Some(PORT_MAC));
+        assert_eq!(
+            peer_observation_from_root(Some(&peer)),
+            PeerObservation::SameContainerKernelPeer
+        );
+        assert_eq!(peer_observation_from_root(None), PeerObservation::NoPeer);
+    }
+
+    #[test]
+    fn mac_read_back_observed_rejects_absent_and_zero() {
+        // An absent or all-zeros read-back is the bind-window transient, not an observation.
+        assert!(!mac_read_back_observed(None));
+        assert!(!mac_read_back_observed(Some(MacAddr::ZERO)));
+        assert!(mac_read_back_observed(Some(PORT_MAC)));
+    }
+
+    #[test]
+    fn judge_mac_relation_observed_absent_and_zero_are_pending() {
+        // None and Some(ZERO) both judge Pending via the one family predicate; a real
+        // read-back delegates to judge_mac_relation (here: Inherited).
+        assert_eq!(
+            judge_mac_relation_observed(None, PORT_MAC, None),
+            MacRelation::Pending
+        );
+        assert_eq!(
+            judge_mac_relation_observed(Some(MacAddr::ZERO), PORT_MAC, Some(DECLARED_MAC)),
+            MacRelation::Pending
+        );
+        assert_eq!(
+            judge_mac_relation_observed(Some(PORT_MAC), PORT_MAC, None),
+            MacRelation::Inherited
         );
     }
 
