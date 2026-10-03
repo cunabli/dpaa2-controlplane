@@ -30,5 +30,5 @@ pub use populate::{
     ChildPopulation, dispatch_child_population, plan_child_population, vfio_handoff,
 };
 pub use probe::observe_bind_probe;
-pub use restool::{DEFAULT_CONTAINER, RestoolMc};
+pub use restool::{DEFAULT_CONTAINER, DpseciObservation, DpseciReadout, RestoolMc};
 pub use runner::{RestoolRunner, RunOutcome, Runner};

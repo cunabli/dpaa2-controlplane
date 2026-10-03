@@ -376,6 +376,63 @@ pub fn parse_dpni_info(stdout: &str) -> RawDpniInfo {
     info
 }
 
+/// What `restool dpseci info dpseci.N` prints, transcribed from `dpseci_commands.c`
+/// `print_dpseci_attr` (lines ~222-253): id, plugged state, the tx/rx queue counts, and
+/// the per-queue tx priorities recovered one `get_tx_queue` at a time.
+///
+/// There is **no** options field, by law: restool fetches the options mask and discards it
+/// at print, so `info` cannot witness `HAS_CG`/`HAS_OPR` (DPSECI-I3 as adapter law,
+/// dpseci-typestate design D5; `docs/baseline/dpseci.md` "Silent-failure notes"). The
+/// options convergence observable rides the raw `GET_ATTR` read
+/// ([`RestoolMc::read_dpseci_attributes`](crate::RestoolMc)), never this parse type — the
+/// wrong observable is made to not even typecheck here. Every field is optional so a
+/// missing or malformed line leaves an honest gap the caller judges.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct RawDpseciInfo {
+    /// The dpseci object id, from `dpseci id:`.
+    pub id: Option<u32>,
+    /// Whether the trailing `plugged state:` token was `plugged` (vs. `unplugged`).
+    pub plugged: Option<bool>,
+    /// `number of transmit queues:` — one `--num-queues` drives both tx and rx on create,
+    /// but the attr block reports them separately.
+    pub num_tx_queues: Option<u8>,
+    /// `number of receive queues:`.
+    pub num_rx_queues: Option<u8>,
+    /// The per-queue tx priorities from the `tx priorities:` CSV line, recovered
+    /// queue-by-queue via `get_tx_queue` (the attr block carries no priorities array,
+    /// `docs/baseline/dpseci.md` "Attribute mutability"). Empty when the line was absent.
+    pub tx_priorities: Vec<u8>,
+}
+
+/// Parses `restool dpseci info dpseci.N` (`dpseci_commands.c` `print_dpseci_attr`).
+///
+/// The options mask is deliberately not recovered — restool never prints it (DPSECI-I3,
+/// dpseci-typestate design D5); [`RawDpseciInfo`] carries no field for it, so a caller
+/// cannot accidentally read `info` as the options observable.
+#[must_use]
+pub fn parse_dpseci_info(stdout: &str) -> RawDpseciInfo {
+    let mut info = RawDpseciInfo::default();
+    for line in stdout.lines() {
+        let line = line.trim();
+        if let Some(rest) = line.strip_prefix("dpseci id:") {
+            info.id = rest.trim().parse::<u32>().ok();
+        } else if let Some(rest) = line.strip_prefix("plugged state:") {
+            info.plugged = Some(rest.trim() == "plugged");
+        } else if let Some(rest) = line.strip_prefix("number of transmit queues:") {
+            info.num_tx_queues = rest.trim().parse::<u8>().ok();
+        } else if let Some(rest) = line.strip_prefix("number of receive queues:") {
+            info.num_rx_queues = rest.trim().parse::<u8>().ok();
+        } else if let Some(rest) = line.strip_prefix("tx priorities:") {
+            info.tx_priorities = rest
+                .trim()
+                .split(',')
+                .filter_map(|p| p.trim().parse::<u8>().ok())
+                .collect();
+        }
+    }
+    info
+}
+
 /// What `restool dpmac info dpmac.N` tells us about a DPMAC.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RawDpmacInfo {
@@ -914,6 +971,36 @@ dpni.7          wan0            plugged
         assert_eq!(attr.num_opr, Some(0));
         // Informational read-back kept off the domain observation (baseline: 0xC00 = WRIOP 3.0.0).
         assert_eq!(attr.wriop_version, Some(0xc00));
+    }
+
+    #[test]
+    fn dpseci_info_parses_counts_plugged_and_priorities_but_no_options() {
+        // print_dpseci_attr order: id, plugged state, tx/rx counts, tx priorities CSV.
+        // No options line to parse — DPSECI-I3 (dpseci-typestate design D5): no such field.
+        let body = "\
+dpseci version: 5.4
+dpseci id: 3
+plugged state: plugged
+number of transmit queues: 3
+number of receive queues: 3
+tx priorities: 2,2,2
+";
+        let info = parse_dpseci_info(body);
+        assert_eq!(info.id, Some(3));
+        assert_eq!(info.plugged, Some(true));
+        assert_eq!(info.num_tx_queues, Some(3));
+        assert_eq!(info.num_rx_queues, Some(3));
+        assert_eq!(info.tx_priorities, vec![2, 2, 2]);
+    }
+
+    #[test]
+    fn dpseci_info_reads_unplugged_and_an_absent_priorities_line() {
+        // An unplugged object and a truncated read: counts present, priorities an honest gap.
+        let info = parse_dpseci_info("dpseci id: 0\nplugged state: unplugged\n");
+        assert_eq!(info.id, Some(0));
+        assert_eq!(info.plugged, Some(false));
+        assert_eq!(info.tx_priorities, [] as [u8; 0]);
+        assert_eq!(info.num_tx_queues, None);
     }
 
     #[test]

@@ -7,13 +7,15 @@ use std::collections::HashMap;
 
 use dpaa2_api::contract::McControl;
 use dpaa2_api::core::error::Error;
-use dpaa2_api::core::model::{DpmacId, DpniId, LinkType, MacAddr};
+use dpaa2_api::core::model::{DpmacId, DpniId, DprcId, LinkType, MacAddr};
 use dpaa2_api::core::types::ConstructName;
 use dpaa2_api::families::dpmac::{self, CounterRead, CounterReadout};
 use dpaa2_api::families::dpni::{DpniCfg, NumQueues, Profile};
-use dpaa2_mc::RestoolMc;
-use dpaa2_mc::parse::{parse_dpmac_info, parse_dpni_info, parse_dpni_object_id, parse_dprc_show};
+use dpaa2_mc::parse::{
+    parse_dpmac_info, parse_dpni_info, parse_dpni_object_id, parse_dprc_show, parse_dpseci_info,
+};
 use dpaa2_mc::runner::{RunOutcome, Runner};
+use dpaa2_mc::{DpseciReadout, RestoolMc};
 
 /// The unsized port-only projection's create block (`num_queues` 0 ⇒ host fallback), the
 /// argument the reconciler's `from_ports` path carries into `create_dpni`.
@@ -36,6 +38,12 @@ const DPNI_UNCONNECTED: &str = include_str!("fixtures/dpni_info_unconnected.txt"
 const DPMAC_PHY: &str = include_str!("fixtures/dpmac_info_phy.txt");
 const DPMAC_FIXED: &str = include_str!("fixtures/dpmac_info_fixed.txt");
 const DPNI_CREATE: &str = include_str!("fixtures/dpni_create_script.txt");
+// Fixture provenance: derived from `dpseci_commands.c` `print_dpseci_attr` (lines ~222-253 —
+// the field order and spellings restool prints) filled with the board-verified production
+// VPP child profile (8-queue/priority-2 dpseci, `docs/baseline/dpseci.md` "Command surface"
+// and the reference environment). There is no options line: restool discards the mask at
+// print (DPSECI-I3, dpseci-typestate design D5).
+const DPSECI_INFO: &str = include_str!("fixtures/dpseci_info.txt");
 
 #[test]
 fn parses_dprc_show_object_lists() {
@@ -69,6 +77,29 @@ fn parses_dpmac_link_types() {
 #[test]
 fn parses_created_object_id() {
     assert_eq!(parse_dpni_object_id(DPNI_CREATE), Some(DpniId::new(7)));
+}
+
+#[test]
+fn parses_dpseci_info_counts_plugged_and_priorities() {
+    // The production child profile reads back: id, plugged, 8/8 queues, all-2 priorities.
+    // The type has no options field (DPSECI-I3, dpseci-typestate design D5).
+    let info = parse_dpseci_info(DPSECI_INFO);
+    assert_eq!(info.id, Some(0));
+    assert_eq!(info.plugged, Some(true));
+    assert_eq!(info.num_tx_queues, Some(8));
+    assert_eq!(info.num_rx_queues, Some(8));
+    assert_eq!(info.tx_priorities, vec![2, 2, 2, 2, 2, 2, 2, 2]);
+}
+
+#[test]
+fn read_dpseci_attributes_is_unobservable_without_portal_access() {
+    // The GET_ATTR read opens /dev/dprc.N; no such node here ⇒ the typed unobservable
+    // outcome, never an error (dpseci-typestate design D5). No board, no /dev access.
+    let mc = RestoolMc::with_runner(RecordingRunner::new(), "dprc.1");
+    let out = mc
+        .read_dpseci_attributes(DprcId::new(60_000), 0)
+        .expect("a missing portal node is unobservable, never an error");
+    assert!(matches!(out, DpseciReadout::Unobservable { .. }), "{out:?}");
 }
 
 /// A runner that returns canned output keyed by the first two args and records the

@@ -8,6 +8,8 @@
 //! spec). netdev observation and driver binding live in [`SysfsKernel`](crate::SysfsKernel).
 
 use std::collections::BTreeMap;
+use std::io;
+use std::path::Path;
 
 use dpaa2_api::contract::McControl;
 use dpaa2_api::core::error::Error;
@@ -24,9 +26,11 @@ use dpaa2_api::families::dpni::{
     NumQueues, NumTcs, OptionMask, QosEntries, RawEscape, VlanFilterEntries,
 };
 use dpaa2_api::families::dprc;
+use dpaa2_api::families::dpseci::{self, DpseciCfg};
 use dpaa2_api::families::pool_lifecycle::{ObservedPoolObject, RawLabel};
 use dpaa2_api::intent::compiled::Container;
 use dpaa2_api::plan::dprc as dprc_plan;
+use dpaa2_hal::{DpseciAttributes, DpseciRead, McPortal, McStatus, Outcome, ReadResponse};
 
 use crate::parse;
 use crate::parse::RawDpniAttr;
@@ -213,6 +217,192 @@ fn dpni_create_args(cfg: &DpniCfg, queues: usize) -> Vec<String> {
         args.push(format!("--options=0x{mask:x}"));
     }
     args
+}
+
+// ---- dpseci create/read paths (dpseci-typestate task 3.2; bead dpaa2-controlplane-lbk.7) ----
+
+/// Each named dpseci option flag's wire bit, from `restool/mc_v10/fsl_dpseci.h`
+/// (`DPSECI_OPT_HAS_CG` 0x20 :54, `DPSECI_OPT_HAS_OPR` 0x40 :59, `DPSECI_OPT_OPR_SHARED`
+/// 0x80 :64). Adapter policy stays in the southbound, not on the domain surface (ADR-0018);
+/// the wildcard-free match forces a new `DpseciOpt` variant to state its bit before it
+/// compiles. This is the single spelling of the bits, shared by the create render
+/// ([`dpseci_options_mask`]) and the `GET_ATTR` decode ([`decode_dpseci_options`]).
+const fn dpseci_opt_bit(opt: dpseci::DpseciOpt) -> u32 {
+    match opt {
+        dpseci::DpseciOpt::HasCg => 0x20,
+        dpseci::DpseciOpt::HasOpr => 0x40,
+        dpseci::DpseciOpt::OprShared => 0x80,
+    }
+}
+
+/// Folds the typed option set into the one raw `u32` the shim emits (`--options=0x…`),
+/// OR-ing each named flag's bit with every escape's raw value — the [`dpni_options_mask`]
+/// idiom. restool parses `--options` via `strtoull`, so hex text is accepted, and this
+/// computed mask is the single source (the shim never emits an option-name token).
+fn dpseci_options_mask(mask: &dpseci::OptionMask) -> u32 {
+    let mut raw = 0u32;
+    for &flag in mask.flags() {
+        raw |= dpseci_opt_bit(flag);
+    }
+    for &escape in mask.escapes() {
+        raw |= escape.raw_value();
+    }
+    raw
+}
+
+/// The inverse of [`dpseci_options_mask`]: decodes a raw `GET_ATTR` options mask into the
+/// typed set, the [`decode_dpni_options`] idiom. A set bit that names no vocabulary flag
+/// makes this return `None` — an honest gap, since the typed set cannot faithfully carry an
+/// unnamed bit (dpseci-typestate design D4). dpseci banks no fixed escape, so an unknown
+/// firmware bit is that gap, never silently merged into the named flags.
+fn decode_dpseci_options(raw: u32) -> Option<dpseci::OptionMask> {
+    let mut mask = dpseci::OptionMask::empty();
+    let mut consumed = 0u32;
+    for flag in dpseci::DpseciOpt::MC_VOCABULARY {
+        let bit = dpseci_opt_bit(flag);
+        if raw & bit != 0 {
+            mask = mask.with_flag(flag);
+            consumed |= bit;
+        }
+    }
+    if raw & !consumed != 0 {
+        return None;
+    }
+    Some(mask)
+}
+
+/// Builds the `restool --script dpseci create …` argument vector from the typed create
+/// block (dpseci-typestate task 3.2). `--num-queues` and `--priorities` are both mandatory
+/// (`docs/baseline/dpseci.md` "Command surface": no defaults); `--priorities` is the CSV of
+/// the per-queue values, whose count equals `--num-queues` by construction
+/// ([`DpseciCfg::new`]). `--options` is one computed raw mask, emitted only when nonzero
+/// (an empty mask sends no flag), never a name token — the [`dpni_create_args`] idiom. The
+/// container arg rides last, as the dprc-script create recipe renders it.
+fn dpseci_create_args(cfg: &DpseciCfg, container: &str) -> Vec<String> {
+    let priorities = cfg
+        .priorities()
+        .iter()
+        .map(u8::to_string)
+        .collect::<Vec<_>>()
+        .join(",");
+    let mut args = vec![
+        "--script".to_owned(),
+        "dpseci".to_owned(),
+        "create".to_owned(),
+        format!("--num-queues={}", cfg.num_queues()),
+        format!("--priorities={priorities}"),
+    ];
+    let mask = dpseci_options_mask(cfg.options());
+    if mask != 0 {
+        args.push(format!("--options=0x{mask:x}"));
+    }
+    args.push(format!("--container={container}"));
+    args
+}
+
+/// A dpseci `GET_ATTR` read-back, or the typed this-run unobservable outcome.
+///
+/// The read rides the `/dev/dprc.N` MC-portal primitive (`dpaa2_hal::portal`, ADR-0021).
+/// When the portal is unavailable — device node missing, or permission denied on an
+/// unprivileged run — the result is [`Unobservable`](Self::Unobservable), never an error:
+/// convergence reads it as absence of evidence, never as drift
+/// (dpseci-typestate design D5). An MC refusal on an *open* portal, by contrast, is a real
+/// [`Error`] worth surfacing.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DpseciReadout {
+    /// `GET_ATTR` completed: the object's attributes.
+    Observed(DpseciObservation),
+    /// The portal was unavailable this run; the reason is carried for display only.
+    Unobservable {
+        /// Why the read could not run (device missing / permission denied).
+        reason: String,
+    },
+}
+
+/// The attributes a dpseci `GET_ATTR` witnesses (`dpaa2_hal::DpseciAttributes` mapped into the
+/// domain vocabulary). This is the only observable for the options mask — restool `info`
+/// discards it (DPSECI-I3, dpseci-typestate design D5), so the reconciler judges `HAS_CG`
+/// drift from [`options`](Self::options) here and never from the `info` parse.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DpseciObservation {
+    /// The dpseci object id `GET_ATTR` echoed.
+    pub id: u32,
+    /// Queues towards the SEC.
+    pub num_tx_queues: u8,
+    /// Queues back from the SEC.
+    pub num_rx_queues: u8,
+    /// The options mask decoded into the typed vocabulary, or `None` when a set bit names no
+    /// vocabulary flag — the honest gap (`decode_dpseci_options`).
+    pub options: Option<dpseci::OptionMask>,
+}
+
+/// Maps hal's decoded `GET_ATTR` payload into the domain observation (ADR-0018: policy maps,
+/// hal stays untyped). The raw options mask is decoded here, in the shim.
+fn map_dpseci_attributes(attr: DpseciAttributes) -> DpseciObservation {
+    DpseciObservation {
+        id: attr.id,
+        num_tx_queues: attr.num_tx_queues,
+        num_rx_queues: attr.num_rx_queues,
+        options: decode_dpseci_options(attr.options),
+    }
+}
+
+/// Maps a portal `io::Error` into the shim vocabulary (ADR-0018). Unavailability — a
+/// missing device node (`NotFound`) or a permission-denied open/whitelist `-EACCES`
+/// (`PermissionDenied`) — is the typed [`DpseciReadout::Unobservable`], never an error
+/// (dpseci-typestate design D5). Any other transport failure is a real [`Error::Backend`].
+fn classify_portal_io(e: &io::Error, ctx: &str) -> Result<DpseciReadout, Error> {
+    match e.kind() {
+        io::ErrorKind::NotFound | io::ErrorKind::PermissionDenied => {
+            Ok(DpseciReadout::Unobservable {
+                reason: format!("dpseci MC-portal unavailable ({ctx}): {e}"),
+            })
+        }
+        _ => Err(Error::Backend(format!("dpseci MC-portal {ctx}: {e}"))),
+    }
+}
+
+/// An MC non-OK status on an *open* portal: a real refusal worth surfacing, not
+/// unobservability (dpseci-typestate design D5).
+fn portal_mc_refusal(status: McStatus, ctx: &str) -> Error {
+    Error::Backend(format!(
+        "dpseci {ctx} refused by the MC on an open portal: {status:?}"
+    ))
+}
+
+/// Runs Open → `GetAttributes` → Close against the MC portal at `path`, mapping hal's three
+/// outcomes (dpseci-typestate task 3.2; ADR-0018). The session token is closed best-effort
+/// even when `GetAttributes` faults (ADR-0021). Pulled out as a free function so the
+/// unobservable arm is unit-testable against a nonexistent device path with no board.
+pub(crate) fn read_dpseci_over_portal(
+    path: impl AsRef<Path>,
+    dpseci_id: u32,
+) -> Result<DpseciReadout, Error> {
+    let portal = match McPortal::open(path) {
+        Ok(p) => p,
+        Err(e) => return classify_portal_io(&e, "open"),
+    };
+    let token = match portal.execute(DpseciRead::Open { dpseci_id }) {
+        Ok(Outcome::Response(ReadResponse::Opened(t))) => t,
+        Ok(Outcome::Status(s)) => return Err(portal_mc_refusal(s, "OPEN")),
+        Ok(Outcome::Response(other)) => {
+            return Err(Error::Backend(format!("dpseci OPEN: unexpected {other:?}")));
+        }
+        Err(e) => return classify_portal_io(&e, "OPEN"),
+    };
+    let attr = portal.execute(DpseciRead::GetAttributes { token });
+    // Best-effort close: the token must be released whether or not GET_ATTR succeeded.
+    let _ = portal.execute(DpseciRead::Close { token });
+    match attr {
+        Ok(Outcome::Response(ReadResponse::Attributes(a))) => {
+            Ok(DpseciReadout::Observed(map_dpseci_attributes(a)))
+        }
+        Ok(Outcome::Status(s)) => Err(portal_mc_refusal(s, "GET_ATTR")),
+        Ok(Outcome::Response(other)) => Err(Error::Backend(format!(
+            "dpseci GET_ATTR: unexpected {other:?}"
+        ))),
+        Err(e) => classify_portal_io(&e, "GET_ATTR"),
+    }
 }
 
 /// Renders a child-DPRC option mask into the `--options=` argument for `dprc create`,
@@ -570,6 +760,88 @@ impl<R: Runner> RestoolMc<R> {
         } else {
             usize::from(cfg.num_queues.get())
         }
+    }
+}
+
+/// The dpseci create/read paths (dpseci-typestate task 3.2; bead dpaa2-controlplane-lbk.7).
+///
+/// These ride as inherent methods, not [`McControl`] verbs: wiring dpseci create/destroy
+/// into the generic convergence loop ([`crate::populate`]) would need a new trait method on
+/// `dpaa2-api`'s `McControl` seam, which this parcel's scope fence forbids. The paths here
+/// are reachable and fixture-tested directly; the convergence seam is a follow-on.
+impl<R: Runner> RestoolMc<R> {
+    /// `restool --script dpseci create …` → plug into `container` → stamp `label`, returning
+    /// the created [`ObjectRef`] (the `create_and_plug` sequence a pool object follows, since
+    /// a dpseci is anonymous and labelled, not identity-bearing). The typed [`DpseciCfg`]
+    /// renders verbatim via `dpseci_create_args` — the compiled block the plan carries
+    /// (dpaa2-api's `Attributes::Dpseci`), never re-derived here.
+    ///
+    /// A re-observation of the created object is the caller's convergence oracle, as with
+    /// every family: presence via [`observe_pool`](McControl::observe_pool) and the options
+    /// mask via [`read_dpseci_attributes`](Self::read_dpseci_attributes); the exit code is
+    /// never the verdict (`docs/baseline/dpseci.md` "Silent-failure notes").
+    ///
+    /// # Errors
+    /// Returns [`Error::McStatus`]/[`Error::RestoolGuard`] on a refusal, [`Error::Backend`]
+    /// on a dead spawn, or [`Error::Parse`] when the created id cannot be read back.
+    pub fn create_dpseci_in(
+        &self,
+        container: Option<DprcId>,
+        cfg: &DpseciCfg,
+        label: &ConstructName,
+    ) -> Result<ObjectRef, Error> {
+        let args = dpseci_create_args(cfg, &self.container_name(container));
+        let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
+        self.pool_create(Family::Dpseci, &arg_refs, label, container)
+    }
+
+    /// Destroys a dpseci and verifies destruction by **re-observing presence**, not by the
+    /// exit code: in a child container restool overwrites the destroy error with the
+    /// `dprc_close` result, so a failed destroy can report success while the object survives
+    /// (`docs/baseline/dpseci.md` "Silent-failure notes"; `DoD` #1). The verb still funnels
+    /// through `run_verb`, so a real MC refusal (driver-bound, `-EBUSY`)
+    /// stays a typed [`Error::McStatus`]/[`Error::RestoolGuard`] — the dpni/pool destroy
+    /// precedent — but the verdict comes from the follow-up `dprc show`.
+    ///
+    /// # Errors
+    /// Returns [`Error::McStatus`]/[`Error::RestoolGuard`] on a refusal, or [`Error::Backend`]
+    /// when the object is still present after a success-reported destroy.
+    pub fn destroy_dpseci(
+        &self,
+        container: Option<DprcId>,
+        dpseci: &ObjectRef,
+    ) -> Result<(), Error> {
+        self.run_verb(&[Family::Dpseci.as_str(), "destroy", &dpseci.to_string()])?;
+        self.sync()?;
+        let show = self.run_verb(&["dprc", "show", &self.container_name(container)])?;
+        let survived = parse::parse_dprc_rows(&show)
+            .into_iter()
+            .any(|r| r.family == Family::Dpseci && r.num == dpseci.ordinal());
+        if survived {
+            return Err(Error::Backend(format!(
+                "dpseci destroy reported success but {dpseci} is still present \
+                 (silent child-container destroy, docs/baseline/dpseci.md)"
+            )));
+        }
+        Ok(())
+    }
+
+    /// Reads a dpseci's attributes over the `/dev/dprc.N` MC portal (`dpaa2_hal::portal`,
+    /// ADR-0021): Open → `GetAttributes` → Close, returning the typed attributes or the typed
+    /// [`DpseciReadout::Unobservable`] when the portal is unavailable this run
+    /// (dpseci-typestate task 3.2). `portal` is the container whose device node carries the
+    /// read — the options mask observable restool `info` cannot give (DPSECI-I3).
+    ///
+    /// # Errors
+    /// Returns [`Error::Backend`] on an MC refusal over an open portal or an unexpected
+    /// transport failure; portal *unavailability* (missing node / permission denied) is the
+    /// typed unobservable outcome, never an error (dpseci-typestate design D5).
+    pub fn read_dpseci_attributes(
+        &self,
+        portal: DprcId,
+        dpseci_id: u32,
+    ) -> Result<DpseciReadout, Error> {
+        read_dpseci_over_portal(format!("/dev/dprc.{}", portal.into_inner()), dpseci_id)
     }
 }
 
@@ -2304,6 +2576,185 @@ mod tests {
             mc.pool_destroy(&ObjectRef::new(Family::Dpbp, 3))
                 .expect_err("signal death"),
             Error::Backend(_)
+        ));
+    }
+
+    // ---- dpseci create/read paths (dpseci-typestate task 3.2; bead dpaa2-controlplane-lbk.7) ----
+
+    /// The 3-queue `HAS_CG` plan the derivation emits (dpseci-typestate design D3).
+    fn three_queue_has_cg() -> DpseciCfg {
+        DpseciCfg::new(
+            dpseci::OptionMask::empty().with_flag(dpseci::DpseciOpt::HasCg),
+            3,
+            vec![2, 2, 2],
+        )
+        .expect("3 queues, all-2 priorities, HAS_CG — in the restool envelope")
+    }
+
+    #[test]
+    fn dpseci_create_args_render_the_three_queue_has_cg_plan() {
+        // The acceptance render: --num-queues=3 --priorities=2,2,2 --options=0x20 + container.
+        // HAS_CG = 0x20 (restool/mc_v10/fsl_dpseci.h:54); all-2 is the deployed profile (dpseci-typestate design D3).
+        assert_eq!(
+            dpseci_create_args(&three_queue_has_cg(), "dprc.5"),
+            vec![
+                "--script",
+                "dpseci",
+                "create",
+                "--num-queues=3",
+                "--priorities=2,2,2",
+                "--options=0x20",
+                "--container=dprc.5",
+            ]
+        );
+    }
+
+    #[test]
+    fn dpseci_create_args_omit_options_when_the_mask_is_empty() {
+        // An empty mask sends no --options flag; --num-queues/--priorities are mandatory.
+        let cfg = DpseciCfg::new(dpseci::OptionMask::empty(), 2, vec![2, 2]).unwrap();
+        let args = dpseci_create_args(&cfg, "dprc.1");
+        assert!(!args.iter().any(|a| a.starts_with("--options")));
+        assert!(args.contains(&"--priorities=2,2".to_owned()));
+        assert!(args.contains(&"--num-queues=2".to_owned()));
+    }
+
+    #[test]
+    fn dpseci_options_mask_folds_and_decodes_the_named_bits() {
+        // fsl_dpseci.h: HAS_CG 0x20, HAS_OPR 0x40, OPR_SHARED 0x80.
+        let all = dpseci::OptionMask::empty()
+            .with_flag(dpseci::DpseciOpt::HasCg)
+            .with_flag(dpseci::DpseciOpt::HasOpr)
+            .with_flag(dpseci::DpseciOpt::OprShared);
+        assert_eq!(dpseci_options_mask(&all), 0xe0);
+        assert_eq!(decode_dpseci_options(0xe0), Some(all));
+        assert_eq!(
+            decode_dpseci_options(0x20),
+            Some(dpseci::OptionMask::empty().with_flag(dpseci::DpseciOpt::HasCg))
+        );
+        // A bit outside the vocabulary (0x100) is an honest gap, never a guess.
+        assert_eq!(decode_dpseci_options(0x120), None);
+        assert_eq!(decode_dpseci_options(0), Some(dpseci::OptionMask::empty()));
+    }
+
+    #[test]
+    fn map_dpseci_attributes_decodes_has_cg_from_the_raw_mask() {
+        let obs = map_dpseci_attributes(DpseciAttributes {
+            id: 5,
+            num_tx_queues: 16,
+            num_rx_queues: 16,
+            options: 0x20,
+        });
+        assert_eq!(obs.id, 5);
+        assert_eq!(obs.num_tx_queues, 16);
+        assert_eq!(obs.num_rx_queues, 16);
+        assert!(
+            obs.options
+                .expect("named bits decode")
+                .contains(dpseci::DpseciOpt::HasCg)
+        );
+    }
+
+    #[test]
+    fn portal_read_is_unobservable_on_a_missing_node() {
+        // No /dev access needed: a nonexistent node is the unavailable-portal arm (dpseci-typestate design D5).
+        let out = read_dpseci_over_portal("/dev/dprc.nonexistent-dpseci-fixture", 0)
+            .expect("a missing node is unobservable, never an error");
+        assert!(matches!(out, DpseciReadout::Unobservable { .. }), "{out:?}");
+    }
+
+    #[test]
+    fn create_dpseci_in_renders_create_then_plug_then_stamp() {
+        let runner = ScriptedRunner::new(vec![
+            (
+                "--script dpseci create --num-queues=3 --priorities=2,2,2 --options=0x20 \
+                 --container=dprc.5",
+                ok("dpseci.4\n"),
+            ),
+            ("dprc assign dprc.5 --object=dpseci.4 --plugged=1", ok("")),
+            ("dprc set-label dpseci.4 --label=vpp", ok("")),
+        ]);
+        let mc = RestoolMc::with_runner(runner, DEFAULT_CONTAINER);
+        let obj = mc
+            .create_dpseci_in(
+                Some(DprcId::new(5)),
+                &three_queue_has_cg(),
+                &ConstructName::from("vpp"),
+            )
+            .expect("create dpseci");
+        assert_eq!(obj, ObjectRef::new(Family::Dpseci, 4));
+        let calls = mc.runner().calls();
+        assert_eq!(
+            calls[0],
+            vec![
+                "--script",
+                "dpseci",
+                "create",
+                "--num-queues=3",
+                "--priorities=2,2,2",
+                "--options=0x20",
+                "--container=dprc.5"
+            ]
+        );
+        assert_eq!(
+            calls[1],
+            vec![
+                "dprc",
+                "assign",
+                "dprc.5",
+                "--object=dpseci.4",
+                "--plugged=1"
+            ]
+        );
+        assert_eq!(
+            calls[2],
+            vec!["dprc", "set-label", "dpseci.4", "--label=vpp"]
+        );
+    }
+
+    #[test]
+    fn destroy_dpseci_verifies_absence_by_presence_readback() {
+        // Exit 0 is not the verdict: a dprc show with no dpseci row confirms destruction.
+        let empty = dprc_show(&["dpbp.0                          unplugged"]);
+        let runner = ScriptedRunner::new(vec![
+            ("dpseci destroy dpseci.4", ok("dpseci.4 is destroyed\n")),
+            ("dprc sync", ok("")),
+            ("dprc show dprc.5", ok(&empty)),
+        ]);
+        let mc = RestoolMc::with_runner(runner, DEFAULT_CONTAINER);
+        mc.destroy_dpseci(Some(DprcId::new(5)), &ObjectRef::new(Family::Dpseci, 4))
+            .expect("destroy verified by presence");
+    }
+
+    #[test]
+    fn destroy_dpseci_errors_when_the_object_survives_a_success_report() {
+        // The child-container silent failure: exit 0 but the object is still listed.
+        let still = dprc_show(&["dpseci.4        vpp             plugged"]);
+        let runner = ScriptedRunner::new(vec![
+            ("dpseci destroy dpseci.4", ok("dpseci.4 is destroyed\n")),
+            ("dprc sync", ok("")),
+            ("dprc show dprc.5", ok(&still)),
+        ]);
+        let mc = RestoolMc::with_runner(runner, DEFAULT_CONTAINER);
+        let err = mc
+            .destroy_dpseci(Some(DprcId::new(5)), &ObjectRef::new(Family::Dpseci, 4))
+            .expect_err("object survived the destroy");
+        assert!(matches!(err, Error::Backend(_)), "got {err:?}");
+    }
+
+    #[test]
+    fn destroy_dpseci_driver_bound_is_a_typed_mc_status() {
+        // A driver-bound dpseci bounces -EBUSY through the run_verb funnel before any
+        // presence read — the dpni/pool destroy precedent (the typed refusal shape).
+        let runner = ScriptedRunner::new(vec![(
+            "dpseci destroy dpseci.4",
+            refused("error: dpseci_destroy() failed: Device is busy (0x10)"),
+        )]);
+        let mc = RestoolMc::with_runner(runner, DEFAULT_CONTAINER);
+        assert!(matches!(
+            mc.destroy_dpseci(Some(DprcId::new(5)), &ObjectRef::new(Family::Dpseci, 4))
+                .expect_err("busy"),
+            Error::McStatus { status: 0x10 }
         ));
     }
 }

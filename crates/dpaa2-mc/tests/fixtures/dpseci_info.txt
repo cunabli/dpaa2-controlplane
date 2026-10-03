@@ -1,0 +1,6 @@
+dpseci version: 5.4
+dpseci id: 0
+plugged state: plugged
+number of transmit queues: 8
+number of receive queues: 8
+tx priorities: 2,2,2,2,2,2,2,2

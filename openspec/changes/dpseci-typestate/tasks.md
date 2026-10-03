@@ -39,12 +39,11 @@ rust-developer; every parcel spec carries the settled-decisions block.
   command sum (OPEN / GET_ATTR / GET_API_VERSION / DPSECI_GET_TX_QUEUE
   / CLOSE), confined unsafe with layouts asserted against the pinned
   sources, three typed outcomes, fixture tests; policy-free.
-- [ ] 3.2 `dpaa2-mc` dpseci paths: restool create/destroy dispatch
+- [x] 3.2 `dpaa2-mc` dpseci paths: restool create/destroy dispatch
   (mandatory pair, computed options mask, presence read-back on
   destroy), `info` parse with no options field, GET_ATTR read path over
   the hal primitive with typed unobservable outcome; shim tests against
   captured fixtures.
-
 ## 4. Product
 
 - [ ] 4.1 `dpaa2ctl status --detail` dpseci row (queues, priorities,
