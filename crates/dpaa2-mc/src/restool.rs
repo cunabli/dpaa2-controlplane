@@ -11,7 +11,7 @@ use std::collections::BTreeMap;
 use std::io;
 use std::path::Path;
 
-use dpaa2_api::contract::McControl;
+use dpaa2_api::contract::{DpseciDetail, DpseciPortalReadout, McControl};
 use dpaa2_api::core::error::Error;
 use dpaa2_api::core::family::{DERIVED_FAMILIES, Family};
 use dpaa2_api::core::inventory::{Availability, Ceiling, DpmacOffer, Inventory};
@@ -30,7 +30,9 @@ use dpaa2_api::families::dpseci::{self, DpseciCfg};
 use dpaa2_api::families::pool_lifecycle::{ObservedPoolObject, RawLabel};
 use dpaa2_api::intent::compiled::Container;
 use dpaa2_api::plan::dprc as dprc_plan;
-use dpaa2_hal::{DpseciAttributes, DpseciRead, McPortal, McStatus, Outcome, ReadResponse};
+use dpaa2_hal::{
+    ApiVersion, DpseciAttributes, DpseciRead, McPortal, McStatus, Outcome, ReadResponse,
+};
 
 use crate::parse;
 use crate::parse::RawDpniAttr;
@@ -334,16 +336,24 @@ pub struct DpseciObservation {
     /// The options mask decoded into the typed vocabulary, or `None` when a set bit names no
     /// vocabulary flag — the honest gap (`decode_dpseci_options`).
     pub options: Option<dpseci::OptionMask>,
+    /// The dpseci API major version `GET_API_VERSION` echoed, read in the same portal session
+    /// as the attributes (dpseci-typestate task 4.1; `GET_API_VERSION` is whitelist row 43).
+    pub api_major: u16,
+    /// The dpseci API minor version `GET_API_VERSION` echoed.
+    pub api_minor: u16,
 }
 
-/// Maps hal's decoded `GET_ATTR` payload into the domain observation (ADR-0018: policy maps,
-/// hal stays untyped). The raw options mask is decoded here, in the shim.
-fn map_dpseci_attributes(attr: DpseciAttributes) -> DpseciObservation {
+/// Maps hal's decoded `GET_ATTR` and `GET_API_VERSION` payloads into the one domain
+/// observation (ADR-0018: policy maps, hal stays untyped). Both ride one portal session, so
+/// the version folds in beside the attributes here. The raw options mask is decoded in the shim.
+fn map_dpseci_attributes(attr: DpseciAttributes, version: ApiVersion) -> DpseciObservation {
     DpseciObservation {
         id: attr.id,
         num_tx_queues: attr.num_tx_queues,
         num_rx_queues: attr.num_rx_queues,
         options: decode_dpseci_options(attr.options),
+        api_major: version.major,
+        api_minor: version.minor,
     }
 }
 
@@ -370,10 +380,12 @@ fn portal_mc_refusal(status: McStatus, ctx: &str) -> Error {
     ))
 }
 
-/// Runs Open → `GetAttributes` → Close against the MC portal at `path`, mapping hal's three
-/// outcomes (dpseci-typestate task 3.2; ADR-0018). The session token is closed best-effort
-/// even when `GetAttributes` faults (ADR-0021). Pulled out as a free function so the
-/// unobservable arm is unit-testable against a nonexistent device path with no board.
+/// Runs Open → `GetAttributes` → `GetApiVersion` → Close against the MC portal at `path`,
+/// mapping hal's three outcomes (dpseci-typestate task 3.2; task 4.1 adds the version leg;
+/// ADR-0018). Both reads ride one session — the status row shows the options mask and the
+/// API version together or not at all — and the token is closed best-effort even when a read
+/// faults (ADR-0021). Pulled out as a free function so the unobservable arm is unit-testable
+/// against a nonexistent device path with no board.
 pub(crate) fn read_dpseci_over_portal(
     path: impl AsRef<Path>,
     dpseci_id: u32,
@@ -391,18 +403,32 @@ pub(crate) fn read_dpseci_over_portal(
         Err(e) => return classify_portal_io(&e, "OPEN"),
     };
     let attr = portal.execute(DpseciRead::GetAttributes { token });
-    // Best-effort close: the token must be released whether or not GET_ATTR succeeded.
+    let version = portal.execute(DpseciRead::GetApiVersion);
+    // Best-effort close: the token must be released whether or not the reads succeeded.
     let _ = portal.execute(DpseciRead::Close { token });
-    match attr {
-        Ok(Outcome::Response(ReadResponse::Attributes(a))) => {
-            Ok(DpseciReadout::Observed(map_dpseci_attributes(a)))
+    let attr = match attr {
+        Ok(Outcome::Response(ReadResponse::Attributes(a))) => a,
+        Ok(Outcome::Status(s)) => return Err(portal_mc_refusal(s, "GET_ATTR")),
+        Ok(Outcome::Response(other)) => {
+            return Err(Error::Backend(format!(
+                "dpseci GET_ATTR: unexpected {other:?}"
+            )));
         }
-        Ok(Outcome::Status(s)) => Err(portal_mc_refusal(s, "GET_ATTR")),
-        Ok(Outcome::Response(other)) => Err(Error::Backend(format!(
-            "dpseci GET_ATTR: unexpected {other:?}"
-        ))),
-        Err(e) => classify_portal_io(&e, "GET_ATTR"),
-    }
+        Err(e) => return classify_portal_io(&e, "GET_ATTR"),
+    };
+    let version = match version {
+        Ok(Outcome::Response(ReadResponse::ApiVersion(v))) => v,
+        Ok(Outcome::Status(s)) => return Err(portal_mc_refusal(s, "GET_API_VERSION")),
+        Ok(Outcome::Response(other)) => {
+            return Err(Error::Backend(format!(
+                "dpseci GET_API_VERSION: unexpected {other:?}"
+            )));
+        }
+        Err(e) => return classify_portal_io(&e, "GET_API_VERSION"),
+    };
+    Ok(DpseciReadout::Observed(map_dpseci_attributes(
+        attr, version,
+    )))
 }
 
 /// Renders a child-DPRC option mask into the `--options=` argument for `dprc create`,
@@ -843,6 +869,21 @@ impl<R: Runner> RestoolMc<R> {
     ) -> Result<DpseciReadout, Error> {
         read_dpseci_over_portal(format!("/dev/dprc.{}", portal.into_inner()), dpseci_id)
     }
+
+    /// `restool dpseci info dpseci.N` through the one `run_verb` funnel, parsed into the
+    /// queue counts and per-queue tx priorities (dpseci-typestate task 4.1; the `observe`
+    /// `dpni info`/`dpmac info` precedent). This is the restool-witnessable half of the
+    /// status detail row; the options mask is *not* here, by law — restool `info` discards it
+    /// (DPSECI-I3), so the mask observable rides [`Self::read_dpseci_attributes`], and
+    /// [`RawDpseciInfo`](parse::RawDpseciInfo) carries no field for it.
+    ///
+    /// # Errors
+    /// Returns [`Error::McStatus`]/[`Error::RestoolGuard`] on a refusal, or [`Error::Backend`]
+    /// on a dead spawn — the one `run_verb` error path.
+    pub fn observe_dpseci_info(&self, dpseci: &ObjectRef) -> Result<parse::RawDpseciInfo, Error> {
+        let out = self.run_verb(&["dpseci", "info", &dpseci.to_string()])?;
+        Ok(parse::parse_dpseci_info(&out))
+    }
 }
 
 impl<R: Runner> McControl for RestoolMc<R> {
@@ -1044,6 +1085,27 @@ impl<R: Runner> McControl for RestoolMc<R> {
             mac,
             max_rate,
             counters: classify_dpmac_counters(&raw.counters),
+        })
+    }
+
+    fn observe_dpseci(&self, container: DprcId, dpseci: ObjectRef) -> Result<DpseciDetail, Error> {
+        // The restool-witnessable half (queues/priorities) through the info spawn, then the
+        // privileged portal half (options + version) via the same read_dpseci_attributes path;
+        // the two faces assemble into the status detail row (dpseci-typestate task 4.1).
+        let info = self.observe_dpseci_info(&dpseci)?;
+        let portal = match self.read_dpseci_attributes(container, dpseci.ordinal())? {
+            DpseciReadout::Observed(obs) => DpseciPortalReadout::Observed {
+                options: obs.options,
+                api_major: obs.api_major,
+                api_minor: obs.api_minor,
+            },
+            DpseciReadout::Unobservable { reason } => DpseciPortalReadout::Unobservable { reason },
+        };
+        Ok(DpseciDetail {
+            num_tx_queues: info.num_tx_queues,
+            num_rx_queues: info.num_rx_queues,
+            tx_priorities: info.tx_priorities,
+            portal,
         })
     }
 
@@ -2638,16 +2700,21 @@ mod tests {
     }
 
     #[test]
-    fn map_dpseci_attributes_decodes_has_cg_from_the_raw_mask() {
-        let obs = map_dpseci_attributes(DpseciAttributes {
-            id: 5,
-            num_tx_queues: 16,
-            num_rx_queues: 16,
-            options: 0x20,
-        });
+    fn map_dpseci_attributes_decodes_has_cg_and_folds_the_version() {
+        // GET_ATTR decodes the options mask; GET_API_VERSION folds in from the same session.
+        let obs = map_dpseci_attributes(
+            DpseciAttributes {
+                id: 5,
+                num_tx_queues: 16,
+                num_rx_queues: 16,
+                options: 0x20,
+            },
+            ApiVersion { major: 5, minor: 4 },
+        );
         assert_eq!(obs.id, 5);
         assert_eq!(obs.num_tx_queues, 16);
         assert_eq!(obs.num_rx_queues, 16);
+        assert_eq!((obs.api_major, obs.api_minor), (5, 4));
         assert!(
             obs.options
                 .expect("named bits decode")
@@ -2658,9 +2725,46 @@ mod tests {
     #[test]
     fn portal_read_is_unobservable_on_a_missing_node() {
         // No /dev access needed: a nonexistent node is the unavailable-portal arm (dpseci-typestate design D5).
+        // The GET_API_VERSION leg rides the same session, so it shares this arm.
         let out = read_dpseci_over_portal("/dev/dprc.nonexistent-dpseci-fixture", 0)
             .expect("a missing node is unobservable, never an error");
         assert!(matches!(out, DpseciReadout::Unobservable { .. }), "{out:?}");
+    }
+
+    #[test]
+    fn observe_dpseci_info_parses_queues_and_priorities() {
+        // The restool-witnessable half: print_dpseci_attr order, no options line (DPSECI-I3).
+        let body = "dpseci id: 4\nplugged state: plugged\nnumber of transmit queues: 3\n\
+                    number of receive queues: 3\ntx priorities: 2,2,2\n";
+        let runner = ScriptedRunner::canned(&[("dpseci info dpseci.4", body)]);
+        let mc = RestoolMc::with_runner(runner, DEFAULT_CONTAINER);
+        let info = mc
+            .observe_dpseci_info(&ObjectRef::new(Family::Dpseci, 4))
+            .expect("info parse");
+        assert_eq!(info.num_tx_queues, Some(3));
+        assert_eq!(info.num_rx_queues, Some(3));
+        assert_eq!(info.tx_priorities, vec![2, 2, 2]);
+        assert_eq!(mc.runner().calls()[0], vec!["dpseci", "info", "dpseci.4"]);
+    }
+
+    #[test]
+    fn observe_dpseci_reads_info_and_honest_unknown_portal() {
+        // The seam folds the info half with the portal half; a container whose /dev node is
+        // absent reads the honest-unknown portal arm, never an error (dpseci-typestate task 4.1).
+        let body = "dpseci id: 4\nnumber of transmit queues: 3\nnumber of receive queues: 3\n\
+                    tx priorities: 2,2,2\n";
+        let runner = ScriptedRunner::canned(&[("dpseci info dpseci.4", body)]);
+        let mc = RestoolMc::with_runner(runner, DEFAULT_CONTAINER);
+        let detail = mc
+            .observe_dpseci(DprcId::new(64999), ObjectRef::new(Family::Dpseci, 4))
+            .expect("detail; absent portal is unobservable, not an error");
+        assert_eq!(detail.num_tx_queues, Some(3));
+        assert_eq!(detail.tx_priorities, vec![2, 2, 2]);
+        assert!(
+            matches!(detail.portal, DpseciPortalReadout::Unobservable { .. }),
+            "{:?}",
+            detail.portal
+        );
     }
 
     #[test]

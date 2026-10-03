@@ -27,7 +27,9 @@ use dpaa2_api::plan::pool::PoolDrift;
 use dpaa2_api::plan::populate::ChildPlan;
 use dpaa2_api::plan::{Class, Plan, Transition};
 
-use crate::status::PortDetail;
+use dpaa2_api::contract::DpseciPortalReadout;
+
+use crate::status::{DpseciRow, PortDetail};
 
 /// Renders the whole dry-run text: the compiled objects with their provenance trees
 /// and edges, the transitions `reconcile` would execute, the plan-only report, and
@@ -554,6 +556,83 @@ pub fn render_port_details(details: &[PortDetail]) -> String {
         render_counters(&mut out, &d.counters);
     }
     out
+}
+
+/// Renders the read-only dpseci detail view (dpseci-typestate task 4.1), mirroring
+/// [`render_port_details`]: one line per object with its queue counts, tx priorities, and
+/// plugged/drawn binding state, then the privileged portal readout (options + API version) or
+/// the honest-unknown line when the portal was unavailable this run. The header states the view
+/// is read-only and never gates convergence, so the same text serves `status --detail` without
+/// touching the exit code (dpseci-typestate design D5).
+#[must_use]
+pub fn render_dpseci_details(rows: &[DpseciRow]) -> String {
+    let mut out = String::new();
+    let _ = writeln!(
+        out,
+        "dpseci detail ({} object(s)) [read-only; never gates convergence]:",
+        rows.len()
+    );
+    if rows.is_empty() {
+        let _ = writeln!(out, "  (none)");
+    }
+    for r in rows {
+        let _ = writeln!(
+            out,
+            "  {object} queues tx={tx}/rx={rx} tx-priorities=[{prios}] plugged={plugged} drawn={drawn}",
+            object = r.object,
+            tx = render_opt_queue(r.detail.num_tx_queues),
+            rx = render_opt_queue(r.detail.num_rx_queues),
+            prios = render_priorities(&r.detail.tx_priorities),
+            plugged = r.plugged,
+            drawn = r.drawn,
+        );
+        render_dpseci_portal(&mut out, &r.detail.portal);
+    }
+    out
+}
+
+/// A queue count the restool `info` parse witnessed, or the crate's absent-read idiom (`-`, the
+/// same honest-unknown spelling the status netdev cell uses) when the line was absent.
+fn render_opt_queue(count: Option<u8>) -> String {
+    count.map_or_else(|| "-".to_owned(), |n| n.to_string())
+}
+
+/// The per-queue tx priorities as a comma-joined list (empty when the line was absent).
+fn render_priorities(prios: &[u8]) -> String {
+    prios
+        .iter()
+        .map(u8::to_string)
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+/// Renders the dpseci portal readout under its object line. An [`DpseciPortalReadout::Observed`]
+/// prints the decoded option flag names and the API version; `None` options (a set bit named no
+/// vocabulary flag — the honest gap) print as `unknown`. An
+/// [`DpseciPortalReadout::Unobservable`] prints the honest-unknown line carrying its reason —
+/// the carrier `no-observable (<reason>)` idiom — never an error (dpseci-typestate design D5).
+fn render_dpseci_portal(out: &mut String, portal: &DpseciPortalReadout) {
+    match portal {
+        DpseciPortalReadout::Observed {
+            options,
+            api_major,
+            api_minor,
+        } => {
+            let opts = match options {
+                Some(mask) => mask
+                    .flags()
+                    .iter()
+                    .map(|f| f.name())
+                    .collect::<Vec<_>>()
+                    .join(","),
+                None => "unknown".to_owned(),
+            };
+            let _ = writeln!(out, "    options=[{opts}] version={api_major}.{api_minor}");
+        }
+        DpseciPortalReadout::Unobservable { reason } => {
+            let _ = writeln!(out, "    portal=no-observable ({reason})");
+        }
+    }
 }
 
 /// The operator token for a carrier reading. `NoObservable` renders as the driverless-port

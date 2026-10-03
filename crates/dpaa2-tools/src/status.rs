@@ -6,9 +6,12 @@
 
 use core::fmt;
 
-use dpaa2_api::contract::{KernelControl, McControl};
+use dpaa2_api::contract::{DpseciDetail, KernelControl, McControl};
 use dpaa2_api::core::error::Error;
-use dpaa2_api::core::model::{DesiredTopology, DpmacId, Lifecycle, ObservedTopology};
+use dpaa2_api::core::family::Family;
+use dpaa2_api::core::model::{
+    DesiredTopology, DpmacId, DprcId, Lifecycle, ObjectRef, ObservedTopology,
+};
 use dpaa2_api::core::types::ConstructName;
 use dpaa2_api::families::dpmac::{
     Arbitration, CarrierReading, CounterReadout, MacRelation, carrier_source, judge_arbitration,
@@ -137,6 +140,53 @@ pub fn port_details<M: McControl, K: KernelControl>(
                 mac_relation,
                 carrier,
                 counters: obs.counters,
+            })
+        })
+        .collect()
+}
+
+/// One dpseci object's read-only detail surface for the `status --detail` face
+/// (dpseci-typestate task 4.1): the pool-observed object ref and plugged/drawn binding state, beside the
+/// witnessable [`DpseciDetail`] (restool-parsed queues/priorities and the privileged portal
+/// readout). Display-only by construct, like [`PortDetail`] — [`dpseci_details`] gathers it
+/// after reconcile and no field here is ever an input to a plan, drift, or assertion
+/// (dpseci-typestate design D5).
+#[derive(Clone, Debug)]
+pub struct DpseciRow {
+    /// The `family.ordinal` reference, from the pool observation.
+    pub object: ObjectRef,
+    /// Whether the object reads back plugged (in its container's allocatable pool).
+    pub plugged: bool,
+    /// Whether a consumer draws the object (the pool-census binding signal).
+    pub drawn: bool,
+    /// The witnessable detail: queue counts, tx priorities, and the portal readout.
+    pub detail: DpseciDetail,
+}
+
+/// Gathers the read-only dpseci detail rows for one container (dpseci-typestate task 4.1),
+/// mirroring [`port_details`]: it lists the container's dpseci objects and their plugged/drawn
+/// state through [`McControl::observe_pool`] (as the other pool rows do), then reads each
+/// object's witnessable detail through [`McControl::observe_dpseci`]. The portal half is
+/// honestly [`Unobservable`](dpaa2_api::contract::DpseciPortalReadout::Unobservable) on an
+/// unprivileged run, never an error, so
+/// this read exits zero (dpseci-typestate design D5).
+///
+/// Display-only by construct: it runs after reconcile and feeds only the detail render — never
+/// an input to the plan the exit code gates on.
+///
+/// # Errors
+/// Propagates a backend read failure ([`McControl::observe_pool`] or
+/// [`McControl::observe_dpseci`]).
+pub fn dpseci_details<M: McControl>(mc: &M, container: DprcId) -> Result<Vec<DpseciRow>, Error> {
+    mc.observe_pool(Some(container), Family::Dpseci)?
+        .into_iter()
+        .map(|row| {
+            let detail = mc.observe_dpseci(container, row.object)?;
+            Ok(DpseciRow {
+                object: row.object,
+                plugged: row.plugged,
+                drawn: row.drawn,
+                detail,
             })
         })
         .collect()

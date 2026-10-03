@@ -9,8 +9,52 @@ use crate::families::dpio::{DpioCfg, Priorities};
 use crate::families::dpmac::DpmacObservation;
 use crate::families::dpni::DpniCfg;
 use crate::families::dprc;
+use crate::families::dpseci::OptionMask;
 use crate::families::pool_lifecycle::ObservedPoolObject;
 use crate::plan::dprc::ObservedContainer;
+
+/// The witnessable detail of one dpseci object, assembled for the `status --detail` row
+/// (dpseci-typestate task 4.1). Observation-only: the create/destroy convergence seam is
+/// follow-on work on bead dpaa2-controlplane-lbk.12, so this type carries no mutation.
+///
+/// The queue counts and per-queue priorities are restool `info`'s honest witnesses — `None`
+/// / empty when a line was absent. The options mask and API version ride the privileged
+/// MC-portal read in [`portal`](Self::portal), which is honestly
+/// [`Unobservable`](DpseciPortalReadout::Unobservable) on an unprivileged run (DPSECI-I3;
+/// dpseci-typestate design D5 — `info` discards the options mask, only the portal sees it).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DpseciDetail {
+    /// `number of transmit queues:` from restool `info`, `None` when the line was absent.
+    pub num_tx_queues: Option<u8>,
+    /// `number of receive queues:` from restool `info`, `None` when the line was absent.
+    pub num_rx_queues: Option<u8>,
+    /// The per-queue tx priorities from restool `info`, empty when the line was absent.
+    pub tx_priorities: Vec<u8>,
+    /// The privileged MC-portal readout, or the typed this-run unobservable outcome.
+    pub portal: DpseciPortalReadout,
+}
+
+/// A dpseci MC-portal readout (`GET_ATTR` options + `GET_API_VERSION`), or the typed
+/// this-run unobservable outcome when the portal is unavailable (dpseci-typestate design D5).
+/// Unavailability is never an error here: the status row shows honest-unknown.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DpseciPortalReadout {
+    /// The portal answered: the options mask (`None` when a set bit names no vocabulary flag
+    /// — the honest gap) and the dpseci API version.
+    Observed {
+        /// The decoded options mask, or `None` when a set bit names no vocabulary flag.
+        options: Option<OptionMask>,
+        /// The dpseci API major version from `GET_API_VERSION`.
+        api_major: u16,
+        /// The dpseci API minor version from `GET_API_VERSION`.
+        api_minor: u16,
+    },
+    /// The portal was unavailable this run; the reason is carried for display only.
+    Unobservable {
+        /// Why the read could not run (device missing / permission denied).
+        reason: String,
+    },
+}
 
 /// Southbound MC-portal control at MC-command granularity.
 ///
@@ -61,6 +105,23 @@ pub trait McControl {
     /// [`Error::RestoolGuard`] on a refusal, or [`Error::Parse`] when a required attribute
     /// line is absent or carries a token outside the typed vocabulary.
     fn observe_dpmac(&self, dpmac: DpmacId) -> Result<DpmacObservation, Error>;
+
+    /// Reads one dpseci object's witnessable detail for the `status --detail` row
+    /// (dpseci-typestate task 4.1): restool `info`'s queue counts and per-queue priorities,
+    /// plus the privileged MC-portal `GET_ATTR` options and `GET_API_VERSION` when the
+    /// `/dev/dprc.N` node of `container` is reachable. The portal half is honestly
+    /// [`DpseciPortalReadout::Unobservable`] on an unprivileged run, never an error
+    /// (dpseci-typestate design D5). `dpseci` names the object for both the `info` spawn and
+    /// the portal OPEN; `container` names the dprc whose device node carries the portal read.
+    ///
+    /// Observation-only, mirroring [`observe_dpmac`](Self::observe_dpmac): no create/destroy
+    /// convergence rides this seam — that is follow-on work on bead dpaa2-controlplane-lbk.12.
+    ///
+    /// # Errors
+    /// Returns [`Error::McStatus`]/[`Error::RestoolGuard`] on a refusal of the `info` spawn or
+    /// an MC refusal over an open portal, or [`Error::Backend`] on a dead spawn or unexpected
+    /// transport failure; portal *unavailability* is the typed unobservable outcome, not an error.
+    fn observe_dpseci(&self, container: DprcId, dpseci: ObjectRef) -> Result<DpseciDetail, Error>;
 
     /// Creates a DPNI object, stamped with the owning construct's name as its MC
     /// label, and returns its MC-assigned id. Stamping at create closes the read-back

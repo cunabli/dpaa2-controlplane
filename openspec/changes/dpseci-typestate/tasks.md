@@ -53,7 +53,7 @@ rust-developer; every parcel spec carries the settled-decisions block.
 
 ## 4. Product
 
-- [ ] 4.1 `dpaa2ctl status --detail` dpseci row (queues, priorities,
+- [x] 4.1 `dpaa2ctl status --detail` dpseci row (queues, priorities,
   observed options, API version, binding state; unknown rendered
   honestly when the read path is unavailable); display-only;
   integration tests.

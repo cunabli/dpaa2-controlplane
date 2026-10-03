@@ -14,7 +14,7 @@ use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::collections::HashSet;
 
-use crate::contract::{KernelControl, McControl};
+use crate::contract::{DpseciDetail, KernelControl, McControl};
 use crate::core::error::Error;
 use crate::core::family::Family;
 use crate::core::inventory::Inventory;
@@ -114,6 +114,12 @@ struct FakeState {
     /// 28-row all-zero 10.39 vocabulary. Counters never enter reconcile, so a test varies
     /// them freely to prove displayed values never reach the plan.
     counters: HashMap<DpmacId, CounterReadout>,
+    /// Scripted dpseci detail per object, answered by [`McControl::observe_dpseci`]
+    /// (dpseci-typestate task 4.1; observation-only, create/destroy on bead
+    /// dpaa2-controlplane-lbk.12). Absent ⇒ a backend error, mirroring the dpmac
+    /// unknown-object arm; the detail carries its own portal readout so a test scripts the
+    /// Observed and the honest-unknown faces alike.
+    dpseci_details: HashMap<ObjectRef, DpseciDetail>,
 }
 
 /// In-memory fake implementing both southbound ports over a shared state.
@@ -147,6 +153,7 @@ impl FakeBackend {
                 readback_drift: false,
                 carriers: HashMap::new(),
                 counters: HashMap::new(),
+                dpseci_details: HashMap::new(),
             }),
         }
     }
@@ -347,6 +354,19 @@ impl FakeBackend {
         self.state.borrow_mut().counters.insert(dpmac, counters);
     }
 
+    /// Scripts the detail [`McControl::observe_dpseci`] reads back for one dpseci object, so a
+    /// status-detail test drives the privileged Observed and the honest-unknown portal faces
+    /// with no `/dev` node (dpseci-typestate task 4.1). An unscripted object reads a backend
+    /// error, the fake's unknown-object arm.
+    #[must_use]
+    pub fn with_dpseci_detail(self, dpseci: ObjectRef, detail: DpseciDetail) -> Self {
+        self.state
+            .borrow_mut()
+            .dpseci_details
+            .insert(dpseci, detail);
+        self
+    }
+
     /// Seeds an already-connected (and, for PHY, already-bound) DPNI, as if a prior
     /// run or the DPL had provisioned it. Used to test idempotence and foreign
     /// preservation.
@@ -462,6 +482,18 @@ impl McControl for FakeBackend {
             max_rate: 10_000,
             counters,
         })
+    }
+
+    // Scripted per object; an unscripted dpseci is a backend error (the unknown-object arm,
+    // the dpmac `observe_dpmac` precedent). The scripted detail carries its own portal
+    // readout, so a test feeds the Observed and the honest-unknown faces alike (dpseci-typestate task 4.1).
+    fn observe_dpseci(&self, _container: DprcId, dpseci: ObjectRef) -> Result<DpseciDetail, Error> {
+        self.state
+            .borrow()
+            .dpseci_details
+            .get(&dpseci)
+            .cloned()
+            .ok_or_else(|| Error::Backend(format!("fake: no dpseci {dpseci}")))
     }
 
     fn create_dpni(
@@ -864,6 +896,40 @@ mod tests {
             .connect_in(DprcId::new(1), dpni, peer)
             .expect("re-connect");
         assert_eq!(backend.observe_endpoint(dpni).expect("read"), Some(peer));
+    }
+
+    // The scripted dpseci detail reads back verbatim; an unscripted object is the honest
+    // backend error (the dpmac unknown-object precedent, dpseci-typestate task 4.1).
+    #[test]
+    fn observe_dpseci_reads_back_the_scripted_detail() {
+        use crate::contract::DpseciPortalReadout;
+        use crate::families::dpseci::{DpseciOpt, OptionMask};
+
+        let dpseci = ObjectRef::new(Family::Dpseci, 4);
+        let detail = DpseciDetail {
+            num_tx_queues: Some(3),
+            num_rx_queues: Some(3),
+            tx_priorities: vec![2, 2, 2],
+            portal: DpseciPortalReadout::Observed {
+                options: Some(OptionMask::empty().with_flag(DpseciOpt::HasCg)),
+                api_major: 5,
+                api_minor: 4,
+            },
+        };
+        let backend = FakeBackend::new().with_dpseci_detail(dpseci, detail.clone());
+
+        assert_eq!(
+            backend
+                .observe_dpseci(DprcId::new(5), dpseci)
+                .expect("scripted detail"),
+            detail
+        );
+        assert!(
+            backend
+                .observe_dpseci(DprcId::new(5), ObjectRef::new(Family::Dpseci, 9))
+                .is_err(),
+            "an unscripted dpseci is the unknown-object backend error"
+        );
     }
 
     // A dpni↔dpni peer reads back with its own family (the cross-container case, DPNI-I9).

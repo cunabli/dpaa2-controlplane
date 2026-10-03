@@ -11,6 +11,7 @@ use std::time::Duration;
 use clap::{Parser, Subcommand, ValueEnum};
 use dpaa2_api::contract::McControl;
 use dpaa2_api::core::error::Error;
+use dpaa2_api::core::model::DprcId;
 use dpaa2_api::families::dpio::SeatDisposition;
 use dpaa2_api::families::pool_lifecycle::PoolDisposition;
 use dpaa2_api::intent::refuse::{Compiled, compile};
@@ -163,6 +164,15 @@ fn run(cli: &Cli) -> Result<ExitCode, Error> {
             if *detail {
                 let details = status::port_details(&mc, &kernel, &desired, &observed)?;
                 print!("{}", render::render_port_details(&details));
+                // The read-only dpseci detail rows across the root and each observed child
+                // container (dpseci-typestate task 4.1): restool-parsed queues/priorities plus
+                // the privileged portal options/version, honest-unknown on an unprivileged run.
+                // Display-only — the exit code stays port-driven, below.
+                let mut dpseci_rows = status::dpseci_details(&mc, DprcId::ROOT)?;
+                for id in mc.observe_containers()?.keys() {
+                    dpseci_rows.extend(status::dpseci_details(&mc, *id)?);
+                }
+                print!("{}", render::render_dpseci_details(&dpseci_rows));
             }
             // The root-scope pool drift per family, read-only off the board (pool-objects task
             // 3.4): observed-vs-derived counts and the disposition convergence would take.
