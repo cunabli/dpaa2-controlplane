@@ -8,7 +8,7 @@ rust-developer; every parcel spec carries the settled-decisions block.
 
 ## 1. Model
 
-- [ ] 1.1 Grow `models/families/dpseci.qnt` into the P2 cfg shape
+- [x] 1.1 Grow `models/families/dpseci.qnt` into the P2 cfg shape
   (design D1): queue count 1..16, length-coupled priorities each 1..8,
   closed options vocabulary with raw escape, restool-layer refusal
   surface replaying banked V-DPSECI-1, DPSECI-I1 by construction,
