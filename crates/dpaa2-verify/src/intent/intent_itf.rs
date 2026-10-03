@@ -50,6 +50,7 @@ use dpaa2_api::families::dpni::{
     DistKeySize, DpniCfg, DpniOpt, FsEntries, MacFilterEntries, NumCeetmCh, NumCgs, NumOpr,
     NumQueues, NumTcs, OptionMask, QosEntries, RawEscape, VlanFilterEntries,
 };
+use dpaa2_api::families::dpseci::DpseciCfg;
 use dpaa2_api::intent::compiled::{
     AttachPoint, Attributes, Container, Measurement, ObjectKey, ProvenanceKey, ProvenanceNode,
 };
@@ -535,6 +536,36 @@ fn dpni_cfg(v: &Value) -> Result<DpniCfg, String> {
     })
 }
 
+/// The frozen dpseci `CreateCfg` (`dpseci.qnt` `dpseci_lifecycle` `type CreateCfg`) as the
+/// Rust [`DpseciCfg`]. The derived block is in-envelope on an accepted trace, so the
+/// classify-order constructor succeeds. The dpseci option vocabulary is distinct from
+/// dpni's, so its [`OptionMask`]/[`RawEscape`] are named fully qualified — the unqualified
+/// names in scope are dpni's.
+fn dpseci_cfg(v: &Value) -> Result<DpseciCfg, String> {
+    use dpaa2_api::families::dpseci::{DpseciOpt, OptionMask as DsMask, RawEscape as DsEscape};
+    let opts = field(v, "options")?;
+    let mut mask = DsMask::empty();
+    for f in set_items(field(opts, "flags")?)? {
+        mask = mask.with_flag(match tag(f)? {
+            "HasCg" => DpseciOpt::HasCg,
+            "HasOpr" => DpseciOpt::HasOpr,
+            "OprShared" => DpseciOpt::OprShared,
+            t => return Err(format!("unknown dpseci opt `{t}`")),
+        });
+    }
+    for e in set_items(field(opts, "escapes")?)? {
+        mask = mask.with_escape(DsEscape::new(num(field(e, "value")?)?));
+    }
+    let priorities = field(v, "priorities")?
+        .as_array()
+        .ok_or_else(|| format!("priorities not a list: {v}"))?
+        .iter()
+        .map(|p| u8::try_from(num(p)?).map_err(|e| e.to_string()))
+        .collect::<Result<Vec<u8>, String>>()?;
+    DpseciCfg::new(mask, num(field(v, "numQueues")?)? as usize, priorities)
+        .map_err(|r| r.to_string())
+}
+
 fn attributes(v: &Value) -> Result<Attributes, String> {
     let p = &v["value"];
     match tag(v)? {
@@ -543,8 +574,7 @@ fn attributes(v: &Value) -> Result<Attributes, String> {
             cfg: dpni_cfg(field(p, "cfg")?)?,
         }),
         "DpseciAttrs" => Ok(Attributes::Dpseci {
-            num_queues: num(field(p, "numQueues")?)?,
-            has_cg: flag(field(p, "hasCg")?)?,
+            cfg: dpseci_cfg(field(p, "cfg")?)?,
         }),
         "DpswAttrs" => Ok(Attributes::Dpsw {
             num_ifs: num(field(p, "numIfs")?)?,

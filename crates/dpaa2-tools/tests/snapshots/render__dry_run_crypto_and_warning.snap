@@ -177,8 +177,8 @@ plan: 40 object(s), 2 edge(s)
     - dpnis request=2 value=2 [measured] anchor: object-model.md §2: one dpni per terminated port, link end, fabric membership
   router/dpni/2 label=wan1 @ child:router num_queues=8 options=[SingleSender,CustomCg,HasKeyMasking,HasOpr,OprPerTc,PfdrInPeb]
     - dpnis request=2 value=2 [measured] anchor: object-model.md §2: one dpni per terminated port, link end, fabric membership
-  router/dpseci/1 label=router @ child:router num_queues=4 has_cg=true
-    - dpseci request=1 value=1 [measured] anchor: dpseci.md: num_queues >= each block's flows, DPSECI_OPT_HAS_CG
+  router/dpseci/1 label=router @ child:router num_queues=4 options=[HasCg]
+    - dpseci request=1 value=1 [measured] anchor: dpseci-typestate design D3/D4 (dpseci.md): num_queues = each block's flows; priorities all-2, the verified deployed profile (no intent knob — kernel-vs-2 semantics are baseline unknown #4); options DPSECI_OPT_HAS_CG only per ADR-0013 (HAS_OPR/OPR_SHARED bake in bits whose cost is baseline unknown #6)
 edges:
   router/dpni/1#0 <-> dpmac.7  [port-edge]
   router/dpni/2#0 <-> dpmac.4  [port-edge]

@@ -44,6 +44,7 @@ module intent_derive {
   import companions as comp from "../core/companions" // comp::Regime, comp::companionDraw (ADR-0012)
   import dpsw.* from "../families/dpsw"          // dpswParams.draw (kernel census row)
   import dpseci.* from "../families/dpseci"      // dpseciParams.draw (kernel census row)
+  import dpseci_lifecycle as dsl from "../families/dpseci" // dsl::CreateCfg + create surface (names collide with dpni's under .*, so qualified — dpseci-typestate design D3/D4)
   import dpni.* from "../families/dpni"          // CreateCfg, deriveProfile, profileCfg, profile masks (dpni-typestate design D3)
   import intent_types.* from "./types"           // Intent, Tenant, Port, …, KERNEL
 
@@ -64,7 +65,7 @@ module intent_derive {
   type Attributes =
     | Unsized
     | DpniAttrs({ cfg: CreateCfg })
-    | DpseciAttrs({ numQueues: int, hasCg: bool })
+    | DpseciAttrs({ cfg: dsl::CreateCfg })
     | DpswAttrs({ numIfs: int, maxFdbs: int, perFdbFlooding: bool, perFdbBroadcast: bool, ctrlIf: bool })
     | DprcAttrs({ options: Set[Permission] })
 
@@ -562,8 +563,20 @@ module intent_derive {
         set: acc.set.union(Set({
           key: { tenant: name, family: Dpseci, ordinal: acc.i + 1 },
           container: container,
-          attributes: DpseciAttrs({ numQueues: k.flows, hasCg: true }),
+          attributes: DpseciAttrs({ cfg: dpseciCfg(k.flows) }),
           provenance: { tenant: name, rule: "dpseci", construct: "" } })) }).set
+
+  // A crypto block's dpseci create block, derived purely from its own flows
+  // (dpseci-typestate design D3/D4): priorities are the uniform deployed constant
+  // [2; numQueues] with no intent knob (kernel-vs-2 semantics are baseline unknown #4),
+  // and options carry HAS_CG only (ADR-0013: HAS_OPR/OPR_SHARED would bake in bits whose
+  // cost is baseline unknown #6). Flows are refused outside 1..16 before derivation
+  // (intent/refuse.qnt CryptoFlowsOverDevice), so the block is in-envelope by construction.
+  pure def dpseciCfg(flows: int): dsl::CreateCfg = {
+    options: { flags: Set(dsl::HasCg), escapes: Set() },
+    numQueues: flows,
+    priorities: dsl::uniformPriorities(flows, 2),
+  }
 
   // A priced tenant's dpni create block, derived purely from its consumer
   // (dpni-typestate design D3): the profile follows the Dataplane (the construct
@@ -779,7 +792,7 @@ module intent_derive {
     // no string identity to key by).
     val m4 = if (s.numDpseci > 0)
                m3.put({ tenant: nm, rule: "dpseci", construct: "" },
-                      { rule: "dpseci", anchor: "dpseci.md: num_queues >= each block's flows, DPSECI_OPT_HAS_CG",
+                      { rule: "dpseci", anchor: "dpseci-typestate design D3/D4 (dpseci.md): num_queues = each block's flows; priorities all-2, the verified deployed profile (no intent knob — kernel-vs-2 semantics are baseline unknown #4); options DPSECI_OPT_HAS_CG only per ADR-0013 (HAS_OPR/OPR_SHARED bake in bits whose cost is baseline unknown #6)",
                         mark: Measured, request: s.numDpseci, extra: None, value: s.numDpseci,
                         inputs: Set(), constructs: Set(nm) })
              else m3
@@ -881,7 +894,7 @@ module intent_derive {
   pure val ATTRS_USE: Set[Attributes] = Set(
     Unsized,
     DpniAttrs({ cfg: profileCfg(ProfileKernel) }),
-    DpseciAttrs({ numQueues: 0, hasCg: false }),
+    DpseciAttrs({ cfg: dsl::KERNEL_CFG }),
     DpswAttrs({ numIfs: 0, maxFdbs: 0, perFdbFlooding: false, perFdbBroadcast: false, ctrlIf: false }),
     DprcAttrs({ options: Set() }))
   pure val MARKS_USE: Set[Measurement] = Set(Measured, Unmeasured)

@@ -621,8 +621,15 @@ fn render_attrs(a: &Attributes) -> String {
                 opts.join(",")
             )
         }
-        Attributes::Dpseci { num_queues, has_cg } => {
-            format!(" num_queues={num_queues} has_cg={has_cg}")
+        Attributes::Dpseci { cfg } => {
+            // num_queues plus the derived option flag names, so dry-run shows the chosen
+            // profile (dpseci-typestate design D3/D4).
+            let opts: Vec<&str> = cfg.options().flags().iter().map(|f| f.name()).collect();
+            format!(
+                " num_queues={} options=[{}]",
+                cfg.num_queues(),
+                opts.join(",")
+            )
         }
         Attributes::Dpsw { num_ifs, .. } => format!(" num_ifs={num_ifs}"),
         Attributes::Dprc { .. } => " (dprc default options)".to_owned(),

@@ -25,7 +25,7 @@ rust-developer; every parcel spec carries the settled-decisions block.
   typestates (design D1/D5), refined newtypes, options vocabulary with
   escape, congestion capability from `HAS_CG`, `compile_fail`
   immutability doctest; TDD unit tests; quality floor green.
-- [ ] 2.2 Derivation completes the create surface (design D3/D4):
+- [x] 2.2 Derivation completes the create surface (design D3/D4):
   compiled dpseci carries priorities `[2; num_queues]` and options
   `{HAS_CG}` with rule provenance; immutable-cfg repair plans as
   destroy+create; existing derivation tests unchanged.

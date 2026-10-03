@@ -11,6 +11,7 @@ use super::{Compiled, Referrer, Refusal, Warning, compile};
 use crate::core::family::Family;
 use crate::core::inventory::{Availability, Ceiling, Inventory};
 use crate::core::model::DpmacId;
+use crate::families::dpseci::{DpseciCfg, DpseciOpt, OptionMask};
 use crate::intent::compiled::{Attributes, Container, ProvenanceNode};
 use crate::intent::{
     Crypto, Dataplane, Extra, Fabric, Intent, Isolation, Link, Member, Port, Switching, Tenant,
@@ -957,18 +958,28 @@ fn dpseci_per_crypto_block_sized_by_its_own_flows() {
     };
     let c = ok(&intent, &ref_inv());
     assert_eq!(count_fam(&c, "sec", Family::Dpseci), 2);
+    // Each block derives its full create cfg: num_queues = flows, priorities all-2,
+    // options HAS_CG only (dpseci-typestate design D3/D4).
     assert_eq!(
         attributes_of(&c, "sec", Family::Dpseci, 1),
         Attributes::Dpseci {
-            num_queues: 4,
-            has_cg: true,
+            cfg: DpseciCfg::new(
+                OptionMask::empty().with_flag(DpseciOpt::HasCg),
+                4,
+                vec![2; 4]
+            )
+            .unwrap(),
         }
     );
     assert_eq!(
         attributes_of(&c, "sec", Family::Dpseci, 2),
         Attributes::Dpseci {
-            num_queues: 8,
-            has_cg: true,
+            cfg: DpseciCfg::new(
+                OptionMask::empty().with_flag(DpseciOpt::HasCg),
+                8,
+                vec![2; 8]
+            )
+            .unwrap(),
         }
     );
     // one dpseci provenance node per tenant; its value is the accelerator count.

@@ -306,7 +306,7 @@ module intent_main {
       countFam(p, "kernel", Dpcon) == 0,
       p.objs.filter(o => o.key.family == Dpseci) ==
         Set({ key: { tenant: "router", family: Dpseci, ordinal: 1 }, container: Child("router"),
-              attributes: DpseciAttrs({ numQueues: 4, hasCg: true }), provenance: { tenant: "router", rule: "dpseci", construct: "" } }),
+              attributes: DpseciAttrs({ cfg: dpseciCfg(4) }), provenance: { tenant: "router", rule: "dpseci", construct: "" } }),
       p.edges.contains({ a: ObjectAttach({ key: { tenant: "kernel", family: Dpsw, ordinal: 1 }, port: 0 }),
                          b: MacAttach(7), provenance: { tenant: "kernel", rule: "fabric-edge", construct: "lan" } }),
       p.edges.contains({ a: ObjectAttach({ key: { tenant: "kernel", family: Dpsw, ordinal: 1 }, port: 1 }),
@@ -535,10 +535,10 @@ module intent_main {
       countFam(p, "router", Dpseci) == 2,
       objsOfFam(p, "router", Dpseci) == Set(
         { key: { tenant: "router", family: Dpseci, ordinal: 1 }, container: Child("router"),
-          attributes: DpseciAttrs({ numQueues: 3, hasCg: true }),
+          attributes: DpseciAttrs({ cfg: dpseciCfg(3) }),
           provenance: { tenant: "router", rule: "dpseci", construct: "" } },
         { key: { tenant: "router", family: Dpseci, ordinal: 2 }, container: Child("router"),
-          attributes: DpseciAttrs({ numQueues: 7, hasCg: true }),
+          attributes: DpseciAttrs({ cfg: dpseciCfg(7) }),
           provenance: { tenant: "router", rule: "dpseci", construct: "" } }),
       p.provenance.get({ tenant: "router", rule: "dpseci", construct: "" }).value == 2,
       p.provenance.get({ tenant: "router", rule: "dpseci", construct: "" }).constructs == Set("router"),

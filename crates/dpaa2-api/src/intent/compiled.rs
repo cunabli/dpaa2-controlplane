@@ -32,6 +32,7 @@ use crate::core::family::{Family, Permission};
 use crate::core::model::DpmacId;
 use crate::core::types::{ConstructName, RuleName, TenantName};
 use crate::families::dpni::DpniCfg;
+use crate::families::dpseci::DpseciCfg;
 use crate::intent::{Fabric, Link, Port, Tenant};
 
 /// A derived object's identity (design D6; ADR-0004; `derive.qnt` `ObjectKey`). This is the plan
@@ -133,12 +134,13 @@ pub enum Attributes {
         /// The derived, in-envelope create block.
         cfg: DpniCfg,
     },
-    /// A dpseci's queue count and the `DPSECI_OPT_HAS_CG` safety bit.
+    /// A dpseci's full create block, derived purely from the crypto block's flows
+    /// (dpseci-typestate design D3/D4): the compiler fixes the priorities and the option
+    /// profile, so no construct accepts an operator-supplied priority vector or option
+    /// token. The queue-pair count rides inside as [`DpseciCfg::num_queues`].
     Dpseci {
-        /// Queue pairs (its crypto block's flows).
-        num_queues: u32,
-        /// The congestion-group safety bit.
-        has_cg: bool,
+        /// The derived, in-envelope create block.
+        cfg: DpseciCfg,
     },
     /// A dpsw's kernel-bindable configuration (`dpsw.md`, read-not-verified).
     Dpsw {
@@ -653,9 +655,12 @@ impl Tenant {
         PlannedObject {
             key: ObjectKey::new(self.name.clone(), Family::Dpseci, ordinal),
             container: self.container(),
+            // The create block derives from the block's flows, `derive.qnt` `dpseciCfg`
+            // (dpseci-typestate design D3/D4): the witness is the sole path, so an
+            // operator priority vector or option token is unrepresentable — the caller
+            // supplies only the sizing.
             attributes: Attributes::Dpseci {
-                num_queues,
-                has_cg: true,
+                cfg: crate::intent::derive::dpseci_cfg(num_queues),
             },
             provenance: ProvenanceKey::new(self.name.clone(), "dpseci", ""),
             label: ConstructName::from(&self.name),

@@ -85,7 +85,7 @@ module router {
             // the DPSECI_OPT_HAS_CG safety bit (dpseci.md)
             objsOfFam(p, "router", Dpseci) == Set(
               { key: { tenant: "router", family: Dpseci, ordinal: 1 }, container: Child("router"),
-                attributes: DpseciAttrs({ numQueues: 2, hasCg: true }),
+                attributes: DpseciAttrs({ cfg: dpseciCfg(2) }),
                 provenance: { tenant: "router", rule: "dpseci", construct: "" } }),
             p.objs.filter(o => o.key.family == Dpsw) == Set(),
             // the three terminated ports are the whole edge set (fig. 6a); the

@@ -30,6 +30,7 @@ use crate::families::dpni::{
     DpniCfg, DpniOpt, InterfaceConstruct, NumCgs, NumQueues, Profile, ProfileOutcome,
     derive_profile,
 };
+use crate::families::dpseci::{DpseciCfg, DpseciOpt, OptionMask};
 use crate::intent::compiled::{
     AttachPoint, CompiledPlan, Measurement, ObjectKey, PlannedObject, ProvenanceKey, ProvenanceNode,
 };
@@ -117,6 +118,36 @@ pub(crate) fn dpni_cfg(dp: Dataplane, num_queues: u32) -> DpniCfg {
         }
         ProfileOutcome::Unpriced => Profile::Kernel.cfg(),
     }
+}
+
+/// A crypto block's dpseci create block, derived purely from its own `flows`
+/// (dpseci-typestate design D3/D4; `derive.qnt` `dpseciCfg`). Priorities are the uniform
+/// deployed constant `[2; num_queues]` — the verified deployed profile, with no intent
+/// knob, because the kernel-vs-2 priority semantics are baseline unknown #4. Options carry
+/// `DPSECI_OPT_HAS_CG` only (ADR-0013): deriving `HAS_OPR`/`OPR_SHARED` would bake in bits
+/// whose cost is invisible (baseline unknown #6), so exactly one bit is set.
+///
+/// A block's `flows` is refused outside `1..=DPSECI_MAX_QUEUE_NUM` before derivation runs
+/// ([`crate::intent::refuse`], `CryptoFlowsOverDevice`), so a post-refusal count is
+/// in-envelope and the all-2 priorities match it by construction — [`DpseciCfg::new`]
+/// cannot refuse. The count is clamped into `1..=MAX_QUEUE_NUM` so the derivation stays
+/// total on a refused intent's undefined input (the same "undefined on refused intents"
+/// idiom as the negative-count [`u`]), and the in-envelope block is then `expect`-ed with
+/// that invariant named.
+pub(crate) fn dpseci_cfg(num_queues: u32) -> DpseciCfg {
+    let queues = usize::try_from(num_queues)
+        .unwrap_or(DpseciCfg::MAX_QUEUE_NUM)
+        .clamp(1, DpseciCfg::MAX_QUEUE_NUM);
+    DpseciCfg::new(
+        OptionMask::empty().with_flag(DpseciOpt::HasCg),
+        queues,
+        vec![2u8; queues],
+    )
+    .expect(
+        "a post-refusal flows count clamped into 1..=16 with matching all-2 priorities is \
+         in-envelope by construction (intent::refuse CryptoFlowsOverDevice; \
+         dpseci-typestate design D3)",
+    )
 }
 
 // ---- fabric member helpers (design D6; ADR-0004; DPAA2 UM §2.2.2 fig. 6) ----
@@ -1012,7 +1043,7 @@ fn add_tenant_prov(intent: &Intent, s: &Sizing, m: &mut BTreeMap<ProvenanceKey, 
             ProvenanceKey::new(nm, "dpseci", ""),
             ProvenanceNode {
                 rule: "dpseci".into(),
-                anchor: "dpseci.md: num_queues >= each block's flows, DPSECI_OPT_HAS_CG".to_owned(),
+                anchor: "dpseci-typestate design D3/D4 (dpseci.md): num_queues = each block's flows; priorities all-2, the verified deployed profile (no intent knob — kernel-vs-2 semantics are baseline unknown #4); options DPSECI_OPT_HAS_CG only per ADR-0013 (HAS_OPR/OPR_SHARED bake in bits whose cost is baseline unknown #6)".to_owned(),
                 mark: Measurement::Measured,
                 request: s.num_dpseci,
                 extra: None,
