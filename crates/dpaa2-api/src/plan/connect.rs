@@ -180,6 +180,53 @@ pub fn connect_ancestor(_left: DprcId, _right: DprcId) -> DprcId {
     CONNECT_ANCESTOR
 }
 
+/// Which freed end of a disconnected wire a teardown or reconnect names
+/// (cross-dprc-links design D5/D7). A [`WireDisconnected`] proof carries both ends the
+/// disconnect freed; the side selects one, so a destroy names only an end the wire held.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum WireSide {
+    /// The `a` end of the disconnected wire.
+    A,
+    /// The `b` end of the disconnected wire.
+    B,
+}
+
+/// Proof a dpni↔dpni wire was disconnected before one of its ends is destroyed or reconnected
+/// (cross-dprc-links design D5/D7; `models/families/link_lifecycle.qnt` `LINK_I1`
+/// disconnect-before-destroy, `LINK_I3` cardinality-one / disconnect-before-reconnect). The wire
+/// twin of the dpmac [`SeveredProof`](crate::plan::SeveredProof) proof-carrying idiom (ADR-0022):
+/// the fields are private, so the only mint is
+/// [`WireTransition::disconnect_wire_proving`](WireTransition::disconnect_wire_proving) and neither
+/// [`WireTransition::destroy_end`](WireTransition::destroy_end) nor
+/// [`WireTransition::reconnect_wire`](WireTransition::reconnect_wire) — the two guarded
+/// constructors that demand it — is reachable without a prior disconnect. Unlike `SeveredProof`
+/// it is `Clone`: dpni↔dpni is disconnect-only with no driver handback
+/// (cross-dprc-links design D3), so there is no once-only kernel-face hazard to fence and
+/// both freed ends are legitimately destroyable.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct WireDisconnected {
+    a: WireEnd,
+    b: WireEnd,
+}
+
+impl WireDisconnected {
+    /// The two ends the disconnect freed (unordered, as the wire is).
+    #[must_use]
+    pub fn ends(&self) -> (WireEnd, WireEnd) {
+        (self.a, self.b)
+    }
+
+    /// The freed end `side` names — read back from the proof, so a teardown or reconnect can
+    /// only ever name an end the wire actually held (`LINK_I1`/`LINK_I3`).
+    #[must_use]
+    pub fn end(&self, side: WireSide) -> WireEnd {
+        match side {
+            WireSide::A => self.a,
+            WireSide::B => self.b,
+        }
+    }
+}
+
 /// A dpni↔dpni wire transition keyed by its two ends — the Rust twin of the model's
 /// endpoint-pair actions (`models/families/link_lifecycle.qnt` `connectWireAt` /
 /// `disconnectWireAt`; cross-dprc-links design D2). Kept in its own vocabulary rather than a
@@ -208,6 +255,18 @@ pub enum WireTransition {
         /// The other end.
         b: WireEnd,
     },
+    /// Destroy one freed end of a disconnected wire — reachable only from a
+    /// [`WireDisconnected`] proof, so disconnect-before-destroy (cross-dprc-links design D5,
+    /// `LINK_I1`) is a type law, not planner discipline. The variant carries the proof
+    /// (unforgeable, no public constructor) and the [`WireSide`] it names, so a struct literal
+    /// naming a still-connected end is unrepresentable; build it through
+    /// [`destroy_end`](WireTransition::destroy_end).
+    DestroyEnd {
+        /// Proof the wire was disconnected first — names the destroyed end.
+        proof: WireDisconnected,
+        /// Which freed end is destroyed.
+        side: WireSide,
+    },
 }
 
 impl WireTransition {
@@ -225,10 +284,75 @@ impl WireTransition {
     }
 
     /// Builds a [`WireTransition::DisconnectWire`] for the wire between two dpni ends
-    /// (cross-dprc-links design D3).
+    /// (cross-dprc-links design D3). The convenience over
+    /// [`disconnect_wire_proving`](Self::disconnect_wire_proving) for callers that only tear the
+    /// edge down and need no destroy/reconnect proof — it drops the minted witness.
     #[must_use]
     pub fn disconnect_wire(a: WireEnd, b: WireEnd) -> Self {
-        Self::DisconnectWire { a, b }
+        Self::disconnect_wire_proving(a, b).0
+    }
+
+    /// Disconnects a dpni↔dpni wire and mints the [`WireDisconnected`] proof the teardown and
+    /// reconnect laws demand (cross-dprc-links design D5/D7; `link_lifecycle.qnt`
+    /// `disconnectWireAt`). Returns the [`WireTransition::DisconnectWire`] step and the proof
+    /// together — the planner pushes the disconnect, then threads the proof into
+    /// [`destroy_end`](Self::destroy_end) or [`reconnect_wire`](Self::reconnect_wire), each of
+    /// which reads its target end back from it. Because the proof is the only key those two
+    /// constructors accept and only this mints it, the disconnect-before-destroy and
+    /// disconnect-before-reconnect orders are owned by the types, not by planner discipline.
+    #[must_use]
+    pub fn disconnect_wire_proving(a: WireEnd, b: WireEnd) -> (Self, WireDisconnected) {
+        (Self::DisconnectWire { a, b }, WireDisconnected { a, b })
+    }
+
+    /// Destroys the freed end `side` of a disconnected wire, consuming the [`WireDisconnected`]
+    /// proof [`disconnect_wire_proving`](Self::disconnect_wire_proving) minted and reading the
+    /// end back from it (cross-dprc-links design D5; `link_lifecycle.qnt` `destroyEndAt`, whose
+    /// `not(connected)` guard this types). Because the proof has no public constructor, a destroy
+    /// without a prior disconnect does not typecheck — the fields a forged literal would name are
+    /// private:
+    ///
+    /// ```compile_fail,E0451
+    /// use dpaa2_api::plan::connect::{WireDisconnected, WireEnd, WireSide, WireTransition};
+    /// use dpaa2_api::core::model::{DpniId, DprcId};
+    /// // `WireDisconnected`'s fields are private and its only mint is `disconnect_wire_proving`,
+    /// // so a forged proof naming a never-disconnected end does not construct (LINK_I1).
+    /// let forged = WireDisconnected {
+    ///     a: WireEnd { dpni: DpniId::new(0), container: DprcId::ROOT },
+    ///     b: WireEnd { dpni: DpniId::new(1), container: DprcId::ROOT },
+    /// };
+    /// let _ = WireTransition::destroy_end(forged, WireSide::A);
+    /// ```
+    #[must_use]
+    pub fn destroy_end(proof: WireDisconnected, side: WireSide) -> Self {
+        Self::DestroyEnd { proof, side }
+    }
+
+    /// Reconnects the freed end `side` of a disconnected wire to `new_peer`, consuming the
+    /// [`WireDisconnected`] proof (cross-dprc-links design D7; DPRC-I5 promoted;
+    /// `link_lifecycle.qnt` `reconnectAfterDisconnectTest`). Cardinality-one lives in the type:
+    /// only a disconnect mints the proof this demands, so reconnecting an end a standing wire
+    /// still holds is unrepresentable — a reconnect requires a prior disconnect
+    /// (disconnect-before-reconnect). The fresh-connect path for never-connected ends stays
+    /// [`connect_wire`](Self::connect_wire); this builds a [`WireTransition::ConnectWire`] through
+    /// it, so the ancestor resolution and the executor are the delivered ones, unreshaped:
+    ///
+    /// ```compile_fail,E0451
+    /// use dpaa2_api::plan::connect::{WireDisconnected, WireEnd, WireSide, WireTransition};
+    /// use dpaa2_api::core::model::{DpniId, DprcId};
+    /// // No disconnect proof, no reconnect: a held end cannot be rewired without one (DPRC-I5).
+    /// let forged = WireDisconnected {
+    ///     a: WireEnd { dpni: DpniId::new(0), container: DprcId::ROOT },
+    ///     b: WireEnd { dpni: DpniId::new(1), container: DprcId::ROOT },
+    /// };
+    /// let peer = WireEnd { dpni: DpniId::new(2), container: DprcId::ROOT };
+    /// let _ = WireTransition::reconnect_wire(forged, WireSide::A, peer);
+    /// ```
+    // Proof consumed on purpose — the law's demand, as `Link::wire` consumes its `Interface`.
+    #[allow(clippy::needless_pass_by_value)]
+    #[must_use]
+    pub fn reconnect_wire(proof: WireDisconnected, side: WireSide, new_peer: WireEnd) -> Self {
+        Self::connect_wire(proof.end(side), new_peer)
     }
 }
 
@@ -530,6 +654,48 @@ mod tests {
                 b: end(1, DprcId::new(2)),
             }
         );
+    }
+
+    // ---- plan laws: disconnect-before-destroy, disconnect-before-reconnect (cross-dprc-links task 3.5) ----
+    // Negative face (no destroy/reconnect without a proof): the two `compile_fail` doctests.
+
+    #[test]
+    fn disconnect_proving_mints_a_proof_naming_both_ends() {
+        let a = end(0, DprcId::ROOT);
+        let b = end(1, DprcId::new(2));
+        let (step, proof) = WireTransition::disconnect_wire_proving(a, b);
+        // The plain disconnect is the same step with the witness dropped.
+        assert_eq!(step, WireTransition::disconnect_wire(a, b));
+        assert_eq!(proof.ends(), (a, b));
+        assert_eq!(proof.end(WireSide::A), a);
+        assert_eq!(proof.end(WireSide::B), b);
+    }
+
+    #[test]
+    fn destroy_with_proof_builds_and_names_the_freed_end() {
+        let a = end(0, DprcId::ROOT);
+        let b = end(1, DprcId::new(2));
+        let (_step, proof) = WireTransition::disconnect_wire_proving(a, b);
+        let destroy = WireTransition::destroy_end(proof, WireSide::B);
+        assert!(matches!(
+            &destroy,
+            WireTransition::DestroyEnd { proof, side: WireSide::B } if proof.end(WireSide::B) == b
+        ));
+    }
+
+    #[test]
+    fn reconnect_with_proof_builds_a_connect_for_the_freed_end() {
+        // DPRC-I5: reconnect rewires the freed end through the fresh-connect builder (cross-dprc-links design D7).
+        let a = end(0, DprcId::ROOT);
+        let b = end(1, DprcId::new(2));
+        let peer = end(5, DprcId::new(3));
+        let (_step, proof) = WireTransition::disconnect_wire_proving(a, b);
+        let reconnect = WireTransition::reconnect_wire(proof, WireSide::A, peer);
+        assert_eq!(reconnect, WireTransition::connect_wire(a, peer));
+        assert!(matches!(
+            reconnect,
+            WireTransition::ConnectWire { ancestor, .. } if ancestor == CONNECT_ANCESTOR
+        ));
     }
 
     #[test]

@@ -96,9 +96,11 @@ The corpus SHALL include `models/COVERAGE.md` with one row per baseline
 invariant candidate recording its disposition: modeled (with model
 location and CI rung), deferred to a named roadmap change, or
 board-pending with the traffic-inventory scenario that settles it. This
-change SHALL add rows for the LINK-I\* invariants and DPCON-I3 and the
-dpni `single_sender` knob (baseline unknown #7) as modeled in this
-change, record DPRC-I5's promotion from candidate to modeled invariant,
+change SHALL add rows for the LINK-I\* invariants and DPCON-I3 as
+modeled in this change, account the dpni `single_sender` knob (baseline
+unknown #7) in this change as consumer-typed and already expressed in
+the PMD profile with no intent knob minted — its board face settling
+unknown #7 — record DPRC-I5's promotion from candidate to modeled invariant,
 and re-point the three portal-dependent rows it hands to tile #10 —
 DPCON-I4 and dpni baseline unknowns #4 and #11 — to `mc-portal-backend`
 (#10) with the blocking fence stated in each row (design D9). The ledger
@@ -117,7 +119,9 @@ lint SHALL stay green.
 
 #### Scenario: The link rows and the #10 re-pointings are accounted
 - **WHEN** the COVERAGE rows are read after this change
-- **THEN** the LINK-I\* rows, DPCON-I3, and the `single_sender` knob read
-  modeled in this change, DPRC-I5 reads modeled (promoted from
+- **THEN** the LINK-I\* rows and DPCON-I3 read modeled in this change,
+  the `single_sender` knob reads accounted in this change (consumer-typed,
+  already expressed in the PMD profile, board-face-settled, no intent
+  knob), DPRC-I5 reads modeled (promoted from
   candidate), and DPCON-I4 and dpni unknowns #4 and #11 re-anchor to
   `mc-portal-backend` (#10) with each blocking fence stated

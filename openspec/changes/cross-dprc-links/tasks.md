@@ -54,9 +54,10 @@ and commits. Every group ends at the quality floor
       create (unconstructible without planned discharge), lazy
       stale-node residue, consented Disruptive rebind transition,
       declined-consent typed residue (D5)
-- [ ] 3.5 Plan laws: disconnect-before-destroy, disconnect-before-
-      reconnect; intent-side types for the dpcon priority and
-      single_sender knobs with provenance (D9)
+- [x] 3.5 Plan laws: disconnect-before-destroy, disconnect-before-
+      reconnect; intent-side type for the dpcon priority knob with
+      provenance (D9); single_sender refused as an intent knob
+      (consumer-typed, design D3) — the wire-variant face carries it
 
 ## 4. Conformance twins (parcel 3b — Rust tests)
 
@@ -76,9 +77,9 @@ and commits. Every group ends at the quality floor
       connect; root reconcile actuates link edges
 - [ ] 5.3 `DriftRefused` → typed DeferredVisibility obligation
       plumbing; consented rebind execution in the engine
-- [ ] 5.4 dpaa2-config: parse + convert the two additive knobs with
-      refusal idiom; links gain no attributes (rates refused by
-      omission)
+- [ ] 5.4 dpaa2-config: parse + convert the one additive knob (dpcon
+      priority) with refusal idiom; links gain no attributes (rates
+      refused by omission)
 - [ ] 5.5 dpaa2-tools: dry-run renders link transitions with
       provenance; consent flow for the rebind; link + obligation rows
       in `status --detail` with honest-unknown idiom

@@ -1,3 +1,4 @@
+use crate::core::error::Error;
 use crate::core::types::TenantName;
 
 /// The reserved kernel tenant (design D1; restool-baseline; `types.qnt` `KERNEL`): the kernel's own
@@ -148,6 +149,57 @@ pub enum Isolation {
     Isolated,
 }
 
+/// The work-queue priority a tenant's consumers' notification channels ride inside
+/// their dpcon (cross-dprc-links design D9; `docs/baseline/dpcon.md` DPCON-I3) — a
+/// refined `0..=7` whose only constructor refuses anything outside that range, so a
+/// value the hardware cannot carry is unrepresentable rather than refused at the
+/// board.
+///
+/// The ceiling is the dpcon create envelope: `--num-priorities` is `1..8`, so the
+/// addressable WQ priorities are `0..=7` (`dpcon.md` line 38, deployed constant 2
+/// priority levels); the registration-time ceiling is separately the DPIO's priority
+/// count (`dpcon.md` lines 52-56). `0` is a real priority, not an omitted sentinel —
+/// every in-corpus consumer drives priority 0 (`dpcon.md` DPCON-I3), which is exactly
+/// today's behavior.
+///
+/// Unlike the dpni create options (`families/dpni.rs`, the ten `ranged_option!`
+/// `u16`s whose `0` is the MC-default sentinel), this is an intent-side knob the
+/// operator states, so it lives beside [`Tenant`] in the intent vocabulary rather
+/// than in a create-surface family tile.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct DpconPriority(u8);
+
+impl DpconPriority {
+    /// The inclusive upper bound of the addressable WQ priorities — the dpcon create
+    /// envelope `--num-priorities` `1..8` yields priorities `0..=7`
+    /// (`docs/baseline/dpcon.md` line 38).
+    pub const HI: u8 = 7;
+
+    /// Builds the refined priority, refusing anything above [`HI`](Self::HI). Every
+    /// value in `0..=7` constructs (`0` is a real priority, the in-corpus default);
+    /// `8` and above has no path — a type-boundary error, not a board rejection.
+    ///
+    /// # Errors
+    /// [`Error::Config`] naming the value and its `0..=7` range when `v` is out of
+    /// envelope.
+    pub fn new(v: u8) -> Result<Self, Error> {
+        if v <= Self::HI {
+            Ok(Self(v))
+        } else {
+            Err(Error::Config(format!(
+                "dpcon priority {v} outside the addressable range 0..={} (--num-priorities 1..8)",
+                Self::HI,
+            )))
+        }
+    }
+
+    /// The raw priority value in `0..=7`.
+    #[must_use]
+    pub const fn get(self) -> u8 {
+        self.0
+    }
+}
+
 /// A tenant of hardware capacity (design D1; restool-baseline; `types.qnt` `Tenant`).
 ///
 /// `max_cores` is the budget the derived thread count must fit under (design D3; ADR-0002).
@@ -173,6 +225,13 @@ pub struct Tenant {
     /// acceptance set, is inert after one converge, and [`compile`](crate::intent::refuse::compile)
     /// ignores it (it derives objects by name, not by rename).
     pub renamed: Option<TenantName>,
+    /// The work-queue priority the tenant's consumers' notification channels ride
+    /// inside their dpcon (cross-dprc-links design D9; `docs/baseline/dpcon.md`
+    /// DPCON-I3), or `None` for today's behavior exactly — every in-corpus consumer
+    /// drives priority 0. `None` keeps the derivation byte-identical; a `Some(p)` adds
+    /// only a provenance node that records the stated priority (the consumer-side
+    /// registration and create-arg rendering are later tasks 5.3-5.5).
+    pub priority: Option<DpconPriority>,
 }
 
 /// The reserved kernel as a tenant value (design D6a; `types.qnt` `kernelTenant`):
@@ -186,5 +245,27 @@ pub fn kernel_tenant(max_cores: i64) -> Tenant {
         max_cores,
         isolation: Isolation::Public,
         renamed: None,
+        priority: None,
+    }
+}
+
+#[cfg(test)]
+mod dpcon_priority_tests {
+    use super::DpconPriority;
+
+    #[test]
+    fn every_addressable_priority_constructs() {
+        // `0..=7` are the addressable WQ priorities (`--num-priorities` 1..8); `0` is a
+        // real priority (the in-corpus default), not an omitted sentinel.
+        for v in 0..=DpconPriority::HI {
+            assert_eq!(DpconPriority::new(v).expect("in range").get(), v);
+        }
+    }
+
+    #[test]
+    fn out_of_envelope_priority_has_no_constructor() {
+        // `8` and above is off the dpcon create envelope — a type-boundary refusal.
+        assert!(DpconPriority::new(8).is_err());
+        assert!(DpconPriority::new(255).is_err());
     }
 }

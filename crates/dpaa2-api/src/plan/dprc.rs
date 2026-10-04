@@ -958,6 +958,7 @@ mod tests {
             max_cores: 4,
             isolation: Isolation::Isolated,
             renamed: None,
+            priority: None,
         }
         .child_dprc()
     }

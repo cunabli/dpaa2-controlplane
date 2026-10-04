@@ -36,6 +36,7 @@ fn tenant(name: &str, dp: Dataplane, cores: i64, iso: Isolation) -> Tenant {
         max_cores: cores,
         isolation: iso,
         renamed: None,
+        priority: None,
     }
 }
 

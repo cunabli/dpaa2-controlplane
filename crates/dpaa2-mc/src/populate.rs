@@ -434,6 +434,7 @@ mod tests {
             max_cores: 16,
             isolation: Isolation::Isolated,
             renamed: None,
+            priority: None,
         };
         let port = |name: ConstructName, dpmac: u32| Port {
             name,
@@ -862,6 +863,7 @@ mod tests {
             max_cores: 16,
             isolation: Isolation::Isolated,
             renamed: None,
+            priority: None,
         };
         let crypto = flows
             .iter()

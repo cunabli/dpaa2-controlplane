@@ -29,6 +29,7 @@ fn poll(name: &str) -> Tenant {
         max_cores: 16,
         isolation: Isolation::Isolated,
         renamed: None,
+        priority: None,
     }
 }
 

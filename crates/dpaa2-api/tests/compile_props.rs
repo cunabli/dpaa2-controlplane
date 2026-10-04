@@ -573,6 +573,7 @@ fn intent_and_inventory() -> impl Strategy<Value = (Intent, Inventory)> {
                     max_cores,
                     isolation,
                     renamed: None,
+                    priority: None,
                 });
             }
             let ports = ports
@@ -692,6 +693,7 @@ fn build_witness_plan(
                 Isolation::Isolated
             },
             renamed: None,
+            priority: None,
         });
         specs.push(c);
     }

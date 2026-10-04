@@ -35,4 +35,4 @@ pub use extra::Extra;
 pub use fabric::{Fabric, Member, Switching};
 pub use link::Link;
 pub use port::Port;
-pub use tenant::{Dataplane, Isolation, KERNEL, Tenant, TenantRef, kernel_tenant};
+pub use tenant::{Dataplane, DpconPriority, Isolation, KERNEL, Tenant, TenantRef, kernel_tenant};

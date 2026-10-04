@@ -547,6 +547,7 @@ struct Sizing {
     effective_dpmcp: EffectiveDemand,
     effective_dpcon: EffectiveDemand,
     num_dpseci: i64,
+    priority: Option<crate::intent::DpconPriority>,
 }
 
 /// Companion draws by reference to ADR-0012 (`companions.qnt`). Poll-mode: dpio 2·T,
@@ -615,6 +616,7 @@ fn size_tenant(intent: &Intent, inv: &Inventory, c: &Tenant) -> Sizing {
         effective_dpmcp: effective(intent, &nm, Family::Dpmcp, req_dpmcp),
         effective_dpcon: effective(intent, &nm, Family::Dpcon, req_dpcon),
         num_dpseci,
+        priority: c.priority,
     }
 }
 
@@ -994,6 +996,24 @@ fn add_tenant_prov(intent: &Intent, s: &Sizing, m: &mut BTreeMap<ProvenanceKey, 
         },
     );
     m.insert(ProvenanceKey::new(nm, "dpcon", ""), dpcon_node(s));
+    // The stated WQ priority the tenant's dpcon channels ride (dpcon.md DPCON-I3,
+    // cross-dprc-links design D9): a `None` adds no node so the derivation stays
+    // byte-identical to today; registration and rendering are later tasks (5.3-5.5).
+    if let Some(p) = s.priority {
+        m.insert(
+            ProvenanceKey::new(nm, "dpcon-priority", ""),
+            ProvenanceNode {
+                rule: "dpcon-priority".into(),
+                anchor: "dpcon.md line 38: --num-priorities 1..8 (deployed constant 2); cross-dprc-links design D9".to_owned(),
+                mark: Measurement::Measured,
+                request: i64::from(p.get()),
+                extra: None,
+                value: i64::from(p.get()),
+                inputs: provkeys(&[(nm.as_str(), "dpcon", "")]),
+                constructs: BTreeSet::new(),
+            },
+        );
+    }
     if s.is_kernel {
         m.insert(
             ProvenanceKey::new(nm, "cpus", ""),
@@ -1230,5 +1250,73 @@ pub(crate) fn derive(intent: &Intent, inv: &Inventory) -> CompiledPlan {
         edges,
         order,
         provenance,
+    }
+}
+
+#[cfg(test)]
+mod dpcon_priority_tests {
+    use super::*;
+    use crate::core::model::{DpmacId, MacMode};
+    use crate::intent::{DpconPriority, Isolation, Port, TenantRef};
+    use crate::testkit::ref_inventory;
+
+    // A userspace-poll consumer terminating one 10G port, so its dpcon node exists
+    // (`dpcon_node`) for the priority node to feed from. `priority` rides as given.
+    fn intent_with_priority(priority: Option<DpconPriority>) -> Intent {
+        Intent {
+            tenants: vec![Tenant {
+                name: "vpp".into(),
+                dataplane: Dataplane::UserspacePoll,
+                max_cores: 16,
+                isolation: Isolation::Isolated,
+                renamed: None,
+                priority,
+            }],
+            ports: vec![Port {
+                name: "wan0".into(),
+                dpmac: DpmacId::new(7),
+                rate: 10_000,
+                tenant: TenantRef::from_name("vpp".into()),
+                mac: None,
+                mac_mode: MacMode::Assert,
+                renamed: None,
+            }],
+            ..Intent::empty()
+        }
+    }
+
+    #[test]
+    fn absent_priority_leaves_the_provenance_map_untouched() {
+        // `None` adds no node: the whole provenance DAG is byte-identical to a tenant
+        // that never named the field — every in-corpus consumer drives priority 0.
+        let base = derive(&intent_with_priority(None), &ref_inventory(16)).provenance;
+        let key = ProvenanceKey::new("vpp", "dpcon-priority", "");
+        assert!(!base.contains_key(&key), "no node when priority is absent");
+    }
+
+    #[test]
+    fn stated_priority_adds_exactly_one_node_carrying_its_value() {
+        let p = DpconPriority::new(5).expect("5 is in 0..=7");
+        let base = derive(&intent_with_priority(None), &ref_inventory(16)).provenance;
+        let withp = derive(&intent_with_priority(Some(p)), &ref_inventory(16)).provenance;
+
+        // The only difference is the one dpcon-priority node — everything else is
+        // byte-identical (the `None`-identity proof, inverted).
+        let key = ProvenanceKey::new("vpp", "dpcon-priority", "");
+        let node = withp.get(&key).expect("the stated priority emits one node");
+        assert_eq!(node.value, 5);
+        assert_eq!(node.request, 5);
+        assert_eq!(node.extra, None);
+        assert!(node.anchor.contains("dpcon.md line 38"));
+        assert!(node.anchor.contains("cross-dprc-links design D9"));
+        assert_eq!(
+            node.inputs,
+            provkeys(&[("vpp", "dpcon", "")]),
+            "the priority rides the tenant's dpcon channels",
+        );
+
+        let mut expected = base;
+        expected.insert(key, node.clone());
+        assert_eq!(expected, withp, "Some(p) is None plus exactly the one node");
     }
 }

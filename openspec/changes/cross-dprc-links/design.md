@@ -150,9 +150,15 @@ tile attached).
 
 A row parked at "traffic-bearing #9" rides this change **iff it needs
 zero machinery beyond what this change builds**. In: **DPCON-I3**
-(dpcon priority knob, same ping face) and **SINGLE_SENDER** (baseline
-dpni unknown #7; one wire variant) — both need small additive intent
-knobs (neither is expressible today). Assigned to #10, which they
+rides as the dpcon **priority intent knob** (the one additive knob, on
+the Tenant construct, same ping face). **SINGLE_SENDER** (baseline dpni
+unknown #7; one wire variant) rides as the **V-TRAF-1 wire-variant
+board face without an intent knob**: `DPNI_OPT_SINGLE_SENDER` is
+consumer-typed, already expressed in `families/dpni.rs` `Profile::Pmd`
+(dpni-typestate D3 — the operator never writes an option), so the face
+settles unknown #7 board-side; if the board shows wire ends differ from
+port ends, the amendment path is a `derive_profile` profile split keyed
+on `InterfaceConstruct`, not a new knob. Assigned to #10, which they
 structurally require (no restool verb for `set_notification`, no table
 read-back, no multi-priority observation): **DPCON-I4**, **dpni
 unknowns #4 and #11**. Mechanics: roadmap row #10's Delivers column

@@ -43,6 +43,7 @@ fn compiled_router() -> Compiled {
             max_cores: 4,
             isolation: Isolation::Isolated,
             renamed: None,
+            priority: None,
         }],
         ports: vec![Port {
             name: "wan0".into(),
@@ -492,6 +493,7 @@ fn compiled_reference() -> Compiled {
             max_cores: 16,
             isolation: Isolation::Isolated,
             renamed: None,
+            priority: None,
         }],
         ports: vec![port("wan0", 7), port("wan1", 9)],
         ..Intent::empty()

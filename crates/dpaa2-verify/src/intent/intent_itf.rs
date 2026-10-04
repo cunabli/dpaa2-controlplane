@@ -279,6 +279,7 @@ fn tenant(v: &Value) -> Result<Tenant, String> {
         max_cores: int64(field(v, "maxCores")?)?,
         isolation: isolation(field(v, "isolation")?)?,
         renamed: rename(field(v, "from")?)?,
+        priority: None,
     })
 }
 

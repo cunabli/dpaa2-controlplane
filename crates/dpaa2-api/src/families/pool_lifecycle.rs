@@ -1145,6 +1145,7 @@ mod tests {
                 max_cores: 16,
                 isolation: Isolation::Isolated,
                 renamed: None,
+                priority: None,
             }],
             ports: vec![Port {
                 name: "wan0".into(),

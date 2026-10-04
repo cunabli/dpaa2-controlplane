@@ -422,6 +422,9 @@ fn convert_tenant(name: &TenantName, t: &RawTenant) -> Result<Tenant, Error> {
         max_cores: t.max_cores,
         isolation,
         renamed: t.renamed.as_ref().map(|r| r.from.clone()),
+        // The TOML read for the dpcon priority knob is cross-dprc-links task 5.4; until
+        // then every parsed tenant carries today's behavior exactly.
+        priority: None,
     })
 }
 

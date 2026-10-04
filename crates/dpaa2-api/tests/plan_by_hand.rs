@@ -42,6 +42,7 @@ fn hand_built_plan_reconciles_and_locks_relationships() {
         max_cores: 8,
         isolation: Isolation::Isolated,
         renamed: None,
+        priority: None,
     };
     assert_eq!(
         vpp.companion(Family::Dpbp, 1).container(),
