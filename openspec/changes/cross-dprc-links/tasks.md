@@ -93,7 +93,7 @@ and commits. Every group ends at the quality floor
 - [x] 6.2 Hook scripts: netns rig + ping frame witness (exact-count
       oracle) + saturation smoke (monotone counters, zero discards,
       no rate target)
-- [ ] 6.3 Offline gates green: rendered suite reviewed, safety
+- [x] 6.3 Offline gates green: rendered suite reviewed, safety
       envelope + RECOVERY-VERIFIED asserted, argv conforms to
       baseline verb tables
 
