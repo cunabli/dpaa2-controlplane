@@ -29,9 +29,20 @@
 // connect edge, cardinality one, disconnect-before-reconnect), ADR-0019
 // (the edge facet), and cross-dprc-links design D2/D3/D4/D5/D7.
 //
-// Named invariants: none here — the LINK-I* invariants, the stateInvariants
-// conjunction and the Apalache marks land with parcel 1c (cross-dprc-links design D7); this
-// parcel is the typestate machine and its directed canonical-trace runs.
+// Named invariants — the LINK-I* set (cross-dprc-links design D7; dispositions
+// in models/COVERAGE.md, ledger rows land with cross-dprc-links task 1.5):
+//   LINK_I1 disconnect-before-destroy — state face below (no edge outlives its
+//     endpoints), guard witness destroyConnectedEndRefusedTest;
+//   LINK_I2 no post-bind create without an attached obligation / planned
+//     discharge — state face below, witness postBindCreateObligatedTest;
+//   LINK_I3 cardinality one / disconnect-before-reconnect — state face below
+//     (DPRC-I5 promoted from candidate), guard witnesses
+//     connectAlreadyConnectedRefusedTest / reconnectAfterDisconnectTest;
+//   LINK_I4 MC-refused patterns surface as refusals — action-guard property
+//     only (the .fail() runs), no state face, so no stateInvariants conjunct.
+// Apalache-marked subset: the stateInvariants conjunction (LINK_I1/I2/I3) —
+//   all three are state-expressible over World or finite-quantified endpoints,
+//   and verify at bounded depth 1 (mirrors dpmac_lifecycle / dpni_lifecycle).
 module link_lifecycle {
   // The shared types and the connection surface this module consumes: the
   // dpni↔dpni edge legality (legalPair), the connect gate (canConnect), the
@@ -285,6 +296,119 @@ module link_lifecycle {
       world' = world
         .with("obligations", world.obligations.exclude(Set({ endpoint: o })))
         .with("residues", world.residues.union(Set(DeclinedVisibility(o)))),
+  }
+
+  // ---- nondet wrappers (random simulation) ----
+
+  // The finite end alphabet the random sweep draws from: the two boot ends and
+  // the post-bind-create third. Every action's guard rejects an ineligible draw
+  // (a missing end, an already-connected pair), so the step never errors — the
+  // same guards the directed runs pin (models/README.md two-forms rule).
+  pure val ENDS: Set[ObjId] = Set(dpniLeft, dpniRight, dpniThird)
+
+  action doConnect = {
+    nondet a = ENDS.oneOf()
+    nondet b = ENDS.oneOf()
+    connectWireAt(portZero(a), portZero(b))
+  }
+  action doDisconnect = {
+    nondet a = ENDS.oneOf()
+    nondet b = ENDS.oneOf()
+    disconnectWireAt(portZero(a), portZero(b))
+  }
+  action doDestroy = {
+    nondet o = ENDS.oneOf()
+    destroyEndAt(o)
+  }
+  action doCreatePostBind = {
+    nondet o = ENDS.oneOf()
+    createEndpointPostBindAt(o, rootContainer)
+  }
+  action doRebindDischarge = {
+    nondet o = ENDS.oneOf()
+    nondet c = Set(Granted, Declined).oneOf()
+    rebindDischargeAt(o, c)
+  }
+
+  action stutter = world' = world
+
+  // The canonical init is Bound root↔root, so bindContainerAt's Populated guard
+  // never fires from here — the populate face is swept by the directed runs
+  // (freshPartialOrderTest, …); random simulation drives the Bound surface.
+  action step = any {
+    doConnect,
+    doDisconnect,
+    doDestroy,
+    doCreatePostBind,
+    doRebindDischarge,
+    bindContainerAt,
+    stutter,
+  }
+
+  // ---- named invariants (cross-dprc-links design D7): the LINK-I* set ----
+  //
+  // Four laws, each on its honest rung (COVERAGE.md ledger rows land with
+  // cross-dprc-links task 1.5, not here):
+  //   LINK_I1 state invariant below + guard witness destroyConnectedEndRefusedTest
+  //   LINK_I2 state invariant below + witness postBindCreateObligatedTest
+  //   LINK_I3 state invariant below (the DPRC-I5 state face) + guard witnesses
+  //           connectAlreadyConnectedRefusedTest / reconnectAfterDisconnectTest
+  //   LINK_I4 action-guard property only — the refusal runs; no World predicate,
+  //           so it is not a stateInvariants conjunct.
+
+  // LINK_I1 — disconnect-before-destroy (cross-dprc-links design D5, finding 34
+  // generalized). State face: no edge outlives its endpoints — every connected
+  // endpoint's object is still present. The bad combination (an edge to a
+  // destroyed end) is representable but unreachable, since destroyEndAt's
+  // not(connected) guard forbids destroying a still-connected end — the
+  // ordering-as-state-invariant idiom of dpmac's DPMAC_SeverOrder. The guard
+  // itself is witnessed by destroyConnectedEndRefusedTest.
+  val LINK_I1: bool =
+    world.core.conns.forall(c =>
+      world.core.objs.keys().contains(c._1.obj)
+        and world.core.objs.keys().contains(c._2.obj))
+
+  // LINK_I2 — no post-bind create without an attached obligation / planned
+  // discharge (cross-dprc-links design D5). State face: a Bound end that is
+  // kernel-invisible is always either named by a standing DeferredVisibility
+  // obligation or carried as a DeclinedVisibility residue — an unobligated
+  // invisible bound end is unreachable, because createEndpointPostBindAt mints
+  // the obligation by construction and the rebind discharge either makes the
+  // end visible (Granted) or leaves the typed residue (Declined). Witnessed by
+  // postBindCreateObligatedTest.
+  val LINK_I2: bool =
+    world.core.objs.keys().forall(o =>
+      (world.containerBind == Bound and not(world.core.objs.get(o).busVisible))
+        implies (world.obligations.contains({ endpoint: o })
+                 or world.residues.contains(DeclinedVisibility(o))))
+
+  // LINK_I3 — cardinality one (object-model.md §2, DPNI-I9; DPRC-I5 promoted
+  // from candidate to a named invariant by this change). State face: every
+  // endpoint sits in at most one edge, so no two peers claim the same end.
+  // canConnect's not(connected) clauses are what hold it, so the
+  // disconnect-before-reconnect ordering follows — a reconnect is legal only
+  // after a disconnect. The guard faces are witnessed by
+  // connectAlreadyConnectedRefusedTest (the DPRC-I5 double-connect refusal) and
+  // reconnectAfterDisconnectTest.
+  val LINK_I3: bool =
+    endpointsOf(world.core).forall(e =>
+      world.core.conns.filter(c => c._1 == e or c._2 == e).size() <= 1)
+
+  // LINK_I4 — MC-refused patterns surface as typed refusals, never pre-forbidden
+  // (cross-dprc-links design D2/D7). This is an action-guard property, not a
+  // World predicate: the machine admits the refusable moves and lets the
+  // core/connect guards reject them, witnessed by the .fail() runs
+  // (connectAlreadyConnectedRefusedTest, destroyConnectedEndRefusedTest). It
+  // carries no stateInvariants conjunct — there is no reachable state to
+  // quantify over.
+
+  // The simulator/Apalache conjunction (pnpm model:simulate passes
+  // --invariant=stateInvariants): the three state-expressible invariants.
+  // LINK_I4 is guard-only and stays a directed run, not a conjunct.
+  val stateInvariants: bool = and {
+    LINK_I1,
+    LINK_I2,
+    LINK_I3,
   }
 
   // A stutter-check step for directed runs (holds the state and checks p).
