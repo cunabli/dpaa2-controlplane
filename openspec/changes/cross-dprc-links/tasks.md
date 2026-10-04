@@ -86,7 +86,7 @@ and commits. Every group ends at the quality floor
 
 ## 6. Board suite (parcel 5 — dpaa2-verify + hooks)
 
-- [ ] 6.1 Generate V-TRAF-1 from the scenario module; faces per D10
+- [x] 6.1 Generate V-TRAF-1 from the scenario module; faces per D10
       (root↔root, cross-container, child↔child, heal, destroy-mirror,
       teardown laws); V-DPCI-1 refusal replayed from the bank, not
       re-run; no PHY dpmac anywhere

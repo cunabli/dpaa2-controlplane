@@ -1,0 +1,1016 @@
+{
+  "id": "V-TRAF-1",
+  "class": "object-lifecycle-only",
+  "flagged": false,
+  "trace_file": "models/board/V-TRAF-1/vtraf1.qnt",
+  "steps": [
+    {
+      "index": 0,
+      "title": "CreateObject { fam: Dpni, container: ObjRef { fam: Dprc, num: 1 } }",
+      "driven": true,
+      "probes": [
+        {
+          "Restool": [
+            "dprc",
+            "show",
+            "dprc.1"
+          ]
+        }
+      ],
+      "created": {
+        "fam": "Dpni",
+        "num": 100
+      },
+      "expected": {
+        "object": {
+          "fam": "Dpni",
+          "num": 100
+        },
+        "present": true,
+        "plugged": false,
+        "endpoint": null,
+        "driver_bound": null,
+        "link_up": null
+      },
+      "face": "1 root<->root converge"
+    },
+    {
+      "index": 1,
+      "title": "CreateObject { fam: Dpni, container: ObjRef { fam: Dprc, num: 1 } }",
+      "driven": true,
+      "probes": [
+        {
+          "Restool": [
+            "dprc",
+            "show",
+            "dprc.1"
+          ]
+        }
+      ],
+      "created": {
+        "fam": "Dpni",
+        "num": 101
+      },
+      "expected": {
+        "object": {
+          "fam": "Dpni",
+          "num": 101
+        },
+        "present": true,
+        "plugged": false,
+        "endpoint": null,
+        "driver_bound": null,
+        "link_up": null
+      }
+    },
+    {
+      "index": 2,
+      "title": "ConnectEdge { a: EndpointRef { obj: ObjRef { fam: Dpni, num: 100 }, port: 0 }, b: EndpointRef { obj: ObjRef { fam: Dpni, num: 101 }, port: 0 } }",
+      "driven": true,
+      "probes": [
+        {
+          "Restool": [
+            "dpni",
+            "info",
+            "dpni.100"
+          ]
+        }
+      ],
+      "created": null,
+      "expected": {
+        "object": {
+          "fam": "Dpni",
+          "num": 100
+        },
+        "present": null,
+        "plugged": null,
+        "endpoint": {
+          "obj": {
+            "fam": "Dpni",
+            "num": 101
+          },
+          "port": 0
+        },
+        "driver_bound": null,
+        "link_up": false
+      }
+    },
+    {
+      "index": 3,
+      "title": "CreateContainer { parent: ObjRef { fam: Dprc, num: 1 } }",
+      "driven": true,
+      "probes": [
+        {
+          "Restool": [
+            "dprc",
+            "show",
+            "dprc.1"
+          ]
+        }
+      ],
+      "created": {
+        "fam": "Dprc",
+        "num": 202
+      },
+      "expected": {
+        "object": {
+          "fam": "Dprc",
+          "num": 202
+        },
+        "present": true,
+        "plugged": false,
+        "endpoint": null,
+        "driver_bound": null,
+        "link_up": null
+      },
+      "face": "2 cross-container populate->connect->bind"
+    },
+    {
+      "index": 4,
+      "title": "CreateObject { fam: Dpni, container: ObjRef { fam: Dprc, num: 1 } }",
+      "driven": true,
+      "probes": [
+        {
+          "Restool": [
+            "dprc",
+            "show",
+            "dprc.1"
+          ]
+        }
+      ],
+      "created": {
+        "fam": "Dpni",
+        "num": 200
+      },
+      "expected": {
+        "object": {
+          "fam": "Dpni",
+          "num": 200
+        },
+        "present": true,
+        "plugged": false,
+        "endpoint": null,
+        "driver_bound": null,
+        "link_up": null
+      }
+    },
+    {
+      "index": 5,
+      "title": "CreateObject { fam: Dpni, container: ObjRef { fam: Dprc, num: 202 } }",
+      "driven": true,
+      "probes": [
+        {
+          "Restool": [
+            "dprc",
+            "show",
+            "dprc.202"
+          ]
+        }
+      ],
+      "created": {
+        "fam": "Dpni",
+        "num": 201
+      },
+      "expected": {
+        "object": {
+          "fam": "Dpni",
+          "num": 201
+        },
+        "present": true,
+        "plugged": false,
+        "endpoint": null,
+        "driver_bound": null,
+        "link_up": null
+      }
+    },
+    {
+      "index": 6,
+      "title": "ConnectEdge { a: EndpointRef { obj: ObjRef { fam: Dpni, num: 200 }, port: 0 }, b: EndpointRef { obj: ObjRef { fam: Dpni, num: 201 }, port: 0 } }",
+      "driven": true,
+      "probes": [
+        {
+          "Restool": [
+            "dpni",
+            "info",
+            "dpni.200"
+          ]
+        }
+      ],
+      "created": null,
+      "expected": {
+        "object": {
+          "fam": "Dpni",
+          "num": 200
+        },
+        "present": null,
+        "plugged": null,
+        "endpoint": {
+          "obj": {
+            "fam": "Dpni",
+            "num": 201
+          },
+          "port": 0
+        },
+        "driver_bound": null,
+        "link_up": false
+      }
+    },
+    {
+      "index": 7,
+      "title": "Plug { obj: ObjRef { fam: Dpni, num: 200 } }",
+      "driven": true,
+      "probes": [
+        {
+          "Restool": [
+            "dprc",
+            "show",
+            "dprc.1"
+          ]
+        }
+      ],
+      "created": null,
+      "expected": {
+        "object": {
+          "fam": "Dpni",
+          "num": 200
+        },
+        "present": true,
+        "plugged": true,
+        "endpoint": null,
+        "driver_bound": null,
+        "link_up": null
+      }
+    },
+    {
+      "index": 8,
+      "title": "Rescan { container: ObjRef { fam: Dprc, num: 1 } }",
+      "driven": true,
+      "probes": [],
+      "created": null,
+      "expected": null
+    },
+    {
+      "index": 9,
+      "title": "DisconnectEdge { e: EndpointRef { obj: ObjRef { fam: Dpni, num: 200 }, port: 0 } }",
+      "driven": true,
+      "probes": [
+        {
+          "Restool": [
+            "dpni",
+            "info",
+            "dpni.200"
+          ]
+        }
+      ],
+      "created": null,
+      "expected": {
+        "object": {
+          "fam": "Dpni",
+          "num": 200
+        },
+        "present": null,
+        "plugged": null,
+        "endpoint": null,
+        "driver_bound": null,
+        "link_up": null
+      }
+    },
+    {
+      "index": 10,
+      "title": "ConnectEdge { a: EndpointRef { obj: ObjRef { fam: Dpni, num: 200 }, port: 0 }, b: EndpointRef { obj: ObjRef { fam: Dpni, num: 201 }, port: 0 } }",
+      "driven": true,
+      "probes": [
+        {
+          "Restool": [
+            "dpni",
+            "info",
+            "dpni.200"
+          ]
+        }
+      ],
+      "created": null,
+      "expected": {
+        "object": {
+          "fam": "Dpni",
+          "num": 200
+        },
+        "present": null,
+        "plugged": null,
+        "endpoint": {
+          "obj": {
+            "fam": "Dpni",
+            "num": 201
+          },
+          "port": 0
+        },
+        "driver_bound": null,
+        "link_up": false
+      }
+    },
+    {
+      "index": 11,
+      "title": "CreateContainer { parent: ObjRef { fam: Dprc, num: 1 } }",
+      "driven": true,
+      "probes": [
+        {
+          "Restool": [
+            "dprc",
+            "show",
+            "dprc.1"
+          ]
+        }
+      ],
+      "created": {
+        "fam": "Dprc",
+        "num": 302
+      },
+      "expected": {
+        "object": {
+          "fam": "Dprc",
+          "num": 302
+        },
+        "present": true,
+        "plugged": false,
+        "endpoint": null,
+        "driver_bound": null,
+        "link_up": null
+      },
+      "face": "3 child<->child generality"
+    },
+    {
+      "index": 12,
+      "title": "CreateContainer { parent: ObjRef { fam: Dprc, num: 1 } }",
+      "driven": true,
+      "probes": [
+        {
+          "Restool": [
+            "dprc",
+            "show",
+            "dprc.1"
+          ]
+        }
+      ],
+      "created": {
+        "fam": "Dprc",
+        "num": 303
+      },
+      "expected": {
+        "object": {
+          "fam": "Dprc",
+          "num": 303
+        },
+        "present": true,
+        "plugged": false,
+        "endpoint": null,
+        "driver_bound": null,
+        "link_up": null
+      }
+    },
+    {
+      "index": 13,
+      "title": "CreateObject { fam: Dpni, container: ObjRef { fam: Dprc, num: 302 } }",
+      "driven": true,
+      "probes": [
+        {
+          "Restool": [
+            "dprc",
+            "show",
+            "dprc.302"
+          ]
+        }
+      ],
+      "created": {
+        "fam": "Dpni",
+        "num": 300
+      },
+      "expected": {
+        "object": {
+          "fam": "Dpni",
+          "num": 300
+        },
+        "present": true,
+        "plugged": false,
+        "endpoint": null,
+        "driver_bound": null,
+        "link_up": null
+      }
+    },
+    {
+      "index": 14,
+      "title": "CreateObject { fam: Dpni, container: ObjRef { fam: Dprc, num: 303 } }",
+      "driven": true,
+      "probes": [
+        {
+          "Restool": [
+            "dprc",
+            "show",
+            "dprc.303"
+          ]
+        }
+      ],
+      "created": {
+        "fam": "Dpni",
+        "num": 301
+      },
+      "expected": {
+        "object": {
+          "fam": "Dpni",
+          "num": 301
+        },
+        "present": true,
+        "plugged": false,
+        "endpoint": null,
+        "driver_bound": null,
+        "link_up": null
+      }
+    },
+    {
+      "index": 15,
+      "title": "ConnectEdge { a: EndpointRef { obj: ObjRef { fam: Dpni, num: 300 }, port: 0 }, b: EndpointRef { obj: ObjRef { fam: Dpni, num: 301 }, port: 0 } }",
+      "driven": true,
+      "probes": [
+        {
+          "Restool": [
+            "dpni",
+            "info",
+            "dpni.300"
+          ]
+        }
+      ],
+      "created": null,
+      "expected": {
+        "object": {
+          "fam": "Dpni",
+          "num": 300
+        },
+        "present": null,
+        "plugged": null,
+        "endpoint": {
+          "obj": {
+            "fam": "Dpni",
+            "num": 301
+          },
+          "port": 0
+        },
+        "driver_bound": null,
+        "link_up": false
+      }
+    },
+    {
+      "index": 16,
+      "title": "CreateObject { fam: Dpmcp, container: ObjRef { fam: Dprc, num: 1 } }",
+      "driven": true,
+      "probes": [
+        {
+          "Restool": [
+            "dprc",
+            "show",
+            "dprc.1"
+          ]
+        }
+      ],
+      "created": {
+        "fam": "Dpmcp",
+        "num": 400
+      },
+      "expected": {
+        "object": {
+          "fam": "Dpmcp",
+          "num": 400
+        },
+        "present": true,
+        "plugged": false,
+        "endpoint": null,
+        "driver_bound": null,
+        "link_up": null
+      },
+      "face": "4 create-side heal (consented rebind)"
+    },
+    {
+      "index": 17,
+      "title": "CreateObject { fam: Dpbp, container: ObjRef { fam: Dprc, num: 1 } }",
+      "driven": true,
+      "probes": [
+        {
+          "Restool": [
+            "dprc",
+            "show",
+            "dprc.1"
+          ]
+        }
+      ],
+      "created": {
+        "fam": "Dpbp",
+        "num": 400
+      },
+      "expected": {
+        "object": {
+          "fam": "Dpbp",
+          "num": 400
+        },
+        "present": true,
+        "plugged": false,
+        "endpoint": null,
+        "driver_bound": null,
+        "link_up": null
+      }
+    },
+    {
+      "index": 18,
+      "title": "CreateObject { fam: Dpcon, container: ObjRef { fam: Dprc, num: 1 } }",
+      "driven": true,
+      "probes": [
+        {
+          "Restool": [
+            "dprc",
+            "show",
+            "dprc.1"
+          ]
+        }
+      ],
+      "created": {
+        "fam": "Dpcon",
+        "num": 400
+      },
+      "expected": {
+        "object": {
+          "fam": "Dpcon",
+          "num": 400
+        },
+        "present": true,
+        "plugged": false,
+        "endpoint": null,
+        "driver_bound": null,
+        "link_up": null
+      }
+    },
+    {
+      "index": 19,
+      "title": "CreateObject { fam: Dpni, container: ObjRef { fam: Dprc, num: 1 } }",
+      "driven": true,
+      "probes": [
+        {
+          "Restool": [
+            "dprc",
+            "show",
+            "dprc.1"
+          ]
+        }
+      ],
+      "created": {
+        "fam": "Dpni",
+        "num": 400
+      },
+      "expected": {
+        "object": {
+          "fam": "Dpni",
+          "num": 400
+        },
+        "present": true,
+        "plugged": false,
+        "endpoint": null,
+        "driver_bound": null,
+        "link_up": null
+      }
+    },
+    {
+      "index": 20,
+      "title": "Plug { obj: ObjRef { fam: Dpmcp, num: 400 } }",
+      "driven": true,
+      "probes": [
+        {
+          "Restool": [
+            "dprc",
+            "show",
+            "dprc.1"
+          ]
+        }
+      ],
+      "created": null,
+      "expected": {
+        "object": {
+          "fam": "Dpmcp",
+          "num": 400
+        },
+        "present": true,
+        "plugged": true,
+        "endpoint": null,
+        "driver_bound": null,
+        "link_up": null
+      }
+    },
+    {
+      "index": 21,
+      "title": "Plug { obj: ObjRef { fam: Dpbp, num: 400 } }",
+      "driven": true,
+      "probes": [
+        {
+          "Restool": [
+            "dprc",
+            "show",
+            "dprc.1"
+          ]
+        }
+      ],
+      "created": null,
+      "expected": {
+        "object": {
+          "fam": "Dpbp",
+          "num": 400
+        },
+        "present": true,
+        "plugged": true,
+        "endpoint": null,
+        "driver_bound": null,
+        "link_up": null
+      }
+    },
+    {
+      "index": 22,
+      "title": "Plug { obj: ObjRef { fam: Dpcon, num: 400 } }",
+      "driven": true,
+      "probes": [
+        {
+          "Restool": [
+            "dprc",
+            "show",
+            "dprc.1"
+          ]
+        }
+      ],
+      "created": null,
+      "expected": {
+        "object": {
+          "fam": "Dpcon",
+          "num": 400
+        },
+        "present": true,
+        "plugged": true,
+        "endpoint": null,
+        "driver_bound": null,
+        "link_up": null
+      }
+    },
+    {
+      "index": 23,
+      "title": "Plug { obj: ObjRef { fam: Dpni, num: 400 } }",
+      "driven": true,
+      "probes": [
+        {
+          "Restool": [
+            "dprc",
+            "show",
+            "dprc.1"
+          ]
+        }
+      ],
+      "created": null,
+      "expected": {
+        "object": {
+          "fam": "Dpni",
+          "num": 400
+        },
+        "present": true,
+        "plugged": true,
+        "endpoint": null,
+        "driver_bound": null,
+        "link_up": null
+      }
+    },
+    {
+      "index": 24,
+      "title": "Rescan { container: ObjRef { fam: Dprc, num: 1 } }",
+      "driven": true,
+      "probes": [],
+      "created": null,
+      "expected": null
+    },
+    {
+      "index": 25,
+      "title": "KernelBind { obj: ObjRef { fam: Dpni, num: 400 } }",
+      "driven": false,
+      "probes": [
+        {
+          "SysfsRead": {
+            "path": "/sys/bus/fsl-mc/devices/dpni.400/driver"
+          }
+        }
+      ],
+      "created": null,
+      "expected": {
+        "object": {
+          "fam": "Dpni",
+          "num": 400
+        },
+        "present": null,
+        "plugged": null,
+        "endpoint": null,
+        "driver_bound": true,
+        "link_up": null
+      }
+    },
+    {
+      "index": 26,
+      "title": "CreateObject { fam: Dpni, container: ObjRef { fam: Dprc, num: 1 } }",
+      "driven": true,
+      "probes": [
+        {
+          "Restool": [
+            "dprc",
+            "show",
+            "dprc.1"
+          ]
+        }
+      ],
+      "created": {
+        "fam": "Dpni",
+        "num": 401
+      },
+      "expected": {
+        "object": {
+          "fam": "Dpni",
+          "num": 401
+        },
+        "present": true,
+        "plugged": false,
+        "endpoint": null,
+        "driver_bound": null,
+        "link_up": null
+      }
+    },
+    {
+      "index": 27,
+      "title": "Unbind { obj: ObjRef { fam: Dpni, num: 400 } }",
+      "driven": true,
+      "probes": [
+        {
+          "SysfsRead": {
+            "path": "/sys/bus/fsl-mc/devices/dpni.400/driver"
+          }
+        }
+      ],
+      "created": null,
+      "expected": {
+        "object": {
+          "fam": "Dpni",
+          "num": 400
+        },
+        "present": null,
+        "plugged": null,
+        "endpoint": null,
+        "driver_bound": false,
+        "link_up": null
+      }
+    },
+    {
+      "index": 28,
+      "title": "KernelBind { obj: ObjRef { fam: Dpni, num: 400 } }",
+      "driven": false,
+      "probes": [
+        {
+          "SysfsRead": {
+            "path": "/sys/bus/fsl-mc/devices/dpni.400/driver"
+          }
+        }
+      ],
+      "created": null,
+      "expected": {
+        "object": {
+          "fam": "Dpni",
+          "num": 400
+        },
+        "present": null,
+        "plugged": null,
+        "endpoint": null,
+        "driver_bound": true,
+        "link_up": null
+      },
+      "note": "a post-bind connect on this kernel-bound end logs ENDPOINT_CHANGED then -EPERM (discarded) — the dmesg law recorded here, the face with an explicit kernel-bound end (cross-dprc-links design D4); face 2 carries no kernelBind and is judged by dprc_get_connection from root"
+    },
+    {
+      "index": 29,
+      "title": "Rescan { container: ObjRef { fam: Dprc, num: 1 } }",
+      "driven": true,
+      "probes": [],
+      "created": null,
+      "expected": null
+    },
+    {
+      "index": 30,
+      "title": "CreateObject { fam: Dpni, container: ObjRef { fam: Dprc, num: 1 } }",
+      "driven": true,
+      "probes": [
+        {
+          "Restool": [
+            "dprc",
+            "show",
+            "dprc.1"
+          ]
+        }
+      ],
+      "created": {
+        "fam": "Dpni",
+        "num": 500
+      },
+      "expected": {
+        "object": {
+          "fam": "Dpni",
+          "num": 500
+        },
+        "present": true,
+        "plugged": false,
+        "endpoint": null,
+        "driver_bound": null,
+        "link_up": null
+      },
+      "face": "5 destroy-mirror"
+    },
+    {
+      "index": 31,
+      "title": "Plug { obj: ObjRef { fam: Dpni, num: 500 } }",
+      "driven": true,
+      "probes": [
+        {
+          "Restool": [
+            "dprc",
+            "show",
+            "dprc.1"
+          ]
+        }
+      ],
+      "created": null,
+      "expected": {
+        "object": {
+          "fam": "Dpni",
+          "num": 500
+        },
+        "present": true,
+        "plugged": true,
+        "endpoint": null,
+        "driver_bound": null,
+        "link_up": null
+      }
+    },
+    {
+      "index": 32,
+      "title": "Rescan { container: ObjRef { fam: Dprc, num: 1 } }",
+      "driven": true,
+      "probes": [],
+      "created": null,
+      "expected": null
+    },
+    {
+      "index": 33,
+      "title": "Destroy { obj: ObjRef { fam: Dpni, num: 500 } }",
+      "driven": true,
+      "probes": [
+        {
+          "Restool": [
+            "dprc",
+            "show",
+            "dprc.1"
+          ]
+        }
+      ],
+      "created": null,
+      "expected": {
+        "object": {
+          "fam": "Dpni",
+          "num": 500
+        },
+        "present": false,
+        "plugged": null,
+        "endpoint": null,
+        "driver_bound": null,
+        "link_up": null
+      }
+    },
+    {
+      "index": 34,
+      "title": "CreateObject { fam: Dpni, container: ObjRef { fam: Dprc, num: 1 } }",
+      "driven": true,
+      "probes": [
+        {
+          "Restool": [
+            "dprc",
+            "show",
+            "dprc.1"
+          ]
+        }
+      ],
+      "created": {
+        "fam": "Dpni",
+        "num": 600
+      },
+      "expected": {
+        "object": {
+          "fam": "Dpni",
+          "num": 600
+        },
+        "present": true,
+        "plugged": false,
+        "endpoint": null,
+        "driver_bound": null,
+        "link_up": null
+      },
+      "face": "6 teardown laws (positive half)"
+    },
+    {
+      "index": 35,
+      "title": "CreateObject { fam: Dpni, container: ObjRef { fam: Dprc, num: 1 } }",
+      "driven": true,
+      "probes": [
+        {
+          "Restool": [
+            "dprc",
+            "show",
+            "dprc.1"
+          ]
+        }
+      ],
+      "created": {
+        "fam": "Dpni",
+        "num": 601
+      },
+      "expected": {
+        "object": {
+          "fam": "Dpni",
+          "num": 601
+        },
+        "present": true,
+        "plugged": false,
+        "endpoint": null,
+        "driver_bound": null,
+        "link_up": null
+      }
+    },
+    {
+      "index": 36,
+      "title": "ConnectEdge { a: EndpointRef { obj: ObjRef { fam: Dpni, num: 600 }, port: 0 }, b: EndpointRef { obj: ObjRef { fam: Dpni, num: 601 }, port: 0 } }",
+      "driven": true,
+      "probes": [
+        {
+          "Restool": [
+            "dpni",
+            "info",
+            "dpni.600"
+          ]
+        }
+      ],
+      "created": null,
+      "expected": {
+        "object": {
+          "fam": "Dpni",
+          "num": 600
+        },
+        "present": null,
+        "plugged": null,
+        "endpoint": {
+          "obj": {
+            "fam": "Dpni",
+            "num": 601
+          },
+          "port": 0
+        },
+        "driver_bound": null,
+        "link_up": false
+      }
+    },
+    {
+      "index": 37,
+      "title": "DisconnectEdge { e: EndpointRef { obj: ObjRef { fam: Dpni, num: 600 }, port: 0 } }",
+      "driven": true,
+      "probes": [
+        {
+          "Restool": [
+            "dpni",
+            "info",
+            "dpni.600"
+          ]
+        }
+      ],
+      "created": null,
+      "expected": {
+        "object": {
+          "fam": "Dpni",
+          "num": 600
+        },
+        "present": null,
+        "plugged": null,
+        "endpoint": null,
+        "driver_bound": null,
+        "link_up": null
+      }
+    },
+    {
+      "index": 38,
+      "title": "child-issued connect refused No privilege (0x4)",
+      "driven": false,
+      "probes": [],
+      "created": null,
+      "expected": null,
+      "reference": "models/board/V-DPCI-1 sitting: a dprc connect issued from a child container lacking TOPOLOGY_CHANGES_ALLOWED returns MC status 0x4 (No privilege); this suite connects at the root ancestor instead (cross-dprc-links design D2), so the refusal is cited, not re-run (cross-dprc-links design D10)"
+    }
+  ],
+  "hook": "models/board/V-TRAF-1/vtraf1.hook.sh"
+}

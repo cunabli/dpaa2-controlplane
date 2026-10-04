@@ -124,6 +124,9 @@ fn a_cap_net_admin_suite_carries_the_operator_note() {
         create_args: CreateArgs::default(),
         expected_refusals: BTreeMap::new(),
         pool_record: false,
+        face_markers: BTreeMap::new(),
+        step_notes: BTreeMap::new(),
+        references: Vec::new(),
     };
     let suite = generate(&spec, &trace, RecoveryGuarantee::Verified).expect("generate");
     assert!(

@@ -24,10 +24,153 @@ use std::collections::BTreeMap;
 use std::fmt::Write as _;
 
 use crate::board::adapter::{
-    Binding, Cmd, CreateArgs, Drive, Expected, MachineView, MbtTrace, ModelAction, ObjRef, Probe,
-    drive, drive_with, expect, readback,
+    Binding, Cmd, CreateArgs, Drive, EndpointRef, Expected, MachineView, MbtStep, MbtTrace,
+    ModelAction, ObjRef, ObjView, Probe, drive, drive_with, expect, readback,
 };
 use crate::board::safety::{self, RunClass};
+
+// --- multi-trace stitch (cross-dprc-links task 6.1) ------------------
+
+/// Remaps one model object id for a stitched face: a boot object (present in
+/// the shared `init`) keeps its id; a face-created object is offset into the
+/// face's disjoint id range so six faces' creates never collide in one trace.
+fn remap_obj(o: ObjRef, off: u32, init: &MachineView) -> ObjRef {
+    if init.objs.contains_key(&o) {
+        o
+    } else {
+        ObjRef {
+            fam: o.fam,
+            num: o.num + off,
+        }
+    }
+}
+
+fn remap_ep(e: EndpointRef, off: u32, init: &MachineView) -> EndpointRef {
+    EndpointRef {
+        obj: remap_obj(e.obj, off, init),
+        port: e.port,
+    }
+}
+
+/// Remaps every id a model action references into the face's id range.
+fn remap_action(a: &ModelAction, off: u32, init: &MachineView) -> ModelAction {
+    let o = |x: ObjRef| remap_obj(x, off, init);
+    let e = |x: EndpointRef| remap_ep(x, off, init);
+    match a {
+        ModelAction::CreateContainer { parent } => {
+            ModelAction::CreateContainer { parent: o(*parent) }
+        }
+        ModelAction::CreateObject { fam, container } => ModelAction::CreateObject {
+            fam: *fam,
+            container: o(*container),
+        },
+        ModelAction::PreplugMutate { obj } => ModelAction::PreplugMutate { obj: o(*obj) },
+        ModelAction::AssignChild { obj, dst } => ModelAction::AssignChild {
+            obj: o(*obj),
+            dst: o(*dst),
+        },
+        ModelAction::Plug { obj } => ModelAction::Plug { obj: o(*obj) },
+        ModelAction::Unplug { obj } => ModelAction::Unplug { obj: o(*obj) },
+        ModelAction::KernelBind { obj } => ModelAction::KernelBind { obj: o(*obj) },
+        ModelAction::VfioBind { obj } => ModelAction::VfioBind { obj: o(*obj) },
+        ModelAction::Unbind { obj } => ModelAction::Unbind { obj: o(*obj) },
+        ModelAction::ConnectEdge { a, b } => ModelAction::ConnectEdge { a: e(*a), b: e(*b) },
+        ModelAction::DisconnectEdge { e: ep } => ModelAction::DisconnectEdge { e: e(*ep) },
+        ModelAction::Rescan { container } => ModelAction::Rescan {
+            container: o(*container),
+        },
+        ModelAction::ChildIrqRefresh { container } => ModelAction::ChildIrqRefresh {
+            container: o(*container),
+        },
+        ModelAction::Allocate { consumer, pool } => ModelAction::Allocate {
+            consumer: o(*consumer),
+            pool: o(*pool),
+        },
+        ModelAction::Free { pool } => ModelAction::Free { pool: o(*pool) },
+        ModelAction::Enable { obj } => ModelAction::Enable { obj: o(*obj) },
+        ModelAction::Disable { obj } => ModelAction::Disable { obj: o(*obj) },
+        ModelAction::SetLocked { container, locked } => ModelAction::SetLocked {
+            container: o(*container),
+            locked: *locked,
+        },
+        ModelAction::LinkChange { obj } => ModelAction::LinkChange { obj: o(*obj) },
+        ModelAction::Destroy { obj } => ModelAction::Destroy { obj: o(*obj) },
+    }
+}
+
+/// Merges a face's remapped post-state into `dst` (a union: the face's objects
+/// and edges add to or override the accumulated base; boot entries are
+/// identical so the override is a no-op).
+fn merge_remapped(dst: &mut MachineView, src: &MachineView, off: u32, init: &MachineView) {
+    for (o, v) in &src.objs {
+        dst.objs.insert(
+            remap_obj(*o, off, init),
+            ObjView {
+                parent: v.parent.map(|p| remap_obj(p, off, init)),
+                ..v.clone()
+            },
+        );
+    }
+    for (a, b) in &src.edges {
+        let (ra, rb) = (remap_ep(*a, off, init), remap_ep(*b, off, init));
+        dst.edges.insert(if ra <= rb { (ra, rb) } else { (rb, ra) });
+    }
+}
+
+/// The stitched trace plus the step index each face begins at (its marker).
+#[derive(Debug, Clone)]
+pub struct Stitched {
+    /// The single concatenated trace the generator renders as one suite.
+    pub trace: MbtTrace,
+    /// Step index → face label, for the per-face markers the suite renders.
+    pub face_markers: BTreeMap<usize, String>,
+}
+
+/// Stitches labelled face traces into ONE trace in face order (cross-dprc-links task 6.1, design D10):
+/// each face's created objects ride a disjoint id range,
+/// so all six coexist and the generator's single unconditional teardown trap
+/// tears every face's objects down. Each stitched step's post-state is the
+/// accumulated base (boot plus every prior face's final objects) unioned with
+/// this face's remapped post, so `created_object` names each create and a
+/// face's own destroy still removes only its object. The shared boot `init` is
+/// face 1's; a face whose boot object set differs is rejected.
+///
+/// # Errors
+/// Returns an error when the faces are empty or disagree on their boot state.
+pub fn stitch_faces(faces: &[(String, MbtTrace)]) -> Result<Stitched, String> {
+    let (_, first) = faces.first().ok_or("stitch: no faces")?;
+    let init = first.init.clone();
+    let boot_keys: BTreeMap<_, _> = init.objs.clone().into_iter().collect();
+    let mut steps: Vec<MbtStep> = Vec::new();
+    let mut markers = BTreeMap::new();
+    // The accumulated base: boot plus every prior face's final state.
+    let mut base = init.clone();
+    for (k, (label, face)) in faces.iter().enumerate() {
+        if face.init.objs != boot_keys {
+            return Err(format!(
+                "stitch: face {} boot state differs from face 1",
+                k + 1
+            ));
+        }
+        let off = u32::try_from((k + 1) * 100).map_err(|e| e.to_string())?;
+        if !face.steps.is_empty() {
+            markers.insert(steps.len(), label.clone());
+        }
+        for step in &face.steps {
+            let action = remap_action(&step.action, off, &init);
+            let mut post = base.clone();
+            merge_remapped(&mut post, &step.post, off, &init);
+            steps.push(MbtStep { action, post });
+        }
+        if let Some(last) = face.steps.last() {
+            merge_remapped(&mut base, &last.post, off, &init);
+        }
+    }
+    Ok(Stitched {
+        trace: MbtTrace { init, steps },
+        face_markers: markers,
+    })
+}
 
 /// The recovery guarantee's verification state (ADR-0003 §7): an
 /// assumption until the 5.1 suite has passed on the board.
@@ -103,6 +246,29 @@ pub struct SuiteSpec {
     /// Off by default; the capture is read-only and never touches
     /// pass/fail.
     pub pool_record: bool,
+    /// Step index → face label, for a stitched multi-face suite (cross-dprc-links task 6.1).
+    /// Each marked step emits a `# === face … ===` banner and records the face on its
+    /// [`PlanStep`]. Empty for a single-trace suite.
+    pub face_markers: BTreeMap<usize, String>,
+    /// Step index → a recorded, operator-diffed observation note (cross-dprc-links design D4):
+    /// the dmesg law carried on the kernel-bound face, never exit-status-judged. Empty for a
+    /// suite with no such note.
+    pub step_notes: BTreeMap<usize, String>,
+    /// Plan-level reference steps appended after the trace steps — a banked witness cited as
+    /// evidence, running no board command (cross-dprc-links design D10, the V-DPCI-1 replay).
+    /// Empty for a suite that banks nothing.
+    pub references: Vec<ReferenceStep>,
+}
+
+/// A banked-witness reference the suite cites instead of re-running on the board
+/// (cross-dprc-links design D10): the child-issued-connect refusal replays the
+/// recorded V-DPCI-1 sitting. Display/diff-only — no command, no probe.
+#[derive(Debug, Clone)]
+pub struct ReferenceStep {
+    /// The reference's title (what it witnesses).
+    pub title: String,
+    /// The recorded evidence it cites (the suite/sitting and the outcome).
+    pub cites: String,
 }
 
 /// One step of the offline-diffable plan.
@@ -129,6 +295,21 @@ pub struct PlanStep {
     /// byte-identically.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub refusal: Option<String>,
+    /// The face this step opens, for a stitched multi-face suite (cross-dprc-links task 6.1).
+    /// Absent on an interior step and on every single-trace plan, so committed plans
+    /// re-serialize byte-identically.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub face: Option<String>,
+    /// A recorded, operator-diffed observation (cross-dprc-links design D4): the
+    /// dmesg law on the kernel-bound face, display-only and never judged. Absent
+    /// otherwise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
+    /// A banked-witness citation this step references rather than runs
+    /// (cross-dprc-links design D10, the V-DPCI-1 replay): set only on a
+    /// reference step, which carries no probes and no command. Absent otherwise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reference: Option<String>,
 }
 
 /// The offline-diffable suite plan.
@@ -700,6 +881,11 @@ pub fn generate(
 
     for (i, step) in trace.steps.iter().enumerate() {
         let title = format!("{:?}", step.action);
+        // A stitched multi-face suite opens each face with a banner (cross-dprc-links task 6.1).
+        let face = spec.face_markers.get(&i).cloned();
+        if let Some(label) = &face {
+            let _ = write!(body, "\n# ===== face: {label} =====\n");
+        }
         let _ = write!(body, "\n# step {i}: {title}\n");
 
         if let ModelAction::DisconnectEdge { e } = &step.action
@@ -790,6 +976,11 @@ pub fn generate(
         } else if let Some(ref e) = expected {
             let _ = writeln!(body, "{}", expect_comment(e));
         }
+        // A recorded, operator-diffed observation (cross-dprc-links design D4): never judged.
+        let note = spec.step_notes.get(&i).cloned();
+        if let Some(text) = &note {
+            let _ = writeln!(body, "# record (operator-diffed, not judged): {text}");
+        }
         let sym_probes =
             readback(&step.action, &pre, &step.post, &sym).map_err(|e| format!("step {i}: {e}"))?;
         for (m, probe) in sym_probes.iter().enumerate() {
@@ -818,8 +1009,37 @@ pub fn generate(
             created,
             expected,
             refusal,
+            face,
+            note,
+            reference: None,
         });
         pre = step.post.clone();
+    }
+
+    // Banked-witness references (cross-dprc-links design D10): cited, not run — a
+    // comment block in the script and a command-less step in the plan.
+    if !spec.references.is_empty() {
+        let _ = write!(body, "\n# ----- banked witnesses (cited, not run) -----\n");
+        for (r, reference) in spec.references.iter().enumerate() {
+            let index = trace.steps.len() + r;
+            let _ = writeln!(
+                body,
+                "# reference {index}: {} — {}",
+                reference.title, reference.cites
+            );
+            steps.push(PlanStep {
+                index,
+                title: reference.title.clone(),
+                driven: false,
+                probes: Vec::new(),
+                created: None,
+                expected: None,
+                refusal: None,
+                face: None,
+                note: None,
+                reference: Some(reference.cites.clone()),
+            });
+        }
     }
 
     // The recovery-verification suite keeps its scratch set: the reboot
@@ -1140,6 +1360,9 @@ mod tests {
             create_args: CreateArgs::default(),
             expected_refusals: BTreeMap::new(),
             pool_record: false,
+            face_markers: BTreeMap::new(),
+            step_notes: BTreeMap::new(),
+            references: Vec::new(),
         }
     }
 

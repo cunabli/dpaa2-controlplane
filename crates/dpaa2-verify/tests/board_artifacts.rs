@@ -88,6 +88,9 @@ fn a_committed_trace_regenerates_with_stderr_and_kernel_log_capture() {
         create_args: CreateArgs::default(),
         expected_refusals: std::collections::BTreeMap::new(),
         pool_record: false,
+        face_markers: std::collections::BTreeMap::new(),
+        step_notes: std::collections::BTreeMap::new(),
+        references: Vec::new(),
     };
     let suite = generate(&spec, &trace, RecoveryGuarantee::Verified).expect("generate");
     assert!(suite.script.contains("step-$1-err.txt"), "{}", suite.script);

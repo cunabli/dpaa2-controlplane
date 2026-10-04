@@ -409,6 +409,11 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
                     .map(|s| parse_expect_refusal(s))
                     .collect::<Result<_, String>>()?,
                 pool_record,
+                // The stitched-suite extras (cross-dprc-links task 6.1) are set by the suite
+                // assembler, not this single-trace CLI path; a plain `generate` leaves them empty.
+                face_markers: std::collections::BTreeMap::new(),
+                step_notes: std::collections::BTreeMap::new(),
+                references: Vec::new(),
             };
             let recovery = if recovery_marker.exists() {
                 RecoveryGuarantee::Verified
