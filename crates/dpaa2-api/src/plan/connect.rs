@@ -752,6 +752,8 @@ mod tests {
             let residue = discharge(PostBindCreate::new(there), allowed)
                 .expect_err("a sub-Disruptive allow declines");
             assert_eq!(residue, WireResidue::DeclinedVisibility(there));
+            // The residue renders the declined end (the StaleNode mirror's Display twin).
+            assert!(residue.to_string().contains("dpni.2"));
         }
     }
 }

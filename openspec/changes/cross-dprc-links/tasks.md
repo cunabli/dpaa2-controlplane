@@ -65,7 +65,7 @@ and commits. Every group ends at the quality floor
       traces) green against the new surface
 - [x] 4.2 The a-bounded proof: dpmac family's existing frozen traces
       replay green, unchanged — any diff fails this parcel (D3)
-- [ ] 4.3 Unit tests for obligations, partial order, and refusal
+- [x] 4.3 Unit tests for obligations, partial order, and refusal
       surfaces per rust idiom
 
 ## 5. Adapters and frontend (parcel 4 — dpaa2-mc, dpaa2-config, dpaa2-tools)
