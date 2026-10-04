@@ -21,8 +21,8 @@ use dpaa2_api::core::family::{ALL_FAMILIES, Family};
 use dpaa2_api::core::model::{DpmacId, MacAddr, MacMode};
 use dpaa2_api::core::types::{ConstructName, TenantName};
 use dpaa2_api::intent::{
-    Crypto, Dataplane, Extra, Fabric, Intent, Isolation, KERNEL, Link, Member, Port, Switching,
-    Tenant, TenantRef,
+    Crypto, Dataplane, DpconPriority, Extra, Fabric, Intent, Isolation, KERNEL, Link, Member, Port,
+    Switching, Tenant, TenantRef,
 };
 
 use crate::schema::{
@@ -416,16 +416,33 @@ fn convert_tenant(name: &TenantName, t: &RawTenant) -> Result<Tenant, Error> {
         RawDataplane::UserspacePoll => Dataplane::UserspacePoll,
         RawDataplane::UserspaceEvent => Dataplane::UserspaceEvent,
     };
+    let priority = t
+        .dpcon_priority
+        .map(|p| convert_priority(&name, p))
+        .transpose()?;
     Ok(Tenant {
         name,
         dataplane,
         max_cores: t.max_cores,
         isolation,
         renamed: t.renamed.as_ref().map(|r| r.from.clone()),
-        // The TOML read for the dpcon priority knob is cross-dprc-links task 5.4; until
-        // then every parsed tenant carries today's behavior exactly.
-        priority: None,
+        priority,
     })
+}
+
+/// Converts the optional `dpcon_priority` knob through [`DpconPriority::new`] — the range
+/// authority stays in dpaa2-api (cross-dprc-links design D9) — mapping any refusal (out of the
+/// `u8` range or above the addressable ceiling) into the config idiom naming the tenant and key.
+fn convert_priority(tenant: &TenantName, raw: i64) -> Result<DpconPriority, Error> {
+    u8::try_from(raw)
+        .ok()
+        .and_then(|v| DpconPriority::new(v).ok())
+        .ok_or_else(|| {
+            cfg(format!(
+                "tenant `{tenant}` `dpcon_priority` {raw} is outside the addressable range 0..={}",
+                DpconPriority::HI
+            ))
+        })
 }
 
 /// Rejects any derived count field named on a construct with a targeted message
@@ -502,6 +519,11 @@ fn convert_link(
 ) -> Result<Link, Error> {
     let name = name.clone();
     reject_counts(&format!("link `{name}`"), counts_of!(l))?;
+    if l.rate.is_some() {
+        return Err(cfg(format!(
+            "link `{name}` names a `rate`; a link carries no rate, only its two tenant ends"
+        )));
+    }
     let interface_a = l.interface_a.clone();
     let interface_b = l.interface_b.clone();
     // `compile` also refuses this (`TenantAbsent`); the config duplicates the check
@@ -1544,5 +1566,64 @@ mod tests {
         let example = include_str!("../../../packaging/dpaa2/topology.toml");
         let intent = parse_str(example).expect("shipped example topology parses");
         assert_ne!(intent.ports, [] as [dpaa2_api::intent::Port; 0]);
+    }
+
+    // ---- Requirement: the dpcon priority knob (cross-dprc-links task 5.4) ----
+
+    const PRIORITY_TENANT: &str = r#"
+        [tenant.router]
+        dataplane = "userspace-poll"
+        max_cores = 16
+    "#;
+
+    #[test]
+    fn scenario_dpcon_priority_parses_and_converts() {
+        let intent = parse(&format!("{PRIORITY_TENANT}dpcon_priority = 3\n"));
+        let priority = intent.tenants[0].priority.expect("the knob converts");
+        assert_eq!(
+            priority.get(),
+            3,
+            "the stated priority rides the neutral intent"
+        );
+    }
+
+    #[test]
+    fn scenario_out_of_range_dpcon_priority_is_refused() {
+        for value in ["8", "-1", "999"] {
+            let err = parse_err(&format!("{PRIORITY_TENANT}dpcon_priority = {value}\n"));
+            assert!(err.contains("router"), "names the tenant: {err}");
+            assert!(err.contains("dpcon_priority"), "names the key: {err}");
+            assert!(err.contains("0..=7"), "names the range: {err}");
+        }
+    }
+
+    #[test]
+    fn scenario_omitted_dpcon_priority_preserves_the_intent() {
+        // An omitted knob parses to today's behavior exactly: no priority on the tenant.
+        let intent = parse(PRIORITY_TENANT);
+        assert_eq!(intent.tenants[0].priority, None);
+    }
+
+    // ---- Requirement: link tables carry no attributes ----
+
+    #[test]
+    fn scenario_rate_on_a_link_is_refused() {
+        let err = parse_err(
+            r#"
+            [tenant.a]
+            dataplane = "userspace-poll"
+            max_cores = 16
+            [tenant.b]
+            dataplane = "userspace-poll"
+            max_cores = 16
+
+            [link.wire]
+            interface_a = "a"
+            interface_b = "b"
+            rate = 10000
+            "#,
+        );
+        assert!(err.contains("rate"), "names the unexpected key: {err}");
+        assert!(err.contains("wire"), "names the link: {err}");
     }
 }

@@ -43,6 +43,7 @@ schema = 1                 # the version hook; the only document-level property 
 dataplane = "userspace-poll"   # kernel-netlink | userspace-poll | userspace-event
 max_cores = 16                 # a budget the derived thread count must fit under
 isolation = "isolated"         # public | restricted | isolated (default isolated)
+# dpcon_priority = 0           # optional dpcon work-queue priority 0..=7 (default: today's 0)
 
 # Two 10G ports the router terminates, each anchored on a stable DPMAC. The interface
 # name lives in the table key (ADR-0015 decision 1); its dpni ordinal is minted by name.

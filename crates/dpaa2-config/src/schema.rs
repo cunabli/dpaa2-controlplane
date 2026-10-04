@@ -214,6 +214,11 @@ construct_table! {
         /// Its place in the container tree (default [`RawIsolation::Isolated`]).
         #[serde(default)]
         pub isolation: RawIsolation,
+        /// The optional dpcon work-queue priority `0..=7` the tenant's consumers ride
+        /// (cross-dprc-links design D9; DPCON-I3). Absent ⇒ today's behavior; [`crate::parse`]
+        /// converts it through `DpconPriority::new` and refuses an out-of-range value.
+        #[serde(default)]
+        pub dpcon_priority: Option<i64>,
         /// A restricted tenant's public holder; absent otherwise.
         #[serde(default, deserialize_with = "name_opt")]
         pub pool: Option<TenantName>,
@@ -279,6 +284,10 @@ construct_table! {
         /// The tenant whose interface terminates the other end.
         #[serde(deserialize_with = "name")]
         pub interface_b: TenantName,
+        /// Present only to reject a link `rate` with a targeted, link-named error (cross-dprc-links design D9):
+        /// no NXP script ever used link rates, so the attribute stays unexpressed.
+        #[serde(default)]
+        pub rate: Option<i64>,
         /// An optional `renamed = { from = "<old>" }` declaring the link's prior name
         /// (ADR-0015 decision 10; task 6.3). Shares the port/link/fabric namespace.
         #[serde(default)]

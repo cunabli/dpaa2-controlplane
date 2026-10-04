@@ -77,7 +77,7 @@ and commits. Every group ends at the quality floor
       connect; root reconcile actuates link edges
 - [x] 5.3 `DriftRefused` → typed DeferredVisibility obligation
       plumbing; consented rebind execution in the engine
-- [ ] 5.4 dpaa2-config: parse + convert the one additive knob (dpcon
+- [x] 5.4 dpaa2-config: parse + convert the one additive knob (dpcon
       priority) with refusal idiom; links gain no attributes (rates
       refused by omission)
 - [ ] 5.5 dpaa2-tools: dry-run renders link transitions with
