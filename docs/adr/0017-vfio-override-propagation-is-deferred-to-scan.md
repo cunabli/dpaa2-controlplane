@@ -1,7 +1,10 @@
 # ADR-0017: VFIO override propagation is real, and deferred to the next container scan
 
 - **Status:** Accepted — board sitting 2026-09-13 (suite V-DPRC-8
-  rev 1, dprc-encapsulation task 5.2)
+  rev 1, dprc-encapsulation task 5.2); amended 2026-10-04 by
+  cross-dprc-links 2.2 (bead dpaa2-controlplane-kux.7): the
+  deferred-visibility obligation decision 3 filed forward
+  (PASS4-F8) is discharged; ADR-0022's healing row represents it
 - **Date:** 2026-09-14
 - **Supersedes / relates to:** OpenSpec change `dprc-encapsulation`
   (design D6, task 5.2); ADR-0006 (visibility is established by
@@ -52,13 +55,11 @@ the scratch child while the child was bound to `vfio-fsl-mc`:
    by `dprc sync`, which reaches root containers only.
 3. **Population order for the consumer typestates: populate, then
    bind.** A consumer container is populated first and bound last. The
-   pure core makes the alternative *unrepresentable* today: the create
-   and assign faces exist only on the unplugged container typestate and
-   are absent once the container is `Plugged`, so a post-bind create
-   cannot be planned and buys no deferred-visibility obligation. Should
-   population-after-bind ever land (tile #6), that create must carry the
-   deferred-visibility obligation explicitly — the obligation is filed
-   there, not represented here (PASS4-F8).
+   connection surface (ADR-0022) makes post-bind create representable
+   only with the eager `DeferredVisibility` obligation attached, so
+   PASS4-F8 is discharged — ADR-0022's healing row is where that
+   obligation is represented. Populate-then-bind remains the
+   fresh-convergence order.
 
 ## Consequences
 

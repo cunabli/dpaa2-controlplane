@@ -15,7 +15,10 @@
   by dpseci-typestate 6.1 (bead dpaa2-controlplane-lbk.11): the dpseci P2
   model + isomorphic Rust twins land under `dpseci-typestate`, convergence
   a multiset census on the observable cfg signature, board-witnessed
-  V-DPSECI-3 rev 2
+  V-DPSECI-3 rev 2; amended 2026-10-04 by cross-dprc-links 2.2 (bead
+  dpaa2-controlplane-kux.7): the edge facet gains its second inhabitant
+  (dpni↔dpni disconnect-only teardown) and the edge-kind table is owned
+  by ADR-0022
 - **Date:** 2026-09-19
 - **Supersedes / relates to:** ADR-0018 (the module tree this catalog
   fills: 0018 names where a family's pieces live, this record names what
@@ -173,7 +176,11 @@ primary:
   to the connection surface and the phase-marker promotion trigger is
   met without family-internal markers (board-witnessed: V-DPMAC-3
   rev 1's teardown read back standalone-bound with no driverless
-  interval).
+  interval). A second edge teardown inhabits the facet: the dpni↔dpni
+  kind carries disconnect-only teardown — no driver handback exists by
+  construction — typed at the same connection surface. ADR-0022 is the
+  record that owns the edge-kind table and the per-kind reification
+  policy this facet points into.
 
 ### The family→pattern table
 

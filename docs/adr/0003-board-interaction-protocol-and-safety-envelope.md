@@ -99,9 +99,12 @@ configuration; it is decided when reached.
 the first traffic-bearing phase. Outcome: option (a) — per-run-flagged
 use of dpmac.7/9 — is exercised there, limited to reachability-level
 traffic (minimal frames through configured object groups, no rate
-targets, nothing restarts or reconfigures the peer). Option (b) is not
-foreclosed: it is re-decided at change #9 (`cross-dprc-links`) when
-sustained traffic suites arrive. Until then dpmac.3 remains total-deny.
+targets, nothing restarts or reconfigures the peer).
+
+**Amended 2026-10-04 — option (b) is dropped as a scheduled decision
+point (cross-dprc-links 2.2, bead dpaa2-controlplane-kux.7).** It
+carries no tile; its revisit trigger is a phase requiring sustained
+external traffic, and dpmac.3 remains total-deny.
 
 ## Consequences
 
@@ -127,6 +130,7 @@ sustained traffic suites arrive. Until then dpmac.3 remains total-deny.
 - ADR-0002 — batch/online MBT definitions.
 - `docs/baseline/traffic-inventory.md` — the scenario inventory this ADR's
   matrix governs.
-- `docs/ROADMAP.md` — Mellanox decision point, re-decided at change #9.
+- `docs/ROADMAP.md` — Mellanox decision point; its revisit trigger is
+  a phase requiring sustained external traffic.
 - OpenSpec change `verify-foundation`, `design.md` D8 — the early firing
   of the §8 decision point.
