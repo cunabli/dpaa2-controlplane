@@ -90,7 +90,7 @@ and commits. Every group ends at the quality floor
       (root↔root, cross-container, child↔child, heal, destroy-mirror,
       teardown laws); V-DPCI-1 refusal replayed from the bank, not
       re-run; no PHY dpmac anywhere
-- [ ] 6.2 Hook scripts: netns rig + ping frame witness (exact-count
+- [x] 6.2 Hook scripts: netns rig + ping frame witness (exact-count
       oracle) + saturation smoke (monotone counters, zero discards,
       no rate target)
 - [ ] 6.3 Offline gates green: rendered suite reviewed, safety
