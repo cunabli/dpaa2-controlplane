@@ -1,0 +1,8 @@
+---
+source: crates/dpaa2-tools/tests/link_faces.rs
+expression: "render::render_link_detail(&[], &obligations)"
+---
+link detail (0 link(s)) [read-only; never gates convergence]:
+  (none)
+obligations (1) [read-only; gates no convergence]:
+  child `router` (dprc.2): post-bind residents are MC-accepted but kernel-invisible until a consented disruptive rebind cycle (ADR-0017)

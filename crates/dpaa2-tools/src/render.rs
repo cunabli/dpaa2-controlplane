@@ -28,7 +28,10 @@ use dpaa2_api::plan::populate::ChildPlan;
 use dpaa2_api::plan::{Class, Plan, Transition};
 
 use dpaa2_api::contract::DpseciPortalReadout;
+use dpaa2_api::core::model::ObjectRef;
+use dpaa2_api::plan::connect::ChildDeferredVisibility;
 
+use crate::engine::{LinkConnection, LinkDryRun, LinkDryRunAction, LinkRow};
 use crate::status::{DpseciRow, PortDetail};
 
 /// Renders the whole dry-run text: the compiled objects with their provenance trees
@@ -176,6 +179,134 @@ fn render_transition(t: &Transition) -> String {
             )
         }
         other => format!("{other:?}"),
+    }
+}
+
+/// Renders the dpni↔dpni link transitions `dry-run` would execute (cross-dprc-links task 5.5;
+/// provisioning-cli delta req 1): one line per link in the `[class] verb` style, followed by the
+/// link-edge provenance tree (the "link-edge" rule node, via `render_prov_tree`). A held-end is
+/// the typed refusal line. The rendered transition is the exact one `ensure` actuates — the planner
+/// ([`crate::engine::plan_links`]) shares its resolution and `plan_wire` authority.
+#[must_use]
+pub fn render_links(plan: &CompiledPlan, links: &[LinkDryRun]) -> String {
+    let mut out = String::new();
+    let _ = writeln!(
+        out,
+        "link transitions ({} link(s)) [exact plan ensure would execute]:",
+        links.len()
+    );
+    if links.is_empty() {
+        let _ = writeln!(out, "  (none)");
+    }
+    for l in links {
+        match &l.action {
+            LinkDryRunAction::Connect => {
+                let _ = writeln!(
+                    out,
+                    "  [{}] connect {} <-> {} @ {}",
+                    Class::Disruptive,
+                    l.a,
+                    l.b,
+                    l.ancestor
+                );
+            }
+            LinkDryRunAction::Converged => {
+                let _ = writeln!(
+                    out,
+                    "  [{}] {} <-> {} already connected",
+                    Class::Hitless,
+                    l.a,
+                    l.b
+                );
+            }
+            LinkDryRunAction::Pending => {
+                let _ = writeln!(
+                    out,
+                    "  [{}] {} <-> {} pending (an end not yet resident)",
+                    Class::Hitless,
+                    l.a,
+                    l.b
+                );
+            }
+            LinkDryRunAction::Held(r) => {
+                let _ = writeln!(out, "  REFUSED {} <-> {}: {r}", l.a, l.b);
+            }
+        }
+        let mut path = BTreeSet::new();
+        render_prov_tree(plan, &l.provenance, 2, &mut path, &mut out);
+    }
+    out
+}
+
+/// Renders the read-only `status --detail` link and obligation rows (cross-dprc-links task 5.5;
+/// provisioning-cli delta req 3): one row per dpni↔dpni link — endpoints and connection state from
+/// `dprc_get_connection` — and one per standing child-keyed obligation. Display-only: an
+/// unavailable read renders as explicitly unknown (the honest-unknown idiom), and the header states
+/// the view gates no convergence, so the command's exit code is untouched.
+#[must_use]
+pub fn render_link_detail(rows: &[LinkRow], obligations: &[ChildDeferredVisibility]) -> String {
+    let mut out = String::new();
+    let _ = writeln!(
+        out,
+        "link detail ({} link(s)) [read-only; never gates convergence]:",
+        rows.len()
+    );
+    if rows.is_empty() {
+        let _ = writeln!(out, "  (none)");
+    }
+    for r in rows {
+        let _ = writeln!(
+            out,
+            "  {link} {a} <-> {b} connection={conn}",
+            link = r.link,
+            a = render_opt_ref(r.a),
+            b = render_opt_ref(r.b),
+            conn = render_link_connection(&r.connection),
+        );
+    }
+    let _ = writeln!(
+        out,
+        "obligations ({}) [read-only; gates no convergence]:",
+        obligations.len()
+    );
+    if obligations.is_empty() {
+        let _ = writeln!(out, "  (none)");
+    }
+    for o in obligations {
+        let _ = writeln!(out, "  {o}");
+    }
+    out
+}
+
+/// Renders the declined-consent drift refusal (cross-dprc-links task 5.5; provisioning-cli delta
+/// req 2): the typed standing [`ChildDeferredVisibility`] residue, then the actionable re-run hint
+/// in the `gate_refusal_message` idiom — the `--allow=disruptive` flag IS the consent machinery
+/// (ADR-0015 decision 12), so the Disruptive rebind is named, never implied and never silent.
+#[must_use]
+pub fn render_drift_refusal(residue: &ChildDeferredVisibility, allowed: Class) -> String {
+    let mut out = String::new();
+    let _ = writeln!(out, "refused: {residue}");
+    let _ = writeln!(
+        out,
+        "the rebind cycle is `{}`, but the run allows only up to `{allowed}`; re-run with \
+         `--allow=disruptive` to actuate it (disruptive is never implied).",
+        Class::Disruptive
+    );
+    out
+}
+
+/// An observed link endpoint, or the honest-unknown token when the end is not resident.
+fn render_opt_ref(obj: Option<ObjectRef>) -> String {
+    obj.map_or_else(|| "unknown".to_owned(), |o| o.to_string())
+}
+
+/// The operator token for a link connection state; an unjudgeable read is explicitly unknown.
+fn render_link_connection(c: &LinkConnection) -> String {
+    match c {
+        LinkConnection::Connected => "connected".to_owned(),
+        LinkConnection::ConnectedElsewhere(peer) => format!("connected-elsewhere ({peer})"),
+        LinkConnection::Disconnected => "disconnected".to_owned(),
+        LinkConnection::Unknown => "unknown".to_owned(),
     }
 }
 

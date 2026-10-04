@@ -173,6 +173,12 @@ fn run(cli: &Cli) -> Result<ExitCode, Error> {
                     dpseci_rows.extend(status::dpseci_details(&mc, *id)?);
                 }
                 print!("{}", render::render_dpseci_details(&dpseci_rows));
+                // The read-only dpni↔dpni link rows and standing obligation rows (cross-dprc-links task 5.5):
+                // endpoints and connection state from dprc_get_connection, honest-unknown on an
+                // unavailable read. Display-only — the exit code stays port-driven, below.
+                let link_rows = engine::link_rows(&compiled.plan, &mc)?;
+                let obligations = engine::link_obligations(&compiled.plan, &mc, &kernel)?;
+                print!("{}", render::render_link_detail(&link_rows, &obligations));
             }
             // The root-scope pool drift per family, read-only off the board (pool-objects task
             // 3.4): observed-vs-derived counts and the disposition convergence would take.
@@ -229,6 +235,11 @@ fn run(cli: &Cli) -> Result<ExitCode, Error> {
             // an empty, hitless plan.
             let population = engine::plan_population(&compiled.plan, &mc, &kernel)?;
             print!("{}", render::render_population(&population));
+            // The dpni↔dpni link transitions the same run would execute, planned read-only off the
+            // board (cross-dprc-links task 5.5): each connect with its class and link-edge
+            // provenance — the exact transition `ensure` actuates, a dry-run dispatches nothing.
+            let links = engine::plan_links(&compiled.plan, &mc)?;
+            print!("{}", render::render_links(&compiled.plan, &links));
             Ok(ExitCode::SUCCESS)
         }
         Command::Ensure {
@@ -480,7 +491,9 @@ fn run_population(
             Ok(Some(ExitCode::FAILURE))
         }
         PopulationOutcome::DriftRefused { residue, .. } => {
-            println!("refused: {residue}");
+            // The --allow flag IS the consent machinery (ADR-0015 decision 12): the residue plus the
+            // actionable re-run hint, never a silent rebind.
+            print!("{}", render::render_drift_refusal(&residue, cfg.allow));
             Ok(Some(ExitCode::FAILURE))
         }
         PopulationOutcome::ShrinkRefused { label, refusal } => {

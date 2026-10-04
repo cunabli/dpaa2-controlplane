@@ -1,0 +1,8 @@
+---
+source: crates/dpaa2-tools/tests/link_faces.rs
+expression: "render::render_link_detail(&rows, &[])"
+---
+link detail (1 link(s)) [read-only; never gates convergence]:
+  l0 unknown <-> unknown connection=unknown
+obligations (0) [read-only; gates no convergence]:
+  (none)

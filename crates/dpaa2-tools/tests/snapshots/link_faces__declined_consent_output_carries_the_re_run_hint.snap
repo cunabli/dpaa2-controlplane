@@ -1,0 +1,6 @@
+---
+source: crates/dpaa2-tools/tests/link_faces.rs
+expression: out
+---
+refused: child `router` (dprc.2): post-bind residents are MC-accepted but kernel-invisible until a consented disruptive rebind cycle (ADR-0017)
+the rebind cycle is `disruptive`, but the run allows only up to `hitless`; re-run with `--allow=disruptive` to actuate it (disruptive is never implied).

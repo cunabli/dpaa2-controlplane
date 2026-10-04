@@ -25,7 +25,9 @@ use dpaa2_api::families::pool_lifecycle::{
     derived_requirement, drift_disposition, label_membership,
 };
 use dpaa2_api::intent::KERNEL;
-use dpaa2_api::intent::compiled::{Attributes, CompiledPlan, Container, PlannedObject};
+use dpaa2_api::intent::compiled::{
+    Attributes, CompiledPlan, Container, ObjectKey, PlannedObject, ProvenanceKey,
+};
 use dpaa2_api::plan::connect::{
     CONNECT_ANCESTOR, ChildDeferredVisibility, LinkEndState, WireEnd, WireHeldRefusal, WirePlan,
     WireTransition, discharge_child, plan_wire,
@@ -1135,6 +1137,7 @@ pub fn converge_population<M: McControl, K: KernelControl>(
                         cp.label
                     )));
                 }
+                tracing::info!(label = %cp.label, child = %cp.child, "post-bind rebind cycle applied; residents now visible (ADR-0017)");
             }
         } else {
             // Populate, then bind (ADR-0017): the handoff fires only on a not-yet-bound child.
@@ -1445,6 +1448,181 @@ pub fn converge_links<M: McControl>(
         }
     }
     Ok(LinkOutcome::Converged)
+}
+
+/// The read-only plan for one dpni↔dpni link edge, the dry-run twin of a [`converge_links`]
+/// dispatch step (cross-dprc-links task 5.5): the two plan ends, the issuing ancestor, the
+/// link-edge provenance key, and the action the same resolution + [`plan_wire`] authority judges.
+#[derive(Clone, Debug)]
+pub struct LinkDryRun {
+    /// The `a` end's plan key.
+    pub a: ObjectKey,
+    /// The `b` end's plan key.
+    pub b: ObjectKey,
+    /// The common ancestor the connect would be issued at.
+    pub ancestor: DprcId,
+    /// The link-edge provenance key, rendered as the operator's rule trace.
+    pub provenance: ProvenanceKey,
+    /// The action this pass would take.
+    pub action: LinkDryRunAction,
+}
+
+/// What the read-only link planner would do for one edge (cross-dprc-links task 5.5), the
+/// [`WirePlan`] outcome lifted to the edge: a fresh connect, nothing (already wired), a pending
+/// end a later pass resolves, or the typed held-end refusal.
+#[derive(Clone, Debug)]
+pub enum LinkDryRunAction {
+    /// A connect would issue (fresh); classed [`Class::Disruptive`] like the port connect.
+    Connect,
+    /// Already wired to the planned peer — nothing to do.
+    Converged,
+    /// An end is not yet resident (a child dpni uncreated, or its container unobserved).
+    Pending,
+    /// An end is held by a different peer than planned (DPRC-I5).
+    Held(WireHeldRefusal),
+}
+
+/// Plans every dpni↔dpni link read-only — the exact connect [`converge_links`] would execute,
+/// rendered by `dry-run` without dispatching (cross-dprc-links task 5.5). Reuses the same
+/// `resolve_link_edge` resolution and [`plan_wire`] authority, so the predicted transition is
+/// the one `ensure` actuates.
+///
+/// # Errors
+/// Propagates a backend read failure.
+pub fn plan_links<M: McControl>(plan: &CompiledPlan, mc: &M) -> Result<Vec<LinkDryRun>, Error> {
+    let children: BTreeMap<ConstructName, DprcId> = mc
+        .observe_containers()?
+        .iter()
+        .map(|(&id, c)| (c.label.clone(), id))
+        .collect();
+    let mut out = Vec::new();
+    for edge in &plan.edges {
+        let Some((a_key, b_key)) = edge.link_edge_dpnis() else {
+            continue;
+        };
+        let action = match resolve_link_edge(mc, plan, a_key, b_key, &children)? {
+            LinkEdgePlan::Skip => LinkDryRunAction::Pending,
+            LinkEdgePlan::Wire {
+                a: LinkSlot::Have(ea),
+                b: LinkSlot::Have(eb),
+            } => match plan_wire(
+                LinkEndState::Resolved(ea),
+                LinkEndState::Resolved(eb),
+                mc.dprc_get_connection(ea.dpni)?,
+            ) {
+                WirePlan::Connect(_) => LinkDryRunAction::Connect,
+                WirePlan::Nothing => LinkDryRunAction::Converged,
+                WirePlan::HeldByOtherPeer(r) => LinkDryRunAction::Held(r),
+            },
+            // An end to create means a fresh connect follows it.
+            LinkEdgePlan::Wire { .. } => LinkDryRunAction::Connect,
+        };
+        out.push(LinkDryRun {
+            a: a_key.clone(),
+            b: b_key.clone(),
+            ancestor: CONNECT_ANCESTOR,
+            provenance: edge.provenance().clone(),
+            action,
+        });
+    }
+    Ok(out)
+}
+
+/// One dpni↔dpni link's read-only `status --detail` row (cross-dprc-links task 5.5): the link
+/// name, each end's observed dpni (absent ⇒ honest unknown), and the connection state judged from
+/// `dprc_get_connection`. Display-only; no field gates convergence.
+#[derive(Clone, Debug)]
+pub struct LinkRow {
+    /// The link's construct name.
+    pub link: ConstructName,
+    /// The `a` end's observed dpni, or `None` when not resident (honest unknown).
+    pub a: Option<ObjectRef>,
+    /// The `b` end's observed dpni, or `None` when not resident.
+    pub b: Option<ObjectRef>,
+    /// The connection state read from the ancestor.
+    pub connection: LinkConnection,
+}
+
+/// A link's connection state as `status --detail` reads it (cross-dprc-links task 5.5), honest
+/// about an unavailable read (an end not resident) rather than reporting down or disconnected.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum LinkConnection {
+    /// End `a` reads connected to end `b`.
+    Connected,
+    /// End `a` reads connected to a peer other than `b`.
+    ConnectedElsewhere(ObjectRef),
+    /// End `a` reads disconnected.
+    Disconnected,
+    /// An end is not resident, so the connection cannot be judged.
+    Unknown,
+}
+
+fn link_slot_ref(slot: &LinkSlot<'_>) -> Option<ObjectRef> {
+    match slot {
+        LinkSlot::Have(end) => Some(ObjectRef::new(Family::Dpni, end.dpni.into_inner())),
+        LinkSlot::CreateRoot { .. } => None,
+    }
+}
+
+/// Reads the read-only link rows for `status --detail` (cross-dprc-links task 5.5): each declared
+/// dpni↔dpni link's endpoints and connection state, sourced from `dprc_get_connection` at the
+/// ancestor. An end not resident renders as the honest unknown, and the command still exits
+/// success.
+///
+/// # Errors
+/// Propagates a backend read failure.
+pub fn link_rows<M: McControl>(plan: &CompiledPlan, mc: &M) -> Result<Vec<LinkRow>, Error> {
+    let children: BTreeMap<ConstructName, DprcId> = mc
+        .observe_containers()?
+        .iter()
+        .map(|(&id, c)| (c.label.clone(), id))
+        .collect();
+    let mut out = Vec::new();
+    for edge in &plan.edges {
+        let Some((a_key, b_key)) = edge.link_edge_dpnis() else {
+            continue;
+        };
+        let (a, b) = match resolve_link_edge(mc, plan, a_key, b_key, &children)? {
+            LinkEdgePlan::Wire { a, b } => (link_slot_ref(&a), link_slot_ref(&b)),
+            LinkEdgePlan::Skip => (None, None),
+        };
+        let connection = match (a, b) {
+            (Some(a_ref), Some(b_ref)) => {
+                match mc.dprc_get_connection(DpniId::new(a_ref.ordinal()))? {
+                    Some(peer) if peer == b_ref => LinkConnection::Connected,
+                    Some(peer) => LinkConnection::ConnectedElsewhere(peer),
+                    None => LinkConnection::Disconnected,
+                }
+            }
+            _ => LinkConnection::Unknown,
+        };
+        out.push(LinkRow {
+            link: edge.provenance().construct.clone(),
+            a,
+            b,
+            connection,
+        });
+    }
+    Ok(out)
+}
+
+/// The standing child-keyed [`ChildDeferredVisibility`] obligations for `status --detail`
+/// (cross-dprc-links task 5.5): one per bound child whose plan still carries pending residents.
+/// Display-only; it gates no convergence verdict (the same read [`converge_population`]'s consent
+/// pre-pass judges, here surfaced not actuated).
+///
+/// # Errors
+/// Propagates a backend/kernel read failure.
+pub fn link_obligations<M: McControl, K: KernelControl>(
+    plan: &CompiledPlan,
+    mc: &M,
+    kernel: &K,
+) -> Result<Vec<ChildDeferredVisibility>, Error> {
+    Ok(plan_population(plan, mc, kernel)?
+        .iter()
+        .filter(|cp| cp.bound && !cp.is_converged())
+        .map(|cp| ChildDeferredVisibility::new(cp.label.clone(), cp.child))
+        .collect())
 }
 
 /// Reads MC state and enriches each DPNI with its kernel netdev name.

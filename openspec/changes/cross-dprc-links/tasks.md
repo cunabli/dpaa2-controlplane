@@ -80,7 +80,7 @@ and commits. Every group ends at the quality floor
 - [x] 5.4 dpaa2-config: parse + convert the one additive knob (dpcon
       priority) with refusal idiom; links gain no attributes (rates
       refused by omission)
-- [ ] 5.5 dpaa2-tools: dry-run renders link transitions with
+- [x] 5.5 dpaa2-tools: dry-run renders link transitions with
       provenance; consent flow for the rebind; link + obligation rows
       in `status --detail` with honest-unknown idiom
 
