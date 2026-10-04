@@ -42,7 +42,7 @@ and commits. Every group ends at the quality floor
 
 ## 3. Connection surface in dpaa2-api (parcel 3a — Rust)
 
-- [ ] 3.1 Edge-kind table with per-kind reification policy in
+- [x] 3.1 Edge-kind table with per-kind reification policy in
       `dpaa2-api::plan`, mirroring `core/connect.qnt`; dpmac machinery
       claimed, not retyped (D3 bounded lift)
 - [ ] 3.2 Link transitions keyed by ends; container-agnostic

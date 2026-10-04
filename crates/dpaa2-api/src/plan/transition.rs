@@ -44,8 +44,9 @@ impl fmt::Display for Class {
 /// `edgeDemandsSeveredWitness`; `models/families/dpmac.qnt` `severAt`/`unbindKernelFaceAt`,
 /// `SeveredWitness`): `sever` consumes the bound edge and yields `Offered` plus this proof
 /// for that edge's dpni, and the kernel-face unbind demands it. The law lives on the
-/// dpni↔dpmac edge kind only (ADR-0019 edge facet; dpmac-typestate design D3) — it is
-/// carried here, beside the `Unbind` it guards, not lifted into a shared edge abstraction.
+/// dpni↔dpmac edge kind only (ADR-0019 edge facet; dpmac-typestate design D3); the shared
+/// predicate is [`crate::plan::connect::edge_demands_severed_witness`] and this carrier is
+/// the delivered machinery that table claims for the kind, not a parallel copy (ADR-0022).
 ///
 /// The private [`DpniId`] field is the whole mechanism: there is no public constructor, so
 /// the only mint is [`Transition::sever`], and [`Transition::unbind`] reads its target back

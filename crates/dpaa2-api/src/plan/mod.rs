@@ -11,6 +11,7 @@
 //! assigns it at create time (design D1; restool-baseline). Transitions that *tear down* an existing
 //! object reference the observed [`DpniId`](crate::core::model::DpniId).
 
+pub mod connect;
 pub mod dprc;
 pub mod dpseci;
 pub mod matcher;
