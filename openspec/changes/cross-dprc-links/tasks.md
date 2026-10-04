@@ -63,7 +63,7 @@ and commits. Every group ends at the quality floor
 
 - [x] 4.1 ITF replay twins for `link_lifecycle` (property + frozen
       traces) green against the new surface
-- [ ] 4.2 The a-bounded proof: dpmac family's existing frozen traces
+- [x] 4.2 The a-bounded proof: dpmac family's existing frozen traces
       replay green, unchanged — any diff fails this parcel (D3)
 - [ ] 4.3 Unit tests for obligations, partial order, and refusal
       surfaces per rust idiom
