@@ -82,8 +82,12 @@ destroy, the DPRC-I5 double-connect refusal).
 
 #### Scenario: The scenario module renders the suite faces
 - **WHEN** the scenario module runs under the ladder
-- **THEN** it renders the V-TRAF-1 faces as directed runs, each citing
-  the law it witnesses
+- **THEN** it freezes one deterministic per-face `--mbt` trace beside the
+  module — guards leaving exactly one action enabled per state — for
+  the suite generator to render, alongside directed runs citing each law,
+  with the refusal faces (disconnect-before-destroy, the DPRC-I5
+  double-connect) trace-inexpressible and carried as directed runs for
+  suite-level replay
 
 ## MODIFIED Requirements
 
