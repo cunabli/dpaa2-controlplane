@@ -27,7 +27,8 @@ use dpaa2_api::families::pool_lifecycle::{
 use dpaa2_api::intent::KERNEL;
 use dpaa2_api::intent::compiled::{Attributes, CompiledPlan, Container, PlannedObject};
 use dpaa2_api::plan::connect::{
-    CONNECT_ANCESTOR, LinkEndState, WireEnd, WireHeldRefusal, WirePlan, WireTransition, plan_wire,
+    CONNECT_ANCESTOR, ChildDeferredVisibility, LinkEndState, WireEnd, WireHeldRefusal, WirePlan,
+    WireTransition, discharge_child, plan_wire,
 };
 use dpaa2_api::plan::dprc::{
     Attribution, ConsumerConvergence, ContainerPlan, ContainerStep, ContainerVerdict, PruneBucket,
@@ -907,13 +908,16 @@ pub enum PopulationOutcome {
         /// The maximum class the run allowed.
         allowed: Class,
     },
-    /// A child is already VFIO-bound yet its plan still needs residents: residents added to a
-    /// bound child stay invisible until a rebind cycle (ADR-0017), so the drift is surfaced to
-    /// the operator and nothing is actuated — the healing policy is roadmap #9's (bead
-    /// dpaa2-controlplane-w01), never this pass.
+    /// A child is already VFIO-bound yet its plan still needs residents AND the rebind consent was
+    /// declined (`cfg.allow` below [`Class::Disruptive`]): the post-bind residents stay
+    /// kernel-invisible until a consented rebind cycle (ADR-0017 decision 3), so nothing is
+    /// actuated and the typed standing residue is surfaced. Under a Disruptive allow the drift is
+    /// healed in place (one rebind cycle), not refused.
     DriftRefused {
         /// The bound child whose plan still carries pending residents.
         label: ConstructName,
+        /// The typed standing residue — rendered via its Display (the honest-residue idiom).
+        residue: ChildDeferredVisibility,
     },
     /// A child pool family's derived requirement fell below its drawn count, at either
     /// discovery path — the pre-dispatch census read or the probe-discovered draw — so a
@@ -1052,12 +1056,19 @@ pub fn converge_population<M: McControl, K: KernelControl>(
         return Ok(PopulationOutcome::ShrinkRefused { label, refusal });
     }
 
-    // ADR-0017: a bound child with pending residents is a typed refusal, before any dispatch.
-    if let Some(cp) = plans.iter().find(|c| c.bound && !c.is_converged()) {
-        tracing::error!(label = %cp.label, "residents drift inside a bound child; a rebind cycle is required (ADR-0017)");
-        return Ok(PopulationOutcome::DriftRefused {
-            label: cp.label.clone(),
-        });
+    // ADR-0017 decision 3: a bound child's pending residents are MC-accepted but kernel-invisible
+    // until a rebind; consent is the run's Disruptive allow, judged through the pure
+    // `discharge_child` (never an inline class check). Declined consent surfaces the typed standing
+    // residue and actuates nothing; a granted one is healed in the dispatch loop below.
+    for cp in plans.iter().filter(|c| c.bound && !c.is_converged()) {
+        let obligation = ChildDeferredVisibility::new(cp.label.clone(), cp.child);
+        if let Err(residue) = discharge_child(obligation, cfg.allow) {
+            tracing::error!(label = %cp.label, "post-bind residents drift in a bound child; rebind consent declined (ADR-0017)");
+            return Ok(PopulationOutcome::DriftRefused {
+                label: cp.label.clone(),
+                residue,
+            });
+        }
     }
 
     // Gate on the combined headline before touching the board (ADR-0015 decision 12).
@@ -1075,6 +1086,13 @@ pub fn converge_population<M: McControl, K: KernelControl>(
     }
 
     let declared = root_declared(plan);
+    // The observed children by label, so a post-rebind re-plan resolves each child's id and any
+    // cross-container link peer (cross-dprc-links design D2).
+    let children: BTreeMap<ConstructName, DprcId> = mc
+        .observe_containers()?
+        .iter()
+        .map(|(&id, c)| (c.label.clone(), id))
+        .collect();
     for cp in &plans {
         if !cp.is_converged() {
             let pop = dispatch_child_population(mc, cp, &declared)?;
@@ -1091,15 +1109,35 @@ pub fn converge_population<M: McControl, K: KernelControl>(
                     refusal,
                 });
             }
-            if !pop.converged(cp.dpnis.len()) {
+            // A not-yet-bound child's post-dispatch read-back is its verdict; a bound child is
+            // judged only AFTER its rebind cycle below (ADR-0017 decision 2: never by create
+            // acceptance, always by post-rebind re-observation).
+            if !cp.bound && !pop.converged(cp.dpnis.len()) {
                 return Err(Error::Backend(format!(
                     "child `{}` did not converge after population dispatch: {pop:?}",
                     cp.label
                 )));
             }
         }
-        // Populate, then bind (ADR-0017): the handoff fires only on a not-yet-bound child.
-        if !cp.bound {
+        if cp.bound {
+            // ADR-0017 decision 2: a consent-cleared bound child heals with ONE rebind cycle
+            // (unbind → bind), then the post-rebind re-observation is the sole convergence verdict.
+            if !cp.is_converged() {
+                kernel.vfio_unbind(cp.child)?;
+                kernel.vfio_bind(cp.child)?;
+                let container = Container::Child(TenantName::from(cp.label.as_str()));
+                let healed = plan_child_population(
+                    mc, kernel, cp.child, plan, &container, &cp.label, &declared, &children,
+                )?;
+                if !healed.is_converged() {
+                    return Err(Error::Backend(format!(
+                        "child `{}` stayed kernel-invisible after the post-bind rebind cycle: {healed:?}",
+                        cp.label
+                    )));
+                }
+            }
+        } else {
+            // Populate, then bind (ADR-0017): the handoff fires only on a not-yet-bound child.
             vfio_handoff(kernel, cp.child)?;
         }
     }
@@ -1901,6 +1939,137 @@ mod tests {
                 connection(&mc, ObjectRef::new(Family::Dpni, a.into_inner())),
                 Some(foreign_ref),
                 "the held end is not silently rewired"
+            );
+        }
+    }
+
+    /// The bound-child post-bind healing at the engine seam (cross-dprc-links task 5.3): a child
+    /// bound to vfio-fsl-mc whose plan still needs residents is healed under a Disruptive consent —
+    /// its pending creates dispatched, ONE rebind cycle, the post-rebind re-observation the sole
+    /// verdict (ADR-0017 decision 2/3) — and is a typed drift refusal under a lesser allow.
+    mod healing {
+        use dpaa2_api::contract::fake::FakeBackend;
+        use dpaa2_api::core::model::{DpmacId, MacMode};
+        use dpaa2_api::families::pool_lifecycle::RawDriver;
+        use dpaa2_api::intent::refuse::{Compiled, compile};
+        use dpaa2_api::intent::{Dataplane, Intent, Isolation, Port, Tenant, TenantRef};
+        use dpaa2_api::testkit::ref_inventory;
+
+        use super::*;
+
+        fn compiled_router() -> Compiled {
+            let router = Tenant {
+                name: "router".into(),
+                dataplane: Dataplane::UserspacePoll,
+                max_cores: 16,
+                isolation: Isolation::Isolated,
+                renamed: None,
+                priority: None,
+            };
+            let port = |name: ConstructName, dpmac: u32| Port {
+                name,
+                dpmac: DpmacId::new(dpmac),
+                rate: 10_000,
+                tenant: TenantRef::from_name("router".into()),
+                mac: None,
+                mac_mode: MacMode::Assert,
+                renamed: None,
+            };
+            let intent = Intent {
+                tenants: vec![router],
+                ports: vec![port("wan0".into(), 7), port("wan1".into(), 9)],
+                ..Intent::empty()
+            };
+            compile(&intent, &ref_inventory(16)).expect("the router intent compiles")
+        }
+
+        fn disruptive() -> ConvergeConfig {
+            ConvergeConfig {
+                allow: Class::Disruptive,
+                ..ConvergeConfig::default()
+            }
+        }
+
+        fn count(mc: &FakeBackend, family: Family) -> usize {
+            mc.observe_pool(Some(DprcId::new(2)), family).unwrap().len()
+        }
+
+        fn vfio_unbinds(mc: &FakeBackend) -> usize {
+            mc.audit()
+                .iter()
+                .filter(|e| e.starts_with("vfio_unbind:"))
+                .count()
+        }
+
+        // A reference router whose child container is created and already bound to vfio-fsl-mc, so
+        // its empty plan reads bound-and-unconverged (the ADR-0017 post-bind drift the heal targets).
+        fn bound_empty_child() -> (Compiled, FakeBackend) {
+            let compiled = compiled_router();
+            let mc =
+                FakeBackend::new().with_bound_dprc(DprcId::new(2), RawDriver::from("vfio-fsl-mc"));
+            converge_containers(&compiled.plan, &mc, disruptive()).expect("container");
+            (compiled, mc)
+        }
+
+        #[test]
+        fn consent_heals_a_bound_child_in_one_rebind_cycle() {
+            let (compiled, mc) = bound_empty_child();
+            assert_eq!(
+                converge_population(&compiled.plan, &mc, &mc, disruptive()).unwrap(),
+                PopulationOutcome::Converged
+            );
+            assert_eq!(
+                count(&mc, Family::Dpbp),
+                2,
+                "the trio resident is healed (ADR board case)"
+            );
+            assert_eq!(
+                count(&mc, Family::Dpni),
+                2,
+                "the dpni rides the same child-keyed path"
+            );
+            assert_eq!(count(&mc, Family::Dpcon), 10);
+            assert_eq!(vfio_unbinds(&mc), 1, "exactly one rebind cycle");
+        }
+
+        #[test]
+        fn a_lesser_allow_refuses_with_the_typed_child_residue() {
+            let (compiled, mc) = bound_empty_child();
+            match converge_population(&compiled.plan, &mc, &mc, ConvergeConfig::default()).unwrap()
+            {
+                PopulationOutcome::DriftRefused { label, residue } => {
+                    assert_eq!(label.as_str(), "router");
+                    assert!(residue.to_string().contains("kernel-invisible"));
+                }
+                other => panic!("expected a declined-consent drift refusal, got {other:?}"),
+            }
+            assert_eq!(
+                count(&mc, Family::Dpni),
+                0,
+                "nothing created under a declined consent"
+            );
+            assert_eq!(count(&mc, Family::Dpbp), 0);
+            assert_eq!(
+                vfio_unbinds(&mc),
+                0,
+                "no rebind cycle under a declined consent"
+            );
+        }
+
+        #[test]
+        fn a_healed_child_re_run_issues_nothing() {
+            let (compiled, mc) = bound_empty_child();
+            converge_population(&compiled.plan, &mc, &mc, disruptive()).unwrap();
+            assert_eq!(
+                converge_population(&compiled.plan, &mc, &mc, disruptive()).unwrap(),
+                PopulationOutcome::Converged
+            );
+            assert_eq!(count(&mc, Family::Dpni), 2, "no resident re-created");
+            assert_eq!(count(&mc, Family::Dpbp), 2);
+            assert_eq!(
+                vfio_unbinds(&mc),
+                1,
+                "no second rebind cycle on the idempotent re-run"
             );
         }
     }

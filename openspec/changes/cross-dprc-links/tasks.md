@@ -75,7 +75,7 @@ and commits. Every group ends at the quality floor
       stays behind the trait; no portal read-slice additions (D6)
 - [x] 5.2 Child populate resolves dpni↔dpni peers and issues the
       connect; root reconcile actuates link edges
-- [ ] 5.3 `DriftRefused` → typed DeferredVisibility obligation
+- [x] 5.3 `DriftRefused` → typed DeferredVisibility obligation
       plumbing; consented rebind execution in the engine
 - [ ] 5.4 dpaa2-config: parse + convert the one additive knob (dpcon
       priority) with refusal idiom; links gain no attributes (rates

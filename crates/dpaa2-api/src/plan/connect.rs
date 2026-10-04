@@ -18,6 +18,7 @@ use core::fmt;
 use crate::core::error::Error;
 use crate::core::family::Family;
 use crate::core::model::{DpniId, DprcId, ObjectRef};
+use crate::core::types::ConstructName;
 use crate::families::dprc::Refusal;
 use crate::plan::Class;
 
@@ -591,6 +592,104 @@ pub fn discharge(plan: PostBindCreate, allowed: Class) -> Result<RebindCycle, Wi
     }
 }
 
+// ---- the population pass's child-keyed post-bind obligation (cross-dprc-links task 5.3) ----
+
+/// The eager obligation a bound child's post-bind-created residents carry (ADR-0017 decision 3;
+/// ADR-0022 healing row): they are MC-accepted but kernel-invisible until a scan. Keyed on the
+/// child — its label and [`DprcId`] — not a per-resident endpoint, because one rebind cycle heals
+/// the whole child and convergence is judged per-child by re-observation, so the child is the
+/// resident-agnostic honest key a trio object, a dpio seat, or a dpni all ride alike. The
+/// dpni-shaped [`DeferredVisibility`] stays the dpni↔dpni link-face obligation; this is its
+/// population twin. A declined consent leaves this value standing as the typed residue.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct ChildDeferredVisibility {
+    label: ConstructName,
+    child: DprcId,
+}
+
+impl ChildDeferredVisibility {
+    /// Mints the eager obligation for a bound child's post-bind creates (ADR-0017 decision 3).
+    #[must_use]
+    pub fn new(label: ConstructName, child: DprcId) -> Self {
+        Self { label, child }
+    }
+
+    /// The child's MC label.
+    #[must_use]
+    pub fn label(&self) -> &ConstructName {
+        &self.label
+    }
+
+    /// The child's re-observation handle.
+    #[must_use]
+    pub fn child(&self) -> DprcId {
+        self.child
+    }
+}
+
+impl fmt::Display for ChildDeferredVisibility {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "child `{}` ({}): post-bind residents are MC-accepted but kernel-invisible until a consented disruptive rebind cycle (ADR-0017)",
+            self.label, self.child
+        )
+    }
+}
+
+/// The consented rebind cycle (unbind → bind → re-observe) that heals one bound child (ADR-0017
+/// decision 3; ADR-0022 healing row): a single [`Class::Disruptive`] cycle for the whole child,
+/// the population twin of the dpni-shaped [`RebindCycle`].
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct ChildRebindCycle {
+    label: ConstructName,
+    child: DprcId,
+}
+
+impl ChildRebindCycle {
+    /// The cycle's disruption class — always [`Class::Disruptive`]; it flaps the child's bind.
+    #[must_use]
+    pub fn class(&self) -> Class {
+        Class::Disruptive
+    }
+
+    /// The child's MC label.
+    #[must_use]
+    pub fn label(&self) -> &ConstructName {
+        &self.label
+    }
+
+    /// The child this cycle rebinds.
+    #[must_use]
+    pub fn child(&self) -> DprcId {
+        self.child
+    }
+}
+
+/// Judges consent for a bound child's rebind discharge (cross-dprc-links task 5.3; ADR-0015
+/// decision 12): granted when `allowed` covers the cycle's [`Class::Disruptive`] through the
+/// derived [`Ord`] gate, yielding the [`ChildRebindCycle`]; otherwise the obligation stands as the
+/// typed [`ChildDeferredVisibility`] residue and nothing rebinds. The child-keyed twin of
+/// [`discharge`] — one consent law, routed through the cycle's `class()`, never an inline check.
+///
+/// # Errors
+/// Returns the standing [`ChildDeferredVisibility`] when `allowed` does not cover
+/// [`Class::Disruptive`] — consent declined, so the residents stay kernel-invisible.
+pub fn discharge_child(
+    obligation: ChildDeferredVisibility,
+    allowed: Class,
+) -> Result<ChildRebindCycle, ChildDeferredVisibility> {
+    let cycle = ChildRebindCycle {
+        label: obligation.label.clone(),
+        child: obligation.child,
+    };
+    if allowed >= cycle.class() {
+        Ok(cycle)
+    } else {
+        Err(obligation)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -893,6 +992,28 @@ mod tests {
             assert_eq!(residue, WireResidue::DeclinedVisibility(there));
             // The residue renders the declined end (the StaleNode mirror's Display twin).
             assert!(residue.to_string().contains("dpni.2"));
+        }
+    }
+
+    #[test]
+    fn child_consent_covering_disruptive_yields_the_rebind_cycle() {
+        let obligation = ChildDeferredVisibility::new("router".into(), DprcId::new(3));
+        let cycle = discharge_child(obligation, Class::Disruptive)
+            .expect("a Disruptive allow discharges the child rebind");
+        assert_eq!(cycle.class(), Class::Disruptive);
+        assert_eq!(cycle.child(), DprcId::new(3));
+        assert_eq!(cycle.label().as_str(), "router");
+    }
+
+    #[test]
+    fn child_consent_below_disruptive_declines_to_the_standing_obligation() {
+        for allowed in [Class::Hitless, Class::Boundary] {
+            let obligation = ChildDeferredVisibility::new("router".into(), DprcId::new(3));
+            let residue = discharge_child(obligation, allowed)
+                .expect_err("a sub-Disruptive allow declines the child rebind");
+            assert_eq!(residue.child(), DprcId::new(3));
+            assert!(residue.to_string().contains("router"));
+            assert!(residue.to_string().contains("kernel-invisible"));
         }
     }
 }

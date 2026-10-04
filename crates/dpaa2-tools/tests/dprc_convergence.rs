@@ -544,10 +544,10 @@ fn population_converges_the_child_then_reruns_clean() {
 }
 
 #[test]
-fn population_refuses_drift_inside_a_bound_child() {
-    // ADR-0017: a child already bound to vfio-fsl-mc whose plan still needs residents is a typed
-    // drift refusal — residents added while bound stay invisible until a rebind — and nothing is
-    // populated or healed here.
+fn population_refuses_bound_child_drift_without_consent() {
+    // ADR-0017 decision 3: a child bound to vfio-fsl-mc whose plan still needs residents, under a
+    // sub-Disruptive allow (consent declined), is a typed drift refusal carrying the standing
+    // residue — nothing is populated or healed.
     let compiled = compiled_reference();
     // dprc_create mints dprc.2; seed it bound before it is created so the empty child reads bound.
     let backend =
@@ -557,18 +557,27 @@ fn population_refuses_drift_inside_a_bound_child() {
         ContainerOutcome::Converged
     );
 
-    assert_eq!(
-        engine::converge_population(&compiled.plan, &backend, &backend, disruptive_cfg()).unwrap(),
-        PopulationOutcome::DriftRefused {
-            label: "router".into()
+    // The default allow is Hitless — below the Disruptive rebind consent.
+    match engine::converge_population(
+        &compiled.plan,
+        &backend,
+        &backend,
+        ConvergeConfig::default(),
+    )
+    .unwrap()
+    {
+        PopulationOutcome::DriftRefused { label, residue } => {
+            assert_eq!(label.as_str(), "router");
+            assert!(residue.to_string().contains("router"));
         }
-    );
+        other => panic!("expected a declined-consent drift refusal, got {other:?}"),
+    }
     assert!(
         backend
             .observe_pool(Some(DprcId::new(2)), Family::Dpni)
             .unwrap()
             .is_empty(),
-        "a bound-child drift refusal actuates nothing"
+        "a declined-consent drift refusal actuates nothing"
     );
 }
 

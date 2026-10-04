@@ -479,12 +479,8 @@ fn run_population(
             );
             Ok(Some(ExitCode::FAILURE))
         }
-        PopulationOutcome::DriftRefused { label } => {
-            println!(
-                "refused: child `{label}` is VFIO-bound but its population drifted; residents \
-                 added to a bound child stay invisible until a rebind cycle (ADR-0017). The \
-                 rebind policy is roadmap #9's decision (bead dpaa2-controlplane-w01)."
-            );
+        PopulationOutcome::DriftRefused { residue, .. } => {
+            println!("refused: {residue}");
             Ok(Some(ExitCode::FAILURE))
         }
         PopulationOutcome::ShrinkRefused { label, refusal } => {
