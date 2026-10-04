@@ -16,9 +16,18 @@
 // and child↔child are all representable, nothing pre-forbidden beyond what
 // the core operators refuse.
 //
+// Parcel 1b also grows the container interplay of cross-dprc-links design D4/D5: the
+// populate → connect → bind partial order (connect legal on the unplugged
+// container, extending ADR-0017 decision 3; post-bind connect additionally
+// legal for already-visible endpoints), the eager DeferredVisibility obligation
+// a post-bind create must carry, the consented rebind cycle as the sole
+// discharge (declined consent → a typed standing residue), and the lazy
+// stale-node mirror residue a post-bind destroy leaves. No reboot transition
+// exists on this surface (cross-dprc-links design D5).
+//
 // Everything below traces to docs/baseline/object-model.md §2 (the
 // connect edge, cardinality one, disconnect-before-reconnect), ADR-0019
-// (the edge facet), and cross-dprc-links design D2/D3/D5/D7.
+// (the edge facet), and cross-dprc-links design D2/D3/D4/D5/D7.
 //
 // Named invariants: none here — the LINK-I* invariants, the stateInvariants
 // conjunction and the Apalache marks land with parcel 1c (cross-dprc-links design D7); this
@@ -44,11 +53,50 @@ module link_lifecycle {
     | Disconnected     // the edge was torn; both ends still exist
     | EndDestroyLegal  // a disconnected end was destroyed — teardown terminal
 
+  // The D4 fresh partial order on the container typestate (cross-dprc-links design D4):
+  // populate (ends exist, container unplugged — the connect face lives here,
+  // extending ADR-0017 decision 3) → bind (container plugged, ends kernel-
+  // visible). Post-bind connect/disconnect of already-visible endpoints stays
+  // legal, so the order is partial, not total. A proper sum — the typestate is
+  // the specification (ADR-0002 §3).
+  type ContainerBind =
+    | Populated   // ends exist, container unplugged: connect is legal here
+    | Bound       // container plugged, ends kernel-visible
+
+  // The eager ADR-0017 drift obligation the create side carries (cross-dprc-links design D5):
+  // a post-bind create is MC-accepted but kernel-invisible until a scan re-
+  // observes it. Minted at create, never optional — the only post-bind create
+  // action attaches it, so an unobligated post-bind create is unrepresentable,
+  // not merely refused.
+  type DeferredVisibility = { endpoint: ObjId }
+
+  // Explicit consent on the rebind discharge (cross-dprc-links design D5; the ADR-0015
+  // consent machinery is parcel 3's Rust concern — here consent is an action
+  // parameter). Granted runs the Disruptive-class rebind; Declined leaves a
+  // standing residue.
+  type Consent = Granted | Declined
+
+  // The typed standing residues this surface may carry (cross-dprc-links design D5,
+  // pool-objects honest-residue idiom). Neither blocks anything; both are
+  // observed, stand indefinitely, and are never a teardown. No reboot residue
+  // lives here — reboot residue stays exclusive to ADR-0020 pool shrink.
+  type WireResidue =
+    | StaleNode(ObjId)           // destroy side: a kernel node lingering after MC destroy (lazy mirror)
+    | DeclinedVisibility(ObjId)  // create side: a DeferredVisibility whose rebind consent was declined
+
   // The substrate the core/connect operators read: the live CoreState
   // carrying the two dpni ends and the edge set, alongside the spec-level
   // phase the typestate advances. The operators are pure CoreState readers,
   // so the machine threads a real CoreState rather than re-deriving them.
-  type World = { core: CoreState, phase: WirePhase }
+  // The container interplay rides alongside (cross-dprc-links design D4/D5): the
+  // bind facet of the partial order and the two obligation/residue carriers.
+  type World = {
+    core: CoreState,
+    phase: WirePhase,
+    containerBind: ContainerBind,
+    obligations: Set[DeferredVisibility],
+    residues: Set[WireResidue],
+  }
 
   var world: World
 
@@ -63,6 +111,9 @@ module link_lifecycle {
 
   pure val dpniLeft: ObjId = { fam: Dpni, num: 0 }
   pure val dpniRight: ObjId = { fam: Dpni, num: 1 }
+  // A third end the post-bind create mints (cross-dprc-links design D5): the endpoint
+  // the obligation names, created after the container is already Bound.
+  pure val dpniThird: ObjId = { fam: Dpni, num: 2 }
 
   // A dpni faces its single endpoint port 0 (dpniParams.endpointPorts == 1,
   // object-model.md §2 type.id.port).
@@ -81,6 +132,17 @@ module link_lifecycle {
     allocatedBy: None, hwId: 0,
   }
 
+  // A populated-but-unbound end (cross-dprc-links design D4): the object exists in
+  // its container, unplugged and kernel-invisible — the populate face the fresh
+  // partial order's connect lives on, before bind plugs it.
+  pure def populatedEnd(container: ObjId): ObjState =
+    existingEnd(container).with("plugged", false).with("busVisible", false)
+
+  // A post-bind create's end (cross-dprc-links design D5): MC-accepted (plugged at the
+  // MC) but kernel-invisible until a scan — the DeferredVisibility state.
+  pure def mcAcceptedInvisibleEnd(container: ObjId): ObjState =
+    existingEnd(container).with("busVisible", false)
+
   pure def containerState(id: int): ContainerState =
     { icid: id, perms: Set(Spawn, Alloc, ObjCreate, IrqCfg, TopologyChanges),
       locked: false }
@@ -97,15 +159,35 @@ module link_lifecycle {
     nextHw: 0,
   }
 
+  // Both ends present but unbound — the populate face of the fresh partial order
+  // (cross-dprc-links design D4). Same substrate as bothEndsExist but the ends unplugged
+  // and kernel-invisible until bind.
+  pure def bothEndsPopulated(leftContainer: ObjId, rightContainer: ObjId): CoreState =
+    bothEndsExist(leftContainer, rightContainer)
+      .with("objs", Map(dpniLeft -> populatedEnd(leftContainer),
+                        dpniRight -> populatedEnd(rightContainer)))
+
   // ---- init ----
 
   // Start with both ends existing in the given containers; the canonical
   // init places them both in the root (root↔root).
+  // The ends already exist bound (plugged, kernel-visible): the post-bind face,
+  // where connect of already-visible endpoints is the legal starting move
+  // (cross-dprc-links design D4). No obligation or residue stands at init.
   action initAt(leftContainer: ObjId, rightContainer: ObjId): bool =
     world' = { core: bothEndsExist(leftContainer, rightContainer),
-               phase: EndsExist }
+               phase: EndsExist, containerBind: Bound,
+               obligations: Set(), residues: Set() }
 
   action init = initAt(rootContainer, rootContainer)
+
+  // The populate face (cross-dprc-links design D4): ends exist unbound, the container
+  // unplugged — the fresh-convergence starting point that connect lives on
+  // before bind.
+  action initPopulatedAt(leftContainer: ObjId, rightContainer: ObjId): bool =
+    world' = { core: bothEndsPopulated(leftContainer, rightContainer),
+               phase: EndsExist, containerBind: Populated,
+               obligations: Set(), residues: Set() }
 
   // ---- transitions (guards via core/connect operators) ----
 
@@ -117,10 +199,9 @@ module link_lifecycle {
   // (object-model.md §2, DPNI-I9).
   action connectWireAt(a: Endpoint, b: Endpoint): bool = all {
     canConnect(world.core, ALL_PARAMS, a, b),
-    world' = {
-      core: world.core.with("conns", world.core.conns.union(Set((a, b)))),
-      phase: Connected,
-    },
+    world' = world
+      .with("core", world.core.with("conns", world.core.conns.union(Set((a, b)))))
+      .with("phase", Connected),
   }
 
   // disconnect: tear the edge — the only teardown verb dpni↔dpni carries
@@ -130,10 +211,9 @@ module link_lifecycle {
   action disconnectWireAt(a: Endpoint, b: Endpoint): bool = all {
     connected(world.core, a),
     connected(world.core, b),
-    world' = {
-      core: world.core.with("conns", world.core.conns.exclude(Set((a, b)))),
-      phase: Disconnected,
-    },
+    world' = world
+      .with("core", world.core.with("conns", world.core.conns.exclude(Set((a, b)))))
+      .with("phase", Disconnected),
   }
 
   // end-destroy: destroy one dpni end. Legal only once the end is no longer
@@ -141,15 +221,70 @@ module link_lifecycle {
   // generalized), expressed by the core/connect.connected guard: destroying
   // a still-connected end is refused. Removing the end advances the wire to
   // its teardown-terminal phase.
+  // A destroy of a kernel-visible (bound) end leaves a lazy stale-node mirror
+  // residue (cross-dprc-links design D5): the kernel may still list the node. It blocks
+  // nothing and stands indefinitely — no action discharges it. Destroying a
+  // still-populated (invisible) end mints none.
   action destroyEndAt(o: ObjId): bool = all {
     world.core.objs.keys().contains(o),
     not(connected(world.core, portZero(o))),
-    world' = {
-      core: world.core.with("objs",
+    world' = world
+      .with("core", world.core.with("objs",
         world.core.objs.keys().exclude(Set(o))
-          .mapBy(k => world.core.objs.get(k))),
-      phase: EndDestroyLegal,
-    },
+          .mapBy(k => world.core.objs.get(k))))
+      .with("phase", EndDestroyLegal)
+      .with("residues",
+        if (world.core.objs.get(o).busVisible)
+          world.residues.union(Set(StaleNode(o)))
+        else world.residues),
+  }
+
+  // bind: plug the container, so both ends become kernel-visible — the third
+  // step of the fresh partial order (cross-dprc-links design D4). Legal from the Populated
+  // face; connect may already have run (connect-then-bind) or not (bind-then-
+  // connect of the now-visible ends is the additionally-legal post-bind face).
+  action bindContainerAt: bool = all {
+    world.containerBind == Populated,
+    world' = world
+      .with("containerBind", Bound)
+      .with("core", world.core.with("objs",
+        world.core.objs.keys().mapBy(k =>
+          world.core.objs.get(k).with("plugged", true).with("busVisible", true)))),
+  }
+
+  // post-bind create: an end created after the container is Bound is MC-accepted
+  // but kernel-invisible, and ALWAYS carries an eager DeferredVisibility
+  // obligation (cross-dprc-links design D5). This is the only action that creates an end
+  // post-bind, and it mints the obligation by construction — an unobligated
+  // post-bind create is unrepresentable.
+  action createEndpointPostBindAt(o: ObjId, container: ObjId): bool = all {
+    world.containerBind == Bound,
+    not(world.core.objs.keys().contains(o)),
+    world' = world
+      .with("core", world.core.with("objs",
+        world.core.objs.put(o, mcAcceptedInvisibleEnd(container))))
+      .with("obligations", world.obligations.union(Set({ endpoint: o }))),
+  }
+
+  // rebind discharge: the only way a DeferredVisibility obligation clears
+  // (cross-dprc-links design D5) — a consented rebind cycle (unbind → bind → re-observe),
+  // a Disruptive-class transition. Granted makes the node visible and drops the
+  // obligation. Declined performs no rebind (no silent rebind): the obligation
+  // becomes a typed DeclinedVisibility residue that stands, the node staying
+  // kernel-invisible (pool-objects honest-residue idiom).
+  action rebindDischargeAt(o: ObjId, consent: Consent): bool = all {
+    world.containerBind == Bound,
+    world.obligations.contains({ endpoint: o }),
+    world.core.objs.keys().contains(o),
+    if (consent == Granted)
+      world' = world
+        .with("obligations", world.obligations.exclude(Set({ endpoint: o })))
+        .with("core", world.core.with("objs",
+          world.core.objs.put(o, world.core.objs.get(o).with("busVisible", true))))
+    else
+      world' = world
+        .with("obligations", world.obligations.exclude(Set({ endpoint: o })))
+        .with("residues", world.residues.union(Set(DeclinedVisibility(o)))),
   }
 
   // A stutter-check step for directed runs (holds the state and checks p).
@@ -227,4 +362,100 @@ module link_lifecycle {
     initAt(childA, childB)
       .then(connectWireAt(portZero(dpniLeft), portZero(dpniRight)))
       .expect(world.phase == Connected)
+
+  // ---- the container interplay (cross-dprc-links design D4/D5) ----
+
+  // The fresh partial order populate → connect → bind (cross-dprc-links design D4): connect
+  // is legal on the unplugged (Populated) container — the ends stay kernel-
+  // invisible when the edge stands — and bind plugs them visible afterwards.
+  run freshPartialOrderTest =
+    initPopulatedAt(rootContainer, rootContainer)
+      .then(check(and {
+        world.containerBind == Populated,
+        not(world.core.objs.get(dpniLeft).busVisible),
+      }))
+      .then(connectWireAt(portZero(dpniLeft), portZero(dpniRight)))
+      .then(check(and {
+        world.phase == Connected,
+        world.containerBind == Populated,   // connected while still unplugged
+        not(world.core.objs.get(dpniLeft).busVisible),
+      }))
+      .then(bindContainerAt)
+      .expect(and {
+        world.containerBind == Bound,
+        world.core.objs.get(dpniLeft).busVisible,
+        world.core.objs.get(dpniRight).busVisible,
+      })
+
+  // Bind-before-connect stays legal for already-visible endpoints post-bind
+  // (cross-dprc-links design D4): the order is partial, not total — binding first then
+  // connecting the now-visible ends is admitted.
+  run bindBeforeConnectTest =
+    initPopulatedAt(rootContainer, rootContainer)
+      .then(bindContainerAt)
+      .then(check(world.containerBind == Bound))
+      .then(connectWireAt(portZero(dpniLeft), portZero(dpniRight)))
+      .expect(and {
+        world.phase == Connected,
+        world.core.objs.get(dpniLeft).busVisible,
+      })
+
+  // A post-bind create carries its DeferredVisibility obligation by construction
+  // (cross-dprc-links design D5): the created end is MC-present but kernel-invisible, and
+  // the obligation naming it stands — no post-bind create exists without one.
+  run postBindCreateObligatedTest =
+    initPopulatedAt(rootContainer, rootContainer)
+      .then(bindContainerAt)
+      .then(createEndpointPostBindAt(dpniThird, rootContainer))
+      .expect(and {
+        world.obligations.contains({ endpoint: dpniThird }),
+        world.core.objs.keys().contains(dpniThird),
+        not(world.core.objs.get(dpniThird).busVisible),
+      })
+
+  // The consented rebind is the sole discharge (cross-dprc-links design D5): granted consent
+  // runs the Disruptive-class unbind → bind → re-observe cycle, clearing the
+  // obligation and making the node visible, with no residue left standing.
+  run consentedRebindDischargesTest =
+    initPopulatedAt(rootContainer, rootContainer)
+      .then(bindContainerAt)
+      .then(createEndpointPostBindAt(dpniThird, rootContainer))
+      .then(rebindDischargeAt(dpniThird, Granted))
+      .expect(and {
+        not(world.obligations.contains({ endpoint: dpniThird })),
+        world.core.objs.get(dpniThird).busVisible,
+        world.residues == Set(),
+      })
+
+  // Declined consent leaves a typed standing residue (cross-dprc-links design D5): no silent
+  // rebind — the obligation becomes a DeclinedVisibility that stands indefinitely,
+  // the node staying kernel-invisible, and no step discharges it.
+  run declinedConsentResidueTest =
+    initPopulatedAt(rootContainer, rootContainer)
+      .then(bindContainerAt)
+      .then(createEndpointPostBindAt(dpniThird, rootContainer))
+      .then(rebindDischargeAt(dpniThird, Declined))
+      .expect(and {
+        not(world.obligations.contains({ endpoint: dpniThird })),
+        world.residues.contains(DeclinedVisibility(dpniThird)),
+        not(world.core.objs.get(dpniThird).busVisible),
+      })
+      .then(check(world.residues.contains(DeclinedVisibility(dpniThird))))
+
+  // A post-bind destroy leaves the lazy stale-node mirror residue (cross-dprc-links design D5):
+  // destroying a kernel-visible end mints a StaleNode that blocks nothing — a
+  // fresh post-bind create still proceeds afterwards — and needs no discharge.
+  run postBindDestroyStaleNodeTest =
+    init
+      .then(destroyEndAt(dpniLeft))
+      .expect(and {
+        world.phase == EndDestroyLegal,
+        not(world.core.objs.keys().contains(dpniLeft)),
+        world.residues.contains(StaleNode(dpniLeft)),
+      })
+      .then(createEndpointPostBindAt(dpniThird, rootContainer))
+      .expect(and {
+        world.obligations.contains({ endpoint: dpniThird }),
+        world.residues.contains(StaleNode(dpniLeft)),   // the stale node still stands
+      })
 }
