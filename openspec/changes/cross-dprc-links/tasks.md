@@ -45,7 +45,7 @@ and commits. Every group ends at the quality floor
 - [x] 3.1 Edge-kind table with per-kind reification policy in
       `dpaa2-api::plan`, mirroring `core/connect.qnt`; dpmac machinery
       claimed, not retyped (D3 bounded lift)
-- [ ] 3.2 Link transitions keyed by ends; container-agnostic
+- [x] 3.2 Link transitions keyed by ends; container-agnostic
       representability; common-ancestor resolution; typed refusal
       surfacing for MC-refused patterns (D2)
 - [ ] 3.3 Container typestate: populate→connect→bind partial order;
