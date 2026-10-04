@@ -50,7 +50,7 @@ and commits. Every group ends at the quality floor
       surfacing for MC-refused patterns (D2)
 - [x] 3.3 Container typestate: populate→connect→bind partial order;
       post-bind connect/disconnect faces for visible endpoints (D4)
-- [ ] 3.4 Obligation types: eager DeferredVisibility on post-bind
+- [x] 3.4 Obligation types: eager DeferredVisibility on post-bind
       create (unconstructible without planned discharge), lazy
       stale-node residue, consented Disruptive rebind transition,
       declined-consent typed residue (D5)

@@ -13,10 +13,13 @@
 //! (ADR-0022 decision 2). [`reification_policy`] is the planner-facing declaration the
 //! later cross-dprc-links tasks (3.2–3.5) read; it does not drive the transition executor.
 
+use core::fmt;
+
 use crate::core::error::Error;
 use crate::core::family::Family;
 use crate::core::model::{DpniId, DprcId};
 use crate::families::dprc::Refusal;
+use crate::plan::Class;
 
 /// The seven legal edge kinds (`core/connect.qnt` `legalPair`; object-model.md §2).
 ///
@@ -263,6 +266,133 @@ pub fn attribute_wire_refusal(error: &Error) -> Option<WireRefusal> {
     }
 }
 
+// ---- post-bind healing-policy obligations (cross-dprc-links design D5; ADR-0022 healing row) ----
+
+/// The consented `Disruptive` rebind cycle (unbind → bind → re-observe) that discharges a
+/// standing [`DeferredVisibility`] — the sole modeled discharge (cross-dprc-links design D5;
+/// `models/families/link_lifecycle.qnt` `rebindDischargeAt`). One value stands for the whole
+/// cycle; its private field binds it to the endpoint whose visibility it restores, so it is
+/// minted only alongside its obligation in the [`PostBindCreate`] bundle, never alone.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct RebindCycle {
+    endpoint: WireEnd,
+}
+
+impl RebindCycle {
+    /// The rebind's disruption class — always [`Class::Disruptive`] (cross-dprc-links design D5;
+    /// the ADR-0015 decision 12 classing the consent gate reads). The cycle flaps the kernel
+    /// face, so it is never hitless.
+    #[must_use]
+    pub fn class(&self) -> Class {
+        Class::Disruptive
+    }
+
+    /// The endpoint whose visibility this cycle restores.
+    #[must_use]
+    pub fn endpoint(&self) -> WireEnd {
+        self.endpoint
+    }
+}
+
+/// The eager drift obligation a post-bind create carries (cross-dprc-links design D5; ADR-0017
+/// healing policy; `models/families/link_lifecycle.qnt` `DeferredVisibility`): the object is
+/// MC-accepted but kernel-invisible, so convergence is judged by re-observation after a scan,
+/// never by the create's acceptance. The private field has no public constructor — the obligation
+/// is minted only inside its [`PostBindCreate`] bundle by
+/// [`create_resident_deferred`](crate::families::dprc::Container::create_resident_deferred), so an
+/// obligation-less post-bind create is unrepresentable, not merely refused.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct DeferredVisibility {
+    endpoint: WireEnd,
+}
+
+impl DeferredVisibility {
+    /// The endpoint the obligation names — the end whose re-observation discharges it.
+    #[must_use]
+    pub fn endpoint(&self) -> WireEnd {
+        self.endpoint
+    }
+}
+
+/// A post-bind create as the healing policy reifies it (cross-dprc-links design D5; ADR-0022
+/// healing row): the eager [`DeferredVisibility`] obligation and its planned [`RebindCycle`]
+/// discharge, minted together. The bundle IS the mechanism — both halves are built only here, by
+/// [`create_resident_deferred`](crate::families::dprc::Container::create_resident_deferred), so
+/// neither the obligation nor its discharge exists alone.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct PostBindCreate {
+    /// The eager obligation the create carries.
+    pub obligation: DeferredVisibility,
+    /// The planned discharge — the only way the obligation clears.
+    pub discharge: RebindCycle,
+}
+
+impl PostBindCreate {
+    /// Mints the obligation and its discharge together for `endpoint`, both bound to it — the
+    /// crate-internal mechanism the Plugged create face drives
+    /// ([`create_resident_deferred`](crate::families::dprc::Container::create_resident_deferred)).
+    #[must_use]
+    pub(crate) fn new(endpoint: WireEnd) -> Self {
+        Self {
+            obligation: DeferredVisibility { endpoint },
+            discharge: RebindCycle { endpoint },
+        }
+    }
+}
+
+/// The typed standing residues this surface may carry (cross-dprc-links design D5; the
+/// pool-objects honest-residue idiom). One enum mirrors the model sum sum-for-sum
+/// (`models/families/link_lifecycle.qnt` `WireResidue`): a [`StaleNode`](Self::StaleNode) left by
+/// a lazy post-bind destroy, and a [`DeclinedVisibility`](Self::DeclinedVisibility) left when a
+/// rebind's consent is declined. Neither blocks a convergence verdict; both stand indefinitely.
+/// No reboot residue lives here — reboot residue stays exclusive to ADR-0020 pool shrink.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum WireResidue {
+    /// The destroy side: a kernel node lingering after an MC destroy in a bound container
+    /// (lazy mirror, cross-dprc-links design D5). Blocks nothing, demands no discharge.
+    StaleNode(WireEnd),
+    /// The create side: a [`DeferredVisibility`] whose rebind consent was declined
+    /// (cross-dprc-links design D5). The node stays kernel-invisible; no silent rebind fires.
+    DeclinedVisibility(WireEnd),
+}
+
+impl fmt::Display for WireResidue {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::StaleNode(end) => write!(
+                f,
+                "stale node {} in {}: a kernel node lingering after destroy — blocks nothing, demands no discharge",
+                end.dpni, end.container
+            ),
+            Self::DeclinedVisibility(end) => write!(
+                f,
+                "declined visibility {} in {}: the rebind consent was declined — the node stays kernel-invisible, no silent rebind",
+                end.dpni, end.container
+            ),
+        }
+    }
+}
+
+/// Judges consent for a post-bind create's [`RebindCycle`] discharge (cross-dprc-links task 3.4;
+/// ADR-0015 decision 12): granted when `allowed` covers the cycle's [`Class::Disruptive`] through
+/// the derived [`Ord`] gate, yielding the cycle; otherwise the obligation stands as a typed
+/// [`WireResidue::DeclinedVisibility`] residue and nothing rebinds.
+///
+/// The model's `Consent = Granted | Declined` (`models/families/link_lifecycle.qnt`) folds into
+/// the [`Class`] allow here deliberately — the consent judgment IS the ADR-0015 class gate, so no
+/// parallel Rust `Consent` enum exists for a model-twin lint to expect.
+///
+/// # Errors
+/// Returns [`WireResidue::DeclinedVisibility`] when `allowed` does not cover
+/// [`Class::Disruptive`] — consent is declined, so the obligation stands and nothing rebinds.
+pub fn discharge(plan: PostBindCreate, allowed: Class) -> Result<RebindCycle, WireResidue> {
+    if allowed >= plan.discharge.class() {
+        Ok(plan.discharge)
+    } else {
+        Err(WireResidue::DeclinedVisibility(plan.obligation.endpoint()))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -434,5 +564,28 @@ mod tests {
             None
         );
         assert_eq!(attribute_wire_refusal(&Error::Backend("boom".into())), None);
+    }
+
+    // ---- post-bind create discharge (cross-dprc-links task 3.4; reconciler reqs 4-5) ----
+
+    #[test]
+    fn consent_covering_disruptive_yields_the_rebind_cycle() {
+        // Granted == an allow covering Disruptive via Class's derived Ord (cross-dprc-links design D5).
+        let there = end(2, DprcId::ROOT);
+        let cycle = discharge(PostBindCreate::new(there), Class::Disruptive)
+            .expect("a Disruptive allow discharges");
+        assert_eq!(cycle.class(), Class::Disruptive);
+        assert_eq!(cycle.endpoint(), there);
+    }
+
+    #[test]
+    fn consent_below_disruptive_declines_to_typed_residue() {
+        // A sub-Disruptive allow declines to a typed residue, never a silent rebind (cross-dprc-links design D5).
+        let there = end(2, DprcId::new(2));
+        for allowed in [Class::Hitless, Class::Boundary] {
+            let residue = discharge(PostBindCreate::new(there), allowed)
+                .expect_err("a sub-Disruptive allow declines");
+            assert_eq!(residue, WireResidue::DeclinedVisibility(there));
+        }
     }
 }

@@ -49,7 +49,7 @@ use std::collections::BTreeMap;
 
 use crate::core::model::ObjectRef;
 use crate::core::types::ConstructName;
-use crate::plan::connect::{WireEnd, WireTransition};
+use crate::plan::connect::{PostBindCreate, WireEnd, WireResidue, WireTransition};
 
 // ---- the four (plus [`Outcome`]) model sums, each lint-bijected to `dprc.qnt` ----
 
@@ -1059,6 +1059,41 @@ impl Container<Plugged> {
     pub fn disconnect_wire(&self, a: VisibleEndpoint, b: VisibleEndpoint) -> WireTransition {
         WireTransition::disconnect_wire(a.end(), b.end())
     }
+
+    /// Create a dpni end into this already-bound container — the SOLE mint of the post-bind
+    /// create's eager `DeferredVisibility` obligation and its planned `RebindCycle` discharge,
+    /// bundled in a [`PostBindCreate`] (cross-dprc-links design D5; ADR-0017 decision 3; ADR-0022
+    /// healing row). As [`VisibleEndpoint::observe`] names the visible-witness constructor, this
+    /// names the obligation constructor: the object is MC-accepted but kernel-invisible, so
+    /// convergence is judged by re-observation after a scan, never by the create's acceptance.
+    /// Both halves mint together, so an obligation-less post-bind create is unrepresentable —
+    /// `Container<Plugged>` carries no bare `create_resident`, so this does not compile:
+    ///
+    /// ```compile_fail
+    /// use dpaa2_api::families::dprc::{Container, Options, ResidentId, ResidentStep};
+    /// let created = Container::declare().create(Options::DEFAULT);
+    /// let populated = match created.create_resident(ResidentId::new(1)) {
+    ///     ResidentStep::Placed(c) => c,
+    ///     _ => unreachable!(),
+    /// };
+    /// let plugged = populated.plug();
+    /// // No bare `create_resident` on Container<Plugged>: a post-bind create absent its
+    /// // DeferredVisibility obligation is unrepresentable (cross-dprc-links design D5).
+    /// let _ = plugged.create_resident(ResidentId::new(2));
+    /// ```
+    #[must_use]
+    pub fn create_resident_deferred(&self, endpoint: WireEnd) -> PostBindCreate {
+        PostBindCreate::new(endpoint)
+    }
+
+    /// Destroy a dpni end in this already-bound container, leaving the lazy stale-node residue
+    /// (cross-dprc-links design D5): a [`WireResidue::StaleNode`] the kernel may still list. The
+    /// lazy mirror of [`create_resident_deferred`](Self::create_resident_deferred) — it blocks no
+    /// convergence verdict and demands no discharge, standing indefinitely.
+    #[must_use]
+    pub fn destroy_resident_stale(&self, endpoint: WireEnd) -> WireResidue {
+        WireResidue::StaleNode(endpoint)
+    }
 }
 
 impl Container<Emptied> {
@@ -1628,5 +1663,29 @@ mod tests {
         let end = wire_end(2, DprcId::ROOT);
         assert_eq!(VisibleEndpoint::observe(end, false), None);
         assert!(VisibleEndpoint::observe(end, true).is_some());
+    }
+
+    // ---- post-bind create/destroy healing policy (cross-dprc-links task 3.4; reconciler reqs 4-5) ----
+
+    #[test]
+    fn post_bind_create_mints_obligation_and_discharge_on_the_same_end() {
+        use crate::plan::Class;
+        // The sole mint bundles the eager obligation and its Disruptive discharge (cross-dprc-links design D5).
+        let plugged = placed(created(), 1, ResidentKind::CreatedIn).plug();
+        let end = wire_end(2, DprcId::ROOT);
+        let create = plugged.create_resident_deferred(end);
+        assert_eq!(create.obligation.endpoint(), end);
+        assert_eq!(create.discharge.endpoint(), end);
+        assert_eq!(create.discharge.class(), Class::Disruptive);
+    }
+
+    #[test]
+    fn post_bind_destroy_leaves_a_stale_node_that_displays_and_carries_no_discharge() {
+        // The lazy mirror: a StaleNode residue that renders and demands no discharge (cross-dprc-links design D5).
+        let plugged = placed(created(), 1, ResidentKind::CreatedIn).plug();
+        let end = wire_end(3, DprcId::ROOT);
+        let residue = plugged.destroy_resident_stale(end);
+        assert_eq!(residue, WireResidue::StaleNode(end));
+        assert!(residue.to_string().contains("dpni.3"));
     }
 }
