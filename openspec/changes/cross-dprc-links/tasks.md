@@ -35,7 +35,7 @@ and commits. Every group ends at the quality floor
 - [x] 2.2 Amendments: ADR-0017 (PASS4-F8 discharged, pointer to new
       ADR), ADR-0019 (edge facet second inhabitant + kind table),
       ADR-0003 §8 (Mellanox decision point dropped; trigger reworded)
-- [ ] 2.3 Roadmap: row #9 cleaned of Mellanox; row #10 Delivers gains
+- [x] 2.3 Roadmap: row #9 cleaned of Mellanox; row #10 Delivers gains
       the three portal-dependent rows via one line naming the dossier
       bead; create that single dossier bead carrying the D9 analysis
       (trigger = roadmap, reparent at #10 scoping)

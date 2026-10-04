@@ -1,6 +1,6 @@
 # Traffic inventory: validation scenarios vs the port safety matrix
 
-Populated by task 6.2 (spec: object-baseline, "Validation scenarios are
+Populated by restool-baseline task 6.2 (spec: object-baseline, "Validation scenarios are
 traffic-classified against the port matrix"). The planned validation
 scenarios are the board-pending invariants and unknown/unverified register
 items of the 16 family baselines; each scenario cites the ids it settles.
@@ -103,8 +103,8 @@ on the dpni's own counters, the peer read-only — **passed 2026-08-24**
 the later changes and are listed as placeholders so the classification
 exists before their first frame does. All physical-port instances:
 dpmac.7/9 only, explicitly flagged; the Mellanox device-tree decision
-(ADR-0003 §8) fired at V-TRAF-0 (option a, reachability only) and is
-re-decided at #9.
+(ADR-0003 §8) fired at V-TRAF-0 (option a, reachability only); its revisit
+trigger is a phase requiring sustained external traffic (ADR-0003 §8).
 
 | Id | Scenario | Owning change | Ports |
 |---|---|---|---|

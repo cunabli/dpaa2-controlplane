@@ -26,8 +26,8 @@ Two operating modes frame the whole series (design D8; restool-baseline):
 | 6 | `pool-objects` | dpbp + dpio + dpcon + dpmcp as one change (they live and die together as the driver's allocation pool); models + suites | 2, 4 | delivered 2026-09-27: the P3 pool trio (dpbp/dpcon/dpio) + dpmcp modeled as one lifecycle family on the shared `pool_lifecycle` substrate (ADR-0019 pattern), a single provider owning each pool count (design D9), and grow-only root reclaim with typed reboot-required residue (ADR-0020); the kernel-face laws witnessed at ROOT scope (V-POOL-7 rev 1 + V-DPIO-1 rev 1, 2026-09-22 — DPBP-I2/I3, DPCON-I5 and DPIO-I3's reported half board-verified) and the MVP witnessed end to end (V-POOL-6 rev 7 + V-MVP-1 rev 5, 2026-09-27); the DPL-defined-child escape judged NOT FIRED (bead dpaa2-controlplane-960.13, the 4.4 gate), so the DPRC-I8 plug→probe and DPBP-I4 top-up child faces ride bead dpaa2-controlplane-5y7 / `mc-portal-backend` (#10); hardened 2026-09-29 by `pool-hardening` (epic-review findings: child-scope shrink refusal typed at both discovery paths, seat gate wired pure with typed child surplus residue, plan types moved home to `dpaa2-api::plan`, the drawn-foreign census facet netted out of `managed()` so it no longer masks a grow deficit, review rule amendment adopted — asserting surfaces bind the production guard's named accessor) |
 | 7 | `dpmac-typestate` | Full dpmac surface (link types, counters, MAC inheritance semantics); model + suite | 2, 4 | delivered 2026-10-03 (epic dpaa2-controlplane-0xu): the P4 boot-born-offer reference (`dpmac_lifecycle` model + isomorphic `families/dpmac.rs` — driver arbitration, MAC inheritance, firmware-versioned counter vocabulary, split link channels); the dpni–dpmac edge teardown law typed as a severed witness on the connection surface (ADR-0008 §8; ADR-0019 edge facet); the design-D6 sysfs carrier route as a policy-free hal primitive; read-only port detail in `dpaa2ctl status --detail`; board-witnessed end to end (V-DPMAC-3 rev 1 — both regimes hitless, typed teardown with no driverless interval) and the phantom create settled DPC-gated (V-DPMAC-2 rev 1: baseline unknown #1 answered, `Invalid state (status 0xc)` refusal); kernel finding 52 recorded (teardown-window detached-timer WARN, milder sibling of finding 49) |
 | 8 | `dpseci-typestate` | SEC queue pairs, priorities, congestion; anchored to the vpp-dpaa2-support crypto ADRs; model + suite | 2, 4 | delivered 2026-10-03 (epic dpaa2-controlplane-lbk): the P2 crypto surface (`dpseci_lifecycle` cfg-only model + isomorphic `families/dpseci.rs` typestates; refusal surface replaying banked V-DPSECI-1); convergence as a multiset census on the observable cfg signature (design D9, Quint twins the model gate); the MC-portal read-slice DEBUT behind the kernel whitelist (ADR-0021, the workspace's first confined-unsafe ioctl primitive) with the root-portal routing law; `status --detail` honest-unknown dpseci row; board-witnessed V-DPSECI-3 rev 2 (8/8, hook 2/2 — the V-DPSECI-2 dual-transport HAS_CG witness), baseline unknowns #2 (API 5.4 confirmed) and #3 (kernel dpseci carries no HAS_CG) answered; hardened 2026-10-03 by `dpseci-hardening` (review findings: an unknown firmware bit now rides the decode as a per-bit raw escape rendered by value on the display face while the census projection stays conservative against the V-LIFE-DPSECI-1 destroy loop; the whole-census-poisoning law stated in Quint as `judgeCensus` with the world-mutating destroy surface trace-frozen and replayed, the pure census operators recorded hand-twin-sufficient in COVERAGE; `complete_kernel` folded to one lib definition ending the four hand-mirrored operand pins; the five stale pre-D9 doc comments on the `mc-portal-backend` (#10) reading path synced) |
-| 9 | `cross-dprc-links` | dpni↔dpni pseudo-wires (kernel↔VPP) as a first-class link construct; netlink side. **Decision point: Mellanox DT revert** (see below) — first traffic-bearing phase. Owns the ADR-0017 VFIO rebind-drift policy (deferred from `pool-objects` design D11, bead dpaa2-controlplane-w01): healing a bound child's drift needs an unbind/rebind cycle only a live dataplane can schedule | 4, 5 | — |
-| 10 | `mc-portal-backend` | Rust ioctl MC-portal transport — the workspace's single unsafe module; MC v10 single-version with startup firmware assertion; per-family migration off restool behind the unchanged `McControl` trait, each gated by differential testing (same plan through both backends → identical observed state) | 5–8 | — |
+| 9 | `cross-dprc-links` | dpni↔dpni pseudo-wires (kernel↔VPP) as a first-class link construct; netlink side. Owns the ADR-0017 VFIO rebind-drift policy (deferred from `pool-objects` design D11, bead dpaa2-controlplane-w01): healing a bound child's drift needs an unbind/rebind cycle only a live dataplane can schedule | 4, 5 | — |
+| 10 | `mc-portal-backend` | Rust ioctl MC-portal transport — the workspace's single unsafe module; MC v10 single-version with startup firmware assertion; per-family migration off restool behind the unchanged `McControl` trait, each gated by differential testing (same plan through both backends → identical observed state) | 5–8 | carries the three portal-dependent coverage rows — DPCON-I4, dpni unknowns #4/#11 — via dossier bead dpaa2-controlplane-94k (cross-dprc-links design D9: no restool verb for set_notification, no table read-back, no multi-priority observation) |
 | 11 | `dpsw-typestate` | Switch object; online-discovery-heavy; switching topologies beyond point-to-point | 9 | — |
 | 12 | `dpdmux-typestate` | Demux object; kernel/VPP port-sharing topologies | 9 | — |
 | 13 | `tier-c-families` | dpaiop, dpci, dpdcei, dpdmai, dprtc, dpdbg — split into per-family changes as reached; each first answers board-exercisability from its baseline doc | 10 | — |
@@ -38,17 +38,17 @@ All 16 families are ported; tiers order the work, they do not cut it.
 
 ## Decision points
 
-- **Mellanox DT revert (fired at #2; re-decided at #9 before sustained
-  traffic suites).** Choose between (a) careful, flagged use of dpmac.7/9
-  against the cn10k production peer, or (b) reverting the device tree so
-  dpmac.3 lands on the on-board Mellanox — which removes the forbidden
-  external wire and gains a local, non-production, link-up-capable peer
-  that suites can hammer freely. `verify-foundation` (#2) became the first
-  traffic-bearing phase, so the decision fired early: (a) is exercised
-  there at reachability level only; (b) stays open and is re-decided at
-  #9 when sustained traffic arrives (ADR-0003 §8, amended). Until then
-  dpmac.3 remains total-deny in the harness envelope; the control-plane
-  library carries no dpmac.3 reservation (ADR-0003 §4 scope).
+- **Mellanox DT revert (fired at #2).** Choose between (a) careful, flagged
+  use of dpmac.7/9 against the cn10k production peer, or (b) reverting the
+  device tree so dpmac.3 lands on the on-board Mellanox — which removes the
+  forbidden external wire and gains a local, non-production, link-up-capable
+  peer that suites can hammer freely. `verify-foundation` (#2) became the
+  first traffic-bearing phase, so the decision fired early: (a) is exercised
+  there at reachability level only. Option (b) is no longer a scheduled
+  decision point and carries no tile; its revisit trigger is a phase
+  requiring sustained external traffic (ADR-0003 §8). dpmac.3 remains
+  total-deny in the harness envelope; the control-plane library carries no
+  dpmac.3 reservation (ADR-0003 §4 scope).
 - **DPL tape-out (#14).** Stays on the table, deprioritized; nothing earlier
   depends on it, so it can never hold the series hostage.
 - **TLA+ or Alloy escalation (any model).** Taken per-model only when
