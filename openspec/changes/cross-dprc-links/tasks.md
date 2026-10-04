@@ -61,7 +61,7 @@ and commits. Every group ends at the quality floor
 
 ## 4. Conformance twins (parcel 3b — Rust tests)
 
-- [ ] 4.1 ITF replay twins for `link_lifecycle` (property + frozen
+- [x] 4.1 ITF replay twins for `link_lifecycle` (property + frozen
       traces) green against the new surface
 - [ ] 4.2 The a-bounded proof: dpmac family's existing frozen traces
       replay green, unchanged — any diff fails this parcel (D3)

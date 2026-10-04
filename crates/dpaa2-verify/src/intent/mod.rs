@@ -19,6 +19,9 @@ pub mod dprc_itf;
 pub mod dpseci_itf;
 pub mod edits_itf;
 pub mod intent_itf;
+/// Reader for frozen link-lifecycle ITF traces (cross-dprc-links task 4.1); the dpni↔dpni wire
+/// stepped-machine twin of [`dpmac_itf`], replayed by `tests/link_replay.rs`.
+pub mod link_itf;
 /// The intent-layer copy lint (R11–R16): every ADR/COVERAGE enumeration that
 /// restates the `models/intent/` model is a linted copy, cross-checked here so a
 /// drift fails in CI (ADR-0014).
