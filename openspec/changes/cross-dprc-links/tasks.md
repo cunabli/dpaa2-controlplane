@@ -30,7 +30,7 @@ and commits. Every group ends at the quality floor
 
 ## 2. Docs (parcel 2 — ADR drafted by main loop, mechanical edits parceled)
 
-- [ ] 2.1 New connection-surface ADR: edge-kind table, per-kind
+- [x] 2.1 New connection-surface ADR: edge-kind table, per-kind
       reification rows including the healing policy (D3/D5/D8)
 - [ ] 2.2 Amendments: ADR-0017 (PASS4-F8 discharged, pointer to new
       ADR), ADR-0019 (edge facet second inhabitant + kind table),
