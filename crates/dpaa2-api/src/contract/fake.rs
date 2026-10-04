@@ -27,7 +27,7 @@ use crate::families::dpio::{DpioCfg, Priorities};
 use crate::families::dpmac::{
     self, CarrierSource, CounterRead, CounterReadout, DpmacObservation, EthIf,
 };
-use crate::families::dpni::{DpniCfg, DpniObservation, NumQueues};
+use crate::families::dpni::{DpniCfg, DpniObservation, LinkState, NumQueues};
 use crate::families::dprc::ContainerState;
 use crate::families::dpseci::DpseciCfg;
 use crate::families::pool_lifecycle::{ObservedPoolObject, RawDriver, RawLabel};
@@ -105,8 +105,8 @@ struct FakeState {
     /// `--plugged=0` probe bounces `-EBUSY`, the in-use refusal that IS the drawn signal.
     in_use: HashSet<ObjectRef>,
     /// Child-dpni connection edges (pool-objects design D11): the peer each dpni was
-    /// connected to by [`McControl::connect_in`], read back by
-    /// [`McControl::observe_endpoint`]. A child dpni is a pool row (see
+    /// connected to by [`McControl::dprc_connect`], read back by
+    /// [`McControl::dprc_get_connection`]. A child dpni is a pool row (see
     /// [`FakeBackend::create_dpni_in`]), not an [`ObservedDpni`], so its connection lives
     /// here, not on a `connected_to` field.
     endpoints: HashMap<DpniId, ObjectRef>,
@@ -618,13 +618,13 @@ impl McControl for FakeBackend {
 
     // A plain insert records the ancestor-connect edge; a same-peer re-connect is a no-op,
     // the idempotence the converge relies on (pool-objects design D11).
-    fn connect_in(&self, _ancestor: DprcId, dpni: DpniId, peer: ObjectRef) -> Result<(), Error> {
+    fn dprc_connect(&self, _ancestor: DprcId, dpni: DpniId, peer: ObjectRef) -> Result<(), Error> {
         self.state.borrow_mut().endpoints.insert(dpni, peer);
         Ok(())
     }
 
     // A recorded child-dpni edge, else a root dpni's `connected_to` as a dpmac ref, else None.
-    fn observe_endpoint(&self, dpni: DpniId) -> Result<Option<ObjectRef>, Error> {
+    fn dprc_get_connection(&self, dpni: DpniId) -> Result<Option<ObjectRef>, Error> {
         let st = self.state.borrow();
         if let Some(&peer) = st.endpoints.get(&dpni) {
             return Ok(Some(peer));
@@ -635,6 +635,11 @@ impl McControl for FakeBackend {
             .find(|d| d.id == dpni)
             .and_then(|d| d.connected_to)
             .map(|m| ObjectRef::new(Family::Dpmac, m.into_inner())))
+    }
+
+    // An unbound board never leaves link-down: link-up is the consumer's to grant (DPCI-I5 analog).
+    fn dpni_get_link_state(&self, _dpni: DpniId) -> Result<LinkState, Error> {
+        Ok(LinkState::Down)
     }
 
     fn set_mac(&self, dpni: DpniId, mac: MacAddr) -> Result<(), Error> {
@@ -663,7 +668,7 @@ impl McControl for FakeBackend {
         Ok(())
     }
 
-    fn disconnect(&self, dpni: DpniId) -> Result<(), Error> {
+    fn dprc_disconnect(&self, _ancestor: DprcId, dpni: DpniId) -> Result<(), Error> {
         let mut st = self.state.borrow_mut();
         st.audit.push(format!("disconnect:{dpni}"));
         // A child dpni is a pool row whose edge lives in `endpoints`, not `connected_to`
@@ -954,7 +959,7 @@ mod tests {
 
     // Both directions plus the idempotent re-connect path (pool-objects design D11).
     #[test]
-    fn connect_in_then_endpoint_reads_back_and_is_idempotent() {
+    fn dprc_connect_then_connection_reads_back_and_is_idempotent() {
         let backend = FakeBackend::new();
         let label = ConstructName::from("tenant-port");
         let dpni = backend
@@ -962,17 +967,17 @@ mod tests {
             .expect("create child dpni");
         let peer = ObjectRef::new(Family::Dpmac, 7);
 
-        assert_eq!(backend.observe_endpoint(dpni).expect("read"), None);
+        assert_eq!(backend.dprc_get_connection(dpni).expect("read"), None);
 
         backend
-            .connect_in(DprcId::new(1), dpni, peer)
+            .dprc_connect(DprcId::new(1), dpni, peer)
             .expect("connect");
-        assert_eq!(backend.observe_endpoint(dpni).expect("read"), Some(peer));
+        assert_eq!(backend.dprc_get_connection(dpni).expect("read"), Some(peer));
 
         backend
-            .connect_in(DprcId::new(1), dpni, peer)
+            .dprc_connect(DprcId::new(1), dpni, peer)
             .expect("re-connect");
-        assert_eq!(backend.observe_endpoint(dpni).expect("read"), Some(peer));
+        assert_eq!(backend.dprc_get_connection(dpni).expect("read"), Some(peer));
     }
 
     // The scripted dpseci detail reads back verbatim; an unscripted object is the honest
@@ -1022,8 +1027,8 @@ mod tests {
             .expect("create");
         let peer = ObjectRef::new(Family::Dpni, 9);
         backend
-            .connect_in(DprcId::new(1), dpni, peer)
+            .dprc_connect(DprcId::new(1), dpni, peer)
             .expect("connect");
-        assert_eq!(backend.observe_endpoint(dpni).expect("read"), Some(peer));
+        assert_eq!(backend.dprc_get_connection(dpni).expect("read"), Some(peer));
     }
 }

@@ -38,6 +38,7 @@ use dpaa2_api::families::pool_lifecycle::{
     derived_requirement, drift_disposition,
 };
 use dpaa2_api::intent::compiled::{Attributes, CompiledPlan, Container, ObjectKey};
+use dpaa2_api::plan::connect::CONNECT_ANCESTOR;
 use dpaa2_api::plan::dpseci::{ObservedSig, census_delta, observed_sig_of, sig_census, sig_of};
 use dpaa2_api::plan::populate::{ChildDpseci, ChildPlan, DpseciCensus, PlannedChildDpni};
 
@@ -87,11 +88,6 @@ impl ChildPopulation {
             && self.dpseci.converged()
     }
 }
-
-/// The common ancestor a child-port connect is issued from (pool-objects design D11): the
-/// child dpni and its root dpmac (or a sibling child's dpni) share the root dprc.1 ancestor,
-/// so the DPNI-I9 connect is issued there ([`McControl::connect_in`]).
-const CONNECT_ANCESTOR: DprcId = DprcId::ROOT;
 
 /// The planned peer of a child dpni, read from the compiled plan's edges (pool-objects D11):
 /// a root dpmac for a child port-edge, or `None` for a dpni↔dpni wire whose peer id this tile
@@ -202,7 +198,7 @@ pub fn plan_child_population<M: McControl, K: KernelControl>(
             .find(|r| r.label.as_str() == obj.label().as_str())
             .map(|r| DpniId::new(r.object.ordinal()));
         let connected = match observed {
-            Some(id) => mc.observe_endpoint(id)? == peer,
+            Some(id) => mc.dprc_get_connection(id)? == peer,
             None => false,
         };
         dpnis.push(PlannedChildDpni {
@@ -260,7 +256,7 @@ pub fn plan_child_population<M: McControl, K: KernelControl>(
 /// The pass, in order:
 /// - **dpnis**: creates each planned dpni the plan found absent
 ///   ([`McControl::create_dpni_in`]), then connects it to its planned peer from the common
-///   ancestor ([`McControl::connect_in`], the DPNI-I9 form without a root plug), skipping a
+///   ancestor ([`McControl::dprc_connect`], the DPNI-I9 form without a root plug), skipping a
 ///   dpni already connected to that peer.
 /// - **trio** (dpmcp→dpbp→dpcon): dispatches each family's planned deltas
 ///   ([`dispatch_pool_deltas`]). A PRE-DISPATCH below-draw disposition (the census already read
@@ -293,7 +289,7 @@ pub fn dispatch_child_population<M: McControl>(
         if let Some(peer) = d.peer
             && d.needs_connect()
         {
-            mc.connect_in(CONNECT_ANCESTOR, id, peer)?;
+            mc.dprc_connect(CONNECT_ANCESTOR, id, peer)?;
         }
     }
 
@@ -544,7 +540,7 @@ mod tests {
             .dpnis
             .iter()
             .filter_map(|d| {
-                mc.observe_endpoint(DpniId::new(d.ordinal()))
+                mc.dprc_get_connection(DpniId::new(d.ordinal()))
                     .unwrap()
                     .map(ObjectRef::ordinal)
             })

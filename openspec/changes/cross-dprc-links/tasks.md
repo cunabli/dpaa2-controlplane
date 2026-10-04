@@ -70,7 +70,7 @@ and commits. Every group ends at the quality floor
 
 ## 5. Adapters and frontend (parcel 4 — dpaa2-mc, dpaa2-config, dpaa2-tools)
 
-- [ ] 5.1 McControl connection verbs named 1:1 with whitelisted MC
+- [x] 5.1 McControl connection verbs named 1:1 with whitelisted MC
       commands, ancestor-explicit, typed returns; restool text parsing
       stays behind the trait; no portal read-slice additions (D6)
 - [ ] 5.2 Child populate resolves dpni↔dpni peers and issues the

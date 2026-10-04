@@ -11,6 +11,7 @@ use dpaa2_api::core::inventory::{DpmacLinkType, EthInterface};
 use dpaa2_api::core::model::{DpmacId, DpniId, DprcId, LinkType, MacAddr, ObjectRef};
 use dpaa2_api::core::types::ConstructName;
 use dpaa2_api::families::dpmac::LinkType as ObservedLinkType;
+use dpaa2_api::families::dpni::LinkState;
 use dpaa2_api::families::dprc;
 
 /// Strips `prefix` from `tok` and parses the remainder as the numeric index behind
@@ -224,6 +225,28 @@ pub fn parse_dpni_endpoint(stdout: &str) -> Option<ObjectRef> {
             let obj = rest.split(',').next().unwrap_or("").trim();
             let (family, num) = parse_family_num(obj)?;
             return Some(ObjectRef::new(family, num));
+        }
+    }
+    None
+}
+
+/// Parses the `link status: <n> - <word>` line of `restool dpni info dpni.N` into the typed
+/// [`LinkState`] it carries (`DPNI_GET_LINK_STATE`; `docs/baseline/mc-ioctl-policy.md` row 30).
+/// The vocabulary is `up`/`down` (format precedent `docs/baseline/dpci.md` `link status: 0 -
+/// down`); a token outside it, or a missing line, is `None` — the shim raises
+/// [`Error::Parse`](dpaa2_api::core::error::Error::Parse), never defaulting (the house
+/// vocabulary-checked idiom). This keys on the `link status:` line, NOT the `endpoint:` line's
+/// `link is up` suffix, which is DPRC connection state, not link state (`docs/baseline/dpmac.md`
+/// "the observation surface is weaker than the state").
+#[must_use]
+pub fn parse_dpni_link_state(stdout: &str) -> Option<LinkState> {
+    for line in stdout.lines() {
+        if let Some(rest) = line.trim().strip_prefix("link status:") {
+            return match rest.rsplit('-').next().unwrap_or("").trim() {
+                "up" => Some(LinkState::Up),
+                "down" => Some(LinkState::Down),
+                _ => None,
+            };
         }
     }
     None
@@ -781,6 +804,24 @@ plugged state: plugged
             None
         );
         assert_eq!(parse_dpni_endpoint("mac address: absent\n"), None);
+    }
+
+    #[test]
+    fn dpni_link_state_reads_up_down_and_refuses_a_deviating_token() {
+        // Vocabulary up/down; a deviating token or the endpoint `link is up` suffix is None.
+        assert_eq!(
+            parse_dpni_link_state("link status: 1 - up\n"),
+            Some(LinkState::Up)
+        );
+        assert_eq!(
+            parse_dpni_link_state("link status: 0 - down\n"),
+            Some(LinkState::Down)
+        );
+        assert_eq!(parse_dpni_link_state("link status: 2 - flapping\n"), None);
+        assert_eq!(
+            parse_dpni_link_state("endpoint: dpmac.7, link is up\n"),
+            None
+        );
     }
 
     #[test]

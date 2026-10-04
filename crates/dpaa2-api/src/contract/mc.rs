@@ -7,7 +7,7 @@ use crate::core::model::{DpmacId, DpniId, DprcId, MacAddr, ObjectRef, ObservedTo
 use crate::core::types::ConstructName;
 use crate::families::dpio::{DpioCfg, Priorities};
 use crate::families::dpmac::DpmacObservation;
-use crate::families::dpni::DpniCfg;
+use crate::families::dpni::{DpniCfg, LinkState};
 use crate::families::dprc;
 use crate::families::dpseci::{DpseciCfg, OptionMask};
 use crate::families::pool_lifecycle::ObservedPoolObject;
@@ -176,7 +176,8 @@ pub trait McControl {
     /// Returns an error if the connection fails.
     fn connect(&self, dpni: DpniId, dpmac: DpmacId) -> Result<(), Error>;
 
-    /// Connects `dpni` to `peer` issued from their common ancestor `ancestor` — the
+    /// Carries `DPRC_CONNECT` (`docs/baseline/mc-ioctl-policy.md` row 13; mc-backend spec):
+    /// connects `dpni` to `peer` issued from their common ancestor `ancestor` — the
     /// DPNI-I9 connect form (`docs/baseline/dpni.md` DPNI-I9): `dprc connect <ancestor>
     /// --endpoint1=<dpni> --endpoint2=<peer>`, with **no** root plug step. This is the
     /// child-port divergence from the root-shaped [`connect`](Self::connect), whose
@@ -184,7 +185,7 @@ pub trait McControl {
     /// a child dpni (pool-objects design D11). `peer` is an [`ObjectRef`] so both the
     /// child-dpni↔root-dpmac and the cross-container dpni↔dpni cases render.
     ///
-    /// The reconciler reads [`observe_endpoint`](Self::observe_endpoint) first, so a
+    /// The reconciler reads [`dprc_get_connection`](Self::dprc_get_connection) first, so a
     /// re-run over an already-connected edge issues nothing (idempotence, DPNI-I9's
     /// both-endpoints-disconnected precondition).
     ///
@@ -195,18 +196,37 @@ pub trait McControl {
     ///
     /// # Errors
     /// Returns an error if the connection fails.
-    fn connect_in(&self, ancestor: DprcId, dpni: DpniId, peer: ObjectRef) -> Result<(), Error>;
+    fn dprc_connect(&self, ancestor: DprcId, dpni: DpniId, peer: ObjectRef) -> Result<(), Error>;
 
-    /// Reads the object `dpni` is currently connected to from its `endpoint:` line, or
-    /// `Ok(None)` when disconnected (`No object associated`) — the idempotence read the
-    /// child-port converge issues before [`connect_in`](Self::connect_in) to ask "already
-    /// connected to X?" (pool-objects design D11). The peer is an [`ObjectRef`] so a
-    /// dpmac and a cross-container dpni peer both read back (`docs/baseline/dpni.md`
-    /// DPNI-I9).
+    /// Carries `DPRC_GET_CONNECTION` (`docs/baseline/mc-ioctl-policy.md` row 17; mc-backend
+    /// spec): reads the object `dpni` is currently connected to from its `dpni info`
+    /// `endpoint:` line, or `Ok(None)` when disconnected (`No object associated`) — the
+    /// idempotence read the child-port converge issues before
+    /// [`dprc_connect`](Self::dprc_connect) to ask "already connected to X?"
+    /// (pool-objects design D11). The restool-text parse stays behind the trait so the #10
+    /// portal implementation drops in under the same typed return (cross-dprc-links design D6).
+    /// The
+    /// peer is an [`ObjectRef`] so a dpmac and a cross-container dpni peer both read back
+    /// (`docs/baseline/dpni.md` DPNI-I9).
     ///
     /// # Errors
     /// Returns an error if the backend cannot be queried.
-    fn observe_endpoint(&self, dpni: DpniId) -> Result<Option<ObjectRef>, Error>;
+    fn dprc_get_connection(&self, dpni: DpniId) -> Result<Option<ObjectRef>, Error>;
+
+    /// Carries `DPNI_GET_LINK_STATE` (`docs/baseline/mc-ioctl-policy.md` row 30; mc-backend
+    /// spec): reads `dpni`'s typed up/down [`LinkState`] from the `dpni info` `link status:
+    /// <n> - <word>` line. This is the dpni's *link* state, distinct from the DPRC
+    /// *connection* the [`dprc_get_connection`](Self::dprc_get_connection) `endpoint:` line
+    /// carries — the endpoint line's `link is up` suffix is connection state, never read as
+    /// link state (`docs/baseline/dpmac.md` "the observation surface is weaker than the
+    /// state"). The restool-text parse stays behind the trait so the #10 portal
+    /// implementation drops in under the same typed return (cross-dprc-links design D6); this
+    /// change adds no `/dev/dprc.N` portal read-slice (ADR-0021).
+    ///
+    /// # Errors
+    /// Returns [`Error::Parse`] when the `link status:` line is absent or carries a token
+    /// outside the `up`/`down` vocabulary, or a backend error on a failed query.
+    fn dpni_get_link_state(&self, dpni: DpniId) -> Result<LinkState, Error>;
 
     /// Sets the DPNI primary MAC (used only in actuate mode).
     ///
@@ -223,11 +243,14 @@ pub trait McControl {
     /// Returns an error if the label cannot be written.
     fn set_label(&self, dpni: DpniId, label: &ConstructName) -> Result<(), Error>;
 
-    /// Disconnects a DPNI from its DPMAC.
+    /// Carries `DPRC_DISCONNECT` (`docs/baseline/mc-ioctl-policy.md` row 14; mc-backend
+    /// spec): disconnects `dpni` from its peer, issued at their common ancestor `ancestor`
+    /// (the root constant `CONNECT_ANCESTOR` today) so the cross-container form is
+    /// ancestor-explicit, never scoped to either child (cross-dprc-links design D6).
     ///
     /// # Errors
     /// Returns an error if the disconnect fails.
-    fn disconnect(&self, dpni: DpniId) -> Result<(), Error>;
+    fn dprc_disconnect(&self, ancestor: DprcId, dpni: DpniId) -> Result<(), Error>;
 
     /// Destroys a DPNI object.
     ///

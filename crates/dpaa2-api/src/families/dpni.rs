@@ -475,6 +475,22 @@ impl InterfaceConstruct {
     }
 }
 
+// ---- the dpni link state (cross-dprc-links task 5.1) ----
+
+/// The up/down link state a dpni reports through `DPNI_GET_LINK_STATE`
+/// (`docs/baseline/mc-ioctl-policy.md` row 30; mc-backend spec). The minimal typed value
+/// [`McControl::dpni_get_link_state`](crate::contract::McControl::dpni_get_link_state) returns
+/// for the `link status:` line — no rate or option fields, which are the portal-only riches
+/// #10 owns (cross-dprc-links design D6; ADR-0021). A restool-only pair reads [`Down`](Self::Down)
+/// until the kernel consumer grants link-up (DPCI-I5 analog; `docs/baseline/dpci.md`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LinkState {
+    /// The link is up (`link status: 1 - up`).
+    Up,
+    /// The link is down (`link status: 0 - down`).
+    Down,
+}
+
 /// The two board-verified consumer option profiles (`dpni.qnt` `type OptionProfile`;
 /// `docs/baseline/dpni.md` production-profiles list; ADR-0005): both the option mask and
 /// the full create block are consumer-typed, never operator-supplied

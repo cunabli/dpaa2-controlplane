@@ -24,6 +24,7 @@ use dpaa2_api::families::pool_lifecycle::{
 };
 use dpaa2_api::intent::KERNEL;
 use dpaa2_api::intent::compiled::{Attributes, CompiledPlan, Container, PlannedObject};
+use dpaa2_api::plan::connect::CONNECT_ANCESTOR;
 use dpaa2_api::plan::dprc::{
     Attribution, ConsumerConvergence, ContainerPlan, ContainerStep, ContainerVerdict, PruneBucket,
     PruneItem, Verb, attribute_refusal, derive_consumer_containers, plan_consumer_convergence,
@@ -532,7 +533,7 @@ pub fn prune_root_dpnis<M: McControl, K: KernelControl>(
             .iter()
             .any(|d| d.id == *dpni && d.connected_to.is_some())
         {
-            mc.disconnect(*dpni)?;
+            mc.dprc_disconnect(CONNECT_ANCESTOR, *dpni)?;
         }
         kernel.unbind(*dpni)?;
         mc.destroy(*dpni)?;
@@ -567,7 +568,7 @@ fn release_child_bindings<M: McControl, K: KernelControl>(
     kernel.vfio_unbind(id)?;
     for row in mc.observe_pool(Some(id), Family::Dpni)? {
         let dpni = DpniId::new(row.object.ordinal());
-        mc.disconnect(dpni)?;
+        mc.dprc_disconnect(CONNECT_ANCESTOR, dpni)?;
         tracing::info!(%id, %dpni, "disconnected child dpni before container teardown");
     }
     Ok(())
@@ -1212,7 +1213,7 @@ pub fn apply<M: McControl, K: KernelControl>(
                 tracing::debug!(%port, %id, "nudged bind; awaiting netdev");
             }
             Transition::Disconnect { dpni } => {
-                mc.disconnect(*dpni)?;
+                mc.dprc_disconnect(CONNECT_ANCESTOR, *dpni)?;
                 tracing::info!(%dpni, "disconnected dpni");
             }
             Transition::Unbind { proof } => {

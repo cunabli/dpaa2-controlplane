@@ -837,7 +837,7 @@ fn container_prune_unbinds_and_disconnects_before_destroy() {
         );
     // The child dpni is connected to a root dpmac from the common ancestor (DPNI-I9 form).
     backend
-        .connect_in(
+        .dprc_connect(
             DprcId::ROOT,
             DpniId::new(10),
             ObjectRef::new(Family::Dpmac, 4),

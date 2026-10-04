@@ -22,8 +22,8 @@ use dpaa2_api::core::types::ConstructName;
 use dpaa2_api::families::dpio::{ChannelMode, DpioCfg, Priorities};
 use dpaa2_api::families::dpmac::{CounterRead, CounterReadout, DpmacObservation, EthIf};
 use dpaa2_api::families::dpni::{
-    DpniCfg, DpniObservation, DpniOpt, FsEntries, MacFilterEntries, NumCeetmCh, NumCgs, NumOpr,
-    NumQueues, NumTcs, OptionMask, QosEntries, RawEscape, VlanFilterEntries,
+    DpniCfg, DpniObservation, DpniOpt, FsEntries, LinkState, MacFilterEntries, NumCeetmCh, NumCgs,
+    NumOpr, NumQueues, NumTcs, OptionMask, QosEntries, RawEscape, VlanFilterEntries,
 };
 use dpaa2_api::families::dprc;
 use dpaa2_api::families::dpseci::{self, DpseciCfg};
@@ -1128,9 +1128,7 @@ impl<R: Runner> McControl for RestoolMc<R> {
         self.sync()
     }
 
-    fn connect_in(&self, ancestor: DprcId, dpni: DpniId, peer: ObjectRef) -> Result<(), Error> {
-        // DPNI-I9 form (docs/baseline/dpni.md DPNI-I9): a child dpni connects from the common
-        // ancestor with NO root plug step — root `connect`'s plug targets the wrong container.
+    fn dprc_connect(&self, ancestor: DprcId, dpni: DpniId, peer: ObjectRef) -> Result<(), Error> {
         self.run_verb(&[
             "dprc",
             "connect",
@@ -1141,10 +1139,16 @@ impl<R: Runner> McControl for RestoolMc<R> {
         self.sync()
     }
 
-    fn observe_endpoint(&self, dpni: DpniId) -> Result<Option<ObjectRef>, Error> {
-        // Idempotence read: `dpni info` `endpoint:` line into the typed peer (pool-objects design D11).
+    fn dprc_get_connection(&self, dpni: DpniId) -> Result<Option<ObjectRef>, Error> {
         let out = self.run_verb(&["dpni", "info", &dpni.to_string()])?;
         Ok(parse::parse_dpni_endpoint(&out))
+    }
+
+    fn dpni_get_link_state(&self, dpni: DpniId) -> Result<LinkState, Error> {
+        // The `link status:` line, NOT the endpoint line's `link is up` suffix (connection state).
+        let out = self.run_verb(&["dpni", "info", &dpni.to_string()])?;
+        parse::parse_dpni_link_state(&out)
+            .ok_or_else(|| Error::Parse(format!("no `link status:` line in `{out}`")))
     }
 
     fn set_mac(&self, dpni: DpniId, mac: dpaa2_api::core::model::MacAddr) -> Result<(), Error> {
@@ -1170,11 +1174,12 @@ impl<R: Runner> McControl for RestoolMc<R> {
         self.sync()
     }
 
-    fn disconnect(&self, dpni: DpniId) -> Result<(), Error> {
+    fn dprc_disconnect(&self, ancestor: DprcId, dpni: DpniId) -> Result<(), Error> {
+        // Renders the passed ancestor, not self.container (ancestor-explicit).
         self.run_verb(&[
             "dprc",
             "disconnect",
-            &self.container,
+            &ancestor.to_string(),
             &format!("--endpoint={dpni}"),
         ])?;
         self.sync()
@@ -1511,24 +1516,40 @@ mod tests {
     }
 
     #[test]
-    fn disconnect_renders_singular_endpoint_flag() {
-        // dprc disconnect takes a single --endpoint=, not the connect pair (docs/baseline/dprc.md:46).
+    fn dprc_disconnect_renders_singular_endpoint_flag_at_the_passed_ancestor() {
         let runner = ScriptedRunner::new(vec![
-            ("dprc disconnect dprc.1 --endpoint=dpni.1", ok("")),
+            ("dprc disconnect dprc.2 --endpoint=dpni.1", ok("")),
             ("dprc sync", ok("")),
         ]);
         let mc = RestoolMc::with_runner(runner, DEFAULT_CONTAINER);
 
-        mc.disconnect(DpniId::new(1)).expect("disconnect");
+        mc.dprc_disconnect(DprcId::new(2), DpniId::new(1))
+            .expect("disconnect");
 
+        // The argv names the passed ancestor dprc.2, not the shim's own DEFAULT_CONTAINER.
         assert_eq!(
             mc.runner().calls()[0],
-            vec!["dprc", "disconnect", "dprc.1", "--endpoint=dpni.1"],
+            vec!["dprc", "disconnect", "dprc.2", "--endpoint=dpni.1"],
         );
     }
 
     #[test]
-    fn connect_in_renders_ancestor_form_without_the_root_plug() {
+    fn dpni_get_link_state_reads_the_typed_state_in_one_info_spawn() {
+        let runner = ScriptedRunner::new(vec![(
+            "dpni info dpni.5",
+            ok("endpoint: dpmac.3, link is up\nlink status: 0 - down\n"),
+        )]);
+        let mc = RestoolMc::with_runner(runner, DEFAULT_CONTAINER);
+
+        assert_eq!(
+            mc.dpni_get_link_state(DpniId::new(5)).expect("link state"),
+            LinkState::Down,
+        );
+        assert_eq!(mc.runner().calls().len(), 1);
+    }
+
+    #[test]
+    fn dprc_connect_renders_ancestor_form_without_the_root_plug() {
         // DPNI-I9 ancestor form: endpoint1/endpoint2 and NO plug step (pool-objects design D11).
         let runner = ScriptedRunner::new(vec![
             (
@@ -1539,12 +1560,12 @@ mod tests {
         ]);
         let mc = RestoolMc::with_runner(runner, DEFAULT_CONTAINER);
 
-        mc.connect_in(
+        mc.dprc_connect(
             DprcId::new(2),
             DpniId::new(5),
             ObjectRef::new(Family::Dpmac, 3),
         )
-        .expect("connect_in");
+        .expect("dprc_connect");
 
         // Exactly two commands: connect then sync — no assign/plug precedes them.
         assert_eq!(
@@ -1561,7 +1582,7 @@ mod tests {
     }
 
     #[test]
-    fn observe_endpoint_reads_peer_and_disconnected() {
+    fn dprc_get_connection_reads_peer_and_disconnected() {
         // The `endpoint:` line into a typed peer; `No object associated` ⇒ None (pool-objects design D11).
         let runner = ScriptedRunner::new(vec![
             ("dpni info dpni.5", ok("endpoint: dpmac.3, link is up\n")),
@@ -1570,10 +1591,10 @@ mod tests {
         let mc = RestoolMc::with_runner(runner, DEFAULT_CONTAINER);
 
         assert_eq!(
-            mc.observe_endpoint(DpniId::new(5)).expect("read"),
+            mc.dprc_get_connection(DpniId::new(5)).expect("read"),
             Some(ObjectRef::new(Family::Dpmac, 3)),
         );
-        assert_eq!(mc.observe_endpoint(DpniId::new(6)).expect("read"), None);
+        assert_eq!(mc.dprc_get_connection(DpniId::new(6)).expect("read"), None);
     }
 
     #[test]
