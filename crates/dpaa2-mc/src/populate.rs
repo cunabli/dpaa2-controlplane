@@ -100,6 +100,55 @@ fn planned_peer(plan: &CompiledPlan, key: &ObjectKey) -> Option<ObjectRef> {
     })
 }
 
+/// The MC id of a child dpni's dpni↔dpni link peer, resolved by observing the peer's own
+/// container (cross-dprc-links design D2; mc-backend spec requirement 3): find the link edge
+/// holding `key`, take the peer end's [`ObjectKey`], and read its container's dpni rows for the
+/// one carrying the peer's planned label (link-end dpnis carry the link name as their label;
+/// a self-loop is refused at intent, so the two ends never share a container). The peer lives
+/// in [`Container::Root`] (observed with `None`) or a [`Container::Child`] whose [`DprcId`]
+/// comes from `children`, the observed label→id map.
+///
+/// `None` when the dpni carries no link edge, or when the peer is not yet resolvable this pass
+/// — its container not observed yet, or its dpni not created yet. An unresolvable peer leaves
+/// [`PlannedChildDpni::peer`] `None`, so no connect issues and `needs_connect()` is false this
+/// pass; the level-triggered re-run resolves it next pass. A consequence accepted for this half:
+/// `is_converged()` can read true while the link is still unwired — the link face converges over
+/// successive passes, and the root-reconcile link pass is the backstop (cross-dprc-links design D2).
+fn planned_link_peer<M: McControl>(
+    mc: &M,
+    plan: &CompiledPlan,
+    key: &ObjectKey,
+    children: &BTreeMap<ConstructName, DprcId>,
+) -> Result<Option<ObjectRef>, Error> {
+    let peer_key = plan.edges.iter().find_map(|e| {
+        e.link_edge_dpnis().and_then(|(a, b)| {
+            if a == key {
+                Some(b)
+            } else if b == key {
+                Some(a)
+            } else {
+                None
+            }
+        })
+    });
+    let Some(peer) = peer_key.and_then(|k| plan.objects.iter().find(|o| o.key() == k)) else {
+        return Ok(None);
+    };
+    let rows = match peer.container() {
+        Container::Root => mc.observe_pool(None, Family::Dpni)?,
+        Container::Child(tenant) => {
+            let Some(&id) = children.get(&ConstructName::from(tenant)) else {
+                return Ok(None);
+            };
+            mc.observe_pool(Some(id), Family::Dpni)?
+        }
+    };
+    Ok(rows
+        .iter()
+        .find(|r| r.label.as_str() == peer.label().as_str())
+        .map(|r| ObjectRef::new(Family::Dpni, r.object.ordinal())))
+}
+
 /// The compiled dpseci create blocks for one container (dpseci-typestate design D9): the
 /// planned half of the census, in declaration order. Position is not a hardware identity, so
 /// the order is immaterial — the census is a multiset (ADR-0015 decision 5).
@@ -172,6 +221,7 @@ fn judge_dpseci<M: McControl>(
 ///
 /// # Errors
 /// Propagates the first [`Error`] any observation raises.
+#[allow(clippy::too_many_arguments)] // the observed label→id map joins the read-only plan inputs (cross-dprc-links design D2)
 pub fn plan_child_population<M: McControl, K: KernelControl>(
     mc: &M,
     kernel: &K,
@@ -180,6 +230,7 @@ pub fn plan_child_population<M: McControl, K: KernelControl>(
     container: &Container,
     label: &ConstructName,
     declared: &BTreeSet<ConstructName>,
+    children: &BTreeMap<ConstructName, DprcId>,
 ) -> Result<ChildPlan, Error> {
     // dpni arity IS the plan's per-port dpni count for this container (never a constant).
     let dpni_rows = mc.observe_pool(Some(child), Family::Dpni)?;
@@ -192,7 +243,10 @@ pub fn plan_child_population<M: McControl, K: KernelControl>(
         let Attributes::Dpni { cfg } = obj.attributes() else {
             continue;
         };
-        let peer = planned_peer(plan, obj.key());
+        let peer = match planned_peer(plan, obj.key()) {
+            Some(dpmac) => Some(dpmac),
+            None => planned_link_peer(mc, plan, obj.key(), children)?,
+        };
         let observed = dpni_rows
             .iter()
             .find(|r| r.label.as_str() == obj.label().as_str())
@@ -410,11 +464,12 @@ mod tests {
 
     use dpaa2_api::contract::fake::FakeBackend;
     use dpaa2_api::core::model::{DpmacId, MacMode};
+    use dpaa2_api::core::types::TenantName;
     use dpaa2_api::families::dpio::{SeatDisposition, SeatRegime};
     use dpaa2_api::families::dpseci::{DpseciOpt, OptionMask};
     use dpaa2_api::families::pool_lifecycle::{ObservedPoolObject, RawLabel};
     use dpaa2_api::intent::refuse::compile;
-    use dpaa2_api::intent::{Crypto, Dataplane, Intent, Isolation, Port, Tenant, TenantRef};
+    use dpaa2_api::intent::{Crypto, Dataplane, Intent, Isolation, Link, Port, Tenant, TenantRef};
     use dpaa2_api::plan::Class;
     use dpaa2_api::testkit::ref_inventory;
 
@@ -456,6 +511,11 @@ mod tests {
         BTreeSet::from([ConstructName::from("router")])
     }
 
+    // The observed label→id map, empty where no cross-container link peer is resolved.
+    fn no_children() -> BTreeMap<ConstructName, DprcId> {
+        BTreeMap::new()
+    }
+
     fn count(mc: &FakeBackend, child: DprcId, family: Family) -> usize {
         mc.observe_pool(Some(child), family).unwrap().len()
     }
@@ -476,6 +536,7 @@ mod tests {
             &container,
             &label,
             &declared(),
+            &no_children(),
         )
         .expect("plan");
         let pop = dispatch_child_population(mc, &cplan, &declared()).expect("dispatch");
@@ -497,6 +558,7 @@ mod tests {
             &container,
             &label,
             &declared(),
+            &no_children(),
         )
         .expect("plan");
         assert_eq!(
@@ -617,6 +679,7 @@ mod tests {
             &container,
             &label,
             &declared(),
+            &no_children(),
         )
         .expect("plan");
         assert_eq!(
@@ -681,6 +744,7 @@ mod tests {
             &container,
             &label,
             &declared(),
+            &no_children(),
         )
         .expect("plan");
         assert_eq!(
@@ -727,6 +791,7 @@ mod tests {
             &container,
             &label,
             &declared(),
+            &no_children(),
         )
         .expect("plan");
         let pop =
@@ -795,6 +860,7 @@ mod tests {
             &container,
             &label,
             &declared(),
+            &no_children(),
         )
         .expect("plan");
         let pop = dispatch_child_population(&mc, &cplan, &declared()).expect("dispatch");
@@ -834,6 +900,7 @@ mod tests {
             &container,
             &label,
             &declared(),
+            &no_children(),
         )
         .expect("plan");
         assert!(cplan.bound, "a vfio-fsl-mc child reads back bound");
@@ -847,6 +914,186 @@ mod tests {
         let mc = FakeBackend::new();
         let bind = vfio_handoff(&mc, DprcId::new(2)).expect("handoff");
         assert_eq!(bind, VfioBind::Unbound);
+    }
+
+    // ---- the dpni↔dpni link peer (cross-dprc-links task 5.2; design D2) ----
+
+    // Two isolated userspace tenants wired by one dpni↔dpni link "x"; each tenant's child
+    // carries a dpni labelled with the link name (cross-dprc-links design D2).
+    fn compiled_linked_pair() -> dpaa2_api::intent::refuse::Compiled {
+        let tenant = |name: TenantName| Tenant {
+            name,
+            dataplane: Dataplane::UserspacePoll,
+            max_cores: 16,
+            isolation: Isolation::Isolated,
+            renamed: None,
+            priority: None,
+        };
+        let intent = Intent {
+            tenants: vec![tenant("neta".into()), tenant("netb".into())],
+            links: vec![Link {
+                name: "x".into(),
+                interface_a: TenantRef::from_name("neta".into()),
+                interface_b: TenantRef::from_name("netb".into()),
+                renamed: None,
+            }],
+            ..Intent::empty()
+        };
+        compile(&intent, &ref_inventory(16)).expect("the linked pair compiles")
+    }
+
+    fn link_declared() -> BTreeSet<ConstructName> {
+        BTreeSet::from([ConstructName::from("neta"), ConstructName::from("netb")])
+    }
+
+    // netb's compiled link-dpni create block, the seed for its board-resident peer.
+    fn netb_link_cfg(
+        compiled: &dpaa2_api::intent::refuse::Compiled,
+    ) -> dpaa2_api::families::dpni::DpniCfg {
+        let obj = compiled
+            .plan
+            .objects
+            .iter()
+            .find(|o| {
+                o.container() == &Container::Child("netb".into()) && o.key().family == Family::Dpni
+            })
+            .expect("netb carries a link dpni");
+        match obj.attributes() {
+            Attributes::Dpni { cfg } => cfg.clone(),
+            other => panic!("expected a dpni cfg, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn child_link_peer_resolves_across_containers_and_connects() {
+        // cross-dprc-links design D2 / mc-backend req 3: child A's link dpni resolves its peer
+        // in child B's container and the dispatch connects it at the ancestor; a re-run reads it
+        // endpoint-equal and connects nothing (idempotence via dprc_get_connection).
+        let compiled = compiled_linked_pair();
+        let child_a = DprcId::new(2);
+        let child_b = DprcId::new(3);
+        let children = BTreeMap::from([
+            (ConstructName::from("neta"), child_a),
+            (ConstructName::from("netb"), child_b),
+        ]);
+        let declared = link_declared();
+
+        let mc = FakeBackend::new();
+        let b_id = mc
+            .create_dpni_in(
+                child_b,
+                &netb_link_cfg(&compiled),
+                &ConstructName::from("x"),
+            )
+            .expect("seed netb's peer dpni");
+        let peer = ObjectRef::new(Family::Dpni, b_id.into_inner());
+
+        let container = Container::Child("neta".into());
+        let label = ConstructName::from("neta");
+        let cplan = plan_child_population(
+            &mc,
+            &mc,
+            child_a,
+            &compiled.plan,
+            &container,
+            &label,
+            &declared,
+            &children,
+        )
+        .expect("plan");
+        let link_dpni = cplan
+            .dpnis
+            .iter()
+            .find(|d| d.label.as_str() == "x")
+            .expect("neta's link dpni");
+        assert_eq!(link_dpni.peer, Some(peer), "resolved to netb's dpni");
+        assert!(link_dpni.needs_connect(), "absent and peered: connect due");
+
+        dispatch_child_population(&mc, &cplan, &declared).expect("dispatch");
+        let a_link = mc
+            .observe_pool(Some(child_a), Family::Dpni)
+            .unwrap()
+            .into_iter()
+            .find(|r| r.label.as_str() == "x")
+            .expect("neta's link dpni is created");
+        assert_eq!(
+            mc.dprc_get_connection(DpniId::new(a_link.object.ordinal()))
+                .unwrap(),
+            Some(peer),
+            "connected at the ancestor to netb's dpni"
+        );
+
+        let cplan2 = plan_child_population(
+            &mc,
+            &mc,
+            child_a,
+            &compiled.plan,
+            &container,
+            &label,
+            &declared,
+            &children,
+        )
+        .expect("re-plan");
+        let link2 = cplan2
+            .dpnis
+            .iter()
+            .find(|d| d.label.as_str() == "x")
+            .expect("neta's link dpni");
+        assert!(
+            link2.observed.is_some() && link2.connected,
+            "present and endpoint-equal"
+        );
+        assert!(!link2.needs_connect(), "idempotent: no second connect");
+    }
+
+    #[test]
+    fn child_link_peer_not_yet_created_is_none_and_no_connect() {
+        // cross-dprc-links design D2: the peer dpni does not exist yet, so the peer is None this
+        // pass — no connect, no error. The level-triggered re-run resolves it next pass.
+        let compiled = compiled_linked_pair();
+        let child_a = DprcId::new(2);
+        let child_b = DprcId::new(3);
+        let children = BTreeMap::from([
+            (ConstructName::from("neta"), child_a),
+            (ConstructName::from("netb"), child_b),
+        ]);
+        let declared = link_declared();
+
+        let mc = FakeBackend::new();
+        let container = Container::Child("neta".into());
+        let label = ConstructName::from("neta");
+        let cplan = plan_child_population(
+            &mc,
+            &mc,
+            child_a,
+            &compiled.plan,
+            &container,
+            &label,
+            &declared,
+            &children,
+        )
+        .expect("plan");
+        let link_dpni = cplan
+            .dpnis
+            .iter()
+            .find(|d| d.label.as_str() == "x")
+            .expect("neta's link dpni");
+        assert_eq!(link_dpni.peer, None, "peer not created yet: unresolvable");
+        assert!(!link_dpni.needs_connect(), "no peer, no connect");
+
+        dispatch_child_population(&mc, &cplan, &declared).expect("dispatch, not an error");
+        let a_link = mc
+            .observe_pool(Some(child_a), Family::Dpni)
+            .unwrap()
+            .into_iter()
+            .find(|r| r.label.as_str() == "x")
+            .expect("neta's link dpni is still created");
+        assert_eq!(
+            mc.dprc_get_connection(DpniId::new(a_link.object.ordinal()))
+                .unwrap(),
+            None,
+            "no connect was issued with no peer"
+        );
     }
 
     // ---- the dpseci observable-signature census (dpseci-typestate task 3.3; design D9) ----
@@ -895,6 +1142,7 @@ mod tests {
             &container,
             &label,
             &sec_declared(),
+            &no_children(),
         )
         .expect("plan");
         let pop = dispatch_child_population(mc, &cplan, &sec_declared()).expect("dispatch");
@@ -1082,6 +1330,7 @@ mod tests {
             &container,
             &label,
             &sec_declared(),
+            &no_children(),
         )
         .expect("plan");
         assert!(

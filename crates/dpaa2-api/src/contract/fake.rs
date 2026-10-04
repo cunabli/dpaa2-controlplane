@@ -580,6 +580,18 @@ impl McControl for FakeBackend {
             // Project the create's read-back so fake-vs-reconcile tests exercise cfg drift (7fv.2).
             cfg_observation: Some(observation),
         });
+        // A root dpni is also a `dprc.1` pool row, so `observe_pool(None, Dpni)` reads it back —
+        // the root link pass resolves link ends there (cross-dprc-links task 5.2). Unplugged on
+        // create: the plug follows the connect (the populate-connect-bind order, cross-dprc-links design D4).
+        st.pool_objects.push((
+            DprcId::ROOT,
+            ObservedPoolObject {
+                object: ObjectRef::new(Family::Dpni, id.into_inner()),
+                label: RawLabel::from(label.as_str()),
+                plugged: false,
+                drawn: false,
+            },
+        ));
         Ok(id)
     }
 
@@ -617,9 +629,19 @@ impl McControl for FakeBackend {
     }
 
     // A plain insert records the ancestor-connect edge; a same-peer re-connect is a no-op,
-    // the idempotence the converge relies on (pool-objects design D11).
+    // the idempotence the converge relies on (pool-objects design D11). A dpni↔dpni wire is
+    // symmetric on the board (both dpnis report the endpoint), so the reverse edge is recorded too
+    // — modeling `dpni info` on either end (cross-dprc-links task 5.2); a dpmac peer carries no
+    // dpni endpoint row, so only the dpni↔dpni case mirrors.
     fn dprc_connect(&self, _ancestor: DprcId, dpni: DpniId, peer: ObjectRef) -> Result<(), Error> {
-        self.state.borrow_mut().endpoints.insert(dpni, peer);
+        let mut st = self.state.borrow_mut();
+        st.endpoints.insert(dpni, peer);
+        if peer.family() == Family::Dpni {
+            st.endpoints.insert(
+                DpniId::new(peer.ordinal()),
+                ObjectRef::new(Family::Dpni, dpni.into_inner()),
+            );
+        }
         Ok(())
     }
 

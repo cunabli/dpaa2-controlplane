@@ -73,7 +73,7 @@ and commits. Every group ends at the quality floor
 - [x] 5.1 McControl connection verbs named 1:1 with whitelisted MC
       commands, ancestor-explicit, typed returns; restool text parsing
       stays behind the trait; no portal read-slice additions (D6)
-- [ ] 5.2 Child populate resolves dpni↔dpni peers and issues the
+- [x] 5.2 Child populate resolves dpni↔dpni peers and issues the
       connect; root reconcile actuates link edges
 - [ ] 5.3 `DriftRefused` → typed DeferredVisibility obligation
       plumbing; consented rebind execution in the engine

@@ -17,7 +17,7 @@ use core::fmt;
 
 use crate::core::error::Error;
 use crate::core::family::Family;
-use crate::core::model::{DpniId, DprcId};
+use crate::core::model::{DpniId, DprcId, ObjectRef};
 use crate::families::dprc::Refusal;
 use crate::plan::Class;
 
@@ -353,6 +353,80 @@ impl WireTransition {
     #[must_use]
     pub fn reconnect_wire(proof: WireDisconnected, side: WireSide, new_peer: WireEnd) -> Self {
         Self::connect_wire(proof.end(side), new_peer)
+    }
+}
+
+// ---- the root-reconcile link pass's pure planner (cross-dprc-links task 5.2 Half B) ----
+
+/// One dpni↔dpni link end as the root link pass sees it before it plans (cross-dprc-links design D2):
+/// either resolved to its MC [`WireEnd`] (created and observed), or still pending — its dpni not yet
+/// on the board, so the edge plans nothing until a later level-triggered pass resolves it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum LinkEndState {
+    /// The end's dpni is created and observed; this is its MC identity and container.
+    Resolved(WireEnd),
+    /// The end's dpni is not yet resolvable this pass — plan nothing for the edge.
+    Pending,
+}
+
+/// A link end already connected to a peer other than the one the plan names (cross-dprc-links design D7;
+/// DPRC-I5 disconnect-before-reconnect). The root link pass REFUSES this rather than emit a silent
+/// rewire: a disconnect must precede the new connect (reconciler delta scenario "Reconnect without
+/// disconnect is refused"). A typed value, never a silent overwrite.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct WireHeldRefusal {
+    /// The held end — the one whose observed endpoint disagrees with the plan.
+    pub end: WireEnd,
+    /// The peer the end is observed connected to.
+    pub observed_peer: ObjectRef,
+    /// The peer the plan names for it.
+    pub planned_peer: ObjectRef,
+}
+
+impl fmt::Display for WireHeldRefusal {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "{} is connected to {} but the plan wires it to {}: disconnect it first (DPRC-I5)",
+            self.end.dpni, self.observed_peer, self.planned_peer
+        )
+    }
+}
+
+/// What the root link pass plans for one dpni↔dpni edge (cross-dprc-links design D2).
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub enum WirePlan {
+    /// Issue this fresh connect — end `a` is unconnected and both ends are resolved.
+    Connect(WireTransition),
+    /// Nothing to do: an end is pending this pass, or end `a` is already wired to the planned peer
+    /// (idempotence).
+    Nothing,
+    /// End `a` is held by a different peer than planned — refuse, never a silent rewire.
+    HeldByOtherPeer(WireHeldRefusal),
+}
+
+/// Plans one dpni↔dpni edge from its two resolved-or-pending ends and end `a`'s observed
+/// connection (cross-dprc-links design D2). Pure and sans-io: the dry-run surface (task 5.5)
+/// reuses it so `ensure` executes exactly what dry-run renders. A pending end plans
+/// [`WirePlan::Nothing`] (level-triggered — a later pass resolves it); an end already wired to the
+/// planned peer plans nothing (idempotence); an end wired to a DIFFERENT peer is
+/// [`WirePlan::HeldByOtherPeer`] (DPRC-I5, refused, never a silent rewire); otherwise a fresh
+/// [`WireTransition::connect_wire`] issued at the resolved common ancestor. The planned peer is
+/// end `b`'s dpni as an [`ObjectRef`], the identity the `dprc connect` names.
+#[must_use]
+pub fn plan_wire(a: LinkEndState, b: LinkEndState, a_observed: Option<ObjectRef>) -> WirePlan {
+    let (LinkEndState::Resolved(a), LinkEndState::Resolved(b)) = (a, b) else {
+        return WirePlan::Nothing;
+    };
+    let planned_peer = ObjectRef::new(Family::Dpni, b.dpni.into_inner());
+    match a_observed {
+        Some(peer) if peer == planned_peer => WirePlan::Nothing,
+        Some(peer) => WirePlan::HeldByOtherPeer(WireHeldRefusal {
+            end: a,
+            observed_peer: peer,
+            planned_peer,
+        }),
+        None => WirePlan::Connect(WireTransition::connect_wire(a, b)),
     }
 }
 
@@ -730,6 +804,71 @@ mod tests {
             None
         );
         assert_eq!(attribute_wire_refusal(&Error::Backend("boom".into())), None);
+    }
+
+    // ---- the root link pass's pure planner (cross-dprc-links task 5.2 Half B) ----
+
+    fn peer_ref(dpni: u32) -> ObjectRef {
+        ObjectRef::new(Family::Dpni, dpni)
+    }
+
+    #[test]
+    fn plan_wire_fresh_connect_when_unconnected_and_both_resolved() {
+        // Both ends resolved, end a unconnected: a fresh connect at the ancestor (cross-dprc-links design D2).
+        let a = end(0, DprcId::ROOT);
+        let b = end(1, DprcId::ROOT);
+        assert_eq!(
+            plan_wire(LinkEndState::Resolved(a), LinkEndState::Resolved(b), None),
+            WirePlan::Connect(WireTransition::connect_wire(a, b))
+        );
+    }
+
+    #[test]
+    fn plan_wire_already_connected_to_the_planned_peer_plans_nothing() {
+        // Idempotence: end a already wired to the planned peer, so the re-run issues nothing.
+        let a = end(0, DprcId::ROOT);
+        let b = end(1, DprcId::new(2));
+        assert_eq!(
+            plan_wire(
+                LinkEndState::Resolved(a),
+                LinkEndState::Resolved(b),
+                Some(peer_ref(1))
+            ),
+            WirePlan::Nothing
+        );
+    }
+
+    #[test]
+    fn plan_wire_held_by_a_different_peer_is_refused() {
+        // DPRC-I5: end a is wired to a different peer than planned, so the pass refuses — never a silent rewire.
+        let a = end(0, DprcId::ROOT);
+        let b = end(1, DprcId::ROOT);
+        assert_eq!(
+            plan_wire(
+                LinkEndState::Resolved(a),
+                LinkEndState::Resolved(b),
+                Some(peer_ref(9))
+            ),
+            WirePlan::HeldByOtherPeer(WireHeldRefusal {
+                end: a,
+                observed_peer: peer_ref(9),
+                planned_peer: peer_ref(1),
+            })
+        );
+    }
+
+    #[test]
+    fn plan_wire_pending_end_plans_nothing() {
+        // A pending end plans nothing this pass; the level-triggered re-run resolves it.
+        let a = end(0, DprcId::ROOT);
+        assert_eq!(
+            plan_wire(LinkEndState::Resolved(a), LinkEndState::Pending, None),
+            WirePlan::Nothing
+        );
+        assert_eq!(
+            plan_wire(LinkEndState::Pending, LinkEndState::Pending, None),
+            WirePlan::Nothing
+        );
     }
 
     // ---- post-bind create discharge (cross-dprc-links task 3.4; reconciler reqs 4-5) ----

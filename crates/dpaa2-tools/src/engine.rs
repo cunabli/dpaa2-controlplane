@@ -14,7 +14,9 @@ use dpaa2_api::contract::{KernelControl, McControl};
 use dpaa2_api::core::error::Error;
 use dpaa2_api::core::family::Family;
 use dpaa2_api::core::inventory::{Ceiling, Inventory};
-use dpaa2_api::core::model::{DesiredTopology, DpmacId, DpniId, DprcId, ObservedTopology};
+use dpaa2_api::core::model::{
+    DesiredTopology, DpmacId, DpniId, DprcId, ObjectRef, ObservedTopology,
+};
 use dpaa2_api::core::types::{ConstructName, TenantName};
 use dpaa2_api::families::dpio::derived_seats;
 use dpaa2_api::families::dprc::Options;
@@ -24,7 +26,9 @@ use dpaa2_api::families::pool_lifecycle::{
 };
 use dpaa2_api::intent::KERNEL;
 use dpaa2_api::intent::compiled::{Attributes, CompiledPlan, Container, PlannedObject};
-use dpaa2_api::plan::connect::CONNECT_ANCESTOR;
+use dpaa2_api::plan::connect::{
+    CONNECT_ANCESTOR, LinkEndState, WireEnd, WireHeldRefusal, WirePlan, WireTransition, plan_wire,
+};
 use dpaa2_api::plan::dprc::{
     Attribution, ConsumerConvergence, ContainerPlan, ContainerStep, ContainerVerdict, PruneBucket,
     PruneItem, Verb, attribute_refusal, derive_consumer_containers, plan_consumer_convergence,
@@ -923,6 +927,32 @@ pub enum PopulationOutcome {
     },
 }
 
+/// The outcome of the root-reconcile link pass (cross-dprc-links task 5.2 Half B) — the
+/// dpni↔dpni analog of [`PopulationOutcome`]. Distinct because a link refusal is either the
+/// disruption gate or the typed held-end (disconnect-before-reconnect) refusal, neither of which
+/// the population outcomes carry.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum LinkOutcome {
+    /// Every declared dpni↔dpni link is wired to its planned peer (or waiting on a pending end a
+    /// later level-triggered pass resolves); the idempotence witness reproduces it.
+    Converged,
+    /// A link's headline exceeded the run's `--allow` gate (ADR-0015 decision 12); nothing was
+    /// actuated. A root-end create or a fresh connect is [`Class::Disruptive`].
+    DisruptionRefused {
+        /// The headline the pass would have actuated.
+        headline: Class,
+        /// The maximum class the run allowed.
+        allowed: Class,
+    },
+    /// One or more link ends are held by a peer other than the plan names (DPRC-I5
+    /// disconnect-before-reconnect); the pass refuses rather than silently rewire, and nothing is
+    /// actuated (cross-dprc-links design D7).
+    RewireRefused {
+        /// The held-end refusals, each naming the end, its observed peer, and the planned peer.
+        refusals: Vec<WireHeldRefusal>,
+    },
+}
+
 /// The distinct child (non-root) containers the compiled plan places objects in, by tenant
 /// name (pool-objects design D11). A child that owns a container appears here; the root and a
 /// restricted drawer pooling the kernel do not.
@@ -951,6 +981,12 @@ pub fn plan_population<M: McControl, K: KernelControl>(
 ) -> Result<Vec<ChildPlan>, Error> {
     let observed = mc.observe_containers()?;
     let declared = root_declared(plan);
+    // The observed children by label, so a child dpni's link peer resolves against the peer's
+    // own container's id (cross-dprc-links design D2).
+    let children: BTreeMap<ConstructName, DprcId> = observed
+        .iter()
+        .map(|(&id, c)| (c.label.clone(), id))
+        .collect();
     let mut plans = Vec::new();
     for tenant in child_tenants(plan) {
         let label = ConstructName::from(&tenant);
@@ -962,7 +998,7 @@ pub fn plan_population<M: McControl, K: KernelControl>(
         };
         let container = Container::Child(tenant);
         plans.push(plan_child_population(
-            mc, kernel, id, plan, &container, &label, &declared,
+            mc, kernel, id, plan, &container, &label, &declared, &children,
         )?);
     }
     Ok(plans)
@@ -1068,6 +1104,309 @@ pub fn converge_population<M: McControl, K: KernelControl>(
         }
     }
     Ok(PopulationOutcome::Converged)
+}
+
+/// One resolved dpni↔dpni link end for the root link pass (cross-dprc-links design D2): already
+/// on the board, or a root-resident end absent that this pass creates with the planned block.
+enum LinkSlot<'a> {
+    /// The end's dpni is already observed in its container.
+    Have(WireEnd),
+    /// A root-resident end absent from the board — created this pass with the planned block; a
+    /// child deficit is never here (that stays population's job, level-triggered).
+    CreateRoot {
+        /// The construct (link-name) label the create stamps.
+        label: &'a ConstructName,
+        /// The planned create block.
+        cfg: &'a dpaa2_api::families::dpni::DpniCfg,
+    },
+}
+
+/// What the root pass resolved for one dpni↔dpni edge (cross-dprc-links design D2): its two
+/// end slots, or a skip when an end is pending this pass (a child dpni not yet created, or a
+/// child container not yet observed — a later level-triggered pass resolves it).
+enum LinkEdgePlan<'a> {
+    /// An end is pending; the edge plans nothing this pass.
+    Skip,
+    /// Both ends are resolvable (present or a root create).
+    Wire {
+        /// One end (unordered — a wire has no direction).
+        a: LinkSlot<'a>,
+        /// The other end.
+        b: LinkSlot<'a>,
+    },
+}
+
+/// The MC container id a planned [`Container`] resolves to, or `None` when a child container is
+/// not yet observed (cross-dprc-links design D2): the root is [`DprcId::ROOT`]; a child is read
+/// from the observed label→id map `plan_population` also builds.
+fn link_container_id(
+    container: &Container,
+    children: &BTreeMap<ConstructName, DprcId>,
+) -> Option<DprcId> {
+    match container {
+        Container::Root => Some(DprcId::ROOT),
+        Container::Child(tenant) => children.get(&ConstructName::from(tenant)).copied(),
+    }
+}
+
+/// The `observe_pool` scope for a container id — `None` for the root (the `dprc.1` sentinel),
+/// `Some(id)` for a child, matching the child-population resolution (pool-objects design D11).
+fn link_observe_scope(id: DprcId) -> Option<DprcId> {
+    (id != DprcId::ROOT).then_some(id)
+}
+
+/// Resolves one dpni↔dpni edge's two ends from the compiled plan and the board
+/// (cross-dprc-links design D2). Two ends sharing one container are a multiset of rows bearing
+/// the link-name label — position is not a hardware identity (ADR-0015 decision 5), so the link
+/// wants exactly two such rows, the ROOT deficit is created, and the two distinct rows connect in
+/// either order (a self-loop that would share a child container is refused at intent). Ends in
+/// distinct containers each resolve by the per-end label match.
+fn resolve_link_edge<'a, M: McControl>(
+    mc: &M,
+    plan: &'a CompiledPlan,
+    a_key: &dpaa2_api::intent::compiled::ObjectKey,
+    b_key: &dpaa2_api::intent::compiled::ObjectKey,
+    children: &BTreeMap<ConstructName, DprcId>,
+) -> Result<LinkEdgePlan<'a>, Error> {
+    let (Some(a_obj), Some(b_obj)) = (
+        plan.objects.iter().find(|o| o.key() == a_key),
+        plan.objects.iter().find(|o| o.key() == b_key),
+    ) else {
+        return Ok(LinkEdgePlan::Skip);
+    };
+    let (Attributes::Dpni { cfg: a_cfg }, Attributes::Dpni { cfg: b_cfg }) =
+        (a_obj.attributes(), b_obj.attributes())
+    else {
+        return Ok(LinkEdgePlan::Skip);
+    };
+    // Both ends carry the link name as their label (derive link-end dpnis).
+    let label = a_obj.label();
+    let (Some(a_id), Some(b_id)) = (
+        link_container_id(a_obj.container(), children),
+        link_container_id(b_obj.container(), children),
+    ) else {
+        return Ok(LinkEdgePlan::Skip);
+    };
+
+    if a_id == b_id {
+        let rows: Vec<_> = mc
+            .observe_pool(link_observe_scope(a_id), Family::Dpni)?
+            .into_iter()
+            .filter(|r| r.label.as_str() == label.as_str())
+            .collect();
+        let have = |r: &dpaa2_api::families::pool_lifecycle::ObservedPoolObject| {
+            LinkSlot::Have(WireEnd {
+                dpni: DpniId::new(r.object.ordinal()),
+                container: a_id,
+            })
+        };
+        return Ok(match (rows.len(), a_id == DprcId::ROOT) {
+            (0, true) => LinkEdgePlan::Wire {
+                a: LinkSlot::CreateRoot { label, cfg: a_cfg },
+                b: LinkSlot::CreateRoot { label, cfg: b_cfg },
+            },
+            (1, true) => LinkEdgePlan::Wire {
+                a: have(&rows[0]),
+                b: LinkSlot::CreateRoot { label, cfg: b_cfg },
+            },
+            (n, _) if n >= 2 => LinkEdgePlan::Wire {
+                a: have(&rows[0]),
+                b: have(&rows[1]),
+            },
+            // A child same-container deficit is population's job (level-triggered).
+            _ => LinkEdgePlan::Skip,
+        });
+    }
+
+    let (Some(a), Some(b)) = (
+        resolve_link_end(mc, a_obj.container(), a_id, label, a_cfg)?,
+        resolve_link_end(mc, b_obj.container(), b_id, label, b_cfg)?,
+    ) else {
+        return Ok(LinkEdgePlan::Skip);
+    };
+    Ok(LinkEdgePlan::Wire { a, b })
+}
+
+/// Resolves one end of a distinct-container edge: the observed dpni row, else a root create, else
+/// `None` when a child end is absent this pass (population's job; cross-dprc-links design D2).
+fn resolve_link_end<'a, M: McControl>(
+    mc: &M,
+    container: &Container,
+    id: DprcId,
+    label: &'a ConstructName,
+    cfg: &'a dpaa2_api::families::dpni::DpniCfg,
+) -> Result<Option<LinkSlot<'a>>, Error> {
+    let row = mc
+        .observe_pool(link_observe_scope(id), Family::Dpni)?
+        .into_iter()
+        .find(|r| r.label.as_str() == label.as_str());
+    Ok(match (row, container) {
+        (Some(r), _) => Some(LinkSlot::Have(WireEnd {
+            dpni: DpniId::new(r.object.ordinal()),
+            container: id,
+        })),
+        (None, Container::Root) => Some(LinkSlot::CreateRoot { label, cfg }),
+        (None, Container::Child(_)) => None,
+    })
+}
+
+/// Creates a root-resident end absent from the board, else returns the already-resolved end
+/// (cross-dprc-links design D2). A created root dpni reads back unplugged; its plug follows the
+/// connect (the populate-connect-bind order, cross-dprc-links design D4).
+// The slot is moved out of the per-edge plan, so it is taken by value though its fields are Copy.
+#[allow(clippy::needless_pass_by_value)]
+fn materialize_link_end<M: McControl>(mc: &M, slot: LinkSlot<'_>) -> Result<WireEnd, Error> {
+    match slot {
+        LinkSlot::Have(end) => Ok(end),
+        LinkSlot::CreateRoot { label, cfg } => Ok(WireEnd {
+            dpni: mc.create_dpni(label, cfg)?,
+            container: DprcId::ROOT,
+        }),
+    }
+}
+
+/// Plugs a root-resident end after its fresh connect, skipping an end already plugged
+/// (cross-dprc-links design D4): a root kernel dpni is plugged with `dprc assign --plugged=1`; a
+/// child end is never plugged here (the VFIO handoff owns a child's plug face).
+fn plug_root_link_end<M: McControl>(mc: &M, end: WireEnd) -> Result<(), Error> {
+    if end.container != DprcId::ROOT {
+        return Ok(());
+    }
+    let object = ObjectRef::new(Family::Dpni, end.dpni.into_inner());
+    let plugged = mc
+        .observe_pool(None, Family::Dpni)?
+        .iter()
+        .any(|r| r.object == object && r.plugged);
+    if !plugged {
+        mc.dprc_assign(DprcId::ROOT, object, None, Some(true))?;
+    }
+    Ok(())
+}
+
+/// Converges every declared dpni↔dpni link toward the compiled plan — the root-reconcile link
+/// pass (cross-dprc-links task 5.2; reconciler reqs "representable in every container
+/// arrangement" and "disconnect-before-reconnect"). Mirrors [`converge_population`]:
+/// resolve → gate → dispatch → read-back verdict, the adapter drives and the pure
+/// [`plan_wire`] judges.
+///
+/// The pass, in order:
+/// - Resolves every link edge's two ends (reads only): present, a root end to create, or a
+///   pending end (a child dpni not yet created — population's job — or a child container not yet
+///   observed) that skips the edge this pass, level-triggered.
+/// - Refuses before any mutation when a resolved end is held by a peer other than planned
+///   ([`LinkOutcome::RewireRefused`]; DPRC-I5 disconnect-before-reconnect — never a silent
+///   rewire), and gates the headline against `cfg.allow` (ADR-0015 decision 12): a root-end
+///   create or a fresh connect is [`Class::Disruptive`].
+/// - Creates each absent root end, connects each fresh pair at the common ancestor
+///   ([`WireTransition::connect_wire`]'s resolved [`CONNECT_ANCESTOR`]), then plugs the root ends
+///   — the populate-connect-bind order (cross-dprc-links design D4). An already-wired edge connects nothing
+///   (idempotence in [`plan_wire`]).
+/// - Judges convergence by re-reading each actuated edge's connection; a miss is an
+///   [`Error::Backend`] (the [`converge_population`] read-back precedent).
+///
+/// Idempotent and level-triggered: a fully-wired set resolves to all-`Nothing` and actuates
+/// nothing, and a second pass over it does too.
+///
+/// # Errors
+/// Propagates a backend read/create/connect/assign error, and reports an actuated edge that did
+/// not read back connected as an [`Error::Backend`].
+pub fn converge_links<M: McControl>(
+    plan: &CompiledPlan,
+    mc: &M,
+    cfg: ConvergeConfig,
+) -> Result<LinkOutcome, Error> {
+    let edges: Vec<(
+        &dpaa2_api::intent::compiled::ObjectKey,
+        &dpaa2_api::intent::compiled::ObjectKey,
+    )> = plan
+        .edges
+        .iter()
+        .filter_map(dpaa2_api::intent::compiled::Edge::link_edge_dpnis)
+        .collect();
+    if edges.is_empty() {
+        return Ok(LinkOutcome::Converged);
+    }
+    let observed = mc.observe_containers()?;
+    let children: BTreeMap<ConstructName, DprcId> = observed
+        .iter()
+        .map(|(&id, c)| (c.label.clone(), id))
+        .collect();
+
+    // Resolve first (reads only), so the held refusal and the gate are judged before any mutation.
+    let mut plans = Vec::new();
+    for (a_key, b_key) in edges {
+        plans.push(resolve_link_edge(mc, plan, a_key, b_key, &children)?);
+    }
+
+    // A held-end refusal changes nothing (DPRC-I5), so it is judged before the gate; a create or a
+    // fresh connect sets the Disruptive headline.
+    let mut held = Vec::new();
+    let mut any_work = false;
+    for p in &plans {
+        let LinkEdgePlan::Wire { a, b } = p else {
+            continue;
+        };
+        match (a, b) {
+            (LinkSlot::Have(a), LinkSlot::Have(b)) => {
+                let a_obs = mc.dprc_get_connection(a.dpni)?;
+                match plan_wire(
+                    LinkEndState::Resolved(*a),
+                    LinkEndState::Resolved(*b),
+                    a_obs,
+                ) {
+                    WirePlan::Connect(_) => any_work = true,
+                    WirePlan::HeldByOtherPeer(r) => held.push(r),
+                    WirePlan::Nothing => {}
+                }
+            }
+            _ => any_work = true,
+        }
+    }
+    if !held.is_empty() {
+        for r in &held {
+            tracing::error!(refusal = %r, "link end held by a different peer; disconnect before reconnect (DPRC-I5)");
+        }
+        return Ok(LinkOutcome::RewireRefused { refusals: held });
+    }
+    let headline = if any_work {
+        Class::Disruptive
+    } else {
+        Class::Hitless
+    };
+    if headline > cfg.allow {
+        tracing::error!(%headline, allowed = %cfg.allow, "link convergence exceeds allowed disruption class");
+        return Ok(LinkOutcome::DisruptionRefused {
+            headline,
+            allowed: cfg.allow,
+        });
+    }
+
+    let mut actuated: Vec<(DpniId, ObjectRef)> = Vec::new();
+    for p in plans {
+        let LinkEdgePlan::Wire { a, b } = p else {
+            continue;
+        };
+        let a = materialize_link_end(mc, a)?;
+        let b = materialize_link_end(mc, b)?;
+        let a_obs = mc.dprc_get_connection(a.dpni)?;
+        if let WirePlan::Connect(WireTransition::ConnectWire { a, b, ancestor }) =
+            plan_wire(LinkEndState::Resolved(a), LinkEndState::Resolved(b), a_obs)
+        {
+            let peer = ObjectRef::new(Family::Dpni, b.dpni.into_inner());
+            mc.dprc_connect(ancestor, a.dpni, peer)?;
+            plug_root_link_end(mc, a)?;
+            plug_root_link_end(mc, b)?;
+            actuated.push((a.dpni, peer));
+        }
+    }
+    for (dpni, peer) in actuated {
+        if mc.dprc_get_connection(dpni)? != Some(peer) {
+            return Err(Error::Backend(format!(
+                "link {dpni} did not read back connected to {peer} after dispatch"
+            )));
+        }
+    }
+    Ok(LinkOutcome::Converged)
 }
 
 /// Reads MC state and enriches each DPNI with its kernel netdev name.
@@ -1312,6 +1651,258 @@ mod tests {
         let err = pair_containers(&[], std::slice::from_ref(&convergence))
             .expect_err("mismatched lengths must be a loud error");
         assert!(matches!(err, Error::Backend(_)));
+    }
+
+    /// The root-reconcile link pass at the engine seam, driven through the in-memory fake
+    /// (cross-dprc-links task 5.2): dpni↔dpni links wire in every container arrangement —
+    /// root↔root (create + connect + plug + idempotent re-run), root↔child, and child↔child — the
+    /// disruption gate refuses below `Disruptive`, and a held end is a typed rewire refusal.
+    mod links {
+        use dpaa2_api::contract::fake::FakeBackend;
+        use dpaa2_api::core::model::ObjectRef;
+        use dpaa2_api::families::dpni::DpniCfg;
+        use dpaa2_api::families::dprc::Options;
+        use dpaa2_api::intent::refuse::{Compiled, compile};
+        use dpaa2_api::intent::{
+            Dataplane, Intent, Isolation, Link, Tenant, TenantRef, kernel_tenant,
+        };
+        use dpaa2_api::testkit::ref_inventory;
+
+        use super::*;
+
+        const LINK: &str = "l0";
+
+        fn link_cfg(allow: Class) -> ConvergeConfig {
+            ConvergeConfig {
+                deadline: Duration::from_secs(5),
+                poll_interval: Duration::ZERO,
+                prune: false,
+                allow,
+            }
+        }
+
+        fn isolated(name: TenantName) -> Tenant {
+            Tenant {
+                name,
+                dataplane: Dataplane::UserspacePoll,
+                max_cores: 16,
+                isolation: Isolation::Isolated,
+                renamed: None,
+                priority: None,
+            }
+        }
+
+        fn link(a: TenantRef, b: TenantRef) -> Link {
+            Link {
+                name: LINK.into(),
+                interface_a: a,
+                interface_b: b,
+                renamed: None,
+            }
+        }
+
+        fn compiled(tenants: Vec<Tenant>, l: Link) -> Compiled {
+            let intent = Intent {
+                tenants,
+                links: vec![l],
+                ..Intent::empty()
+            };
+            compile(&intent, &ref_inventory(16)).expect("the link intent compiles")
+        }
+
+        // root↔root: the kernel end plus a restricted-to-kernel tenant (its dataplane must match the
+        // kernel holder), so both link-end dpnis land in dprc.1 sharing the link-name label.
+        fn compiled_root_root() -> Compiled {
+            let secondary = Tenant {
+                name: "sec".into(),
+                dataplane: Dataplane::KernelNetlink,
+                max_cores: 16,
+                isolation: Isolation::Restricted {
+                    pool: "kernel".into(),
+                },
+                renamed: None,
+                priority: None,
+            };
+            compiled(
+                vec![kernel_tenant(16), secondary],
+                link(TenantRef::Kernel, TenantRef::from_name("sec".into())),
+            )
+        }
+
+        fn link_label() -> ConstructName {
+            ConstructName::from(LINK)
+        }
+
+        fn link_rows(mc: &FakeBackend, scope: Option<DprcId>) -> Vec<ObjectRef> {
+            mc.observe_pool(scope, Family::Dpni)
+                .unwrap()
+                .into_iter()
+                .filter(|r| r.label.as_str() == LINK)
+                .map(|r| r.object)
+                .collect()
+        }
+
+        fn plugged_ref(mc: &FakeBackend, object: ObjectRef) -> bool {
+            mc.observe_pool(None, Family::Dpni)
+                .unwrap()
+                .iter()
+                .any(|r| r.object == object && r.plugged)
+        }
+
+        fn connection(mc: &FakeBackend, object: ObjectRef) -> Option<ObjectRef> {
+            mc.dprc_get_connection(DpniId::new(object.ordinal()))
+                .unwrap()
+        }
+
+        // Registers an observed child container and seeds one link-end dpni in it, as the child
+        // population would have (Half A), returning the seeded dpni's ref.
+        fn seed_child_end(mc: &FakeBackend, tenant: &str) -> (DprcId, ObjectRef) {
+            let label = ConstructName::from(tenant);
+            let child = mc
+                .dprc_create(DprcId::ROOT, Options::DEFAULT, &label)
+                .expect("child container");
+            let id = mc
+                .create_dpni_in(child, &DpniCfg::defaults(), &link_label())
+                .expect("seed child link dpni");
+            (child, ObjectRef::new(Family::Dpni, id.into_inner()))
+        }
+
+        #[test]
+        fn root_to_root_creates_connects_plugs_and_is_idempotent() {
+            // The headline: an empty board wires a root↔root link — two root dpnis created,
+            // connected at the ancestor, both plugged — and a second pass actuates nothing.
+            let compiled = compiled_root_root();
+            let mc = FakeBackend::new();
+
+            assert_eq!(
+                converge_links(&compiled.plan, &mc, link_cfg(Class::Disruptive)).unwrap(),
+                LinkOutcome::Converged
+            );
+            let ends = link_rows(&mc, None);
+            assert_eq!(ends.len(), 2, "both root link dpnis created");
+            assert_eq!(
+                connection(&mc, ends[0]),
+                Some(ends[1]),
+                "wired to each other"
+            );
+            assert_eq!(
+                connection(&mc, ends[1]),
+                Some(ends[0]),
+                "symmetric endpoint"
+            );
+            assert!(
+                plugged_ref(&mc, ends[0]) && plugged_ref(&mc, ends[1]),
+                "both ends plugged after the connect"
+            );
+
+            // Idempotent re-run: no third dpni, no re-connect.
+            assert_eq!(
+                converge_links(&compiled.plan, &mc, link_cfg(Class::Disruptive)).unwrap(),
+                LinkOutcome::Converged
+            );
+            assert_eq!(link_rows(&mc, None).len(), 2, "no third root dpni");
+        }
+
+        #[test]
+        fn root_to_child_connects_at_the_ancestor() {
+            // A root↔child link: the child end is already resident (population's), the root end is
+            // created here and the two connect at the ancestor.
+            let compiled = compiled(
+                vec![kernel_tenant(16), isolated("neta".into())],
+                link(TenantRef::Kernel, TenantRef::from_name("neta".into())),
+            );
+            let mc = FakeBackend::new();
+            let (_child, child_end) = seed_child_end(&mc, "neta");
+
+            assert_eq!(
+                converge_links(&compiled.plan, &mc, link_cfg(Class::Disruptive)).unwrap(),
+                LinkOutcome::Converged
+            );
+            let root_ends = link_rows(&mc, None);
+            assert_eq!(root_ends.len(), 1, "the root end is created");
+            assert_eq!(
+                connection(&mc, root_ends[0]),
+                Some(child_end),
+                "root end wired to the child end at the ancestor"
+            );
+            assert!(plugged_ref(&mc, root_ends[0]), "the root end is plugged");
+        }
+
+        #[test]
+        fn child_to_child_connects_both_resident_ends() {
+            // A child↔child link: both ends are already resident, so nothing is created — the pass
+            // connects the two child dpnis at the ancestor.
+            let compiled = compiled(
+                vec![isolated("neta".into()), isolated("netb".into())],
+                link(
+                    TenantRef::from_name("neta".into()),
+                    TenantRef::from_name("netb".into()),
+                ),
+            );
+            let mc = FakeBackend::new();
+            let (_a, a_end) = seed_child_end(&mc, "neta");
+            let (_b, b_end) = seed_child_end(&mc, "netb");
+
+            assert_eq!(
+                converge_links(&compiled.plan, &mc, link_cfg(Class::Disruptive)).unwrap(),
+                LinkOutcome::Converged
+            );
+            assert!(link_rows(&mc, None).is_empty(), "no root dpni created");
+            assert_eq!(
+                connection(&mc, a_end),
+                Some(b_end),
+                "the two child ends wired"
+            );
+            assert_eq!(connection(&mc, b_end), Some(a_end), "symmetric endpoint");
+        }
+
+        #[test]
+        fn below_disruptive_is_refused_and_changes_nothing() {
+            // A root↔root link needs two creates, so the headline is Disruptive; a Hitless allow
+            // refuses and nothing is created.
+            let compiled = compiled_root_root();
+            let mc = FakeBackend::new();
+            assert_eq!(
+                converge_links(&compiled.plan, &mc, link_cfg(Class::Hitless)).unwrap(),
+                LinkOutcome::DisruptionRefused {
+                    headline: Class::Disruptive,
+                    allowed: Class::Hitless,
+                }
+            );
+            assert!(
+                link_rows(&mc, None).is_empty(),
+                "nothing created under refusal"
+            );
+        }
+
+        #[test]
+        fn an_end_held_by_another_peer_is_a_rewire_refusal() {
+            // DPRC-I5: a root end already wired to a foreign peer is a typed rewire refusal, and the
+            // pass changes nothing — no silent reconnect.
+            let compiled = compiled_root_root();
+            let mc = FakeBackend::new();
+            let a = mc.create_dpni(&link_label(), &DpniCfg::defaults()).unwrap();
+            let _b = mc.create_dpni(&link_label(), &DpniCfg::defaults()).unwrap();
+            let foreign = mc
+                .create_dpni(&ConstructName::from("foreign"), &DpniCfg::defaults())
+                .unwrap();
+            let foreign_ref = ObjectRef::new(Family::Dpni, foreign.into_inner());
+            mc.dprc_connect(CONNECT_ANCESTOR, a, foreign_ref).unwrap();
+
+            let outcome = converge_links(&compiled.plan, &mc, link_cfg(Class::Disruptive)).unwrap();
+            match outcome {
+                LinkOutcome::RewireRefused { refusals } => {
+                    assert_eq!(refusals.len(), 1);
+                    assert_eq!(refusals[0].observed_peer, foreign_ref);
+                }
+                other => panic!("expected a rewire refusal, got {other:?}"),
+            }
+            assert_eq!(
+                connection(&mc, ObjectRef::new(Family::Dpni, a.into_inner())),
+                Some(foreign_ref),
+                "the held end is not silently rewired"
+            );
+        }
     }
 
     /// Root-scope pool convergence at the engine seam, driven through the in-memory fake

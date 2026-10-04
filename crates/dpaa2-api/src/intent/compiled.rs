@@ -422,6 +422,24 @@ impl Edge {
             _ => None,
         }
     }
+
+    /// The two dpni keys a dpni↔dpni link/fabric wire connects, in `(a, b)` field order,
+    /// or `None` for any other edge — a dpni↔dpmac port-edge or a dpsw↔dpmac fabric-edge.
+    /// `Some` only when BOTH ends are a dpni [`AttachPoint::Object`]; this is the link
+    /// sibling of [`port_edge_dpni`](Self::port_edge_dpni), the one the cross-dprc-links design D2
+    /// peer resolution reads to pair a child dpni with its wired peer (mc-backend spec
+    /// requirement 3).
+    #[must_use]
+    pub fn link_edge_dpnis(&self) -> Option<(&ObjectKey, &ObjectKey)> {
+        match (&self.a, &self.b) {
+            (AttachPoint::Object { key: a, .. }, AttachPoint::Object { key: b, .. })
+                if a.family == Family::Dpni && b.family == Family::Dpni =>
+            {
+                Some((a, b))
+            }
+            _ => None,
+        }
+    }
 }
 
 /// The compiled object plan (design D6; ADR-0004; `derive.qnt` `Plan`): the objects, the
@@ -443,19 +461,25 @@ pub struct CompiledPlan {
 }
 
 impl CompiledPlan {
-    /// Counts the objects the port facet has no executor for, grouped by family
-    /// (design D10; restool-baseline): every planned object except the dpni end of a dpni↔dpmac
-    /// port-edge, which the port reconciler actuates. `reconcile` reports this so an
-    /// operator sees every derived object the plan carries; it is never actuated and
-    /// never drift. A port-only plan carries nothing but port-edge dpnis, so its
-    /// summary is empty.
+    /// Counts the objects no executor actuates, grouped by family (design D10; restool-baseline):
+    /// every planned object except the dpni end of a dpni↔dpmac port-edge (the port reconciler
+    /// actuates it) and the two dpni ends of a dpni↔dpni link (the child-population and the
+    /// root-reconcile link pass actuate them now — cross-dprc-links design D2). `reconcile` reports
+    /// this so an operator sees every derived object the plan carries; it is never actuated and
+    /// never drift. A port-and-link plan carries nothing but those dpnis, so its summary is empty.
     #[must_use]
     pub fn plan_only_by_family(&self) -> BTreeMap<Family, usize> {
-        let actuated: BTreeSet<&ObjectKey> = self
+        let mut actuated: BTreeSet<&ObjectKey> = self
             .edges
             .iter()
             .filter_map(|e| e.port_edge_dpni().map(|(key, _)| key))
             .collect();
+        for e in &self.edges {
+            if let Some((a, b)) = e.link_edge_dpnis() {
+                actuated.insert(a);
+                actuated.insert(b);
+            }
+        }
         let mut summary: BTreeMap<Family, usize> = BTreeMap::new();
         for obj in &self.objects {
             if !actuated.contains(obj.key()) {
@@ -807,5 +831,44 @@ impl Fabric {
             a: a.attach_point(),
             b: b.attach_point(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::core::model::DpmacId;
+    use crate::intent::{Link, TenantRef, kernel_tenant};
+
+    /// A dpni↔dpni link wire reads both dpni ends in `(a, b)` field order, and is not a
+    /// port-edge (cross-dprc-links design D2; mc-backend spec requirement 3).
+    #[test]
+    fn link_edge_dpnis_reads_both_ends_and_a_port_edge_does_not() {
+        let k = kernel_tenant(1);
+        let (oa, ia) = k.dpni(1, 0, "w".into());
+        let (ob, ib) = k.dpni(2, 0, "w".into());
+        let link = Link {
+            name: "w".into(),
+            interface_a: TenantRef::Kernel,
+            interface_b: TenantRef::Kernel,
+            renamed: None,
+        };
+        let wire = link.wire(ia, ib);
+        assert_eq!(
+            wire.link_edge_dpnis(),
+            Some((oa.key(), ob.key())),
+            "both dpni ends, a-then-b"
+        );
+        assert!(
+            wire.port_edge_dpni().is_none(),
+            "a link wire is not a port-edge"
+        );
+
+        let (_oc, ic) = k.dpni(3, 0, "w".into());
+        let port = ic.into_port_edge(DpmacId::new(7));
+        assert!(
+            port.link_edge_dpnis().is_none(),
+            "a dpni↔dpmac port-edge is not a link wire"
+        );
+        assert!(port.port_edge_dpni().is_some(), "the port-edge still reads");
     }
 }

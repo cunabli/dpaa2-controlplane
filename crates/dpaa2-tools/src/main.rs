@@ -20,8 +20,8 @@ use dpaa2_api::plan::Class;
 use dpaa2_api::plan::reconcile::{ReconcileOptions, reconcile_with};
 use dpaa2_mc::{RestoolMc, SysfsKernel};
 use dpaa2_tools::engine::{
-    self, ContainerOutcome, ConvergeConfig, Outcome, PoolOutcome, PoolPass, PopulationOutcome,
-    PruneOutcome, RootDpniPruneOutcome,
+    self, ContainerOutcome, ConvergeConfig, LinkOutcome, Outcome, PoolOutcome, PoolPass,
+    PopulationOutcome, PruneOutcome, RootDpniPruneOutcome,
 };
 use dpaa2_tools::{StatusReport, complete_kernel, link, render, status};
 
@@ -334,6 +334,13 @@ fn ensure(
         return Ok(code);
     }
 
+    // Wire every declared dpni↔dpni link after both ends' containers are populated (cross-dprc-links task 5.2;
+    // reconciler delta): resolve each end, create absent root ends, connect at the common ancestor, then plug
+    // the root ends. A rewire or over-allow refusal exits non-zero, changing nothing.
+    if let Some(code) = run_links(mc, &compiled.plan, cfg)? {
+        return Ok(code);
+    }
+
     // Prune undeclared consumer containers under the double gate (dprc-encapsulation task 4.3).
     // A separate pass so an empty intent still prunes; the report is printed before the
     // outcome, and a below-disruptive refusal exits non-zero, changing nothing.
@@ -482,6 +489,35 @@ fn run_population(
         }
         PopulationOutcome::ShrinkRefused { label, refusal } => {
             println!("refused: child `{label}`: {refusal}");
+            Ok(Some(ExitCode::FAILURE))
+        }
+    }
+}
+
+/// Converges the dpni↔dpni links, mapping each refusal to its operator message and a non-zero
+/// exit (cross-dprc-links task 5.2). Returns `Some(exit)` on a refusal (nothing further should
+/// run), `None` when every link converged.
+///
+/// # Errors
+/// Propagates a backend read/dispatch error.
+fn run_links(
+    mc: &RestoolMc<dpaa2_mc::RestoolRunner>,
+    plan: &dpaa2_api::intent::compiled::CompiledPlan,
+    cfg: ConvergeConfig,
+) -> Result<Option<ExitCode>, Error> {
+    match engine::converge_links(plan, mc, cfg)? {
+        LinkOutcome::Converged => Ok(None),
+        LinkOutcome::DisruptionRefused { headline, allowed } => {
+            println!(
+                "{}",
+                gate_refusal_message("a link connect's headline is", headline, allowed, false)
+            );
+            Ok(Some(ExitCode::FAILURE))
+        }
+        LinkOutcome::RewireRefused { refusals } => {
+            for r in &refusals {
+                println!("refused: {r}");
+            }
             Ok(Some(ExitCode::FAILURE))
         }
     }
