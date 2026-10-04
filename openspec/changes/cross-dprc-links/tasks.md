@@ -10,20 +10,20 @@ and commits. Every group ends at the quality floor
 
 ## 1. Model gate (parcel 1 — Quint)
 
-- [ ] 1.1 `models/families/link_lifecycle.qnt`: wire typestates
+- [x] 1.1 `models/families/link_lifecycle.qnt`: wire typestates
       (ends-exist → connected → disconnected → end-destroy-legal)
       consuming `core/connect.qnt` operators (design D3/D7)
-- [ ] 1.2 Container interplay in the model: populate→connect→bind
+- [x] 1.2 Container interplay in the model: populate→connect→bind
       partial order; eager DeferredVisibility obligation on post-bind
       create; lazy stale-node residue on post-bind destroy; consented
       rebind as the only discharge (D4/D5)
-- [ ] 1.3 LINK-I* invariants named and marked: disconnect-before-
+- [x] 1.3 LINK-I* invariants named and marked: disconnect-before-
       destroy, obligation-attached create, cardinality-one /
       disconnect-before-reconnect (DPRC-I5 promoted), refusal
       surfacing; Apalache marks where the state space permits
-- [ ] 1.4 V-TRAF-1 scenario module (one action enabled per state)
+- [x] 1.4 V-TRAF-1 scenario module (one action enabled per state)
       covering the D10 faces
-- [ ] 1.5 COVERAGE.md: LINK-I* rows added; DPCON-I3 and single_sender
+- [x] 1.5 COVERAGE.md: LINK-I* rows added; DPCON-I3 and single_sender
       rows modeled-this-change; DPCON-I4 + dpni unknowns #4/#11
       re-pointed to tile #10; typecheck + simulate + marked-Apalache
       green
