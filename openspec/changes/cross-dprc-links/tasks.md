@@ -48,7 +48,7 @@ and commits. Every group ends at the quality floor
 - [x] 3.2 Link transitions keyed by ends; container-agnostic
       representability; common-ancestor resolution; typed refusal
       surfacing for MC-refused patterns (D2)
-- [ ] 3.3 Container typestate: populate→connect→bind partial order;
+- [x] 3.3 Container typestate: populate→connect→bind partial order;
       post-bind connect/disconnect faces for visible endpoints (D4)
 - [ ] 3.4 Obligation types: eager DeferredVisibility on post-bind
       create (unconstructible without planned discharge), lazy

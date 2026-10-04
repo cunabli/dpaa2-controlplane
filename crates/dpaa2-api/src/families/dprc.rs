@@ -49,6 +49,7 @@ use std::collections::BTreeMap;
 
 use crate::core::model::ObjectRef;
 use crate::core::types::ConstructName;
+use crate::plan::connect::{WireEnd, WireTransition};
 
 // ---- the four (plus [`Outcome`]) model sums, each lint-bijected to `dprc.qnt` ----
 
@@ -957,6 +958,109 @@ impl Container<Plugged> {
     }
 }
 
+// ---- the dpni↔dpni wire-connect order faces (cross-dprc-links design D4) ----
+
+/// A dpni wire end observed kernel-visible in a bound container — the witness the
+/// post-bind connect/disconnect face demands (cross-dprc-links design D4; the model's
+/// visible-end vs `mcAcceptedInvisibleEnd` split in `models/families/link_lifecycle.qnt`).
+/// Minted only by [`VisibleEndpoint::observe`] from a raw observed bus-visible bool — the
+/// core judges the observation, the sibling of [`VfioBind::classify`] (adapters report,
+/// never judge). The field is private, so a witness exists only where a scan saw the end
+/// visible: visible by construction, the constructor being [`observe`](Self::observe). A
+/// post-bind create is MC-accepted but kernel-invisible (the `DeferredVisibility` of
+/// cross-dprc-links task 3.4), so it mints no witness and cannot be named in the post-bind
+/// face.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct VisibleEndpoint(WireEnd);
+
+impl VisibleEndpoint {
+    /// Mint the witness from an observation of a wire end: `Some` only when the scan
+    /// reported the end kernel-visible (`busVisible` in the model), else `None`. The sole
+    /// constructor, so "visible by construction" holds via the private field.
+    #[must_use]
+    pub fn observe(end: WireEnd, bus_visible: bool) -> Option<Self> {
+        bus_visible.then_some(Self(end))
+    }
+
+    /// The witnessed end.
+    #[must_use]
+    pub fn end(self) -> WireEnd {
+        self.0
+    }
+}
+
+impl Container<Populated> {
+    /// Connect two dpni ends while the container is still unplugged — the
+    /// populate→connect→bind partial order (cross-dprc-links design D4, extending ADR-0017
+    /// decision 3). The face lives on [`Populated`] (residents present, not yet plugged),
+    /// beside [`create_resident`](Self::create_resident)/[`assign_in`](Self::assign_in) and
+    /// before [`plug`](Self::plug): connect-before-populate (an empty [`Created`] carries no
+    /// such method) and a forced bind-then-connect reshape are thus both unrepresentable.
+    /// Emits the cross-dprc-links task 3.2 wire vocabulary
+    /// ([`WireTransition::connect_wire`]), resolving the issuing ancestor. This types the
+    /// ORDER — distinct from [`connect_endpoints`](Self::connect_endpoints), which types the
+    /// `0x4` permission gate and stays unchanged.
+    ///
+    /// Connect-before-populate is unrepresentable: an empty [`Created`] container carries no
+    /// connect face, so this does not compile.
+    ///
+    /// ```compile_fail
+    /// use dpaa2_api::families::dprc::{Container, Options};
+    /// use dpaa2_api::plan::connect::WireEnd;
+    /// use dpaa2_api::core::model::{DpniId, DprcId};
+    /// let created = Container::declare().create(Options::DEFAULT);
+    /// let a = WireEnd { dpni: DpniId::new(0), container: DprcId::ROOT };
+    /// let b = WireEnd { dpni: DpniId::new(1), container: DprcId::ROOT };
+    /// // No `connect_wire` on `Container<Created>`: connect-before-populate is unrepresentable.
+    /// let _ = created.connect_wire(a, b);
+    /// ```
+    #[must_use]
+    pub fn connect_wire(&self, a: WireEnd, b: WireEnd) -> WireTransition {
+        WireTransition::connect_wire(a, b)
+    }
+}
+
+impl Container<Plugged> {
+    /// Connect two already-visible dpni ends after bind — the additionally-legal post-bind
+    /// connect (cross-dprc-links design D4): it manufactures no bus device, so it is legal,
+    /// but only for ends a scan observed kernel-visible. Both ends are named by a
+    /// [`VisibleEndpoint`] witness, so a kernel-invisible end (a post-bind create's
+    /// `DeferredVisibility`, cross-dprc-links task 3.4) cannot be named here. Emits the
+    /// cross-dprc-links task 3.2 wire vocabulary. The board face records the kernel-end
+    /// `ENDPOINT_CHANGED` → `-EPERM`-discarded dmesg law as its expectation
+    /// (cross-dprc-links design D4; the group-6 board concern, one sentence here).
+    ///
+    /// A bare, un-witnessed [`WireEnd`] cannot be named post-bind, so this does not compile.
+    ///
+    /// ```compile_fail
+    /// use dpaa2_api::families::dprc::{Container, Options, ResidentId, ResidentStep};
+    /// use dpaa2_api::plan::connect::WireEnd;
+    /// use dpaa2_api::core::model::{DpniId, DprcId};
+    /// let created = Container::declare().create(Options::DEFAULT);
+    /// let populated = match created.create_resident(ResidentId::new(1)) {
+    ///     ResidentStep::Placed(c) => c,
+    ///     _ => unreachable!(),
+    /// };
+    /// let plugged = populated.plug();
+    /// let a = WireEnd { dpni: DpniId::new(0), container: DprcId::ROOT };
+    /// let b = WireEnd { dpni: DpniId::new(1), container: DprcId::ROOT };
+    /// // Post-bind connect demands a VisibleEndpoint witness; a bare WireEnd does not type-check.
+    /// let _ = plugged.connect_wire(a, b);
+    /// ```
+    #[must_use]
+    pub fn connect_wire(&self, a: VisibleEndpoint, b: VisibleEndpoint) -> WireTransition {
+        WireTransition::connect_wire(a.end(), b.end())
+    }
+
+    /// Disconnect two already-visible dpni ends after bind — the disconnect-only teardown the
+    /// dpni↔dpni kind carries (cross-dprc-links design D3). Same [`VisibleEndpoint`] demand as
+    /// [`connect_wire`](Self::connect_wire): an un-observed end cannot be named.
+    #[must_use]
+    pub fn disconnect_wire(&self, a: VisibleEndpoint, b: VisibleEndpoint) -> WireTransition {
+        WireTransition::disconnect_wire(a.end(), b.end())
+    }
+}
+
 impl Container<Emptied> {
     /// `dprc destroy` of an already-emptied container: `Emptied -> Destroyed`
     /// (`dprc.qnt` `destroyContainer` from `Emptied`). No residents remain, so it is
@@ -1473,5 +1577,56 @@ mod tests {
         let c = c.lock();
         assert_eq!(c.identity(), POOL_IDENTITY);
         assert_eq!(c.options(), Options::DEFAULT);
+    }
+
+    use crate::core::model::{DpniId, DprcId};
+
+    fn wire_end(dpni: u32, container: DprcId) -> WireEnd {
+        WireEnd {
+            dpni: DpniId::new(dpni),
+            container,
+        }
+    }
+
+    #[test]
+    fn fresh_order_populate_connect_then_bind() {
+        // Connect lives on the unplugged Populated face, before plug (cross-dprc-links design D4).
+        let populated = placed(created(), 1, ResidentKind::CreatedIn);
+        let a = wire_end(0, DprcId::ROOT);
+        let b = wire_end(1, DprcId::ROOT);
+        let wire = populated.connect_wire(a, b);
+        assert_eq!(wire, WireTransition::connect_wire(a, b));
+        assert!(matches!(
+            wire,
+            WireTransition::ConnectWire { ancestor, .. } if ancestor == DprcId::ROOT
+        ));
+        let plugged = populated.plug();
+        assert_eq!(plugged.phase(), ContainerState::Plugged(VfioBind::Unbound));
+    }
+
+    #[test]
+    fn post_bind_connect_of_visible_ends_yields_the_wire_shape() {
+        // Post-bind connect/disconnect is legal only for scan-visible ends (cross-dprc-links design D4).
+        let plugged = placed(created(), 1, ResidentKind::CreatedIn).plug();
+        let a_end = wire_end(0, DprcId::ROOT);
+        let b_end = wire_end(1, DprcId::new(2));
+        let a = VisibleEndpoint::observe(a_end, true).expect("a visible end mints a witness");
+        let b = VisibleEndpoint::observe(b_end, true).expect("a visible end mints a witness");
+        assert_eq!(
+            plugged.connect_wire(a, b),
+            WireTransition::connect_wire(a_end, b_end)
+        );
+        assert_eq!(
+            plugged.disconnect_wire(a, b),
+            WireTransition::disconnect_wire(a_end, b_end)
+        );
+    }
+
+    #[test]
+    fn a_kernel_invisible_end_mints_no_visibility_witness() {
+        // A kernel-invisible end mints no witness, so it cannot be named post-bind (cross-dprc-links task 3.4).
+        let end = wire_end(2, DprcId::ROOT);
+        assert_eq!(VisibleEndpoint::observe(end, false), None);
+        assert!(VisibleEndpoint::observe(end, true).is_some());
     }
 }
