@@ -1,9 +1,12 @@
-# V-TRAF-1 face 6 teardown-law refusals (cross-dprc-links task 6.1, design D10).
-# The two refusals cannot ride a forward MBT trace — a disabled (.fail) action
-# cannot step, so a refusal is only ever a run's terminal step (vtraf1.qnt
-# header). They run here as directed probes, sourced after the last trace step
-# and under the suite's teardown trap. Never silent: each illegal command's MC
-# status is recorded for the operator to diff. From the script: $RESULTS.
+# V-TRAF-1 face 6 teardown-law refusals — BANKED, quarantined from rev 3
+# (cross-dprc-links task 7.2, design D10; suite ledger). The two refusals were
+# directed probes through rev 2; on-board (2026-10-05 revs 1-2, fixture
+# asserted) the MC ACCEPTED destroy of a still-connected dpni end, falsifying
+# LINK-I1, and DPRC-I5 (double-connect) is unresolvable without that same
+# destroy. BOTH sittings lost the standing management dpni from the bus inside
+# the probe window, so the probe is quarantined as the discriminating
+# experiment: no refusal command runs here now (SECTION C banks the
+# disposition). From the script: $RESULTS.
 #
 # No dpmac participates (finding 49): both ends are scratch dpnis connected at
 # the root ancestor, the one container holding the topology-change privilege.
@@ -34,16 +37,30 @@ mono() {
 }
 # retry FACE: rerun a failed face while the operator sits (V-TRAF-0 idiom).
 retry() { until "$1"; do printf '   r=retry, enter=continue: '; read -r k; [ "$k" = r ] || break; done; }
-# net_cleanup: best-effort, safe if the rig half-built (set -u). Deleting a
-# netns returns its netdev to the init ns; disconnect the pair so the generated
-# teardown's destroy is not refused (LINK-I1 destroy-of-connected-end), then
-# unplug both ends and destroy the six allocatables this hook provisioned — the
-# generated teardown only knows the trace objects. Each command is echoed into
-# $TE before it runs (the teardown-log attribution idiom).
+# net_cleanup: best-effort, safe if the rig half-built (set -u). The proven
+# teardown ladder (cross-dprc-links task 7.2, suite ledger): a dpni bound to
+# fsl_dpaa2_eth refuses --plugged=0 ("unbind it first") and a bus-present
+# allocatable refuses destroy (driver fsl_mc_allocator while plugged), so
+# sysfs-unbind the consumer dpnis first, then disconnect, then unplug; the six
+# allocatables this hook provisioned are then unplugged and destroyed in
+# reverse creation order. The trace dpnis' destroy stays with the generated
+# teardown (it knows only the trace objects). Each board-touching command is
+# echoed into $TE before it runs (the teardown-log attribution idiom).
 net_cleanup() {
-  ip netns del vtraf1-a 2>>"$TE" || true
-  ip netns del vtraf1-b 2>>"$TE" || true
-  [ -n "${OBJ_dpni_600:-}" ] && restool dprc disconnect dprc.1 --endpoint="$OBJ_dpni_600" 2>>"$TE" || true
+  echo "+ ip netns del vtraf1-a" >> "$TE"; ip netns del vtraf1-a 2>>"$TE" || true
+  echo "+ ip netns del vtraf1-b" >> "$TE"; ip netns del vtraf1-b 2>>"$TE" || true
+  for o in "${OBJ_dpni_600:-}" "${OBJ_dpni_601:-}"; do
+    [ -n "$o" ] || continue
+    d="/sys/bus/fsl-mc/devices/$o/driver"
+    if [ -e "$d" ]; then
+      echo "+ echo $o > $d/unbind" >> "$TE"
+      echo "$o" > "$d/unbind" 2>>"$TE" || true
+    fi
+  done
+  if [ -n "${OBJ_dpni_600:-}" ]; then
+    echo "+ restool dprc disconnect dprc.1 --endpoint=$OBJ_dpni_600" >> "$TE"
+    restool dprc disconnect dprc.1 --endpoint="$OBJ_dpni_600" 2>>"$TE" || true
+  fi
   for o in "${OBJ_dpni_600:-}" "${OBJ_dpni_601:-}"; do
     [ -n "$o" ] || continue
     echo "+ restool dprc assign dprc.1 --object=$o --plugged=0" >> "$TE"
@@ -52,6 +69,8 @@ net_cleanup() {
   for id in "${CON2:-}" "${BP2:-}" "${MCP2:-}" "${CON1:-}" "${BP1:-}" "${MCP1:-}"; do
     [ -n "$id" ] || continue
     fam="${id%%.*}"
+    echo "+ restool dprc assign dprc.1 --object=$id --plugged=0" >> "$TE"
+    restool dprc assign dprc.1 --object="$id" --plugged=0 2>>"$TE" || true
     echo "+ restool $fam destroy $id" >> "$TE"
     restool "$fam" destroy "$id" 2>>"$TE" || true
   done
@@ -186,55 +205,13 @@ if [ "$RIG_OK" = 1 ]; then
   retry smoke
 fi
 
-R="$RESULTS/vtraf1-refusals.txt"
-E="$RESULTS/vtraf1-refusals.err"
-: > "$R"
-: > "$E"
-log() { echo "$1" | tee -a "$R"; }
-
-# Create A, B and C up front, before any connect or destroy: a create recycles
-# the lowest free id, so a C minted after A's destroy would reuse A's id and
-# invalidate the fixture (rev 1: dpni_500 and dpni_600 both mapped to dpni.9).
-A="$(restool --script dpni create --container=dprc.1 2>>"$E")"
-B="$(restool --script dpni create --container=dprc.1 2>>"$E")"
-C="$(restool --script dpni create --container=dprc.1 2>>"$E")"
-
-# fixture_ok: A's `dpni info` names B on its endpoint line (the generated step
-# 2/6 read-back idiom); a connect the MC silently dropped reads back no peer.
-fixture_ok() { restool dpni info "$A" 2>>"$E" | grep -q "endpoint:.*$B"; }
-
-# Establish and assert the A<->B wire the two laws probe; a SKIP is loud.
-if restool dprc connect dprc.1 --endpoint1="$A" --endpoint2="$B" 2>>"$E" && fixture_ok; then
-  # LINK-I1 disconnect-before-destroy: the MC refuses destroy of a still-
-  # connected end (finding 34 generalized). A success is the failure AND tears
-  # the fixture DPRC-I5 needs, so DPRC-I5 is then skipped.
-  if restool dpni destroy "$A" >>"$R" 2>&1; then
-    log "FAIL LINK-I1: destroy of still-connected end $A was NOT refused"
-    log "SKIP DPRC-I5: LINK-I1 destroyed the connected end, precondition gone"
-  else
-    log "RECORD LINK-I1: destroy of connected end $A refused (disconnect-before-destroy)"
-    # DPRC-I5 double-connect: an endpoint holds at most one peer. Re-assert the
-    # fixture first so the law never runs against a stale wire.
-    if fixture_ok; then
-      if restool dprc connect dprc.1 --endpoint1="$A" --endpoint2="$C" >>"$R" 2>&1; then
-        log "FAIL DPRC-I5: double-connect of $A was NOT refused"
-      else
-        log "RECORD DPRC-I5: double-connect of already-connected $A refused (disconnect-before-reconnect)"
-      fi
-    else
-      log "SKIP DPRC-I5: fixture not established"
-    fi
-  fi
-else
-  log "SKIP LINK-I1: fixture not established"
-  log "SKIP DPRC-I5: fixture not established"
-fi
-
-# Clean up what this hook created; the generated trap tears down only the trace's
-# objects, so the hook destroys its own, in order, best-effort.
-restool dprc disconnect dprc.1 --endpoint="$A" 2>>"$E" || true
-for id in "$C" "$B" "$A"; do
-  [ -n "$id" ] && restool dpni destroy "$id" 2>>"$E" || true
-done
-
-echo "vtraf1 refusal probes: $(grep -c '^RECORD ' "$R") recorded, $(grep -c '^FAIL ' "$R") failed, $(grep -c '^SKIP ' "$R") skipped"
+# ----- SECTION C: teardown-law refusals — banked, quarantined -----
+# LINK-I1 (disconnect-before-destroy) was falsified on-board 2026-10-05 revs
+# 1-2 with the fixture asserted: the MC ACCEPTS destroy of a still-connected
+# dpni end, so there is nothing left to probe. DPRC-I5 (double-connect) is
+# unresolvable by this route — it needs that same connected end plus the
+# destroy LINK-I1 already took. BOTH sittings lost the standing management dpni
+# from the bus inside this probe window (a board-wide link flap in rev 2), so
+# the probe is quarantined from rev 3 as the discriminating experiment
+# (cross-dprc-links task 7.2, suite ledger). No refusal command runs here.
+echo "vtraf1 refusal probes: banked — LINK-I1 falsified rev 1-2, DPRC-I5 unresolvable; quarantined (see suite ledger)" | tee "$RESULTS/vtraf1-refusals.txt"

@@ -62,6 +62,13 @@
 // refusals are disconnect-before-destroy (LINK-I1) and the DPRC-I5 double-
 // connect (LINK-I3).
 //
+// Rev-3 banked disposition (cross-dprc-links task 7.2, suite ledger): on-board
+// (2026-10-05 revs 1-2, fixture asserted) the MC ACCEPTED destroy of a still-
+// connected dpni end, falsifying LINK-I1; DPRC-I5 is unresolvable without that
+// same destroy; both sittings lost the standing management dpni from the bus in
+// the probe window, so the hook quarantines the probe. The runs below are
+// unchanged — this is the model record of a board finding, not a model change.
+//
 // The faces, in cross-dprc-links design D10 order:
 //   1 root↔root converge   — the frame witness and saturation smoke are
 //                            board-side hooks (6.1); the trace carries the

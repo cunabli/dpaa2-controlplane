@@ -537,6 +537,11 @@ sysfs_write() {{ n="$1"; echo "+ echo $3 > $2"; sh -c "echo $3 > $2" 2>"$RESULTS
 probe() {{ n="$1"; m="$2"; shift 2; echo "+ (probe) $*"; "$@" > "$RESULTS/step-$n-probe-$m.txt" 2>"$RESULTS/.err" || true; keep_err "$n"; }}
 # probe_link N M path: capture a sysfs driver link (empty = unbound).
 probe_link() {{ n="$1"; m="$2"; readlink "$3" > "$RESULTS/step-$n-probe-$m.txt" 2>/dev/null || true; }}
+# bind_settle path name: a kernel bind lands only on a bus event. Wait up
+# to 10s, then ask the bus to attach the device (drivers_probe, which an
+# admin-unbound device needs since dprc sync re-fires only deferred probes,
+# wait 5s), then the softer dprc sync (wait 10s). Settling, not evidence.
+bind_settle() {{ p="$1"; d="$2"; i=0; while [ "$i" -lt 10 ]; do readlink "$p" >/dev/null 2>&1 && return 0; sleep 1; i=$((i+1)); done; echo "+ (settle) bind deferred — asking the bus to probe: echo $d > drivers_probe" >&2; echo "$d" > /sys/bus/fsl-mc/drivers_probe 2>/dev/null || true; i=0; while [ "$i" -lt 5 ]; do readlink "$p" >/dev/null 2>&1 && return 0; sleep 1; i=$((i+1)); done; echo "+ (settle) still deferred — kicking the bus: restool dprc sync" >&2; restool dprc sync 1>&2 || true; i=0; while [ "$i" -lt 10 ]; do readlink "$p" >/dev/null 2>&1 && return 0; sleep 1; i=$((i+1)); done; echo "+ (settle) bind still deferred after kick" >&2; }}
 {pool_helper}
 {ref_pair}"#,
         id = spec.id,
@@ -922,9 +927,18 @@ pub fn generate(
                         let _ = writeln!(body, "read -r _ack");
                     }
                     // Give the kernel a moment before probing its work.
-                    None => {
-                        let _ = writeln!(body, "sleep 1");
-                    }
+                    None => match &step.action {
+                        ModelAction::KernelBind { obj } => {
+                            let name = sym.name(*obj).map_err(|e| format!("step {i}: {e}"))?;
+                            let _ = writeln!(
+                                body,
+                                "bind_settle /sys/bus/fsl-mc/devices/{name}/driver {name}"
+                            );
+                        }
+                        _ => {
+                            let _ = writeln!(body, "sleep 1");
+                        }
+                    },
                 }
                 false
             }
@@ -1716,6 +1730,71 @@ mod tests {
             !teardown.contains("dprc disconnect"),
             "no edge to sever: {teardown}"
         );
+    }
+
+    /// A kernel bind is deferred until a bus event, so the emitted step
+    /// settles-and-kicks (`bind_settle`: `drivers_probe` then the softer
+    /// `restool dprc sync`) before the driver read-back, not a bare sleep
+    /// (cross-dprc-links task 7.2).
+    #[test]
+    fn kernel_bind_settles_and_kicks_before_the_read_back() {
+        let dpni = ObjRef {
+            fam: Family::Dpni,
+            num: 101,
+        };
+        let mut init = MachineView::default();
+        init.objs.insert(dprc(1), obj(None, true));
+        let mut s1 = init.clone();
+        s1.objs.insert(dpni, obj(Some(dprc(1)), false));
+        let mut s2 = s1.clone();
+        s2.objs.get_mut(&dpni).unwrap().plugged = true;
+        let mut s3 = s2.clone();
+        s3.objs.get_mut(&dpni).unwrap().bind = BindView::Kernel;
+        let trace = MbtTrace {
+            init,
+            steps: vec![
+                MbtStep {
+                    action: ModelAction::CreateObject {
+                        fam: Family::Dpni,
+                        container: dprc(1),
+                    },
+                    post: s1,
+                },
+                MbtStep {
+                    action: ModelAction::Plug { obj: dpni },
+                    post: s2,
+                },
+                MbtStep {
+                    action: ModelAction::KernelBind { obj: dpni },
+                    post: s3,
+                },
+            ],
+        };
+        let s = generate(
+            &spec(SuiteKind::Standard),
+            &trace,
+            RecoveryGuarantee::Verified,
+        )
+        .unwrap()
+        .script;
+        let settle = s
+            .find("bind_settle /sys/bus/fsl-mc/devices/${OBJ_dpni_101}/driver ${OBJ_dpni_101}")
+            .expect("bind step settles on the object's driver link, named for drivers_probe");
+        let probe = s
+            .find("probe_link 2 0 /sys/bus/fsl-mc/devices/${OBJ_dpni_101}/driver")
+            .expect("bind step reads back the driver link");
+        assert!(settle < probe, "settle must precede the read-back probe");
+        let drivers_probe = s
+            .find("drivers_probe")
+            .expect("helper asks the bus to probe");
+        let sync = s
+            .find("restool dprc sync")
+            .expect("helper falls back to a sync kick");
+        assert!(
+            drivers_probe < sync,
+            "the admin-unbind recovery (drivers_probe) must precede the softer dprc sync"
+        );
+        sh_parses(&s);
     }
 
     /// A flap prompt must ask for evidence, not an ack: V-LINK-2's

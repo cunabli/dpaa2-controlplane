@@ -47,6 +47,11 @@ sysfs_write() { n="$1"; echo "+ echo $3 > $2"; sh -c "echo $3 > $2" 2>"$RESULTS/
 probe() { n="$1"; m="$2"; shift 2; echo "+ (probe) $*"; "$@" > "$RESULTS/step-$n-probe-$m.txt" 2>"$RESULTS/.err" || true; keep_err "$n"; }
 # probe_link N M path: capture a sysfs driver link (empty = unbound).
 probe_link() { n="$1"; m="$2"; readlink "$3" > "$RESULTS/step-$n-probe-$m.txt" 2>/dev/null || true; }
+# bind_settle path name: a kernel bind lands only on a bus event. Wait up
+# to 10s, then ask the bus to attach the device (drivers_probe, which an
+# admin-unbound device needs since dprc sync re-fires only deferred probes,
+# wait 5s), then the softer dprc sync (wait 10s). Settling, not evidence.
+bind_settle() { p="$1"; d="$2"; i=0; while [ "$i" -lt 10 ]; do readlink "$p" >/dev/null 2>&1 && return 0; sleep 1; i=$((i+1)); done; echo "+ (settle) bind deferred — asking the bus to probe: echo $d > drivers_probe" >&2; echo "$d" > /sys/bus/fsl-mc/drivers_probe 2>/dev/null || true; i=0; while [ "$i" -lt 5 ]; do readlink "$p" >/dev/null 2>&1 && return 0; sleep 1; i=$((i+1)); done; echo "+ (settle) still deferred — kicking the bus: restool dprc sync" >&2; restool dprc sync 1>&2 || true; i=0; while [ "$i" -lt 10 ]; do readlink "$p" >/dev/null 2>&1 && return 0; sleep 1; i=$((i+1)); done; echo "+ (settle) bind still deferred after kick" >&2; }
 
 # --- reference pair assertion (ADR-0003 §2) ---
 # Evidence is only valid against the stamped pair; refuse anything else.
@@ -270,7 +275,7 @@ run 25 restool dprc sync
 
 # step 26: KernelBind { obj: ObjRef { fam: Dpni, num: 400 } }
 # awaited: the kernel probes plugged bus-visible objects on its own; observe the driver link
-sleep 1
+bind_settle /sys/bus/fsl-mc/devices/${OBJ_dpni_400}/driver ${OBJ_dpni_400}
 # expect: dpni_400 driver_bound=true
 probe_link 26 0 /sys/bus/fsl-mc/devices/${OBJ_dpni_400}/driver
 
@@ -287,7 +292,7 @@ probe_link 28 0 /sys/bus/fsl-mc/devices/${OBJ_dpni_400}/driver
 
 # step 29: KernelBind { obj: ObjRef { fam: Dpni, num: 400 } }
 # awaited: the kernel probes plugged bus-visible objects on its own; observe the driver link
-sleep 1
+bind_settle /sys/bus/fsl-mc/devices/${OBJ_dpni_400}/driver ${OBJ_dpni_400}
 # expect: dpni_400 driver_bound=true
 # record (operator-diffed, not judged): a post-bind connect on this kernel-bound end logs ENDPOINT_CHANGED then -EPERM (discarded) — the dmesg law recorded here, the face with an explicit kernel-bound end (cross-dprc-links design D4); face 2 carries no kernelBind and is judged by dprc_get_connection from root
 probe_link 29 0 /sys/bus/fsl-mc/devices/${OBJ_dpni_400}/driver
