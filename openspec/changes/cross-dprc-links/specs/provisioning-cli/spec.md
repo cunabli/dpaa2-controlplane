@@ -16,8 +16,8 @@ one `ensure` would execute.
   matches what `ensure` would execute
 
 ### Requirement: The Disruptive rebind cycle is consented, never silent
-The `DeferredVisibility` discharge — the unbind → bind → re-observe
-rebind cycle — SHALL be classed `Disruptive` and actuated only under an
+The `DeferredVisibility` discharge SHALL be classed `Disruptive` — the
+unbind → bind → re-observe rebind cycle — and actuated only under an
 explicit `--allow=disruptive` (ADR-0015 consent machinery, design
 D5/D10). A declined consent SHALL report the typed standing residue and
 change nothing; the rebind SHALL never fire silently.

@@ -106,4 +106,13 @@ and commits. Every group ends at the quality floor
       law, destroy-mirror behavior) into dprc.md/dpni.md; close bead
       dpaa2-controlplane-w01 (healing policy delivered)
 - [ ] 7.4 Spec deltas promoted; CHANGELOG via cliff; quality floor
-      green; seal
+      green; seal (last: depends on 7.5)
+- [ ] 7.5 Edge-fate probe (destroy a connected end, read the
+      survivor), then link_lifecycle.qnt weakened to the board's
+      answer: destroy-of-connected-end enabled, refusal witness
+      retired, family traces re-frozen, COVERAGE row settled
+- [ ] 7.6 Dpcon-priority knob board witness (same sitting as 7.5):
+      intent with the 5.4 knob converged, derived operand read back;
+      DPCON-I3's consumer-at-priority>0 caveat re-anchored to its
+      concrete trigger (hal QBMan portal + mc-portal-backend
+      transport feed the -verify userspace consumer rig)

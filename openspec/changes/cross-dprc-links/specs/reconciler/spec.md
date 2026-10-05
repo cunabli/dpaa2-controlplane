@@ -95,10 +95,10 @@ and may stand indefinitely as typed residue.
   residue that blocks no convergence verdict and demands no discharge
 
 ### Requirement: The DeferredVisibility obligation discharges only through a consented Disruptive rebind cycle
-The only modeled discharge of a standing `DeferredVisibility` obligation
-SHALL be a **consented rebind cycle** (unbind → bind → re-observe),
-represented as a first-class `Disruptive`-class plan transition riding
-the ADR-0015 consent machinery (design D5). A declined consent SHALL
+A standing `DeferredVisibility` obligation SHALL discharge only through a
+**consented rebind cycle** (unbind → bind → re-observe), represented as a
+first-class `Disruptive`-class plan transition riding the ADR-0015
+consent machinery (design D5). A declined consent SHALL
 report a typed standing residue (the pool-objects honest-residue idiom)
 and rebind SHALL never fire silently. No reboot SHALL exist on this
 surface — reboot residue stays exclusive to ADR-0020 pool shrink.

@@ -62,8 +62,8 @@ D2). A link edge that previously resolved, dry-ran, and stayed
   the ancestor, rather than leaving the edge plan-only
 
 ### Requirement: A post-bind drift refusal is plumbed as a typed DeferredVisibility obligation
-When a create into an already-bound container is MC-accepted but
-kernel-invisible, the adapter SHALL plumb the `DriftRefused` outcome into
+The adapter SHALL plumb a create into an already-bound container that the
+MC accepts but leaves kernel-invisible — the `DriftRefused` outcome — into
 the typed `DeferredVisibility` obligation the core carries (design D5),
 judged by re-observation after a scan. The outcome SHALL NOT be swallowed
 nor reported as an untyped backend error.

@@ -36,6 +36,17 @@ state-expressible invariants SHALL carry Apalache marks; action-guard or
 Breaking-absence faces ride directed simulate-only runs, matching the
 model header split.
 
+The LINK-I\* invariants SHALL stay carried in the model. The
+disconnect-before-destroy **refusal face** is recorded board-falsified at
+the guard level (V-TRAF-1, 2026-10-05: the MC accepts `dpni destroy` of a
+still-connected dpni↔dpni end); the engine SHALL meanwhile retain
+disconnect-before-destroy as its typestate policy, stricter than hardware.
+The `LINK_I1` state invariant itself is unfalsified — the edge's fate on
+endpoint destroy was unobserved — and the model weakening lands in this
+change at `cross-dprc-links` task 7.5: the edge-fate probe runs, then
+`link_lifecycle.qnt` is weakened to the board's answer (enable the destroy,
+model the edge's fate, retire the refusal face).
+
 #### Scenario: Disconnect-before-destroy is unreachable to violate
 - **WHEN** Apalache checks the disconnect-before-destroy invariant
 - **THEN** no reachable state destroys an endpoint whose link edge is

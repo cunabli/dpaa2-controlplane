@@ -40,8 +40,8 @@ the `single_sender` knob.
 ## ADDED Requirements
 
 ### Requirement: Compiled link edges are actuatable plan output
-The dpni↔dpni link edge the compiler derives (rules `link-edge` and
-`fabric-wire`, ADR-0013 §link) SHALL be emitted as a first-class
+The compiler SHALL emit the dpni↔dpni link edge it derives (rules
+`link-edge` and `fabric-wire`, ADR-0013 §link) as a first-class
 actuatable edge in the compiled plan — the edge the reconciler issues a
 `dprc connect` for — rather than a plan-only residue that derives,
 dry-runs, and stays unactuated. The edge SHALL be constructed through the

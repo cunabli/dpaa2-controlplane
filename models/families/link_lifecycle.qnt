@@ -363,6 +363,12 @@ module link_lifecycle {
   // not(connected) guard forbids destroying a still-connected end — the
   // ordering-as-state-invariant idiom of dpmac's DPMAC_SeverOrder. The guard
   // itself is witnessed by destroyConnectedEndRefusedTest.
+  // Board (V-TRAF-1, 2026-10-05): the refusal is FALSIFIED at the guard level —
+  // the MC accepts dpni destroy of a still-connected dpni<->dpni root end. This
+  // state face is unaffected (the edge's fate on endpoint destroy was
+  // unobserved, the probe quarantined), so LINK_I1 stays carried, and
+  // disconnect-before-destroy stays the engine's typestate policy, stricter
+  // than hardware. Model weakening lands at cross-dprc-links task 7.5.
   val LINK_I1: bool =
     world.core.conns.forall(c =>
       world.core.objs.keys().contains(c._1.obj)
@@ -466,6 +472,9 @@ module link_lifecycle {
 
   // disconnect-before-destroy (cross-dprc-links design D5): destroying a still-connected end
   // is refused — end-destroy-legal is reachable only from a disconnected end.
+  // Board (V-TRAF-1, 2026-10-05): this guard is board-falsified — the MC accepts
+  // the still-connected destroy; the run stays as the engine's POLICY witness,
+  // stricter than hardware. Model weakening lands at cross-dprc-links task 7.5.
   run destroyConnectedEndRefusedTest =
     init
       .then(connectWireAt(portZero(dpniLeft), portZero(dpniRight)))

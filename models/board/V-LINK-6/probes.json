@@ -1,0 +1,60 @@
+{
+  "suite": "V-LINK-6",
+  "class": "lifecycle",
+  "steps": [
+    {
+      "label": "capture root container pre-probe",
+      "cmd": ["restool", "dprc", "show", "dprc.1"],
+      "expect": "zero exit; the root listing is the blast-radius reference — the closing census (step 8) diffs against it for zero deltas (ADR-0003 §5 queries are lifecycle-only). Both scratch dpnis stand bare in dprc.1, never plugged: a bare root create stays off the fsl-mc bus, so no kernel driver probes either end (V-TRAF-1 evidence, cross-dprc-links task 7.5). This capture plus step 8 is the reference pair.",
+      "exit": "zero"
+    },
+    {
+      "label": "create + label dpni A (bare in the root, off the bus)",
+      "cmd": ["sh", "-c", "set -e; n=$(restool --script dpni create --num-queues=1); restool dprc set-label \"$n\" --label=vlink6a; echo \"created $n labelled vlink6a\""],
+      "expect": "zero exit; dpni A is created in dprc.1 and labelled in one shell step, capturing the pool-assigned name from create stdout (the sanctioned sh -c use, V-DPRC-10). NO --plugged and NO assign: the bare create stays off the fsl-mc bus, no kernel driver probes it (V-TRAF-1 evidence). The label is how every later step resolves the pool-assigned name, so the plan carries no object-id literal — the total-deny self-check idiom (V-DPMAC-2). A divergence halts the face.",
+      "exit": "zero"
+    },
+    {
+      "label": "create + label dpni B (bare in the root, off the bus)",
+      "cmd": ["sh", "-c", "set -e; n=$(restool --script dpni create --num-queues=1); restool dprc set-label \"$n\" --label=vlink6b; echo \"created $n labelled vlink6b\""],
+      "expect": "zero exit; dpni B, the survivor, created and labelled the same way — bare in dprc.1, off the bus (V-TRAF-1 evidence). Label vlink6b resolves it in the observation step after A is gone.",
+      "exit": "zero"
+    },
+    {
+      "label": "connect A <-> B at the root",
+      "cmd": ["sh", "-c", "set -e; a=$(restool dprc show dprc.1 | awk '$2==\"vlink6a\"{print $1; exit}'); b=$(restool dprc show dprc.1 | awk '$2==\"vlink6b\"{print $1; exit}'); [ -n \"$a\" ] && [ -n \"$b\" ] || { echo 'vlink6a/vlink6b not resolved' >&2; exit 1; }; restool dprc connect dprc.1 --endpoint1=\"$a\" --endpoint2=\"$b\"; echo \"connected $a <-> $b\""],
+      "expect": "zero exit; the root-scoped dpni↔dpni connect (cross-dprc-links task 7.5). Both ends are bare and unbound, so no link state is asserted or raised — this is a lifecycle-only edge mutation (ADR-0003 §5), not a link-signaling run. Labels resolve both pool-assigned names; the plan names no id literal.",
+      "exit": "zero"
+    },
+    {
+      "label": "FIXTURE: dpni info A names B as its endpoint",
+      "cmd": ["sh", "-c", "set -e; a=$(restool dprc show dprc.1 | awk '$2==\"vlink6a\"{print $1; exit}'); b=$(restool dprc show dprc.1 | awk '$2==\"vlink6b\"{print $1; exit}'); [ -n \"$a\" ] && [ -n \"$b\" ] || { echo 'vlink6a/vlink6b not resolved' >&2; exit 1; }; e=$(restool dpni info \"$a\" | awk '/endpoint:/{print $2; exit}' | tr -d ','); echo \"A=$a endpoint=$e expected=$b\"; [ \"$e\" = \"$b\" ]"],
+      "expect": "zero exit; the FIXTURE that proves the edge really stood before A is destroyed: dpni info A's `endpoint:` line must name B (format `endpoint: <peer>, link is up`, parse::parse_dpni_endpoint). A failed fixture (nonzero) ABORTS the judged faces below (the destroy and the observation) — the two-outcome observation only means something on a proven edge (cross-dprc-links task 7.5).",
+      "exit": "zero"
+    },
+    {
+      "label": "destroy A while still connected — EXPECTED ACCEPTED (LINK-I1 falsified)",
+      "cmd": ["sh", "-c", "set -e; a=$(restool dprc show dprc.1 | awk '$2==\"vlink6a\"{print $1; exit}'); [ -n \"$a\" ] || { echo 'vlink6a not resolved' >&2; exit 1; }; restool dpni destroy \"$a\"; echo \"destroyed $a (was connected to B)\""],
+      "expect": "zero exit — EXPECTED ACCEPTED: the MC accepts destroy of a still-connected dpni end with no disconnect first (LINK-I1 falsified on-board, V-TRAF-1 rev 1-2). A was never plugged or bound, so there is no `unbind it first` restool guard (V-TRAF-1 rev 2) to trip — the acceptance is the point. Record the MC/restool response verbatim (captured in the transcript output); a refusal here would contradict V-TRAF-1 and halt the face.",
+      "exit": "zero"
+    },
+    {
+      "label": "THE OBSERVATION: dpni info B — what does the survivor's endpoint read?",
+      "cmd": ["sh", "-c", "b=$(restool dprc show dprc.1 | awk '$2==\"vlink6b\"{print $1; exit}'); [ -n \"$b\" ] || { echo 'vlink6b not resolved' >&2; exit 1; }; echo \"survivor B=$b\"; restool dpni info \"$b\""],
+      "expect": "exit any — BOTH outcomes are findings, this is a discovery probe (cross-dprc-links task 7.5), not PASS/FAIL. Read B's `endpoint:` line verbatim. (a) `endpoint: No object associated` (or no endpoint line) => the MC auto-removed the edge when A was destroyed: LINK-I1 “no edge outlives its endpoints” holds as hardware truth. (b) the line still names A, or reads a dangling/error form (a stale id, an error on the read) => the edge outlives its endpoint and the model needs a dangling-end state. Capture whichever verbatim — the output is the finding.",
+      "exit": "any"
+    },
+    {
+      "label": "destroy B (survivor teardown)",
+      "cmd": ["sh", "-c", "b=$(restool dprc show dprc.1 | awk '$2==\"vlink6b\"{print $1; exit}'); [ -n \"$b\" ] || { echo 'vlink6b not resolved — already gone'; exit 0; }; restool dpni destroy \"$b\"; echo \"destroyed $b\""],
+      "expect": "any exit; remove B so the suite is self-cleaning. B was bare and unbound, so destroy is a plain lifecycle removal; the closing census is the real evidence of removal (any transient dangling state from the observation step clears here).",
+      "exit": "any"
+    },
+    {
+      "label": "capture root container post-probe (zero residue)",
+      "cmd": ["restool", "dprc", "show", "dprc.1"],
+      "expect": "zero exit; must match the step-0 pre-probe object-for-object — both scratch dpnis gone, no residue (self-cleaning plan, the reference pair closes). This suite is lifecycle-only and touches no wired port, so it needs no late-sitting slot for a bus churn of its own.",
+      "exit": "zero"
+    }
+  ]
+}
