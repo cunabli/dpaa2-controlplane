@@ -100,7 +100,7 @@ and commits. Every group ends at the quality floor
 ## 7. Board milestone and close-out (operator + main loop)
 
 - [x] 7.1 Pre-run record commit (standing rule: commit before the run)
-- [ ] 7.2 Operator sitting: V-TRAF-1 executed; results diffed;
+- [x] 7.2 Operator sitting: V-TRAF-1 executed; results diffed;
       divergences fed back to the model; full teardown verified
 - [ ] 7.3 Baseline deltas from board answers (post-bind connect dmesg
       law, destroy-mirror behavior) into dprc.md/dpni.md; close bead

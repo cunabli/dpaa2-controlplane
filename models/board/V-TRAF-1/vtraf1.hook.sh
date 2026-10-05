@@ -69,6 +69,11 @@ net_cleanup() {
   for id in "${CON2:-}" "${BP2:-}" "${MCP2:-}" "${CON1:-}" "${BP1:-}" "${MCP1:-}"; do
     [ -n "$id" ] || continue
     fam="${id%%.*}"
+    d="/sys/bus/fsl-mc/devices/$id/driver"
+    if [ -e "$d" ]; then
+      echo "+ echo $id > $d/unbind" >> "$TE"
+      echo "$id" > "$d/unbind" 2>>"$TE" || true
+    fi
     echo "+ restool dprc assign dprc.1 --object=$id --plugged=0" >> "$TE"
     restool dprc assign dprc.1 --object="$id" --plugged=0 2>>"$TE" || true
     echo "+ restool $fam destroy $id" >> "$TE"

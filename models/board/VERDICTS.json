@@ -1318,13 +1318,13 @@
   },
   "V-TRAF-1": {
     "run": {
-      "pass": false,
+      "pass": true,
       "date": "2026-10-05",
       "kind": "batch",
-      "revision": 2,
-      "steps": "33/35",
+      "revision": 3,
+      "steps": "35/35",
       "source_hash": "fnv1a64:e80ddc56419f1535",
-      "hook": "18/19",
+      "hook": "18/18",
       "archive": null,
       "refusals": []
     }
