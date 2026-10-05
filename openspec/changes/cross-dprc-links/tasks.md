@@ -102,7 +102,7 @@ and commits. Every group ends at the quality floor
 - [x] 7.1 Pre-run record commit (standing rule: commit before the run)
 - [x] 7.2 Operator sitting: V-TRAF-1 executed; results diffed;
       divergences fed back to the model; full teardown verified
-- [ ] 7.3 Baseline deltas from board answers (post-bind connect dmesg
+- [x] 7.3 Baseline deltas from board answers (post-bind connect dmesg
       law, destroy-mirror behavior) into dprc.md/dpni.md; close bead
       dpaa2-controlplane-w01 (healing policy delivered)
 - [ ] 7.4 Spec deltas promoted; CHANGELOG via cliff; quality floor

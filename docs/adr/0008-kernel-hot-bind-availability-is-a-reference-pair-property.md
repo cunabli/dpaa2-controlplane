@@ -362,6 +362,45 @@ an operator note, never tool automation — the boot dpni is foreign to
 intent, and the control plane reports foreign objects, it does not
 repair them.
 
+### 10. A removal burst evicts a standing bystander, probabilistically and independent of what the burst removes
+
+A burst of back-to-back bus-removing operations — unbind, unplug and
+destroy in any mix — raises a DPRC interrupt per event, and the
+container's rescan thread (§4) walks the object table concurrently with
+the removals still in flight. The index-based enumeration races the
+disappearing objects: `dprc_get_obj(i=N) failed: -119` followed by
+`K out of M devices could not be retrieved`, after which the
+reconciliation drops bus devices and an index shift lands the loss on an
+*unrelated standing* object. On this reference pair the casualty is the
+management interface dpni.0: its netdev logs `Link is Down` within tens
+of milliseconds of the `-119` lines, its driver link goes
+`fsl_dpaa2_eth -> (none)`, its max frame length resets 10240→1536, and
+its DPL allocatables are released back to the bus.
+
+Two properties follow, both prescriptive for any management flow on this
+pair:
+
+- **The eviction is probabilistic, not caused by any particular removal.**
+  The same action sequence can lose dpni.0 on one run and spare it on
+  another; survival happens when something thins the burst — removals the
+  firmware or restool refuse raise no event — not because a benign removal
+  set was chosen. A flow must treat *any* removal burst in the root
+  container as able to evict a standing bystander and must not attribute
+  an eviction to a specific operation.
+- **It does not depend on a failing probe in the burst.** A burst with no
+  probe in it evicts dpni.0 just as one with a starved probe does, so the
+  hazard is removal density alone.
+
+The mitigation is the §6 spacing — pause after each destroy so the walk
+finishes before the next removal — under the §9 qualification that
+spacing lowers the probability and does not close the race. Where a suite
+is near retirement and operators recover by reboot, pacing may be declined
+by explicit decision; recovery is always a reboot, which restores the DPL
+and rebinds the evicted interface. Evidence pointer: the V-TRAF-1 ledger
+row — both `-119`/`could not be retrieved` signatures and the dpni.0
+eviction — in `models/board/README.md`, and the kernel-facing writeup
+`docs/upstream/fsl-mc-rescan-race-evicts-standing-devices.md`.
+
 ## Open questions and revisit triggers
 
 - **Why does the firmware hand back a stale plugged bit?** Everything up

@@ -1321,7 +1321,7 @@
       "pass": true,
       "date": "2026-10-05",
       "kind": "batch",
-      "revision": 3,
+      "revision": 4,
       "steps": "35/35",
       "source_hash": "fnv1a64:e80ddc56419f1535",
       "hook": "18/18",

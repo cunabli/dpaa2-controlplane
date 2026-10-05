@@ -37,7 +37,7 @@ deliberately thin slice of the ~90-function MC flib surface [read]:
 | `--help` | none | the literal token is `--help`; `restool dpni help` does **not** exist despite the top-level usage advertising it (exact-match dispatch, `restool.c:1088-1093`) |
 | `info <dpni.N> [--verbose]` | `dpni_open`, `dpni_get_attributes`, `dpni_get_api_version`, `dpni_get_link_state`, `dpni_get_primary_mac_addr` (skipped under `DPNI_OPT_NO_MAC_FILTER`), `dpni_get_max_frame_length`, `dpni_get_statistics` ×7 pages, `dprc_get_connection` | `--verbose` adds irq mask/status |
 | `create [options] [--container=<dprc.N>]` | `dpni_get_api_version` then `dpni_create` with a **runtime-selected command version**: `CREATE_V8` if DPNI API ≥ 8.6 else `CREATE_V7` if ≥ 8.3 (`dpni_commands.c:863-873`, `common/utils.h:95-110`) | board DPNI API is 8.5 → V7 is what our restool emits [read] |
-| `destroy <dpni.N>` | `dpni_destroy` | refuses if a Linux driver is bound (`in_use()` reads `/sys/bus/fsl-mc/devices/<obj>/driver`, `restool.c:573-601`) |
+| `destroy <dpni.N>` | `dpni_destroy` | refuses if a Linux driver is bound (`in_use()` reads `/sys/bus/fsl-mc/devices/<obj>/driver`, `restool.c:573-601`); the refusal is restool's own client guard — stderr `unbind it first`, exit 240, never an MC consult [verified 2026-10-05, V-TRAF-1 rev 2/4] |
 | `update <dpni.N> --mac-addr=<a>` | `dpni_set_primary_mac_addr` | the **only** attribute restool can mutate post-create |
 
 Absent from restool (MC has the command, restool has no verb) [read]: link
@@ -265,6 +265,13 @@ binds, or through the driver's own netdev interfaces.
 - Pool exhaustion on the *first* object of a type → `-EPROBE_DEFER`
   (retried); exhaustion after the first DPCON → **"Not enough DPCONs,
   will go on as-is"** and probe succeeds degraded (silent-failure notes).
+  Board-anchored [verified 2026-10-05, V-TRAF-1 rev 1/3/4]: every
+  bus-visible dpni is auto-probed by the driver, each successful probe
+  drawing the 1 dpmcp / 1 dpbp / ≥1 dpcon slice above; a starved probe
+  defers *silently* and is retried ONLY on a new bus event, never by a
+  timer, so a deferred dpni stays unbound until the next add/remove stirs
+  the container (dmesg marks the starved attempts `No more resources of
+  type dpcon left`).
 - No minimum queue count and no required/forbidden `DPNI_OPT_*`: 1-queue
   DPNIs bind fine (our kdpni pairs rely on this [verified]);
   `TX_FRM_RELEASE`, `HAS_POLICING`, `SHARED_CONGESTION` are never read by
@@ -328,7 +335,14 @@ filters, pools binding) live for the next opener; the kernel re-binder is
 immune (it resets first), a non-kernel consumer (VPP/DPDK via VFIO) is
 not [read]. Object destroy while bound is refused by restool's `in_use`
 check, but nothing in the kernel handles the MC-side object vanishing
-under a bound driver — that race is unguarded [read].
+under a bound driver — that race is unguarded [read]. Both paths are
+asynchronous [verified 2026-10-05, V-TRAF-1 rev 2/3/4]: the sysfs bind
+write returns on the probe *attempt*, not on its outcome, and an unbind's
+freed allocatables rejoin the pool seconds after the write returns. An
+admin-unbound (sysfs-detached) dpni is NOT placed on the deferred-probe
+list, so `restool dprc sync` (a bus rescan) cannot re-attach it — writing
+the device name to `/sys/bus/fsl-mc/drivers_probe` can; a *deferred*
+probe, by contrast, is re-fired by that rescan.
 
 `/dev/dprc.N` whitelists exactly five dpni commands for the root
 container's ioctl path: set/get primary MAC (set requires
@@ -368,6 +382,18 @@ supplier set is discovered from the kernel device-link graph, which
 exists only for kernel-bound consumers — a VFIO-owned dpni has no such
 links, so the Rust port must carry the dependency graph itself
 (dprc.md finding, reconfirmed here) [read].
+
+Destroy-mirror, board-verified [V-TRAF-1 rev 2/3/4, 2026-10-05]: destroy
+of a driver-bound dpni is restool-refused client-side (`unbind it first`,
+exit 240, command surface above); destroy of a plugged-never-bound dpni
+succeeds (the resident-stale path); and never-connected/never-plugged
+destroys are clean. The MC itself *accepts* `dpni destroy` of a
+still-connected dpni↔dpni root link — the firmware demands no prior
+disconnect (rev 1 on dpni.11, rev 2 on dpni.12 with the endpoint
+read-back asserted). So finding 34's disconnect-before-destroy refusal
+does not generalize to dpni↔dpni root links; the engine keeps
+disconnect-before-destroy as conservative teardown POLICY, not as a
+hardware guarantee.
 
 ## Intent mapping
 
@@ -434,7 +460,11 @@ restool and scripts:
   `egress_all_frames` moved by precisely the frames sent through a
   kernel-bound dpni in both directions, so they are the board-side
   reachability oracle and no capture is needed [verified 2026-08-24,
-  V-TRAF-0].
+  V-TRAF-0]. Re-witnessed on a cross-container dpni↔dpni root link
+  [verified 2026-10-05, V-TRAF-1 rev 2/3/4]: that link carries frames —
+  exact +8 on all four ingress/egress_all_frames counters and a 3×1000
+  saturation smoke with zero loss or discards — so a host-injection pair
+  wire is proven, not assumed.
 
 kernel driver — the ones that matter for a reconciler's observation
 model:
@@ -480,7 +510,7 @@ attribute get) — never on the return code of the mutation.
 | DPNI-I6 | **Breaking:** the model must NOT assume nonzero exit ⇒ no side effect: create with a dead option creates the object and then fails; and exit 0 ⇒ success is false for `dpni update` (three 0-exit failure paths) | `dprc show` delta across a failed create; primary MAC read-back after a "successful" update | candidate |
 | DPNI-I7 | Create-default determinism: an omitted create option ⇒ 0 on the wire ⇒ MC default (1 queue, 1 TC, 16 MAC entries, 0 QoS entries with a single TC, 64 FS, VLAN filtering off, one CG) | `dpni info` of a bare `dpni create` | verified 2026-08-29 (V-READBACK-1 rev 2, hook 10/10) — the corrected hook confirms the rev-1 read-back; the 80 MAC / 64 QoS this row first predicted were restool's maxima, and the DPL-born management dpni in the clean-boot reference reads the same 16/0 |
 | DPNI-I8 | Clean-unbind postcondition: successful driver remove resets the object to initial state; but reset failure is non-fatal, so unbind ⇒ reset is best-effort — convergence is established only by read-back | `dpni info` after unbind: default attributes, zero filter tables | falsified for the primary MAC 2026-08-29 (V-DPNI-3 rev 1): a MAC set from the netdev survived the kernel unbind, read back present in `dpni info` while unbound — the remove-path reset does not clear the primary MAC, so the clean-unbind reset is not even best-effort on it. Max frame length read 1536 while unbound |
-| DPNI-I9 | Endpoint cardinality: a dpni has at most one connection; connect requires both endpoints currently disconnected and a common-ancestor initiator (dprc.md DPRC-I5), including the cross-container dpni↔dpni case | `dprc connect` exit; `GET_CONNECTION` per endpoint | verified (kdpni pairs in production use) |
+| DPNI-I9 | Endpoint cardinality: a dpni has at most one connection; connect requires both endpoints currently disconnected and a common-ancestor initiator (dprc.md DPRC-I5), including the cross-container dpni↔dpni case | `dprc connect` exit; `GET_CONNECTION` per endpoint | verified (kdpni pairs in production use); teardown corollary board-settled 2026-10-05 (V-TRAF-1 rev 1/2): the MC *accepts* destroy of a still-connected dpni↔dpni root end, so finding 34's disconnect-before-destroy refusal does not generalize here (LINK-I1 falsified) — disconnect-before-destroy is conservative POLICY, not a hardware guarantee (teardown section) |
 | DPNI-I10 | Consumer tx-floor: any consumer driving tx from T threads needs T independent tx rings on the dpni; a ring shared by two threads silently drops enqueues (no MC error, no counter on the dpni side) | VPP `<if>-tx` drops with `num-tx-queues < T`; clean at `= T` | verified (ADR-0012) |
 | DPNI-I11 | Version-skew emission: the southbound emits statically-versioned commands (no negotiation exists); the model carries the emitted command version per action, and `SET/GET_TX_CONFIRMATION_MODE` from a 10.32-built client emits v1 against a firmware registering v2 | command version bits on the wire; MC status on mismatch | candidate |
 | DPNI-I12 | Write-only attribute: `dist_key_size` has no read-back (absent from `dpni_attr`), so the reconciler must not claim drift detection on it | `dpni info` field list | candidate |
@@ -567,3 +597,11 @@ attribute get) — never on the return code of the mutation.
     `min(num_tcs, 8)` exactly — 8 on the 16-TC PMD create, 1 on the 1-TC
     kernel create. A distinct value stays reachable only through the DPL
     boot path (deferred to `dpl-tape-out`, #14).
+13. Post-bind connect dmesg law — the `cross-dprc-links task 1.4`
+    prediction that a connect issued on a kernel-bound dpni end logs
+    `ENDPOINT_CHANGED` then `-EPERM` — stays **unexercised and open**.
+    V-TRAF-1 never issues a connect on a bound end: the suite's blessed
+    order is populate→connect→bind, and no `ENDPOINT_CHANGED` line
+    appears in any rev's dmesg [V-TRAF-1 rev 1–4, 2026-10-05]. The
+    disposition is deliberate (the unknown was not taken here), not a
+    confirmation; earliest reachability at #9/#10.

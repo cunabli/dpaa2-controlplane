@@ -467,3 +467,29 @@ cites the suite and the design record that carry the numbers.
     timer. Evidence: `phylink-dpni-churn-crash.md` (second-signature
     note), `~/dpaa2-board-evidence/V-DPMAC-3-rev1/dmesg.txt`, suite
     V-DPMAC-3 rev 1. — candidate
+
+## From the cross-dprc-links sitting (task 7.3, 2026-10-05)
+
+### Linux kernel
+
+53. **A root-container removal burst races the container rescan and
+    evicts a standing bystander.** `dprc_scan_objects` fetches the
+    container's objects per index with nothing holding the firmware
+    still, while the container's IRQ thread rescans on every removal
+    event; a fetch that fails mid-walk logs `dprc_get_obj(i=N) failed:
+    -119` / `K out of M devices could not be retrieved` and the loop
+    carries a short table, so an index shift drops a plugged bystander's
+    driver through `check_plugged_state_change` →
+    `device_release_driver`, unlogged. Observed on a cross-container
+    dpni↔dpni sitting as the management interface dpni.0 losing its
+    `fsl_dpaa2_eth` driver (`Link is Down`, driver `-> (none)`, max frame
+    length reset 10240→1536) tens of ms after the `-119` lines
+    (`dprc_get_obj(i=110) failed: -119` / `1 out of 111`; another run
+    `i=94`,`i=115` / `2 out of 116`). The eviction is probabilistic (a
+    run whose removals were refused survived) and does not require a
+    failing probe in the burst. Same race as finding 39; the dedicated
+    kernel-facing writeup with both signatures is
+    `fsl-mc-rescan-race-evicts-standing-devices.md`. Spacing lowers but
+    does not close it (ADR-0008 §10); the root-cause fix re-reads the
+    descriptor before releasing the driver (finding 39). Evidence:
+    ADR-0008 §4/§9/§10, suite V-TRAF-1 rev 1/4. — candidate

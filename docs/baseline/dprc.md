@@ -191,7 +191,11 @@ into child DPRCs** (`fsl-mc-bus.c:217-248`), passes no IRQ-pool allocation,
 and discards scan errors (the write always "succeeds"). Child containers
 re-scan only via their own DPRC IRQ (hot-plug events OBJ_ADDED/REMOVED/…,
 `dprc-driver.c:400-463`) — gated by `/sys/bus/fsl-mc/autorescan`. There is
-no per-device rescan attribute.
+no per-device rescan attribute. A rescan re-fires a *deferred* probe but
+does NOT re-attach an admin-unbound (sysfs-detached) device — that device
+is off the deferred-probe list, so `restool dprc sync` leaves it
+driverless; only writing its name to `/sys/bus/fsl-mc/drivers_probe`
+rebinds it [verified 2026-10-05, V-TRAF-1 rev 3/4].
 
 **Allocation pools.** Per-DPRC pools for dpmcp/dpbp/dpcon/irq
 (`include/linux/fsl/mc.h:67-77`); allocation **never crosses container
@@ -340,7 +344,7 @@ false belief.
 | Id | Proposition | Observables | Status |
 |---|---|---|---|
 | DPRC-I1 | Kernel allocation of dpmcp/dpbp/dpcon/irq never crosses container boundaries: `container(consumer) = container(pool)` for every allocation | consumer probe outcome; `dprc show` of both containers; `-ENXIO "No more resources of type %s left"` on local exhaustion regardless of remote surplus | verified 2026-09-14 (V-DPRC-10 rev 2, 17/17, dprc-encapsulation task 5.4): with root's dpcon and dpbp pools locally dry and a sibling child holding free units of both, the scratch root dpni's dpaa2-eth probe was refused by dprc.1's own allocator (`No more resources of type dpcon left`, the -ENXIO shape) and all four sibling objects read back resident — the draw refused locally with genuine surplus one hop away, so the boundary is witnessed, not vacuous |
-| DPRC-I2 | Plug gating: object bound to a kernel driver ⟺ plugged ∧ matching driver present; `assign --plugged=1` ⇒ eventually bound, `--plugged=0` ⇒ released | plugged column of `dprc show`; presence of `driver` symlink under `/sys/bus/fsl-mc/devices/<obj>/` | verified 2026-08-23 (V-LINK-5): the release direction holds by refusal — `assign --plugged=0` on a kernel-bound, netdev-backed dpni came back −EBUSY with the object still plugged and the driver still bound, not a race; the bind direction is V-LIFE-DPNI-1's canonical order |
+| DPRC-I2 | Plug gating: object bound to a kernel driver ⟺ plugged ∧ matching driver present; `assign --plugged=1` ⇒ eventually bound, `--plugged=0` ⇒ released | plugged column of `dprc show`; presence of `driver` symlink under `/sys/bus/fsl-mc/devices/<obj>/` | verified 2026-08-23 (V-LINK-5): the release direction holds by refusal — `assign --plugged=0` on a kernel-bound, netdev-backed dpni came back −EBUSY with the object still plugged and the driver still bound, not a race; the bind direction is V-LIFE-DPNI-1's canonical order; re-anchored 2026-10-05 (V-TRAF-1 rev 2/4): the refusal is restool's own client guard (`unbind it first`, exit 240) issued before the MC is consulted, and it extends to allocatables — a plugged dpmcp/dpbp/dpcon is `fsl_mc_allocator`-bound the whole time it sits on the bus, so even its unplug or destroy is refused until a sysfs unbind (finding 51) |
 | DPRC-I3 | Move precondition: `assign --child` is enabled only for unplugged objects; a move of a plugged object is refused and the object's container membership is unchanged | command exit + MC status; object's container membership unchanged after refusal | verified 2026-08-29 (V-DPRC-6 rev 1): the one-hop move of a plugged dpbp was refused by restool's own client guard ("cannot be moved because it is currently in plugged state" / "unplug it first") before any MC command, and the dpbp stayed put — the refusal is the restool layer, so the MC-layer status stays unreachable through restool |
 | DPRC-I4 | `dprc create` without `--options` yields exactly {SPAWN, ALLOC, OBJ_CREATE, IRQ_CFG}_ALLOWED | options mask in `dprc info` | verified; re-anchored 2026-09-14 (V-DPRC-9 rev 1, dprc-encapsulation task 5.3): a tool-created container's mask read back 0x47 through the shipped `dpaa2ctl`, decoding to exactly this set — the fingerprint judged the real read-back, not an assumed default |
 | DPRC-I5 | Connect precondition: `connect(p, e1, e2)` enabled only if p is a common ancestor of e1 and e2 and both are currently unconnected | command exit; `GET_CONNECTION` per endpoint | candidate |
