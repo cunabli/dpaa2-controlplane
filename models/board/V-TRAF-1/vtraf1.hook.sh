@@ -36,45 +36,41 @@ mono() {
 retry() { until "$1"; do printf '   r=retry, enter=continue: '; read -r k; [ "$k" = r ] || break; done; }
 # net_cleanup: best-effort, safe if the rig half-built (set -u). Deleting a
 # netns returns its netdev to the init ns; disconnect the pair so the generated
-# teardown's destroy is not refused (LINK-I1 destroy-of-connected-end).
+# teardown's destroy is not refused (LINK-I1 destroy-of-connected-end), then
+# unplug both ends and destroy the six allocatables this hook provisioned — the
+# generated teardown only knows the trace objects. Each command is echoed into
+# $TE before it runs (the teardown-log attribution idiom).
 net_cleanup() {
   ip netns del vtraf1-a 2>>"$TE" || true
   ip netns del vtraf1-b 2>>"$TE" || true
   [ -n "${OBJ_dpni_600:-}" ] && restool dprc disconnect dprc.1 --endpoint="$OBJ_dpni_600" 2>>"$TE" || true
+  for o in "${OBJ_dpni_600:-}" "${OBJ_dpni_601:-}"; do
+    [ -n "$o" ] || continue
+    echo "+ restool dprc assign dprc.1 --object=$o --plugged=0" >> "$TE"
+    restool dprc assign dprc.1 --object="$o" --plugged=0 2>>"$TE" || true
+  done
+  for id in "${CON2:-}" "${BP2:-}" "${MCP2:-}" "${CON1:-}" "${BP1:-}" "${MCP1:-}"; do
+    [ -n "$id" ] || continue
+    fam="${id%%.*}"
+    echo "+ restool $fam destroy $id" >> "$TE"
+    restool "$fam" destroy "$id" 2>>"$TE" || true
+  done
 }
 # Re-arm the one EXIT trap: net cleanup first, then the generated teardown.
 trap 'net_cleanup; teardown' EXIT
 
-# ----- SECTION A: frame witness (cross-dprc-links task 6.2) -----
-# Connect BEFORE kernel bind — the blessed populate->connect->bind order; a
-# post-bind connect trips the ENDPOINT_CHANGED law that belongs to face 4.
-restool dprc connect dprc.1 --endpoint1="$OBJ_dpni_600" --endpoint2="$OBJ_dpni_601" 2>>"$TE"
-restool dprc assign dprc.1 --object="$OBJ_dpni_600" --plugged=1 2>>"$TE"
-restool dprc assign dprc.1 --object="$OBJ_dpni_601" --plugged=1 2>>"$TE"
-restool dprc sync 2>>"$TE"
-sleep 2
-# Each plugged dpni now carries a kernel netdev; discover both.
-NDA="$(ls /sys/bus/fsl-mc/devices/"$OBJ_dpni_600"/net/ 2>>"$TE")"
-NDB="$(ls /sys/bus/fsl-mc/devices/"$OBJ_dpni_601"/net/ 2>>"$TE")"
-
-# One netns per side; IPv6 off BEFORE link-up so no ND/DAD frame pollutes the
-# exact count; static neigh both ways (peer MAC read back) so no ARP flows.
-ip netns add vtraf1-a 2>>"$TE"
-ip netns add vtraf1-b 2>>"$TE"
-ip link set "$NDA" netns vtraf1-a 2>>"$TE"
-ip link set "$NDB" netns vtraf1-b 2>>"$TE"
-ip netns exec vtraf1-a sysctl -w net.ipv6.conf.all.disable_ipv6=1 >>"$TE" 2>&1
-ip netns exec vtraf1-b sysctl -w net.ipv6.conf.all.disable_ipv6=1 >>"$TE" 2>&1
-ip -n vtraf1-a addr replace 192.0.2.1/24 dev "$NDA" 2>>"$TE"
-ip -n vtraf1-b addr replace 192.0.2.2/24 dev "$NDB" 2>>"$TE"
-MACA="$(ip -n vtraf1-a link show "$NDA" 2>>"$TE" | awk '/link\/ether/ {print $2}')"
-MACB="$(ip -n vtraf1-b link show "$NDB" 2>>"$TE" | awk '/link\/ether/ {print $2}')"
-ip -n vtraf1-a neigh replace 192.0.2.2 lladdr "$MACB" dev "$NDA" 2>>"$TE"
-ip -n vtraf1-b neigh replace 192.0.2.1 lladdr "$MACA" dev "$NDB" 2>>"$TE"
-ip -n vtraf1-a link set "$NDA" up 2>>"$TE"
-ip -n vtraf1-b link set "$NDB" up 2>>"$TE"
-
-# Wait for the MC to report link up on both ends; bounded poll, reading kept.
+# poll_netdev OBJ: wait up to 30s for the kernel to bind a netdev under the
+# dpni's bus device; echo the netdev name and succeed, or time out non-zero.
+poll_netdev() {
+  i=0
+  while [ "$i" -lt 30 ]; do
+    nd="$(ls /sys/bus/fsl-mc/devices/"$1"/net/ 2>>"$TE" | head -n1)"
+    [ -n "$nd" ] && { echo "$nd"; return 0; }
+    i=$((i + 1)); sleep 1
+  done
+  return 1
+}
+# wait_link OBJ: bounded poll for the MC to report the end's link up; kept.
 wait_link() {
   i=0
   while [ "$i" -lt 20 ]; do
@@ -84,8 +80,6 @@ wait_link() {
   done
   echo "link $1: ${l:-none} (never up)" >> "$T"; return 1
 }
-wait_link "$OBJ_dpni_600" || true
-wait_link "$OBJ_dpni_601" || true
 # witness: baseline the four counters only after the rig settled, ping 8, then
 # require EXACT movement — sender egress/ingress and receiver ingress/egress all +8.
 witness() {
@@ -101,10 +95,9 @@ witness() {
   verdict witness-sender-ingress "ingress_all_frames $si0 -> $si1" $((si1 - si0)) 8 || a=1
   return "$a"
 }
-retry witness
-# ----- SECTION B: saturation smoke (cross-dprc-links task 6.2) -----
-# Monotone counters and zero new discards under load; NO rate is computed,
-# printed, or compared (cross-dprc-links design D10: reachability, not performance).
+# smoke (cross-dprc-links task 6.2): monotone counters and zero new discards
+# under load; NO rate is computed, printed, or compared
+# (cross-dprc-links design D10: reachability, not performance).
 smoke() {
   da0=$(drops vtraf1-a "$NDA"); db0=$(drops vtraf1-b "$NDB")
   pse=$(count "$OBJ_dpni_600" egress_all_frames); pre=$(count "$OBJ_dpni_601" ingress_all_frames)
@@ -125,7 +118,73 @@ smoke() {
   verdict smoke-discards-b "dropped+errors $db0 -> $db1" $((db1 - db0)) 0 || b=1
   return "$b"
 }
-retry smoke
+
+# ----- SECTION A: frame witness (cross-dprc-links task 6.2) -----
+# Connect BEFORE kernel bind — the blessed populate->connect->bind order; a
+# post-bind connect trips the ENDPOINT_CHANGED law that belongs to face 4.
+restool dprc connect dprc.1 --endpoint1="$OBJ_dpni_600" --endpoint2="$OBJ_dpni_601" 2>>"$TE"
+
+# The kernel auto-probes each bus-visible dpni and draws 1 dpmcp + 1 dpbp +
+# >=1 dpcon from dprc.1's pool; rev 1 showed a probe with no free census
+# defers forever and no netdev ever appears. Provision two private census sets
+# and plug one dpni at a time — a probing dpni greedily takes every free dpcon,
+# so the pair must not see the pool together before the first is bound.
+MCP1="$(restool --script dpmcp create --container=dprc.1 2>>"$TE")"
+BP1="$(restool --script dpbp create --container=dprc.1 2>>"$TE")"
+CON1="$(restool --script dpcon create --container=dprc.1 2>>"$TE")"
+MCP2="$(restool --script dpmcp create --container=dprc.1 2>>"$TE")"
+BP2="$(restool --script dpbp create --container=dprc.1 2>>"$TE")"
+CON2="$(restool --script dpcon create --container=dprc.1 2>>"$TE")"
+
+RIG_OK=1
+NDA=""
+NDB=""
+for o in "$MCP1" "$BP1" "$CON1"; do
+  restool dprc assign dprc.1 --object="$o" --plugged=1 2>>"$TE"
+done
+restool dprc sync 2>>"$TE"
+restool dprc assign dprc.1 --object="$OBJ_dpni_600" --plugged=1 2>>"$TE"
+if ! NDA="$(poll_netdev "$OBJ_dpni_600")"; then
+  echo "FAIL witness-rig: $OBJ_dpni_600 never bound a netdev" | tee -a "$T"
+  RIG_OK=0
+fi
+if [ "$RIG_OK" = 1 ]; then
+  for o in "$MCP2" "$BP2" "$CON2"; do
+    restool dprc assign dprc.1 --object="$o" --plugged=1 2>>"$TE"
+  done
+  restool dprc sync 2>>"$TE"
+  restool dprc assign dprc.1 --object="$OBJ_dpni_601" --plugged=1 2>>"$TE"
+  if ! NDB="$(poll_netdev "$OBJ_dpni_601")"; then
+    echo "FAIL witness-rig: $OBJ_dpni_601 never bound a netdev" | tee -a "$T"
+    RIG_OK=0
+  fi
+fi
+
+# With both ends bound, stand the netns rig and run the witness and smoke. No
+# command runs with an empty netdev variable: a failed bind skips the whole rig.
+if [ "$RIG_OK" = 1 ]; then
+  # One netns per side; IPv6 off BEFORE link-up so no ND/DAD frame pollutes the
+  # exact count; static neigh both ways (peer MAC read back) so no ARP flows.
+  ip netns add vtraf1-a 2>>"$TE"
+  ip netns add vtraf1-b 2>>"$TE"
+  ip link set "$NDA" netns vtraf1-a 2>>"$TE"
+  ip link set "$NDB" netns vtraf1-b 2>>"$TE"
+  ip netns exec vtraf1-a sysctl -w net.ipv6.conf.all.disable_ipv6=1 >>"$TE" 2>&1
+  ip netns exec vtraf1-b sysctl -w net.ipv6.conf.all.disable_ipv6=1 >>"$TE" 2>&1
+  ip -n vtraf1-a addr replace 192.0.2.1/24 dev "$NDA" 2>>"$TE"
+  ip -n vtraf1-b addr replace 192.0.2.2/24 dev "$NDB" 2>>"$TE"
+  MACA="$(ip -n vtraf1-a link show "$NDA" 2>>"$TE" | awk '/link\/ether/ {print $2}')"
+  MACB="$(ip -n vtraf1-b link show "$NDB" 2>>"$TE" | awk '/link\/ether/ {print $2}')"
+  ip -n vtraf1-a neigh replace 192.0.2.2 lladdr "$MACB" dev "$NDA" 2>>"$TE"
+  ip -n vtraf1-b neigh replace 192.0.2.1 lladdr "$MACA" dev "$NDB" 2>>"$TE"
+  ip -n vtraf1-a link set "$NDA" up 2>>"$TE"
+  ip -n vtraf1-b link set "$NDB" up 2>>"$TE"
+  wait_link "$OBJ_dpni_600" || true
+  wait_link "$OBJ_dpni_601" || true
+  retry witness
+  # ----- SECTION B: saturation smoke (cross-dprc-links task 6.2) -----
+  retry smoke
+fi
 
 R="$RESULTS/vtraf1-refusals.txt"
 E="$RESULTS/vtraf1-refusals.err"
@@ -133,26 +192,42 @@ E="$RESULTS/vtraf1-refusals.err"
 : > "$E"
 log() { echo "$1" | tee -a "$R"; }
 
-# A connected dpni↔dpni pair at the root to probe the laws on.
+# Create A, B and C up front, before any connect or destroy: a create recycles
+# the lowest free id, so a C minted after A's destroy would reuse A's id and
+# invalidate the fixture (rev 1: dpni_500 and dpni_600 both mapped to dpni.9).
 A="$(restool --script dpni create --container=dprc.1 2>>"$E")"
 B="$(restool --script dpni create --container=dprc.1 2>>"$E")"
-restool dprc connect dprc.1 --endpoint1="$A" --endpoint2="$B" 2>>"$E"
-
-# LINK-I1 disconnect-before-destroy: the MC refuses destroy of a still-connected
-# end (finding 34 generalized). Record the refusal; a success is the failure.
-if restool dpni destroy "$A" >>"$R" 2>&1; then
-  log "FAIL LINK-I1: destroy of still-connected end $A was NOT refused"
-else
-  log "RECORD LINK-I1: destroy of connected end $A refused (disconnect-before-destroy)"
-fi
-
-# DPRC-I5 double-connect: an endpoint holds at most one peer, so connecting an
-# already-connected end to a new peer is refused (cardinality-one). Record it.
 C="$(restool --script dpni create --container=dprc.1 2>>"$E")"
-if restool dprc connect dprc.1 --endpoint1="$A" --endpoint2="$C" >>"$R" 2>&1; then
-  log "FAIL DPRC-I5: double-connect of $A was NOT refused"
+
+# fixture_ok: A's `dpni info` names B on its endpoint line (the generated step
+# 2/6 read-back idiom); a connect the MC silently dropped reads back no peer.
+fixture_ok() { restool dpni info "$A" 2>>"$E" | grep -q "endpoint:.*$B"; }
+
+# Establish and assert the A<->B wire the two laws probe; a SKIP is loud.
+if restool dprc connect dprc.1 --endpoint1="$A" --endpoint2="$B" 2>>"$E" && fixture_ok; then
+  # LINK-I1 disconnect-before-destroy: the MC refuses destroy of a still-
+  # connected end (finding 34 generalized). A success is the failure AND tears
+  # the fixture DPRC-I5 needs, so DPRC-I5 is then skipped.
+  if restool dpni destroy "$A" >>"$R" 2>&1; then
+    log "FAIL LINK-I1: destroy of still-connected end $A was NOT refused"
+    log "SKIP DPRC-I5: LINK-I1 destroyed the connected end, precondition gone"
+  else
+    log "RECORD LINK-I1: destroy of connected end $A refused (disconnect-before-destroy)"
+    # DPRC-I5 double-connect: an endpoint holds at most one peer. Re-assert the
+    # fixture first so the law never runs against a stale wire.
+    if fixture_ok; then
+      if restool dprc connect dprc.1 --endpoint1="$A" --endpoint2="$C" >>"$R" 2>&1; then
+        log "FAIL DPRC-I5: double-connect of $A was NOT refused"
+      else
+        log "RECORD DPRC-I5: double-connect of already-connected $A refused (disconnect-before-reconnect)"
+      fi
+    else
+      log "SKIP DPRC-I5: fixture not established"
+    fi
+  fi
 else
-  log "RECORD DPRC-I5: double-connect of already-connected $A refused (disconnect-before-reconnect)"
+  log "SKIP LINK-I1: fixture not established"
+  log "SKIP DPRC-I5: fixture not established"
 fi
 
 # Clean up what this hook created; the generated trap tears down only the trace's
@@ -162,4 +237,4 @@ for id in "$C" "$B" "$A"; do
   [ -n "$id" ] && restool dpni destroy "$id" 2>>"$E" || true
 done
 
-echo "vtraf1 refusal probes: $(grep -c '^RECORD ' "$R") recorded, $(grep -c '^FAIL ' "$R") failed"
+echo "vtraf1 refusal probes: $(grep -c '^RECORD ' "$R") recorded, $(grep -c '^FAIL ' "$R") failed, $(grep -c '^SKIP ' "$R") skipped"

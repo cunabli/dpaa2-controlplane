@@ -1106,18 +1106,18 @@ pub fn generate(
                     if connected_bound_dpni && let Some(root) = root.as_ref() {
                         let _ = writeln!(
                             trap,
-                            "  # sever the dpmac edge before unbinding (ADR-0008 §8)\n  [ -n \"${{{var}:-}}\" ] && restool dprc disconnect {root} --endpoint=\"${{{var}}}\" {log} || true"
+                            "  # sever the dpmac edge before unbinding (ADR-0008 §8)\n  [ -n \"${{{var}:-}}\" ] && echo '+ restool dprc disconnect {root} --endpoint=\"${{{var}}}\"' >> \"$RESULTS/teardown.log\" && restool dprc disconnect {root} --endpoint=\"${{{var}}}\" {log} || true"
                         );
                     }
                     let dev = format!("/sys/bus/fsl-mc/devices/${{{var}}}");
                     let _ = writeln!(
                         trap,
-                        "  [ -n \"${{{var}:-}}\" ] && [ -e \"{dev}/driver\" ] && echo \"${{{var}}}\" > \"{dev}/driver/unbind\" {log} || true"
+                        "  [ -n \"${{{var}:-}}\" ] && [ -e \"{dev}/driver\" ] && echo '+ echo \"${{{var}}}\" > \"{dev}/driver/unbind\"' >> \"$RESULTS/teardown.log\" && echo \"${{{var}}}\" > \"{dev}/driver/unbind\" {log} || true"
                     );
                 }
                 let _ = writeln!(
                     trap,
-                    "  [ -n \"${{{var}:-}}\" ] && restool dprc assign {parent} --object=\"${{{var}}}\" --plugged=0 {log} || true"
+                    "  [ -n \"${{{var}:-}}\" ] && echo '+ restool dprc assign {parent} --object=\"${{{var}}}\" --plugged=0' >> \"$RESULTS/teardown.log\" && restool dprc assign {parent} --object=\"${{{var}}}\" --plugged=0 {log} || true"
                 );
             }
             // The trap renders its own destroys rather than going
@@ -1132,7 +1132,7 @@ pub fn generate(
             };
             let _ = writeln!(
                 trap,
-                "  [ -n \"${{{var}:-}}\" ] && restool {} destroy{target} {log} || true",
+                "  [ -n \"${{{var}:-}}\" ] && echo '+ restool {0} destroy{target}' >> \"$RESULTS/teardown.log\" && restool {0} destroy{target} {log} || true",
                 obj.fam.as_str()
             );
             // Settle after every destroy, and only after a destroy. A
@@ -1157,6 +1157,7 @@ pub fn generate(
             let _ = writeln!(
                 trap,
                 "  # restore boot wiring severed by this suite (reference-environment edge)\n  \
+                 echo '+ restool dprc connect {root} --endpoint1={a} --endpoint2={b}' >> \"$RESULTS/teardown.log\"\n  \
                  restool dprc connect {root} --endpoint1={a} --endpoint2={b} {log}\n  sleep 2"
             );
         }

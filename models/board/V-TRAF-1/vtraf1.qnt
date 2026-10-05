@@ -31,7 +31,7 @@
 //     --mbt --max-samples=1 --seed=0x1 --max-steps=3 \
 //     --out-itf=models/board/V-TRAF-1/vtraf1.face1.itf.json
 //   pnpm exec quint run models/board/V-TRAF-1/vtraf1.qnt --main=vtraf1face2 \
-//     --mbt --max-samples=1 --seed=0x1 --max-steps=8 \
+//     --mbt --max-samples=1 --seed=0x1 --max-steps=9 \
 //     --out-itf=models/board/V-TRAF-1/vtraf1.face2.itf.json
 //   pnpm exec quint run models/board/V-TRAF-1/vtraf1.qnt --main=vtraf1face3 \
 //     --mbt --max-samples=1 --seed=0x1 --max-steps=5 \
@@ -359,12 +359,16 @@ module vtraf1face2 {
   }
 
   // bind the kernel end: plug it, then a root rescan makes it busVisible.
+  // lastVerbs is the first connect's "dprc connect": the final unplug leaves
+  // dpni0 unplugged with the wire still up ("dprc assign"), a state this guard
+  // must not re-fire on, so the trace ends at the unplug.
   action plug = {
     nondet o = Set(dpni0).oneOf()
     all {
       m::s.objs.keys().contains(dpni0),
       m::s.conns.size() == 1,
       not(m::s.objs.get(dpni0).plugged),
+      m::lastVerbs == Set("dprc connect"),
       m::plugAt(o),
     }
   }
@@ -394,8 +398,26 @@ module vtraf1face2 {
     }
   }
 
+  // the face's final step: unplug the bound end. On the board this removes
+  // dpni0's bus device, cancelling the deferred kernel probe it would otherwise
+  // leave retrying — which rev 1 showed steals face 4's census (bead
+  // dpaa2-controlplane-kux.26). Enabled only after the post-bind reconnect
+  // (busVisible, wire up, lastVerbs the reconnect's "dprc connect"); unplugT
+  // clears plugged so nothing follows.
+  action unplug = {
+    nondet o = Set(dpni0).oneOf()
+    all {
+      m::s.objs.keys().contains(dpni0),
+      m::s.objs.get(dpni0).busVisible,
+      m::s.conns.size() == 1,
+      m::lastVerbs == Set("dprc connect"),
+      m::unplugAt(o),
+    }
+  }
+
   action step = any {
     createContainer, createObject, connectEdge, plug, rescan, disconnectEdge,
+    unplug,
   }
 }
 

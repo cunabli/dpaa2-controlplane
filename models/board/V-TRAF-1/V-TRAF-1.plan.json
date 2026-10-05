@@ -309,6 +309,37 @@
     },
     {
       "index": 11,
+      "title": "Unplug { obj: ObjRef { fam: Dpni, num: 200 } }",
+      "driven": true,
+      "probes": [
+        {
+          "Restool": [
+            "dprc",
+            "show",
+            "dprc.1"
+          ]
+        },
+        {
+          "SysfsRead": {
+            "path": "/sys/bus/fsl-mc/devices/dpni.200/driver"
+          }
+        }
+      ],
+      "created": null,
+      "expected": {
+        "object": {
+          "fam": "Dpni",
+          "num": 200
+        },
+        "present": true,
+        "plugged": false,
+        "endpoint": null,
+        "driver_bound": false,
+        "link_up": null
+      }
+    },
+    {
+      "index": 12,
       "title": "CreateContainer { parent: ObjRef { fam: Dprc, num: 1 } }",
       "driven": true,
       "probes": [
@@ -338,7 +369,7 @@
       "face": "3 child<->child generality"
     },
     {
-      "index": 12,
+      "index": 13,
       "title": "CreateContainer { parent: ObjRef { fam: Dprc, num: 1 } }",
       "driven": true,
       "probes": [
@@ -367,7 +398,7 @@
       }
     },
     {
-      "index": 13,
+      "index": 14,
       "title": "CreateObject { fam: Dpni, container: ObjRef { fam: Dprc, num: 302 } }",
       "driven": true,
       "probes": [
@@ -396,7 +427,7 @@
       }
     },
     {
-      "index": 14,
+      "index": 15,
       "title": "CreateObject { fam: Dpni, container: ObjRef { fam: Dprc, num: 303 } }",
       "driven": true,
       "probes": [
@@ -425,7 +456,7 @@
       }
     },
     {
-      "index": 15,
+      "index": 16,
       "title": "ConnectEdge { a: EndpointRef { obj: ObjRef { fam: Dpni, num: 300 }, port: 0 }, b: EndpointRef { obj: ObjRef { fam: Dpni, num: 301 }, port: 0 } }",
       "driven": true,
       "probes": [
@@ -457,7 +488,7 @@
       }
     },
     {
-      "index": 16,
+      "index": 17,
       "title": "CreateObject { fam: Dpmcp, container: ObjRef { fam: Dprc, num: 1 } }",
       "driven": true,
       "probes": [
@@ -487,7 +518,7 @@
       "face": "4 create-side heal (consented rebind)"
     },
     {
-      "index": 17,
+      "index": 18,
       "title": "CreateObject { fam: Dpbp, container: ObjRef { fam: Dprc, num: 1 } }",
       "driven": true,
       "probes": [
@@ -516,7 +547,7 @@
       }
     },
     {
-      "index": 18,
+      "index": 19,
       "title": "CreateObject { fam: Dpcon, container: ObjRef { fam: Dprc, num: 1 } }",
       "driven": true,
       "probes": [
@@ -545,7 +576,7 @@
       }
     },
     {
-      "index": 19,
+      "index": 20,
       "title": "CreateObject { fam: Dpni, container: ObjRef { fam: Dprc, num: 1 } }",
       "driven": true,
       "probes": [
@@ -574,7 +605,7 @@
       }
     },
     {
-      "index": 20,
+      "index": 21,
       "title": "Plug { obj: ObjRef { fam: Dpmcp, num: 400 } }",
       "driven": true,
       "probes": [
@@ -600,7 +631,7 @@
       }
     },
     {
-      "index": 21,
+      "index": 22,
       "title": "Plug { obj: ObjRef { fam: Dpbp, num: 400 } }",
       "driven": true,
       "probes": [
@@ -626,7 +657,7 @@
       }
     },
     {
-      "index": 22,
+      "index": 23,
       "title": "Plug { obj: ObjRef { fam: Dpcon, num: 400 } }",
       "driven": true,
       "probes": [
@@ -652,7 +683,7 @@
       }
     },
     {
-      "index": 23,
+      "index": 24,
       "title": "Plug { obj: ObjRef { fam: Dpni, num: 400 } }",
       "driven": true,
       "probes": [
@@ -678,7 +709,7 @@
       }
     },
     {
-      "index": 24,
+      "index": 25,
       "title": "Rescan { container: ObjRef { fam: Dprc, num: 1 } }",
       "driven": true,
       "probes": [],
@@ -686,7 +717,7 @@
       "expected": null
     },
     {
-      "index": 25,
+      "index": 26,
       "title": "KernelBind { obj: ObjRef { fam: Dpni, num: 400 } }",
       "driven": false,
       "probes": [
@@ -710,7 +741,7 @@
       }
     },
     {
-      "index": 26,
+      "index": 27,
       "title": "CreateObject { fam: Dpni, container: ObjRef { fam: Dprc, num: 1 } }",
       "driven": true,
       "probes": [
@@ -739,7 +770,7 @@
       }
     },
     {
-      "index": 27,
+      "index": 28,
       "title": "Unbind { obj: ObjRef { fam: Dpni, num: 400 } }",
       "driven": true,
       "probes": [
@@ -763,7 +794,7 @@
       }
     },
     {
-      "index": 28,
+      "index": 29,
       "title": "KernelBind { obj: ObjRef { fam: Dpni, num: 400 } }",
       "driven": false,
       "probes": [
@@ -788,7 +819,7 @@
       "note": "a post-bind connect on this kernel-bound end logs ENDPOINT_CHANGED then -EPERM (discarded) — the dmesg law recorded here, the face with an explicit kernel-bound end (cross-dprc-links design D4); face 2 carries no kernelBind and is judged by dprc_get_connection from root"
     },
     {
-      "index": 29,
+      "index": 30,
       "title": "Rescan { container: ObjRef { fam: Dprc, num: 1 } }",
       "driven": true,
       "probes": [],
@@ -796,7 +827,7 @@
       "expected": null
     },
     {
-      "index": 30,
+      "index": 31,
       "title": "CreateObject { fam: Dpni, container: ObjRef { fam: Dprc, num: 1 } }",
       "driven": true,
       "probes": [
@@ -826,7 +857,7 @@
       "face": "5 destroy-mirror"
     },
     {
-      "index": 31,
+      "index": 32,
       "title": "Plug { obj: ObjRef { fam: Dpni, num: 500 } }",
       "driven": true,
       "probes": [
@@ -852,7 +883,7 @@
       }
     },
     {
-      "index": 32,
+      "index": 33,
       "title": "Rescan { container: ObjRef { fam: Dprc, num: 1 } }",
       "driven": true,
       "probes": [],
@@ -860,7 +891,7 @@
       "expected": null
     },
     {
-      "index": 33,
+      "index": 34,
       "title": "Destroy { obj: ObjRef { fam: Dpni, num: 500 } }",
       "driven": true,
       "probes": [
@@ -886,7 +917,7 @@
       }
     },
     {
-      "index": 34,
+      "index": 35,
       "title": "CreateObject { fam: Dpni, container: ObjRef { fam: Dprc, num: 1 } }",
       "driven": true,
       "probes": [
@@ -916,7 +947,7 @@
       "face": "6 teardown laws (positive half)"
     },
     {
-      "index": 35,
+      "index": 36,
       "title": "CreateObject { fam: Dpni, container: ObjRef { fam: Dprc, num: 1 } }",
       "driven": true,
       "probes": [
@@ -945,7 +976,7 @@
       }
     },
     {
-      "index": 36,
+      "index": 37,
       "title": "ConnectEdge { a: EndpointRef { obj: ObjRef { fam: Dpni, num: 600 }, port: 0 }, b: EndpointRef { obj: ObjRef { fam: Dpni, num: 601 }, port: 0 } }",
       "driven": true,
       "probes": [
@@ -977,7 +1008,7 @@
       }
     },
     {
-      "index": 37,
+      "index": 38,
       "title": "DisconnectEdge { e: EndpointRef { obj: ObjRef { fam: Dpni, num: 600 }, port: 0 } }",
       "driven": true,
       "probes": [
@@ -1003,7 +1034,7 @@
       }
     },
     {
-      "index": 38,
+      "index": 39,
       "title": "child-issued connect refused No privilege (0x4)",
       "driven": false,
       "probes": [],

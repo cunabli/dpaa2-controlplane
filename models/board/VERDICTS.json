@@ -1315,5 +1315,18 @@
       "archive": "~/dpaa2-board-evidence/verify-foundation-2026-08-30.tar.gz",
       "refusals": []
     }
+  },
+  "V-TRAF-1": {
+    "run": {
+      "pass": false,
+      "date": "2026-10-05",
+      "kind": "batch",
+      "revision": 1,
+      "steps": "32/34",
+      "source_hash": "fnv1a64:5aae3885ff60e587",
+      "hook": "14/20",
+      "archive": null,
+      "refusals": []
+    }
   }
 }
