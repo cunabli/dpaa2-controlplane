@@ -111,8 +111,11 @@ and commits. Every group ends at the quality floor
       survivor), then link_lifecycle.qnt weakened to the board's
       answer: destroy-of-connected-end enabled, refusal witness
       retired, family traces re-frozen, COVERAGE row settled
-- [ ] 7.6 Dpcon-priority knob board witness (same sitting as 7.5):
-      intent with the 5.4 knob converged, derived operand read back;
-      DPCON-I3's consumer-at-priority>0 caveat re-anchored to its
-      concrete trigger (hal QBMan portal + mc-portal-backend
-      transport feed the -verify userspace consumer rig)
+- [x] 7.6 Dpcon-priority knob offline provenance pin (the board
+      read-back is unbuildable: the knob emits only a provenance
+      node, never an MC operand — the WQ priority binds at consumer
+      registration): vdpcon1_intents pins Some(p) to one provenance
+      node and None to byte-identical derivation; DPCON-I3's
+      consumer-at-priority>0 caveat re-anchored to its concrete
+      trigger (hal QBMan portal + mc-portal-backend transport feed
+      the -verify userspace consumer rig)
