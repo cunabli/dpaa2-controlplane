@@ -4,9 +4,9 @@
 //! not edit; regenerate by running this test with `WRITE_VTRAF1=1`.
 //!
 //! Faithful to the vtraf1.qnt header: the frozen face traces are core-machine
-//! `--mbt` traces (the adapter parses them unchanged), the two teardown-law
-//! refusals ride a directed-run hook, and the child-issued-connect refusal is
-//! the banked V-DPCI-1 witness cited, not re-run.
+//! `--mbt` traces (the adapter parses them unchanged), the face-6 teardown-law
+//! dispositions are banked in a sourced hook (no refusal command runs), and the
+//! child-issued-connect refusal is the banked V-DPCI-1 witness cited, not re-run.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -216,8 +216,8 @@ fn vtraf1_tears_down_banks_vdpci1_and_records_dmesg_on_face4() {
             .contains("ENDPOINT_CHANGED"),
         "the dmesg law is recorded"
     );
-    // The two directed-run refusals ride the hook (sourced after the last step),
-    // not the forward trace; their text lives in the sourced hook file.
+    // The face-6 teardown-law dispositions are banked in the hook (sourced after
+    // the last step), not re-run; their text lives in the sourced hook file.
     assert_eq!(
         suite.plan.hook.as_deref(),
         Some("models/board/V-TRAF-1/vtraf1.hook.sh")
@@ -231,11 +231,11 @@ fn vtraf1_tears_down_banks_vdpci1_and_records_dmesg_on_face4() {
     let hook = std::fs::read_to_string(board_dir().join("vtraf1.hook.sh")).expect("read hook");
     assert!(
         hook.contains("LINK-I1"),
-        "the hook probes disconnect-before-destroy"
+        "the hook banks the LINK-I1 disposition"
     );
     assert!(
         hook.contains("DPRC-I5"),
-        "the hook probes the double-connect refusal"
+        "the hook banks the DPRC-I5 double-connect disposition"
     );
 }
 

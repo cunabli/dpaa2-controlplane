@@ -58,24 +58,29 @@
 // cannot step, so a refusal can only be a run's terminal step. They stay the
 // directed runs below and reach the suite as directed-run probes / hook steps
 // for cross-dprc-links task 6.1, the V-TRAF-0 convention (generate.rs: "A hook
-// carries the steps a trace cannot express"). The two trace-inexpressible
-// refusals are disconnect-before-destroy (LINK-I1) and the DPRC-I5 double-
-// connect (LINK-I3).
+// carries the steps a trace cannot express"). Since cross-dprc-links task 7.5
+// the only trace-inexpressible refusal is the DPRC-I5 double-connect (LINK-I3);
+// destroy of a still-connected end is now an accepted edge-removal law
+// (V-LINK-6), kept as a directed run below.
 //
 // Rev-3 banked disposition (cross-dprc-links task 7.2, suite ledger): on-board
 // (2026-10-05 revs 1-2, fixture asserted) the MC ACCEPTED destroy of a still-
-// connected dpni end, falsifying LINK-I1; DPRC-I5 is unresolvable without that
-// same destroy; both sittings lost the standing management dpni from the bus in
-// the probe window, so the hook quarantines the probe. The runs below are
-// unchanged — this is the model record of a board finding, not a model change.
+// connected dpni end, LINK-I1's refusal guard falsified (state face hardware-
+// anchored, V-LINK-6); DPRC-I5 is unresolvable without that same destroy; both
+// sittings lost the standing management dpni from the bus in the probe window,
+// so the hook quarantines the probe. The cross-dprc-links task 7.5 model
+// change flipped the destroy run below to the accepted edge-removal law; the
+// double-connect refusal run is unchanged — this is the model record of a
+// board finding.
 //
 // The faces, in cross-dprc-links design D10 order:
 //   1 root↔root converge   — the frame witness and saturation smoke are
 //                            board-side hooks (6.1); the trace carries the
 //                            converge steps and the face marker for them.
 //   2 cross-container      — populate → connect → bind, then a post-bind
-//                            connect (the kernel-end ENDPOINT_CHANGED dmesg
-//                            law, recorded board-side, cross-dprc-links D4).
+//                            connect on driver-unbound ends; the kernel-end
+//                            ENDPOINT_CHANGED dmesg law stays deliberately
+//                            untaken (dpni.md unknown #13).
 //   3 child↔child          — the same connect, nothing privileging the root.
 //   4 create-side heal     — post-bind create's DeferredVisibility obligation
 //                            discharged by a consented rebind cycle (unbind →
@@ -116,8 +121,9 @@ module vtraf1 {
   // The fresh partial order on a cross-container pair (root↔child,
   // cross-dprc-links design D4): connect on the unplugged (Populated) container,
   // then bind both ends visible. The disconnect re-exposes the pair so the
-  // final connect runs post-bind on already-visible endpoints — the face that
-  // records the ENDPOINT_CHANGED → -EPERM-discarded dmesg law board-side.
+  // final connect runs post-bind on already-visible endpoints — but on driver-
+  // unbound ends, so the kernel-end ENDPOINT_CHANGED → -EPERM-discarded dmesg
+  // law stays deliberately untaken (dpni.md unknown #13).
   run face2CrossContainerTest =
     initPopulatedAt(rootContainer, childA)
       .then(check(world.containerBind == Populated))
@@ -177,10 +183,12 @@ module vtraf1 {
 
   // ---- face 6: teardown laws (cross-dprc-links design D5/D7) ----
 
-  // Face 6 carries three teardown laws. A Quint .fail() step does not advance
-  // state (world' stays unset), so a refusal can only be a run's terminal
-  // step — each refusal law therefore rides its own run, the idiom
-  // link_lifecycle's own connectAlreadyConnectedRefusedTest already uses.
+  // Face 6 carries three teardown laws: the sanctioned disconnect, the accepted
+  // destroy of a still-connected end (the edge dies atomically with it), and the
+  // DPRC-I5 double-connect refusal. A Quint .fail() step does not advance state
+  // (world' stays unset), so the double-connect refusal can only be a run's
+  // terminal step — it rides its own run, the idiom link_lifecycle's own
+  // connectAlreadyConnectedRefusedTest already uses.
 
   // The sanctioned teardown verb: disconnect of the live wire (the only
   // dpni↔dpni teardown, disconnect-only — cross-dprc-links design D3).
@@ -190,12 +198,20 @@ module vtraf1 {
       .then(disconnectWireAt(portZero(dpniLeft), portZero(dpniRight)))
       .expect(world.phase == Disconnected)
 
-  // Disconnect-before-destroy (LINK-I1, cross-dprc-links design D5): destroying
-  // a still-connected end is refused — a terminal .fail().
-  run face6DisconnectBeforeDestroyRefusedTest =
+  // Accepted edge-removal (LINK-I1 standing reading, cross-dprc-links design D5,
+  // V-LINK-6 2026-10-05): the MC accepts destroy of a still-connected end and
+  // the edge dies atomically with it, so the survivor reads no edge. Mirrors
+  // link_lifecycle's destroyConnectedEndRemovesEdgeTest.
+  run face6DestroyConnectedEndRemovesEdgeTest =
     init
       .then(connectWireAt(portZero(dpniLeft), portZero(dpniRight)))
-      .then(destroyEndAt(dpniLeft).fail())
+      .then(destroyEndAt(dpniLeft))
+      .expect(and {
+        world.phase == EndDestroyLegal,
+        not(world.core.objs.keys().contains(dpniLeft)),
+        world.core.conns == Set(),
+        world.core.objs.keys().contains(dpniRight),
+      })
 
   // DPRC-I5 double-connect refusal (LINK-I3 cardinality one): connecting an
   // already-connected end is refused — a terminal .fail(). It is a refusal,
@@ -212,8 +228,9 @@ module vtraf1 {
   // (the machine fixes end containers at init, so the walk re-inits to change
   // topology — the face marker V-TRAF-0 renders as a phase comment). A forward
   // walk cannot contain a disabled action (a .fail() step would be terminal),
-  // so face 6's two refusal laws stay on their own runs above; this walk ends
-  // on face 6's disconnect-live teardown.
+  // so face 6's DPRC-I5 double-connect refusal and its accepted-destroy law
+  // stay on their own runs above; this walk ends on face 6's disconnect-live
+  // teardown.
   run vtraf1WalkTest =
     // 1 root↔root converge
     initAt(rootContainer, rootContainer)

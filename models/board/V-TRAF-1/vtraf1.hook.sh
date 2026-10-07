@@ -1,8 +1,9 @@
 # V-TRAF-1 face 6 teardown-law refusals — BANKED, quarantined from rev 3
 # (cross-dprc-links task 7.2, design D10; suite ledger). The two refusals were
 # directed probes through rev 2; on-board (2026-10-05 revs 1-2, fixture
-# asserted) the MC ACCEPTED destroy of a still-connected dpni end, falsifying
-# LINK-I1, and DPRC-I5 (double-connect) is unresolvable without that same
+# asserted) the MC ACCEPTED destroy of a still-connected dpni end, LINK-I1's
+# refusal guard falsified (state face hardware-anchored, V-LINK-6), and DPRC-I5
+# (double-connect) is unresolvable without that same
 # destroy. BOTH sittings lost the standing management dpni from the bus inside
 # the probe window, so the probe is quarantined as the discriminating
 # experiment: no refusal command runs here now (SECTION C banks the
@@ -211,12 +212,13 @@ if [ "$RIG_OK" = 1 ]; then
 fi
 
 # ----- SECTION C: teardown-law refusals — banked, quarantined -----
-# LINK-I1 (disconnect-before-destroy) was falsified on-board 2026-10-05 revs
-# 1-2 with the fixture asserted: the MC ACCEPTS destroy of a still-connected
-# dpni end, so there is nothing left to probe. DPRC-I5 (double-connect) is
+# LINK-I1's refusal guard (disconnect-before-destroy) was falsified on-board
+# 2026-10-05 revs 1-2 with the fixture asserted (state face hardware-anchored,
+# V-LINK-6): the MC ACCEPTS destroy of a still-connected dpni end, so there is
+# nothing left to probe. DPRC-I5 (double-connect) is
 # unresolvable by this route — it needs that same connected end plus the
 # destroy LINK-I1 already took. BOTH sittings lost the standing management dpni
 # from the bus inside this probe window (a board-wide link flap in rev 2), so
 # the probe is quarantined from rev 3 as the discriminating experiment
 # (cross-dprc-links task 7.2, suite ledger). No refusal command runs here.
-echo "vtraf1 refusal probes: banked — LINK-I1 falsified rev 1-2, DPRC-I5 unresolvable; quarantined (see suite ledger)" | tee "$RESULTS/vtraf1-refusals.txt"
+echo "vtraf1 refusal probes: banked — LINK-I1's refusal guard falsified rev 1-2 (state face hardware-anchored, V-LINK-6), DPRC-I5 unresolvable; quarantined (see suite ledger)" | tee "$RESULTS/vtraf1-refusals.txt"
