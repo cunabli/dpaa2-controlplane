@@ -182,6 +182,27 @@ unknown resolved (does a stale node linger?); (6) teardown laws
 refusal); child-issued-connect refusal replays the banked V-DPCI-1
 witness rather than re-running. No PHY dpmac anywhere (finding 49).
 
+### Close-out amendments (2026-10-07)
+
+D1–D10 are the 2026-10-03 scoping record; two decisions moved at
+close-out and are amended here rather than rewritten above.
+
+- **Task 7.5 / probe V-LINK-6 (2026-10-05).** The board showed the MC
+  accepts destroy of a still-connected dpni↔dpni end and removes the
+  edge atomically with the endpoint. `link_lifecycle.qnt` is weakened
+  to enable that transition, so the refusal reading of
+  disconnect-before-destroy named in D5's "Ordering law" (:107–109)
+  and in D7's invariant list (:133) is **retired**.
+  Disconnect-before-destroy stands only as engine typestate policy,
+  stricter than hardware. LINK-I1 survives as the hardware-anchored
+  state face: "no edge outlives its endpoints."
+- **Task 7.6.** D9's "same ping face" placement (:154) for the dpcon
+  priority knob is **refuted** at close-out: the knob emits only a
+  provenance node — no dpcon create operand, no restool read-back — so
+  its board witness is unbuildable. It is pinned offline
+  (`vdpcon1_intents.rs`) and not exercised by the ping face; the
+  DPCON-I3 caveat re-anchors to the consumer rig on #10's transport.
+
 ## Risks / Trade-offs
 
 - [Lift destabilizes delivered dpmac behavior] → the frozen-trace
@@ -195,8 +216,10 @@ witness rather than re-running. No PHY dpmac anywhere (finding 49).
   divergence feeds back to the model per the standing loop.
 - [Saturation smoke flakes via kernel-stack variance] → oracle is
   monotone counters + zero discards, never timing or rate.
-- [Knob creep from DPCON-I3/SINGLE_SENDER] → both are additive schema
-  fields with derivation pass-through; no new construct, no new family.
+- [Knob creep from DPCON-I3/SINGLE_SENDER] → only the dpcon priority
+  knob is an additive schema field with derivation pass-through;
+  `SINGLE_SENDER` adds no field (consumer-typed, no knob). No new
+  construct, no new family.
 
 ## Migration Plan
 

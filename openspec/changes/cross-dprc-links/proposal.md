@@ -49,9 +49,10 @@ policy meaningful.
 - **Netlink side stays zero-Rust**: the frame witness (netns + ping)
   rides operator-reviewed suite hook scripts, the proven V-TRAF-0
   pattern. No new dependency; `dpaa2-hal` is untouched on this axis.
-- **Additive intent knobs** for the two adopted deferral rows: a dpcon
-  priority knob (DPCON-I3) and the dpni `SINGLE_SENDER` option
-  (baseline unknown #7) — neither is expressible today.
+- **Additive intent knob** for the one adopted deferral row: a dpcon
+  priority knob (DPCON-I3), not expressible today. `SINGLE_SENDER`
+  rides as a V-TRAF-1 wire-variant board face with no knob — it is
+  consumer-typed (`Profile::Pmd`), never operator-written.
 - **Docs**: one new connection-surface ADR (edge-kind table +
   reification rows including the healing policy); amendments to
   ADR-0017 (PASS4-F8 discharged), ADR-0019 (edge facet gains its second
@@ -86,8 +87,8 @@ policy meaningful.
   plumbing.
 - `intent-compiler`: link edges become actuatable plan output (today
   derived but `plan_only`); additive derivation for the dpcon priority
-  knob and `SINGLE_SENDER` option.
-- `topology-config`: the two additive intent knobs on the config
+  knob (`SINGLE_SENDER` is consumer-typed, no knob).
+- `topology-config`: the one additive intent knob on the config
   surface.
 - `provisioning-cli`: plan rendering and consent flow for the
   `Disruptive` rebind cycle; link and obligation rows in

@@ -1,42 +1,5 @@
 # intent-compiler delta: cross-dprc-links
 
-## MODIFIED Requirements
-
-### Requirement: dpni options derive purely from Dataplane and interface construct
-The compiler SHALL choose each derived dpni's option set from the owning
-tenant's `Dataplane` and the interface construct, using the two
-board-verified profiles: the PMD profile (`DPNI_OPT_SINGLE_SENDER,
-DPNI_OPT_CUSTOM_CG, DPNI_OPT_HAS_KEY_MASKING, DPNI_OPT_HAS_OPR,
-DPNI_OPT_OPR_PER_TC` plus raw `0x80000000`) for `userspace-poll`
-consumers and the kernel profile (`DPNI_OPT_HAS_KEY_MASKING` only) for
-`kernel-netlink` consumers. The one exception SHALL be the additive
-`single_sender` knob (`DPNI_OPT_SINGLE_SENDER`, baseline dpni unknown #7,
-design D9): an interface MAY declare it to add that single option on top
-of its profile-derived set, and when it is absent the derived option set
-is exactly the profile's (defaults preserve the current derivation). No
-other `DPNI_OPT_*` SHALL be nameable in the intent vocabulary or the TOML
-schema and no other per-interface override SHALL exist; dry-run
-provenance SHALL attribute each chosen option to its profile rule or to
-the `single_sender` knob.
-
-#### Scenario: No option token but the single_sender knob appears in intent
-- **WHEN** an operator declares any valid intent without `single_sender`
-- **THEN** no construct accepts a `DPNI_OPT_*` token, and the derived plan
-  carries the profile-chosen option set with per-object rule provenance
-
-#### Scenario: Profile follows the binding consumer
-- **WHEN** two tenants differing only in dataplane declare the same
-  interface construct
-- **THEN** the `userspace-poll` tenant's dpni derives the PMD profile and
-  the `kernel-netlink` tenant's dpni derives the kernel profile
-
-#### Scenario: The single_sender knob adds exactly one option
-- **WHEN** an interface declares the `single_sender` knob on a dpni whose
-  profile does not already carry it
-- **THEN** the derived option set is the profile's plus
-  `DPNI_OPT_SINGLE_SENDER`, that option's provenance names the knob, and
-  no other option is added
-
 ## ADDED Requirements
 
 ### Requirement: Compiled link edges are actuatable plan output
