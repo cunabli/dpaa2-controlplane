@@ -180,8 +180,7 @@ module vtraf1 {
   // Face 6 carries three teardown laws. A Quint .fail() step does not advance
   // state (world' stays unset), so a refusal can only be a run's terminal
   // step — each refusal law therefore rides its own run, the idiom
-  // link_lifecycle's own destroyConnectedEndRefusedTest /
-  // connectAlreadyConnectedRefusedTest already use.
+  // link_lifecycle's own connectAlreadyConnectedRefusedTest already uses.
 
   // The sanctioned teardown verb: disconnect of the live wire (the only
   // dpni↔dpni teardown, disconnect-only — cross-dprc-links design D3).

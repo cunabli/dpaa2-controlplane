@@ -31,15 +31,15 @@
 //
 // Named invariants — the LINK-I* set (cross-dprc-links design D7; dispositions
 // in models/COVERAGE.md, ledger rows land with cross-dprc-links task 1.5):
-//   LINK_I1 disconnect-before-destroy — state face below (no edge outlives its
-//     endpoints), guard witness destroyConnectedEndRefusedTest;
+//   LINK_I1 no edge outlives its endpoints — state face below, accepted-destroy
+//     law test destroyConnectedEndRemovesEdgeTest;
 //   LINK_I2 no post-bind create without an attached obligation / planned
 //     discharge — state face below, witness postBindCreateObligatedTest;
 //   LINK_I3 cardinality one / disconnect-before-reconnect — state face below
 //     (DPRC-I5 promoted from candidate), guard witnesses
 //     connectAlreadyConnectedRefusedTest / reconnectAfterDisconnectTest;
 //   LINK_I4 MC-refused patterns surface as refusals — action-guard property
-//     only (the .fail() runs), no state face, so no stateInvariants conjunct.
+//     only (the .fail() run), no state face, so no stateInvariants conjunct.
 // Apalache-marked subset: the stateInvariants conjunction (LINK_I1/I2/I3) —
 //   all three are state-expressible over World or finite-quantified endpoints,
 //   and verify at bounded depth 1 (mirrors dpmac_lifecycle / dpni_lifecycle).
@@ -227,22 +227,25 @@ module link_lifecycle {
       .with("phase", Disconnected),
   }
 
-  // end-destroy: destroy one dpni end. Legal only once the end is no longer
-  // connected — disconnect-before-destroy (cross-dprc-links design D5, finding 34
-  // generalized), expressed by the core/connect.connected guard: destroying
-  // a still-connected end is refused. Removing the end advances the wire to
-  // its teardown-terminal phase.
+  // end-destroy: destroy one dpni end. The MC accepts it connected or not
+  // (V-LINK-6 rev 1, 2026-10-05); a still-connected end's edge dies atomically
+  // with it — conns on the end are dropped in the same step, so no edge outlives
+  // it (LINK_I1). The end's removal advances the wire to its teardown-terminal
+  // phase. Disconnect-before-destroy stays the engine's typestate POLICY
+  // (cross-dprc-links design D5), stricter than hardware.
   // A destroy of a kernel-visible (bound) end leaves a lazy stale-node mirror
   // residue (cross-dprc-links design D5): the kernel may still list the node. It blocks
   // nothing and stands indefinitely — no action discharges it. Destroying a
   // still-populated (invisible) end mints none.
   action destroyEndAt(o: ObjId): bool = all {
     world.core.objs.keys().contains(o),
-    not(connected(world.core, portZero(o))),
     world' = world
-      .with("core", world.core.with("objs",
-        world.core.objs.keys().exclude(Set(o))
-          .mapBy(k => world.core.objs.get(k))))
+      .with("core", world.core
+        .with("objs",
+          world.core.objs.keys().exclude(Set(o))
+            .mapBy(k => world.core.objs.get(k)))
+        .with("conns",
+          world.core.conns.filter(c => c._1.obj != o and c._2.obj != o)))
       .with("phase", EndDestroyLegal)
       .with("residues",
         if (world.core.objs.get(o).busVisible)
@@ -349,26 +352,25 @@ module link_lifecycle {
   //
   // Four laws, each on its honest rung (COVERAGE.md ledger rows land with
   // cross-dprc-links task 1.5, not here):
-  //   LINK_I1 state invariant below + guard witness destroyConnectedEndRefusedTest
+  //   LINK_I1 state invariant below + accepted-destroy law test destroyConnectedEndRemovesEdgeTest
   //   LINK_I2 state invariant below + witness postBindCreateObligatedTest
   //   LINK_I3 state invariant below (the DPRC-I5 state face) + guard witnesses
   //           connectAlreadyConnectedRefusedTest / reconnectAfterDisconnectTest
   //   LINK_I4 action-guard property only — the refusal runs; no World predicate,
   //           so it is not a stateInvariants conjunct.
 
-  // LINK_I1 — disconnect-before-destroy (cross-dprc-links design D5, finding 34
-  // generalized). State face: no edge outlives its endpoints — every connected
-  // endpoint's object is still present. The bad combination (an edge to a
-  // destroyed end) is representable but unreachable, since destroyEndAt's
-  // not(connected) guard forbids destroying a still-connected end — the
-  // ordering-as-state-invariant idiom of dpmac's DPMAC_SeverOrder. The guard
-  // itself is witnessed by destroyConnectedEndRefusedTest.
-  // Board (V-TRAF-1, 2026-10-05): the refusal is FALSIFIED at the guard level —
-  // the MC accepts dpni destroy of a still-connected dpni<->dpni root end. This
-  // state face is unaffected (the edge's fate on endpoint destroy was
-  // unobserved, the probe quarantined), so LINK_I1 stays carried, and
-  // disconnect-before-destroy stays the engine's typestate policy, stricter
-  // than hardware. Model weakening lands at cross-dprc-links task 7.5.
+  // LINK_I1 — no edge outlives its endpoints (cross-dprc-links design D5, finding 34
+  // generalized). State face: every connected endpoint's object is still present.
+  // The bad combination (an edge to a destroyed end) is representable but
+  // unreachable, since destroyEndAt drops the conns on the destroyed end
+  // atomically with it — the ordering-as-state-invariant idiom of dpmac's
+  // DPMAC_SeverOrder. Witnessed by destroyConnectedEndRemovesEdgeTest.
+  // Board (V-LINK-6 rev 1, 2026-10-05, PASS 9/9): the MC ACCEPTS dpni destroy of
+  // a still-connected dpni<->dpni root end, the edge dying atomically with its
+  // endpoint (survivor reads endpoint No object associated, state -1, link down;
+  // zero residue). The old refusal guard is retired; the engine keeps
+  // disconnect-before-destroy as conservative typestate POLICY, stricter than
+  // hardware.
   val LINK_I1: bool =
     world.core.conns.forall(c =>
       world.core.objs.keys().contains(c._1.obj)
@@ -402,11 +404,10 @@ module link_lifecycle {
 
   // LINK_I4 — MC-refused patterns surface as typed refusals, never pre-forbidden
   // (cross-dprc-links design D2/D7). This is an action-guard property, not a
-  // World predicate: the machine admits the refusable moves and lets the
-  // core/connect guards reject them, witnessed by the .fail() runs
-  // (connectAlreadyConnectedRefusedTest, destroyConnectedEndRefusedTest). It
-  // carries no stateInvariants conjunct — there is no reachable state to
-  // quantify over.
+  // World predicate: the machine admits the refusable move and lets the
+  // core/connect guards reject it, witnessed by the .fail() run
+  // (connectAlreadyConnectedRefusedTest). It carries no stateInvariants conjunct
+  // — there is no reachable state to quantify over.
 
   // The simulator/Apalache conjunction (pnpm model:simulate passes
   // --invariant=stateInvariants): the three state-expressible invariants.
@@ -470,15 +471,20 @@ module link_lifecycle {
       .then(connectWireAt(portZero(dpniLeft), portZero(dpniRight)))
       .expect(world.phase == Connected)
 
-  // disconnect-before-destroy (cross-dprc-links design D5): destroying a still-connected end
-  // is refused — end-destroy-legal is reachable only from a disconnected end.
-  // Board (V-TRAF-1, 2026-10-05): this guard is board-falsified — the MC accepts
-  // the still-connected destroy; the run stays as the engine's POLICY witness,
-  // stricter than hardware. Model weakening lands at cross-dprc-links task 7.5.
-  run destroyConnectedEndRefusedTest =
+  // destroy of a connected end is ACCEPTED and removes the edge atomically with
+  // the endpoint (cross-dprc-links design D7; V-LINK-6 rev 1, 2026-10-05). The survivor keeps
+  // existing with no edge — the edge never outlives either endpoint (LINK_I1).
+  run destroyConnectedEndRemovesEdgeTest =
     init
       .then(connectWireAt(portZero(dpniLeft), portZero(dpniRight)))
-      .then(destroyEndAt(dpniLeft).fail())
+      .then(destroyEndAt(dpniLeft))
+      .expect(and {
+        world.phase == EndDestroyLegal,
+        not(world.core.objs.keys().contains(dpniLeft)),
+        world.core.conns == Set(),
+        world.core.objs.keys().contains(dpniRight),
+        not(connected(world.core, portZero(dpniRight))),
+      })
 
   // ---- container-agnostic representability (cross-dprc-links design D2) ----
 

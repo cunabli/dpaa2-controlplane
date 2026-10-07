@@ -64,8 +64,8 @@ const TRACES: &[(&str, &str)] = &[
         "disconnect-before-reconnect: the torn edge reconnects",
     ),
     (
-        "destroyConnectedEndRefusedTest",
-        "disconnect-before-destroy: destroying a still-connected end is refused (.fail)",
+        "destroyConnectedEndRemovesEdgeTest",
+        "destroying a still-connected end is accepted; the edge dies with the endpoint",
     ),
     (
         "crossContainerWireTest",
@@ -408,25 +408,34 @@ fn inverted_teardown_is_rejected() {
     );
 }
 
-/// `destroyConnectedEndRefusedTest`: the frozen run refuses (`.fail`) destroying a still-connected
-/// end. The typed negative face mirrors it — a destroy with no prior disconnect holds no proof, so
-/// `[Connect, Destroy]` (the move the model refused) cannot be replayed (`LINK_I1`).
+/// `destroyConnectedEndRemovesEdgeTest`: the frozen run ACCEPTS destroying a still-connected end,
+/// the edge dying atomically with the endpoint (V-LINK-6 rev 1, 2026-10-05 — the board's answer).
+/// The model surface shows the edge gone and the survivor edge-less; the engine's typed surface
+/// still refuses the bare `[Connect, Destroy]` move — [`WireTransition::destroy_end`] holds no
+/// [`WireDisconnected`] proof — because disconnect-before-destroy stays a deliberate typestate
+/// POLICY, stricter than hardware (`LINK_I1`).
 #[test]
-fn refused_destroy_before_disconnect_is_unrepresentable() {
-    let steps = parse_link_trace(&load("destroyConnectedEndRefusedTest")).unwrap();
-    assert!(
-        matches!(steps.last(), Some(LinkStep::Refused)),
-        "the run ends at the disabled-guard sentinel"
+fn accepted_destroy_removes_the_edge() {
+    let steps = parse_link_trace(&load("destroyConnectedEndRemovesEdgeTest")).unwrap();
+    let Some(LinkStep::World(last)) = steps.last() else {
+        panic!("the accepted destroy ends at a world, not a refusal sentinel")
+    };
+    assert_eq!(
+        last.phase,
+        WirePhase::EndDestroyLegal,
+        "the destroy completed"
     );
+    assert!(
+        last.conns.is_empty(),
+        "the edge died with the endpoint (LINK_I1)"
+    );
+    assert_eq!(last.endpoints.len(), 1, "the survivor remains, edge-less");
+    // The engine keeps disconnect-before-destroy as POLICY: the bare connect→destroy the board
+    // accepts still cannot be built here — the destroy holds no disconnect proof to consume.
     let connected = match &steps[1] {
         LinkStep::World(w) => w,
         LinkStep::Refused => panic!("state 1 is the connected world"),
     };
-    assert_eq!(
-        connected.phase,
-        WirePhase::Connected,
-        "the end was connected"
-    );
     let (a, b) = (connected.conns[0].0, connected.conns[0].1);
     let move_refused = [
         WireAction::Connect(world_end(connected, a), world_end(connected, b)),
@@ -434,7 +443,7 @@ fn refused_destroy_before_disconnect_is_unrepresentable() {
     ];
     assert!(
         replay_wire_law(&move_refused).is_err(),
-        "destroying a still-connected end has no disconnect proof to consume"
+        "the engine refuses connect→destroy with no disconnect proof (POLICY, LINK_I1)"
     );
 }
 

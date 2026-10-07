@@ -1089,6 +1089,19 @@
       "refusals": []
     }
   },
+  "V-LINK-6": {
+    "V-LINK-6-rev1/transcript": {
+      "pass": true,
+      "date": "2026-10-05",
+      "kind": "probes",
+      "revision": 1,
+      "steps": "9/9",
+      "source_hash": "fnv1a64:f665bfc8d33221d1",
+      "hook": null,
+      "archive": null,
+      "refusals": []
+    }
+  },
   "V-POOL-1": {
     "V-POOL-1-rev1": {
       "pass": true,

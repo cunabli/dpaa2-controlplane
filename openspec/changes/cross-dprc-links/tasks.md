@@ -107,7 +107,7 @@ and commits. Every group ends at the quality floor
       dpaa2-controlplane-w01 (healing policy delivered)
 - [ ] 7.4 Spec deltas promoted; CHANGELOG via cliff; quality floor
       green; seal (last: depends on 7.5)
-- [ ] 7.5 Edge-fate probe (destroy a connected end, read the
+- [x] 7.5 Edge-fate probe (destroy a connected end, read the
       survivor), then link_lifecycle.qnt weakened to the board's
       answer: destroy-of-connected-end enabled, refusal witness
       retired, family traces re-frozen, COVERAGE row settled
