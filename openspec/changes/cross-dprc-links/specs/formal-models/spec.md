@@ -28,8 +28,8 @@ sums to the Rust connection surface.
 
 ### Requirement: The LINK-I* invariants hold in the model
 `link_lifecycle.qnt` SHALL carry the named invariants **LINK-I\*** (design
-D7): disconnect-before-destroy (a destroy of a connected endpoint is
-unreachable), no post-bind create without a planned discharge,
+D7): no edge outlives its endpoints (a destroy of a connected endpoint
+removes the edge atomically), no post-bind create without a planned discharge,
 cardinality-one / disconnect-before-reconnect (**DPRC-I5 promoted from
 candidate**), and MC-refused patterns surfacing as refusal states. The
 state-expressible invariants SHALL carry Apalache marks; action-guard or
@@ -39,18 +39,22 @@ model header split.
 The LINK-I\* invariants SHALL stay carried in the model. The
 disconnect-before-destroy **refusal face** is recorded board-falsified at
 the guard level (V-TRAF-1, 2026-10-05: the MC accepts `dpni destroy` of a
-still-connected dpni↔dpni end); the engine SHALL meanwhile retain
-disconnect-before-destroy as its typestate policy, stricter than hardware.
-The `LINK_I1` state invariant itself is unfalsified — the edge's fate on
-endpoint destroy was unobserved — and the model weakening lands in this
-change at `cross-dprc-links` task 7.5: the edge-fate probe runs, then
-`link_lifecycle.qnt` is weakened to the board's answer (enable the destroy,
-model the edge's fate, retire the refusal face).
+still-connected dpni↔dpni end) and the edge's fate is board-answered
+(V-LINK-6, 2026-10-05: the MC removes the edge atomically with the
+destroyed endpoint — the survivor reads no endpoint); the engine SHALL
+meanwhile retain disconnect-before-destroy as its typestate policy,
+stricter than hardware. `link_lifecycle.qnt` is weakened to the board's
+answer at `cross-dprc-links` task 7.5: the destroy of a connected end is
+enabled and drops the edge atomically, the refusal face retired for the
+accepted-destroy law (`destroyConnectedEndRemovesEdgeTest`), leaving the
+`LINK_I1` state invariant hardware-anchored — no edge outlives its
+endpoints.
 
-#### Scenario: Disconnect-before-destroy is unreachable to violate
-- **WHEN** Apalache checks the disconnect-before-destroy invariant
-- **THEN** no reachable state destroys an endpoint whose link edge is
-  still connected
+#### Scenario: No edge outlives its endpoints
+- **WHEN** Apalache checks the `LINK_I1` state invariant over a model
+  where a connected endpoint is destroyed
+- **THEN** the edge is removed atomically with the endpoint and no
+  reachable state carries an edge missing either end
 
 #### Scenario: A double connect is refused
 - **WHEN** the simulator drives a connect on an already-connected
@@ -96,9 +100,10 @@ destroy, the DPRC-I5 double-connect refusal).
 - **THEN** it freezes one deterministic per-face `--mbt` trace beside the
   module — guards leaving exactly one action enabled per state — for
   the suite generator to render, alongside directed runs citing each law,
-  with the refusal faces (disconnect-before-destroy, the DPRC-I5
-  double-connect) trace-inexpressible and carried as directed runs for
-  suite-level replay
+  with the two trace-inexpressible refusal probes banked at suite level
+  (disconnect-before-destroy settled by V-LINK-6 — the destroy is
+  accepted with the edge removed; the DPRC-I5 double-connect
+  unresolvable on this transport, MC id recycling)
 
 ## MODIFIED Requirements
 

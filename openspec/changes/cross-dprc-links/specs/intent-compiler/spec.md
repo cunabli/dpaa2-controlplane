@@ -59,16 +59,19 @@ same edge.
 
 ### Requirement: The dpcon priority knob derives additively
 The compiler SHALL accept an additive dpcon priority knob (DPCON-I3,
-design D9) and carry it onto the derived dpcon's create surface, with
-per-object provenance naming the knob. The knob SHALL be additive only:
+design D9) and record it as per-object provenance naming the knob; the
+derived dpcon's create operand stays the companion default, since the WQ
+priority binds only at consumer registration (the consumer-rig trigger
+recorded on the COVERAGE DPCON-I3 row). The knob SHALL be additive only:
 when it is absent, the derived dpcon is exactly what the current
 companion derivation produces (defaults preserve the current
 derivation).
 
-#### Scenario: The priority knob reaches the derived dpcon
+#### Scenario: The priority knob records provenance
 - **WHEN** a tenant declares the dpcon priority knob
-- **THEN** the derived dpcon carries that priority with provenance naming
-  the knob and the DPCON-I3 anchor
+- **THEN** the derivation emits exactly one provenance node naming the
+  knob and the DPCON-I3 anchor, and the dpcon create operand is
+  unchanged
 
 #### Scenario: Absent knob preserves current derivation
 - **WHEN** no dpcon priority knob is declared

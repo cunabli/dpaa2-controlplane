@@ -105,7 +105,7 @@ and commits. Every group ends at the quality floor
 - [x] 7.3 Baseline deltas from board answers (post-bind connect dmesg
       law, destroy-mirror behavior) into dprc.md/dpni.md; close bead
       dpaa2-controlplane-w01 (healing policy delivered)
-- [ ] 7.4 Spec deltas promoted; CHANGELOG via cliff; quality floor
+- [x] 7.4 Spec deltas promoted; CHANGELOG via cliff; quality floor
       green; seal (last: depends on 7.5)
 - [x] 7.5 Edge-fate probe (destroy a connected end, read the
       survivor), then link_lifecycle.qnt weakened to the board's
