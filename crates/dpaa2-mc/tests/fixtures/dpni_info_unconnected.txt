@@ -1,7 +1,7 @@
 dpni version: 7.8
 dpni id: 9
 plugged state: plugged
-endpoint state: 0
+endpoint state: -1
 endpoint: No object associated
 link status: 0 - down
 mac address: 00:00:00:00:00:00

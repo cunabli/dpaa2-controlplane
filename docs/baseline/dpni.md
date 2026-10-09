@@ -551,7 +551,7 @@ attribute get) — never on the return code of the mutation.
    restool while unbound survived the rebind (which calls it again), so
    whatever "initial state" the reset restores, the primary MAC is not in
    it. Max frame length read 1536 while unbound. The QoS/FS-table half is
-   still unread — earliest reachability at #9/#10.
+   still unread — earliest reachability at #10.
 5. `dpni_set_pools.dpbp_id`: DPBP object id or BPID? The two in-tree
    kernel call sites disagree; the answer decides which one is latently
    broken.
@@ -566,8 +566,12 @@ attribute get) — never on the return code of the mutation.
    `SHARED_CONGESTION` is undetectable through read-back.
 7. `DPNI_OPT_SINGLE_SENDER` ("ignore num_queues for tx") vs our PMD
    profile, which sets it *and* drives `main+workers` tx rings
-   successfully — what the flag actually gates on LX2160 is unclear;
-    earliest reachability at #9/#10.
+   successfully — what the flag actually gates on LX2160 is unclear.
+   **Partially answered** (the wire-variant face) — board suite
+   V-TRAF-1 rev 4, 2026-10-05 (35/35): the wire ends behave as the port
+   ends (the frame witness read EXACT +8 on all four counters), so no
+   `derive_profile` profile split is minted; the flag's gating semantics
+   stay unread — earliest reachability at #10.
 8. ~~`DPNI_OPT_HAS_REPLICATION` (restool knows 0x4000; the 10.39 flib
    header does not list it) — real MC option or restool running ahead?~~
    **Answered** — board suite V-DPNI-9 rev 2, 2026-09-19: the raw 0x4000
@@ -589,7 +593,7 @@ attribute get) — never on the return code of the mutation.
 11. Whether the >8-TC `dpni_set_tx_priorities` constraint (strict-priority
     lock on TCs 0-7, fixed weighted grouping above) affects our 16-TC
     dpnis under the PMD's default scheduling — no consumer in the corpus
-    calls `dpni_set_tx_priorities`; earliest reachability at #9/#10.
+    calls `dpni_set_tx_priorities`; earliest reachability at #10.
 12. ~~`num_rx_tcs` reachable only via DPL: can a restool-created dpni ever
     have `num_rx_tcs ≠ min(num_tcs, 8)`?~~ **Answered for the restool
     path** — board suites V-DPNI-5 and V-DPNI-6, 2026-09-19: no.
@@ -604,4 +608,4 @@ attribute get) — never on the return code of the mutation.
     order is populate→connect→bind, and no `ENDPOINT_CHANGED` line
     appears in any rev's dmesg [V-TRAF-1 rev 1–4, 2026-10-05]. The
     disposition is deliberate (the unknown was not taken here), not a
-    confirmation; earliest reachability at #9/#10.
+    confirmation; earliest reachability at #10.

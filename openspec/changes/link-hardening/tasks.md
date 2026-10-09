@@ -61,12 +61,12 @@ Standing gates on every group: `scripts/checks/quality-floor.sh`,
 
 ## 4. Deferral-ledger and record sweep (bead ceg — S18, S20-S23, S26, S28)
 
-- [ ] 4.1 Apply the per-row fixes: ADR-0022:103 policy-vs-hardware
+- [x] 4.1 Apply the per-row fixes: ADR-0022:103 policy-vs-hardware
       clause; COVERAGE:121 w01 heal delivered; COVERAGE:129 DPCON-I3
       arrow to mc-portal-backend (#10); dpni.md rows #4/#7/#11/#13;
       dprc.md:350 DPRC-I5 note. Verify: the per-row greps in the bead
       notes; `cargo test -p dpaa2-verify --test ledger_lint` green.
-- [ ] 4.2 Answer the S26 capture question FIRST, then fix the fixture
+- [x] 4.2 Answer the S26 capture question FIRST, then fix the fixture
       to -1 or record the never-connected baseline nuance; S28 rename
       VERDICTS.json V-TRAF-1 "run" key only if hand-maintained.
       Verify: fixture shows -1 OR the nuance exists;
