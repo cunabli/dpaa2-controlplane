@@ -558,13 +558,32 @@ impl DeferredVisibility {
 /// healing row): the eager [`DeferredVisibility`] obligation and its planned [`RebindCycle`]
 /// discharge, minted together. The bundle IS the mechanism — both halves are built only here, by
 /// [`create_resident_deferred`](crate::families::dprc::Container::create_resident_deferred), so
-/// neither the obligation nor its discharge exists alone.
+/// neither the obligation nor its discharge exists alone. Both fields are private: the obligation
+/// is read through [`obligation`](Self::obligation), and the [`RebindCycle`] leaves the bundle
+/// SOLELY through the free fn [`discharge`] — yielding the cycle IS the [`Class::Disruptive`]
+/// consent gate (ADR-0015 decision 12), so no accessor returns it and no silent rebind is
+/// representable (link-hardening task 2.1).
+///
+/// ```compile_fail
+/// use dpaa2_api::families::dprc::{Container, Options, ResidentId, ResidentStep};
+/// use dpaa2_api::plan::connect::WireEnd;
+/// use dpaa2_api::core::model::{DpniId, DprcId};
+/// let created = Container::declare().create(Options::DEFAULT);
+/// let populated = match created.create_resident(ResidentId::new(1)) {
+///     ResidentStep::Placed(c) => c,
+///     _ => unreachable!(),
+/// };
+/// let plugged = populated.plug();
+/// let end = WireEnd { dpni: DpniId::new(2), container: DprcId::ROOT };
+/// let plan = plugged.create_resident_deferred(end);
+/// // The discharge field is private and no accessor yields it: reaching the RebindCycle
+/// // outside the `discharge` consent gate does not type-check (link-hardening task 2.1).
+/// let _ = plan.discharge;
+/// ```
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct PostBindCreate {
-    /// The eager obligation the create carries.
-    pub obligation: DeferredVisibility,
-    /// The planned discharge — the only way the obligation clears.
-    pub discharge: RebindCycle,
+    obligation: DeferredVisibility,
+    discharge: RebindCycle,
 }
 
 impl PostBindCreate {
@@ -577,6 +596,14 @@ impl PostBindCreate {
             obligation: DeferredVisibility { endpoint },
             discharge: RebindCycle { endpoint },
         }
+    }
+
+    /// The eager obligation this create carries — the sole public read of the bundle. The
+    /// [`RebindCycle`] discharge has no accessor; it leaves only through [`discharge`], the
+    /// consent gate (link-hardening task 2.1).
+    #[must_use]
+    pub fn obligation(&self) -> DeferredVisibility {
+        self.obligation
     }
 }
 

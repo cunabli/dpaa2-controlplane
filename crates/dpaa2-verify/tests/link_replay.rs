@@ -33,7 +33,9 @@ use dpaa2_api::core::error::Error;
 use dpaa2_api::core::family::{ALL_FAMILIES, Family};
 use dpaa2_api::core::model::{DpniId, DprcId};
 use dpaa2_api::families::dprc::Refusal;
-use dpaa2_api::families::dprc::{Container, Options, Plugged, ResidentId, ResidentStep};
+use dpaa2_api::families::dprc::{
+    Container, Options, Plugged, ResidentId, ResidentStep, VisibleEndpoint,
+};
 use dpaa2_api::plan::Class;
 use dpaa2_api::plan::connect::{
     ReificationPolicy, TeardownLaw, WireDisconnected, WireEnd, WireRefusal, WireResidue, WireSide,
@@ -173,7 +175,9 @@ fn check_state(file: &str, i: usize, w: &LinkWorld) {
         }
         let we = world_end(w, n);
         let pc = plugged().create_resident_deferred(we);
-        if pc.obligation.endpoint() != we || pc.discharge.endpoint() != we {
+        // The discharge leaves the bundle only through the consented `discharge` gate (link-hardening task 2.1).
+        let cycle = discharge(pc, Class::Disruptive).expect("a Disruptive allow discharges");
+        if pc.obligation().endpoint() != we || cycle.endpoint() != we {
             finding(
                 file,
                 i,
@@ -201,7 +205,9 @@ fn check_state(file: &str, i: usize, w: &LinkWorld) {
                 // The model residue carries no container; judge the mint's variant and identity
                 // on the destroyed end's dpni (the StaleNode mint is container-agnostic).
                 let we = end(n, DprcId::ROOT.into_inner());
-                if plugged().destroy_resident_stale(we) != WireResidue::StaleNode(we) {
+                let witness =
+                    VisibleEndpoint::observe(we, true).expect("a bus-visible end mints a witness");
+                if plugged().destroy_resident_stale(witness) != WireResidue::StaleNode(we) {
                     finding(
                         file,
                         i,

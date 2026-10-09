@@ -1087,12 +1087,34 @@ impl Container<Plugged> {
     }
 
     /// Destroy a dpni end in this already-bound container, leaving the lazy stale-node residue
-    /// (cross-dprc-links design D5): a [`WireResidue::StaleNode`] the kernel may still list. The
-    /// lazy mirror of [`create_resident_deferred`](Self::create_resident_deferred) — it blocks no
-    /// convergence verdict and demands no discharge, standing indefinitely.
+    /// (cross-dprc-links design D5; link-hardening task 2.2): a [`WireResidue::StaleNode`] the
+    /// kernel may still list. The model mints this residue only for a bus-visible end
+    /// (`models/families/link_lifecycle.qnt` lines 239-253 — destroying a still-populated invisible
+    /// end mints none), so the end is named by a [`VisibleEndpoint`] witness, the same demand the
+    /// sibling [`connect_wire`](Self::connect_wire) / [`disconnect_wire`](Self::disconnect_wire)
+    /// post-bind faces carry. The lazy mirror of
+    /// [`create_resident_deferred`](Self::create_resident_deferred) — it blocks no convergence
+    /// verdict and demands no discharge, standing indefinitely.
+    ///
+    /// A bare, un-witnessed [`WireEnd`] cannot name the destroyed end, so this does not compile:
+    ///
+    /// ```compile_fail
+    /// use dpaa2_api::families::dprc::{Container, Options, ResidentId, ResidentStep};
+    /// use dpaa2_api::plan::connect::WireEnd;
+    /// use dpaa2_api::core::model::{DpniId, DprcId};
+    /// let created = Container::declare().create(Options::DEFAULT);
+    /// let populated = match created.create_resident(ResidentId::new(1)) {
+    ///     ResidentStep::Placed(c) => c,
+    ///     _ => unreachable!(),
+    /// };
+    /// let plugged = populated.plug();
+    /// let we = WireEnd { dpni: DpniId::new(3), container: DprcId::ROOT };
+    /// // The stale-node mint demands a VisibleEndpoint witness; a bare WireEnd does not type-check.
+    /// let _ = plugged.destroy_resident_stale(we);
+    /// ```
     #[must_use]
-    pub fn destroy_resident_stale(&self, endpoint: WireEnd) -> WireResidue {
-        WireResidue::StaleNode(endpoint)
+    pub fn destroy_resident_stale(&self, endpoint: VisibleEndpoint) -> WireResidue {
+        WireResidue::StaleNode(endpoint.end())
     }
 }
 
@@ -1670,13 +1692,16 @@ mod tests {
     #[test]
     fn post_bind_create_mints_obligation_and_discharge_on_the_same_end() {
         use crate::plan::Class;
+        use crate::plan::connect::discharge;
         // The sole mint bundles the eager obligation and its Disruptive discharge (cross-dprc-links design D5).
         let plugged = placed(created(), 1, ResidentKind::CreatedIn).plug();
         let end = wire_end(2, DprcId::ROOT);
         let create = plugged.create_resident_deferred(end);
-        assert_eq!(create.obligation.endpoint(), end);
-        assert_eq!(create.discharge.endpoint(), end);
-        assert_eq!(create.discharge.class(), Class::Disruptive);
+        // The discharge leaves the bundle only through the consented gate (link-hardening task 2.1).
+        let cycle = discharge(create, Class::Disruptive).expect("a Disruptive allow discharges");
+        assert_eq!(create.obligation().endpoint(), end);
+        assert_eq!(cycle.endpoint(), end);
+        assert_eq!(cycle.class(), Class::Disruptive);
     }
 
     #[test]
@@ -1684,7 +1709,8 @@ mod tests {
         // The lazy mirror: a StaleNode residue that renders and demands no discharge (cross-dprc-links design D5).
         let plugged = placed(created(), 1, ResidentKind::CreatedIn).plug();
         let end = wire_end(3, DprcId::ROOT);
-        let residue = plugged.destroy_resident_stale(end);
+        let witness = VisibleEndpoint::observe(end, true).expect("a visible end mints a witness");
+        let residue = plugged.destroy_resident_stale(witness);
         assert_eq!(residue, WireResidue::StaleNode(end));
         assert!(residue.to_string().contains("dpni.3"));
     }

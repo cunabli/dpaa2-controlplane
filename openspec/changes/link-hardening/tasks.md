@@ -26,14 +26,14 @@ Standing gates on every group: `scripts/checks/quality-floor.sh`,
 
 ## 2. Typed-surface hardening (bead 5a2 — S3, S11)
 
-- [ ] 2.1 Make `PostBindCreate` obligation/discharge fields private
+- [x] 2.1 Make `PostBindCreate` obligation/discharge fields private
       behind accessors; `discharge()` stays the sole RebindCycle yield;
       adjust known readers (connect.rs tests, link_replay.rs:176). Add
       compile_fail doctest forging `plan.discharge` (dpseci idiom).
       Verify: `grep -n 'pub obligation\|pub discharge'
       crates/dpaa2-api/src/plan/connect.rs` empty; doctest fails to
       compile the forgery.
-- [ ] 2.2 `destroy_resident_stale` takes `VisibleEndpoint` instead of
+- [x] 2.2 `destroy_resident_stale` takes `VisibleEndpoint` instead of
       bare `WireEnd` (families/dprc.rs:1089-1096); link_replay.rs:203-204
       adjusts to `VisibleEndpoint::observe(we, true)`. Verify:
       `cargo test -p dpaa2-api -p dpaa2-verify --test link_replay`
