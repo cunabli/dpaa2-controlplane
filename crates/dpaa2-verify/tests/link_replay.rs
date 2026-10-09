@@ -23,7 +23,8 @@
 //! [`WireTransition::disconnect_wire_proving`] → [`WireTransition::destroy_end`], and the
 //! order-inverted sequence is REJECTED by construction — the negative face — because
 //! [`WireTransition::destroy_end`] cannot be built without the [`WireDisconnected`] proof only a
-//! disconnect mints (cross-dprc-links design D5, `LINK_I1`; mirrors `dpmac_replay.rs`). The
+//! disconnect mints (cross-dprc-links design D5 — the engine's disconnect-before-destroy POLICY,
+//! stricter than hardware; mirrors `dpmac_replay.rs`). The
 //! property twins pin the edge-kind table (legal-pair symmetry/membership), the refusal
 //! attribution (`LINK_I4`), and the consent/discharge verdict (cross-dprc-links design D5).
 
@@ -31,16 +32,16 @@ use std::collections::BTreeSet;
 
 use dpaa2_api::core::error::Error;
 use dpaa2_api::core::family::{ALL_FAMILIES, Family};
-use dpaa2_api::core::model::{DpniId, DprcId};
+use dpaa2_api::core::model::{DpniId, DprcId, ObjectRef};
 use dpaa2_api::families::dprc::Refusal;
 use dpaa2_api::families::dprc::{
     Container, Options, Plugged, ResidentId, ResidentStep, VisibleEndpoint,
 };
 use dpaa2_api::plan::Class;
 use dpaa2_api::plan::connect::{
-    ReificationPolicy, TeardownLaw, WireDisconnected, WireEnd, WireRefusal, WireResidue, WireSide,
-    WireTransition, attribute_wire_refusal, discharge, edge_demands_severed_witness, legal_pair,
-    reification_policy,
+    LinkEndState, ReificationPolicy, TeardownLaw, WireDisconnected, WireEnd, WirePlan, WireRefusal,
+    WireResidue, WireSide, WireTransition, attribute_wire_refusal, discharge,
+    edge_demands_severed_witness, legal_pair, plan_wire, reification_policy,
 };
 use dpaa2_verify::intent::link_itf::{
     ContainerBind, LinkResidue, LinkStep, LinkWorld, WirePhase, parse_link_trace,
@@ -269,7 +270,8 @@ fn wire_actions(steps: &[LinkStep]) -> Vec<WireAction> {
 /// Replays a wire-action sequence against the typed plan surface (cross-dprc-links task 3.5). A
 /// destroy demands the [`WireDisconnected`] proof a prior disconnect minted; with no proof in hand
 /// the [`WireTransition::destroy_end`] cannot be built, so the destroy-before-disconnect order is
-/// refused HERE — the law is enforced by the type, not by this replayer's discipline (`LINK_I1`).
+/// refused HERE — the law is enforced by the type, not by this replayer's discipline (the engine's
+/// disconnect-before-destroy POLICY, stricter than hardware).
 fn replay_wire_law(actions: &[WireAction]) -> Result<Vec<WireTransition>, &'static str> {
     let mut proof: Option<WireDisconnected> = None;
     let mut out = Vec::new();
@@ -283,7 +285,9 @@ fn replay_wire_law(actions: &[WireAction]) -> Result<Vec<WireTransition>, &'stat
             }
             WireAction::Destroy(n) => {
                 let Some(p) = proof.take() else {
-                    return Err("destroy before disconnect: no WireDisconnected proof (LINK_I1)");
+                    return Err(
+                        "destroy before disconnect: no WireDisconnected proof (POLICY, stricter than hardware)",
+                    );
                 };
                 let side = if p.end(WireSide::A).dpni == DpniId::new(n) {
                     WireSide::A
@@ -309,11 +313,36 @@ fn link_traces_replay_green() {
         );
         for (i, step) in steps.iter().enumerate() {
             match step {
-                LinkStep::Refused => assert_eq!(
-                    i,
-                    steps.len() - 1,
-                    "{file} ({face}): a refused (.fail) step must be terminal"
-                ),
+                LinkStep::Refused => {
+                    assert_eq!(
+                        i,
+                        steps.len() - 1,
+                        "{file} ({face}): a refused (.fail) step must be terminal"
+                    );
+                    // Bind the one .fail() trace (connectAlreadyConnectedRefusedTest, cardinality-one)
+                    // to the Rust refusal: a new pairing on a held end refuses, never a silent rewire (DPRC-I5).
+                    let LinkStep::World(prev) = &steps[i - 1] else {
+                        finding(file, i, "a refused step must follow a world");
+                    };
+                    let (held_ord, peer_ord) = prev.conns[0];
+                    let held = world_end(prev, held_ord);
+                    let standing_peer = ObjectRef::new(Family::Dpni, peer_ord);
+                    let fresh = end(peer_ord + 100, held.container.into_inner());
+                    let verdict = plan_wire(
+                        LinkEndState::Resolved(held),
+                        LinkEndState::Resolved(fresh),
+                        Some(standing_peer),
+                        None,
+                    );
+                    assert!(
+                        matches!(&verdict, WirePlan::HeldByOtherPeer(r) if r.observed_peer == standing_peer),
+                        "{file} ({face}): the refused connect names the standing peer, got {verdict:?}"
+                    );
+                    assert!(
+                        !matches!(verdict, WirePlan::Connect(_)),
+                        "{file} ({face}): a held end never plans a silent connect"
+                    );
+                }
                 LinkStep::World(w) => check_state(file, i, w),
             }
         }
@@ -398,7 +427,7 @@ fn teardown_replays_through_the_typed_surface() {
 /// The negative face (bead acceptance): the order-inverted teardown is REJECTED by the typed
 /// surface. The mutation reverses the decoded actions to put the destroy before its disconnect,
 /// and the replayer refuses it — [`WireTransition::destroy_end`] has no [`WireDisconnected`] proof
-/// to consume before a disconnect mints one (`LINK_I1`).
+/// to consume before a disconnect mints one (disconnect-before-destroy POLICY, stricter than hardware).
 #[test]
 fn inverted_teardown_is_rejected() {
     let steps = parse_link_trace(&load("wireLifecycleTest")).unwrap();

@@ -9,9 +9,11 @@
 //! The teardown machinery for the one delivered kind is **claimed, not retyped**: the
 //! dpni↔dpmac severed-witness law stays on
 //! [`SeveredProof`](crate::plan::SeveredProof) / [`Transition::Unbind`](crate::plan::Transition),
-//! and [`edge_demands_severed_witness`] is the shared predicate that carrier consumes
-//! (ADR-0022 decision 2). [`reification_policy`] is the planner-facing declaration the
-//! later cross-dprc-links tasks (3.2–3.5) read; it does not drive the transition executor.
+//! and [`edge_demands_severed_witness`] is the shared predicate the parity test
+//! (`the_policy_teardown_agrees_with_the_severed_predicate`) pins the teardown law against
+//! (ADR-0022 decision 2). [`reification_policy`] has no production caller; it is pinned by the
+//! parity tests (`policy_rows_match_the_adr_0022_table`,
+//! `the_policy_teardown_agrees_with_the_severed_predicate`), not read by any transition executor.
 
 use core::fmt;
 
@@ -64,7 +66,8 @@ pub fn legal_ports(a: Family, a_port: u32, b: Family, b_port: u32) -> bool {
 /// strands the port driverless (ADR-0008 §8). The delivered carrier of this law is
 /// [`SeveredProof`](crate::plan::SeveredProof) /
 /// [`Transition::Unbind`](crate::plan::Transition) — this predicate is the shared
-/// decision it consumes, claimed by the table rather than restated (ADR-0022 decision 2).
+/// decision the parity test (`the_policy_teardown_agrees_with_the_severed_predicate`) pins the
+/// teardown law against, claimed by the table rather than restated (ADR-0022 decision 2).
 /// Every other kind is vacuous: dpni↔dpni has no driver handback, the dpdmux uplink is
 /// un-disconnectable on the pinned firmware (ADR-0009), and the rest carry no recorded
 /// hazard.
@@ -193,8 +196,9 @@ pub enum WireSide {
 }
 
 /// Proof a dpni↔dpni wire was disconnected before one of its ends is destroyed or reconnected
-/// (cross-dprc-links design D5/D7; `models/families/link_lifecycle.qnt` `LINK_I1`
-/// disconnect-before-destroy, `LINK_I3` cardinality-one / disconnect-before-reconnect). The wire
+/// (cross-dprc-links design D5/D7). The proof types the engine's disconnect-before-destroy POLICY
+/// (stricter than hardware; `LINK_I1` is the STATE face the hardware answers — no edge outlives its
+/// endpoints) and the `LINK_I3` cardinality-one / disconnect-before-reconnect order. The wire
 /// twin of the dpmac [`SeveredProof`](crate::plan::SeveredProof) proof-carrying idiom (ADR-0022):
 /// the fields are private, so the only mint is
 /// [`WireTransition::disconnect_wire_proving`](WireTransition::disconnect_wire_proving) and neither
@@ -217,8 +221,9 @@ impl WireDisconnected {
         (self.a, self.b)
     }
 
-    /// The freed end `side` names — read back from the proof, so a teardown or reconnect can
-    /// only ever name an end the wire actually held (`LINK_I1`/`LINK_I3`).
+    /// The freed end `side` names — read back from the proof, so a teardown or reconnect is pinned
+    /// AFTER a disconnect step in the same plan (the plan order, not a held-ness check;
+    /// cross-dprc-links design D5/D7).
     #[must_use]
     pub fn end(&self, side: WireSide) -> WireEnd {
         match side {
@@ -257,8 +262,9 @@ pub enum WireTransition {
         b: WireEnd,
     },
     /// Destroy one freed end of a disconnected wire — reachable only from a
-    /// [`WireDisconnected`] proof, so disconnect-before-destroy (cross-dprc-links design D5,
-    /// `LINK_I1`) is a type law, not planner discipline. The variant carries the proof
+    /// [`WireDisconnected`] proof, so disconnect-before-destroy (cross-dprc-links design D5) is a
+    /// type law, not planner discipline — the engine's POLICY, stricter than hardware, not
+    /// `LINK_I1` (the STATE face the hardware answers). The variant carries the proof
     /// (unforgeable, no public constructor) and the [`WireSide`] it names, so a struct literal
     /// naming a still-connected end is unrepresentable; build it through
     /// [`destroy_end`](WireTransition::destroy_end).
@@ -308,8 +314,10 @@ impl WireTransition {
 
     /// Destroys the freed end `side` of a disconnected wire, consuming the [`WireDisconnected`]
     /// proof [`disconnect_wire_proving`](Self::disconnect_wire_proving) minted and reading the
-    /// end back from it (cross-dprc-links design D5; `link_lifecycle.qnt` `destroyEndAt`, whose
-    /// `not(connected)` guard this types). Because the proof has no public constructor, a destroy
+    /// end back from it (cross-dprc-links design D5; `link_lifecycle.qnt` `destroyEndAt`, which the
+    /// MC enables connected-or-not — V-LINK-6 rev 1: the edge dies atomically with the endpoint).
+    /// This constructor types the engine's stricter disconnect-before-destroy POLICY on top of that
+    /// hardware face. Because the proof has no public constructor, a destroy
     /// without a prior disconnect does not typecheck — the fields a forged literal would name are
     /// private:
     ///
@@ -317,7 +325,7 @@ impl WireTransition {
     /// use dpaa2_api::plan::connect::{WireDisconnected, WireEnd, WireSide, WireTransition};
     /// use dpaa2_api::core::model::{DpniId, DprcId};
     /// // `WireDisconnected`'s fields are private and its only mint is `disconnect_wire_proving`,
-    /// // so a forged proof naming a never-disconnected end does not construct (LINK_I1).
+    /// // so a forged proof naming a never-disconnected end does not construct (disconnect-before-destroy POLICY).
     /// let forged = WireDisconnected {
     ///     a: WireEnd { dpni: DpniId::new(0), container: DprcId::ROOT },
     ///     b: WireEnd { dpni: DpniId::new(1), container: DprcId::ROOT },
@@ -494,6 +502,10 @@ pub enum WireRefusal {
 /// [`Refusal::from_status`](crate::families::dprc::Refusal::from_status) rather than
 /// re-spelling the status byte (the classification lives once, core-side). An unrelated
 /// error passes through as `None` — never swallowed, never collapsed to a backend string.
+///
+/// No production caller BY DESIGN: root-issued connects ([`CONNECT_ANCESTOR`]) cannot hit the
+/// child-privilege pattern, so this is the typed carrier of the banked V-DPCI-1 refusal, consumed
+/// by the `LINK_I4` property twin (`wire_refusal_attribution_is_total`).
 #[must_use]
 pub fn attribute_wire_refusal(error: &Error) -> Option<WireRefusal> {
     match error {

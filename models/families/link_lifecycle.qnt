@@ -208,6 +208,9 @@ module link_lifecycle {
   // canConnect (its not(connected) clauses), so connecting an already-
   // connected end is refused by the core operator, not a local guard
   // (object-model.md §2, DPNI-I9).
+  // The Rust post-bind connect face is stricter than this guard: it
+  // additionally demands the VisibleEndpoint witness before it wires a
+  // bound end (cross-dprc-links design D4, recorded refinement).
   action connectWireAt(a: Endpoint, b: Endpoint): bool = all {
     canConnect(world.core, ALL_PARAMS, a, b),
     world' = world

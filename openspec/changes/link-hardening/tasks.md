@@ -41,14 +41,14 @@ Standing gates on every group: `scripts/checks/quality-floor.sh`,
 
 ## 3. LINK_I1 wording and replay-claim sweep (bead e9k — S4, S10, S14, S15, S16, S24)
 
-- [ ] 3.1 Retire the LINK_I1-as-refusal pairing at the stale sites
+- [x] 3.1 Retire the LINK_I1-as-refusal pairing at the stale sites
       (connect.rs:195-197, :259-261, :311, :320-321, :334;
       link_replay.rs:26, :264-266, :280) using the in-file wording
       precedent (:415-416). Fix S14 held-ness overclaim (claim the
       ORDER) and S16 dataflow overclaims (+ attribute_wire_refusal
       banked-pattern note). Verify: greps for the retired pairing,
       'actually held', 'carrier consumes' come back empty.
-- [ ] 3.2 Drive plan_wire at the Refused sentinel against the prior
+- [x] 3.2 Drive plan_wire at the Refused sentinel against the prior
       world and assert a non-Connect verdict (~8 lines,
       link_replay.rs:304-313); drop disconnect-before-destroy from the
       link_itf.rs refusal enumeration. Add the D4 refinement note on

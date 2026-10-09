@@ -71,7 +71,7 @@ fn priority_knob_emits_one_provenance_node_and_nothing_else() {
 }
 
 #[test]
-fn unset_knob_derives_byte_identically() {
+fn unset_knob_adds_no_node() {
     let base = compile_operand("");
     let key = ProvenanceKey::new("vpp", "dpcon-priority", "");
     assert!(

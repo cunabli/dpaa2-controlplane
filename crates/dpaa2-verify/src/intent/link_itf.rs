@@ -9,9 +9,9 @@
 //! states. The transition between two states is not named in the ITF; the replayer infers it
 //! from the field delta, mirroring `link_lifecycle`'s action set (cross-dprc-links design D7).
 //!
-//! A `.fail()` directed step (the cardinality-one / disconnect-before-destroy guard refusals)
-//! froze no variable values (only `#meta`); it decodes to `LinkStep::Refused`, the
-//! disabled-guard sentinel the replayer witnesses against the prior world.
+//! A `.fail()` directed step (the cardinality-one guard refusal) froze no variable values (only
+//! `#meta`); it decodes to `LinkStep::Refused`, the disabled-guard sentinel the replayer witnesses
+//! against the prior world.
 //!
 //! The reduction keeps the slice the Rust surface judges and nothing else: the `World.core`
 //! carries a full `CoreState`, but only the dpni endpoints (their container and bus visibility),
@@ -103,8 +103,7 @@ pub enum LinkStep {
     /// A state with the `world` var decoded.
     World(LinkWorld),
     /// A `.fail()` step: the guard was disabled, so quint froze no variable values. The replayer
-    /// witnesses the refused action against the prior world (the cardinality-one /
-    /// disconnect-before-destroy guards).
+    /// witnesses the refused action against the prior world (the cardinality-one guard).
     Refused,
 }
 
