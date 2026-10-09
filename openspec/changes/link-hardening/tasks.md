@@ -74,7 +74,7 @@ Standing gates on every group: `scripts/checks/quality-floor.sh`,
 
 ## 5. Link-pass spawn cache (bead wl7 — S27, OPTIONAL)
 
-- [ ] 5.1 Per-pass container-rows cache + reuse the pre-pass connection
+- [x] 5.1 Per-pass container-rows cache + reuse the pre-pass connection
       read in the dispatch arms (engine.rs sites in the bead); do NOT
       touch the McControl trait. Verify: RecordingRunner run_verb count
       per link drops ~7 → ~3; `cargo test -p dpaa2-tools` green.

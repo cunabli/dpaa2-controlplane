@@ -6,6 +6,7 @@
 //! DPNI index for a freshly-created port from the id the MC assigned this pass, and
 //! for existing ports from the observed connection edge (design D1; restool-baseline).
 
+use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::thread::sleep;
 use std::time::{Duration, Instant};
@@ -21,8 +22,8 @@ use dpaa2_api::core::types::{ConstructName, TenantName};
 use dpaa2_api::families::dpio::derived_seats;
 use dpaa2_api::families::dprc::Options;
 use dpaa2_api::families::pool_lifecycle::{
-    CustodyScope, PoolDeltas, PoolFamily, PoolMembership, RawLabel, ShrinkBelowDraw, census_of,
-    derived_requirement, drift_disposition, label_membership,
+    CustodyScope, ObservedPoolObject, PoolDeltas, PoolFamily, PoolMembership, RawLabel,
+    ShrinkBelowDraw, census_of, derived_requirement, drift_disposition, label_membership,
 };
 use dpaa2_api::intent::KERNEL;
 use dpaa2_api::intent::compiled::{
@@ -1196,6 +1197,43 @@ fn link_observe_scope(id: DprcId) -> Option<DprcId> {
     (id != DprcId::ROOT).then_some(id)
 }
 
+/// A per-pass dpni pool-row cache for the link pass (link-hardening task 5.1, S27): each
+/// container's `observe_pool(scope, Dpni)` rows are read ONCE per pass, so the N link edges resolve
+/// (and the root ends plug) against one read per container instead of one per edge — the same
+/// per-ensure rescan prune the [`McControl::observe_container`] doc records. A create invalidates
+/// the mutated container's entry, so a later edge re-reads it; the cache lives in the shell, never
+/// as interior mutability behind the trait (the per-MC-command seam #10 drops into, cross-dprc-links design D6).
+struct LinkPoolCache<'m, M: McControl> {
+    mc: &'m M,
+    rows: RefCell<BTreeMap<Option<DprcId>, Vec<ObservedPoolObject>>>,
+}
+
+impl<'m, M: McControl> LinkPoolCache<'m, M> {
+    fn new(mc: &'m M) -> Self {
+        Self {
+            mc,
+            rows: RefCell::new(BTreeMap::new()),
+        }
+    }
+
+    /// The dpni pool rows for `scope`, observed once then served from the cache for the rest of the
+    /// pass (one restool spawn per container per pass).
+    fn dpni_rows(&self, scope: Option<DprcId>) -> Result<Vec<ObservedPoolObject>, Error> {
+        if let Some(rows) = self.rows.borrow().get(&scope) {
+            return Ok(rows.clone());
+        }
+        let rows = self.mc.observe_pool(scope, Family::Dpni)?;
+        self.rows.borrow_mut().insert(scope, rows.clone());
+        Ok(rows)
+    }
+
+    /// Drops `scope`'s cached rows after a create in it, so the next read re-observes (step 4): a
+    /// freshly minted end would otherwise be absent from a later edge's resolution.
+    fn invalidate(&self, scope: Option<DprcId>) {
+        self.rows.borrow_mut().remove(&scope);
+    }
+}
+
 /// Resolves one dpni↔dpni edge's two ends from the compiled plan and the board
 /// (cross-dprc-links design D2). Two ends sharing one container are a multiset of rows bearing
 /// the link-name label — position is not a hardware identity (ADR-0015 decision 5), so the link
@@ -1203,7 +1241,7 @@ fn link_observe_scope(id: DprcId) -> Option<DprcId> {
 /// either order (a self-loop that would share a child container is refused at intent). Ends in
 /// distinct containers each resolve by the per-end label match.
 fn resolve_link_edge<'a, M: McControl>(
-    mc: &M,
+    cache: &LinkPoolCache<'_, M>,
     plan: &'a CompiledPlan,
     a_key: &dpaa2_api::intent::compiled::ObjectKey,
     b_key: &dpaa2_api::intent::compiled::ObjectKey,
@@ -1230,8 +1268,8 @@ fn resolve_link_edge<'a, M: McControl>(
     };
 
     if a_id == b_id {
-        let rows: Vec<_> = mc
-            .observe_pool(link_observe_scope(a_id), Family::Dpni)?
+        let rows: Vec<_> = cache
+            .dpni_rows(link_observe_scope(a_id))?
             .into_iter()
             .filter(|r| r.label.as_str() == label.as_str())
             .collect();
@@ -1260,8 +1298,8 @@ fn resolve_link_edge<'a, M: McControl>(
     }
 
     let (Some(a), Some(b)) = (
-        resolve_link_end(mc, a_obj.container(), a_id, label, a_cfg)?,
-        resolve_link_end(mc, b_obj.container(), b_id, label, b_cfg)?,
+        resolve_link_end(cache, a_obj.container(), a_id, label, a_cfg)?,
+        resolve_link_end(cache, b_obj.container(), b_id, label, b_cfg)?,
     ) else {
         return Ok(LinkEdgePlan::Skip);
     };
@@ -1271,14 +1309,14 @@ fn resolve_link_edge<'a, M: McControl>(
 /// Resolves one end of a distinct-container edge: the observed dpni row, else a root create, else
 /// `None` when a child end is absent this pass (population's job; cross-dprc-links design D2).
 fn resolve_link_end<'a, M: McControl>(
-    mc: &M,
+    cache: &LinkPoolCache<'_, M>,
     container: &Container,
     id: DprcId,
     label: &'a ConstructName,
     cfg: &'a dpaa2_api::families::dpni::DpniCfg,
 ) -> Result<Option<LinkSlot<'a>>, Error> {
-    let row = mc
-        .observe_pool(link_observe_scope(id), Family::Dpni)?
+    let row = cache
+        .dpni_rows(link_observe_scope(id))?
         .into_iter()
         .find(|r| r.label.as_str() == label.as_str());
     Ok(match (row, container) {
@@ -1296,32 +1334,116 @@ fn resolve_link_end<'a, M: McControl>(
 /// connect (the populate-connect-bind order, cross-dprc-links design D4).
 // The slot is moved out of the per-edge plan, so it is taken by value though its fields are Copy.
 #[allow(clippy::needless_pass_by_value)]
-fn materialize_link_end<M: McControl>(mc: &M, slot: LinkSlot<'_>) -> Result<WireEnd, Error> {
+fn materialize_link_end<M: McControl>(
+    mc: &M,
+    slot: LinkSlot<'_>,
+    cache: &LinkPoolCache<'_, M>,
+) -> Result<WireEnd, Error> {
     match slot {
         LinkSlot::Have(end) => Ok(end),
-        LinkSlot::CreateRoot { label, cfg } => Ok(WireEnd {
-            dpni: mc.create_dpni(label, cfg)?,
-            container: DprcId::ROOT,
-        }),
+        LinkSlot::CreateRoot { label, cfg } => {
+            let dpni = mc.create_dpni(label, cfg)?;
+            // The new root row lands in `dprc.1`, so the cached root rows are now stale (step 4).
+            cache.invalidate(None);
+            Ok(WireEnd {
+                dpni,
+                container: DprcId::ROOT,
+            })
+        }
     }
 }
 
 /// Plugs a root-resident end after its fresh connect, skipping an end already plugged
 /// (cross-dprc-links design D4): a root kernel dpni is plugged with `dprc assign --plugged=1`; a
 /// child end is never plugged here (the VFIO handoff owns a child's plug face).
-fn plug_root_link_end<M: McControl>(mc: &M, end: WireEnd) -> Result<(), Error> {
+///
+/// The plug-check reads no board (link-hardening task 5.1, S27): a `fresh` end was created this
+/// pass and reads back unplugged by construction (the fake and restool both create unplugged; see
+/// [`materialize_link_end`]), so it is plugged unconditionally; an already-resident end is judged
+/// from its cached row — plugged when the row is present and plugged, plugged otherwise.
+fn plug_root_link_end<M: McControl>(
+    mc: &M,
+    end: WireEnd,
+    cache: &LinkPoolCache<'_, M>,
+    fresh: bool,
+) -> Result<(), Error> {
     if end.container != DprcId::ROOT {
         return Ok(());
     }
     let object = ObjectRef::new(Family::Dpni, end.dpni.into_inner());
-    let plugged = mc
-        .observe_pool(None, Family::Dpni)?
-        .iter()
-        .any(|r| r.object == object && r.plugged);
+    let plugged = !fresh
+        && cache
+            .dpni_rows(None)?
+            .iter()
+            .any(|r| r.object == object && r.plugged);
     if !plugged {
         mc.dprc_assign(DprcId::ROOT, object, None, Some(true))?;
     }
     Ok(())
+}
+
+/// The pre-pass verdict for one link edge (link-hardening task 5.1): a both-present edge is judged
+/// in the pre-pass (its two connection reads feed dispatch unchanged), a create/pending edge is
+/// deferred so its absent root ends materialize before it is judged.
+enum EdgeVerdict {
+    /// A both-present edge already judged pre-pass; the dispatch arm reuses this `WirePlan` rather
+    /// than re-reading both connections (S27).
+    Judged(WirePlan),
+    /// A create/pending edge judged at dispatch, after any absent root end is materialized.
+    Deferred,
+}
+
+/// Resolves and actuates one link edge at dispatch (link-hardening task 5.1, S27): a both-present
+/// edge reuses its pre-pass [`WirePlan`]; a deferred edge materializes its absent root ends, reads
+/// only a present end's connection (a freshly created end is disconnected by construction), then
+/// connects at the common ancestor and plugs the root ends. Returns the actuated `(dpni, peer)` for
+/// the post-dispatch read-back, or `None` when nothing fired (an already-wired or pending edge).
+///
+/// # Errors
+/// Propagates a backend create/connect/assign error.
+fn dispatch_link_edge<M: McControl>(
+    mc: &M,
+    cache: &LinkPoolCache<'_, M>,
+    plan: LinkEdgePlan<'_>,
+    verdict: EdgeVerdict,
+) -> Result<Option<(DpniId, ObjectRef)>, Error> {
+    let (wp, a_fresh, b_fresh) = match verdict {
+        EdgeVerdict::Judged(wp) => (wp, false, false),
+        EdgeVerdict::Deferred => {
+            let LinkEdgePlan::Wire { a, b } = plan else {
+                return Ok(None);
+            };
+            let a_fresh = matches!(a, LinkSlot::CreateRoot { .. });
+            let b_fresh = matches!(b, LinkSlot::CreateRoot { .. });
+            let a = materialize_link_end(mc, a, cache)?;
+            let b = materialize_link_end(mc, b, cache)?;
+            let a_obs = if a_fresh {
+                None
+            } else {
+                mc.dprc_get_connection(a.dpni)?
+            };
+            let b_obs = if b_fresh {
+                None
+            } else {
+                mc.dprc_get_connection(b.dpni)?
+            };
+            let wp = plan_wire(
+                LinkEndState::Resolved(a),
+                LinkEndState::Resolved(b),
+                a_obs,
+                b_obs,
+            );
+            (wp, a_fresh, b_fresh)
+        }
+    };
+    if let WirePlan::Connect(WireTransition::ConnectWire { a, b, ancestor }) = wp {
+        let peer = ObjectRef::new(Family::Dpni, b.dpni.into_inner());
+        mc.dprc_connect(ancestor, a.dpni, peer)?;
+        plug_root_link_end(mc, a, cache, a_fresh)?;
+        plug_root_link_end(mc, b, cache, b_fresh)?;
+        return Ok(Some((a.dpni, peer)));
+    }
+    Ok(None)
 }
 
 /// Converges every declared dpni↔dpni link toward the compiled plan — the root-reconcile link
@@ -1333,15 +1455,20 @@ fn plug_root_link_end<M: McControl>(mc: &M, end: WireEnd) -> Result<(), Error> {
 /// The pass, in order:
 /// - Resolves every link edge's two ends (reads only): present, a root end to create, or a
 ///   pending end (a child dpni not yet created — population's job — or a child container not yet
-///   observed) that skips the edge this pass, level-triggered.
+///   observed) that skips the edge this pass, level-triggered. Each container's dpni pool rows are
+///   read ONCE per pass through a per-pass pool cache, so N edges cost one read per container, not
+///   one per edge (link-hardening task 5.1, S27).
 /// - Refuses before any mutation when a resolved end is held by a peer other than planned
 ///   ([`LinkOutcome::RewireRefused`]; DPRC-I5 disconnect-before-reconnect — never a silent
 ///   rewire), and gates the headline against `cfg.allow` (ADR-0015 decision 12): a root-end
 ///   create or a fresh connect is [`Class::Disruptive`].
 /// - Creates each absent root end, connects each fresh pair at the common ancestor
 ///   ([`WireTransition::connect_wire`]'s resolved [`CONNECT_ANCESTOR`]), then plugs the root ends
-///   — the populate-connect-bind order (cross-dprc-links design D4). An already-wired edge connects nothing
-///   (idempotence in [`plan_wire`]).
+///   — the populate-connect-bind order (cross-dprc-links design D4). A both-present edge reuses the
+///   connection reads the pre-pass took, a freshly created end is known disconnected-and-unplugged
+///   by construction, and the plug-check judges from the cached row — so the dispatch arm re-reads
+///   neither the connection nor the plug state of an end the pass already knows (S27). An
+///   already-wired edge connects nothing (idempotence in [`plan_wire`]).
 /// - Judges convergence by re-reading each actuated edge's connection; a miss is an
 ///   [`Error::Backend`] (the [`converge_population`] read-back precedent).
 ///
@@ -1374,35 +1501,61 @@ pub fn converge_links<M: McControl>(
         .collect();
 
     // Resolve first (reads only), so the held refusal and the gate are judged before any mutation.
+    // One pool read per container feeds every edge's resolution through the pass cache (S27).
+    let cache = LinkPoolCache::new(mc);
     let mut plans = Vec::new();
     for (a_key, b_key) in edges {
-        plans.push(resolve_link_edge(mc, plan, a_key, b_key, &children)?);
+        plans.push(resolve_link_edge(&cache, plan, a_key, b_key, &children)?);
     }
 
     // A held-end refusal changes nothing (DPRC-I5), so it is judged before the gate; a create or a
-    // fresh connect sets the Disruptive headline.
+    // fresh connect sets the Disruptive headline. Each both-present edge's `plan_wire` verdict is
+    // kept so the dispatch arm reuses it instead of re-reading both connections (S27).
     let mut held = Vec::new();
     let mut any_work = false;
+    let mut verdicts: Vec<EdgeVerdict> = Vec::with_capacity(plans.len());
     for p in &plans {
-        let LinkEdgePlan::Wire { a, b } = p else {
-            continue;
-        };
-        match (a, b) {
-            (LinkSlot::Have(a), LinkSlot::Have(b)) => {
-                let a_obs = mc.dprc_get_connection(a.dpni)?;
-                let b_obs = mc.dprc_get_connection(b.dpni)?;
-                match plan_wire(
+        match p {
+            LinkEdgePlan::Wire {
+                a: LinkSlot::Have(a),
+                b: LinkSlot::Have(b),
+            } => {
+                let wp = plan_wire(
                     LinkEndState::Resolved(*a),
                     LinkEndState::Resolved(*b),
-                    a_obs,
-                    b_obs,
-                ) {
+                    mc.dprc_get_connection(a.dpni)?,
+                    mc.dprc_get_connection(b.dpni)?,
+                );
+                match &wp {
                     WirePlan::Connect(_) => any_work = true,
-                    WirePlan::HeldByOtherPeer(r) => held.push(r),
+                    WirePlan::HeldByOtherPeer(r) => held.push(*r),
                     WirePlan::Nothing => {}
                 }
+                verdicts.push(EdgeVerdict::Judged(wp));
             }
-            _ => any_work = true,
+            LinkEdgePlan::Wire { a, b } => {
+                // A mixed edge's lone present end, judged against its still-to-create peer, so a
+                // foreign-held root end refuses before the missing peer is minted (link-hardening
+                // review PASS2-F1; DPRC-I5).
+                let lone = match (a, b) {
+                    (LinkSlot::Have(e), LinkSlot::CreateRoot { .. })
+                    | (LinkSlot::CreateRoot { .. }, LinkSlot::Have(e)) => Some(*e),
+                    _ => None,
+                };
+                if let Some(have) = lone
+                    && let WirePlan::HeldByOtherPeer(r) = plan_wire(
+                        LinkEndState::Resolved(have),
+                        LinkEndState::Pending,
+                        mc.dprc_get_connection(have.dpni)?,
+                        None,
+                    )
+                {
+                    held.push(r);
+                }
+                any_work = true;
+                verdicts.push(EdgeVerdict::Deferred);
+            }
+            LinkEdgePlan::Skip => verdicts.push(EdgeVerdict::Deferred),
         }
     }
     if !held.is_empty() {
@@ -1425,25 +1578,9 @@ pub fn converge_links<M: McControl>(
     }
 
     let mut actuated: Vec<(DpniId, ObjectRef)> = Vec::new();
-    for p in plans {
-        let LinkEdgePlan::Wire { a, b } = p else {
-            continue;
-        };
-        let a = materialize_link_end(mc, a)?;
-        let b = materialize_link_end(mc, b)?;
-        let a_obs = mc.dprc_get_connection(a.dpni)?;
-        let b_obs = mc.dprc_get_connection(b.dpni)?;
-        if let WirePlan::Connect(WireTransition::ConnectWire { a, b, ancestor }) = plan_wire(
-            LinkEndState::Resolved(a),
-            LinkEndState::Resolved(b),
-            a_obs,
-            b_obs,
-        ) {
-            let peer = ObjectRef::new(Family::Dpni, b.dpni.into_inner());
-            mc.dprc_connect(ancestor, a.dpni, peer)?;
-            plug_root_link_end(mc, a)?;
-            plug_root_link_end(mc, b)?;
-            actuated.push((a.dpni, peer));
+    for (p, verdict) in plans.into_iter().zip(verdicts) {
+        if let Some(edge) = dispatch_link_edge(mc, &cache, p, verdict)? {
+            actuated.push(edge);
         }
     }
     for (dpni, peer) in actuated {
@@ -1501,12 +1638,14 @@ pub fn plan_links<M: McControl>(plan: &CompiledPlan, mc: &M) -> Result<Vec<LinkD
         .iter()
         .map(|(&id, c)| (c.label.clone(), id))
         .collect();
+    // Read-only, so one pool read per container serves every edge's resolution (S27).
+    let cache = LinkPoolCache::new(mc);
     let mut out = Vec::new();
     for edge in &plan.edges {
         let Some((a_key, b_key)) = edge.link_edge_dpnis() else {
             continue;
         };
-        let action = match resolve_link_edge(mc, plan, a_key, b_key, &children)? {
+        let action = match resolve_link_edge(&cache, plan, a_key, b_key, &children)? {
             LinkEdgePlan::Skip => LinkDryRunAction::Pending,
             LinkEdgePlan::Wire {
                 a: LinkSlot::Have(ea),
@@ -1584,12 +1723,14 @@ pub fn link_rows<M: McControl>(plan: &CompiledPlan, mc: &M) -> Result<Vec<LinkRo
         .iter()
         .map(|(&id, c)| (c.label.clone(), id))
         .collect();
+    // Read-only, so one pool read per container serves every edge's resolution (S27).
+    let cache = LinkPoolCache::new(mc);
     let mut out = Vec::new();
     for edge in &plan.edges {
         let Some((a_key, b_key)) = edge.link_edge_dpnis() else {
             continue;
         };
-        let (a, b) = match resolve_link_edge(mc, plan, a_key, b_key, &children)? {
+        let (a, b) = match resolve_link_edge(&cache, plan, a_key, b_key, &children)? {
             LinkEdgePlan::Wire { a, b } => (link_slot_ref(&a), link_slot_ref(&b)),
             LinkEdgePlan::Skip => (None, None),
         };
@@ -2124,6 +2265,39 @@ mod tests {
                 connection(&mc, ObjectRef::new(Family::Dpni, a.into_inner())),
                 Some(foreign_ref),
                 "the held end is not silently rewired"
+            );
+        }
+
+        #[test]
+        fn a_mixed_edge_foreign_held_end_refuses_before_any_create() {
+            // PASS2-F1: one root end exists under the link label wired to a foreign peer, its peer
+            // not yet created — the mixed edge refuses before the missing dpni is minted (DPRC-I5).
+            let compiled = compiled_root_root();
+            let mc = FakeBackend::new();
+            let a = mc.create_dpni(&link_label(), &DpniCfg::defaults()).unwrap();
+            let foreign = mc
+                .create_dpni(&ConstructName::from("foreign"), &DpniCfg::defaults())
+                .unwrap();
+            let foreign_ref = ObjectRef::new(Family::Dpni, foreign.into_inner());
+            mc.dprc_connect(CONNECT_ANCESTOR, a, foreign_ref).unwrap();
+            let before = mc.observe_pool(None, Family::Dpni).unwrap().len();
+
+            let outcome = converge_links(&compiled.plan, &mc, link_cfg(Class::Disruptive)).unwrap();
+            match outcome {
+                LinkOutcome::RewireRefused { refusals } => {
+                    assert_eq!(refusals.len(), 1);
+                    assert_eq!(refusals[0].observed_peer, foreign_ref);
+                    assert_eq!(
+                        refusals[0].planned_peer, None,
+                        "the planned peer is to-create"
+                    );
+                }
+                other => panic!("expected a rewire refusal, got {other:?}"),
+            }
+            assert_eq!(
+                mc.observe_pool(None, Family::Dpni).unwrap().len(),
+                before,
+                "no dpni is created under the refusal"
             );
         }
     }
