@@ -90,6 +90,49 @@ fn dry_run_shows_a_held_end_refusal() {
 }
 
 #[test]
+fn dry_run_shows_a_b_side_held_end_refusal() {
+    // A foreign-held b end with a free a: the dry-run renders the typed refusal naming end b (DPRC-I5).
+    let compiled = compiled_root_link();
+    let mc = FakeBackend::new();
+    let _a = mc.create_dpni(&link_label(), &DpniCfg::defaults()).unwrap();
+    let b = mc.create_dpni(&link_label(), &DpniCfg::defaults()).unwrap();
+    let foreign = mc
+        .create_dpni(&ConstructName::from("foreign"), &DpniCfg::defaults())
+        .unwrap();
+    mc.dprc_connect(
+        CONNECT_ANCESTOR,
+        b,
+        ObjectRef::new(dpaa2_api::core::family::Family::Dpni, foreign.into_inner()),
+    )
+    .unwrap();
+    let links = engine::plan_links(&compiled.plan, &mc).unwrap();
+    insta::assert_snapshot!(render::render_links(&compiled.plan, &links));
+}
+
+#[test]
+fn converge_links_refuses_a_foreign_held_b_end() {
+    // converge_links refuses a foreign-held b end rather than silently rewiring it (DPRC-I5).
+    let compiled = compiled_root_link();
+    let mc = FakeBackend::new();
+    let _a = mc.create_dpni(&link_label(), &DpniCfg::defaults()).unwrap();
+    let b = mc.create_dpni(&link_label(), &DpniCfg::defaults()).unwrap();
+    let foreign = mc
+        .create_dpni(&ConstructName::from("foreign"), &DpniCfg::defaults())
+        .unwrap();
+    mc.dprc_connect(
+        CONNECT_ANCESTOR,
+        b,
+        ObjectRef::new(dpaa2_api::core::family::Family::Dpni, foreign.into_inner()),
+    )
+    .unwrap();
+    let outcome = engine::converge_links(&compiled.plan, &mc, disruptive()).unwrap();
+    assert!(
+        matches!(outcome, engine::LinkOutcome::RewireRefused { .. }),
+        "a foreign-held b end refuses: {outcome:?}"
+    );
+}
+
+#[test]
 fn status_detail_shows_a_converged_link_from_dprc_get_connection() {
     // After the links converge, status --detail reads each end and the connection from
     // dprc_get_connection and renders the row.

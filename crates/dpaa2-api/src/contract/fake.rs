@@ -628,13 +628,29 @@ impl McControl for FakeBackend {
         Ok(())
     }
 
-    // A plain insert records the ancestor-connect edge; a same-peer re-connect is a no-op,
-    // the idempotence the converge relies on (pool-objects design D11). A dpni↔dpni wire is
-    // symmetric on the board (both dpnis report the endpoint), so the reverse edge is recorded too
-    // — modeling `dpni info` on either end (cross-dprc-links task 5.2); a dpmac peer carries no
-    // dpni endpoint row, so only the dpni↔dpni case mirrors.
+    // Records the ancestor-connect edge; a same-peer re-connect is the idempotent no-op, an end held
+    // by a DIFFERENT peer refuses raw (pool-objects design D11; link-hardening design D2 — the MC is
+    // the refusal authority). A dpni↔dpni wire is symmetric, so the reverse edge mirrors too (cross-dprc-links task 5.2).
     fn dprc_connect(&self, _ancestor: DprcId, dpni: DpniId, peer: ObjectRef) -> Result<(), Error> {
         let mut st = self.state.borrow_mut();
+        if let Some(&held) = st.endpoints.get(&dpni)
+            && held != peer
+        {
+            return Err(Error::Backend(format!(
+                "{dpni} is already connected to {held}"
+            )));
+        }
+        if peer.family() == Family::Dpni {
+            let peer_dpni = DpniId::new(peer.ordinal());
+            let back = ObjectRef::new(Family::Dpni, dpni.into_inner());
+            if let Some(&held) = st.endpoints.get(&peer_dpni)
+                && held != back
+            {
+                return Err(Error::Backend(format!(
+                    "{peer_dpni} is already connected to {held}"
+                )));
+            }
+        }
         st.endpoints.insert(dpni, peer);
         if peer.family() == Family::Dpni {
             st.endpoints.insert(
@@ -695,7 +711,14 @@ impl McControl for FakeBackend {
         st.audit.push(format!("disconnect:{dpni}"));
         // A child dpni is a pool row whose edge lives in `endpoints`, not `connected_to`
         // (pool-objects design D11): clear both faces so the DPNI-I9 disconnect reaches it.
-        let child_edge = st.endpoints.remove(&dpni).is_some();
+        // A dpni↔dpni wire is symmetric: the peer's mirror edge drops too, so both ends read None (cross-dprc-links task 5.2).
+        let removed_peer = st.endpoints.remove(&dpni);
+        if let Some(peer) = removed_peer
+            && peer.family() == Family::Dpni
+        {
+            st.endpoints.remove(&DpniId::new(peer.ordinal()));
+        }
+        let child_edge = removed_peer.is_some();
         if let Some(obj) = st.dpnis.iter_mut().find(|d| d.id == dpni) {
             obj.connected_to = None;
             obj.netdev = None;
@@ -711,6 +734,15 @@ impl McControl for FakeBackend {
         st.audit.push(format!("destroy:{dpni}"));
         st.dpnis.retain(|d| d.id != dpni);
         st.ready_at.remove(&dpni);
+        // The edge drops atomically with the endpoint (V-LINK-6 rev 1): the peer's mirror reads None too.
+        if let Some(peer) = st.endpoints.remove(&dpni)
+            && peer.family() == Family::Dpni
+        {
+            st.endpoints.remove(&DpniId::new(peer.ordinal()));
+        }
+        // A destroyed root dpni leaves the root pool, so observe_pool(None, Dpni) omits it (V-LINK-6 rev 1).
+        let gone = ObjectRef::new(Family::Dpni, dpni.into_inner());
+        st.pool_objects.retain(|(_, o)| o.object != gone);
         // A destroyed consumer releases the pool draws it held (pool-objects design D10 teardown
         // walk): the fake models one consumer, so its teardown clears the hidden in-use set.
         // ponytail: whole-set clear, per-consumer draw tracking if a test needs it.
@@ -1052,5 +1084,44 @@ mod tests {
             .dprc_connect(DprcId::new(1), dpni, peer)
             .expect("connect");
         assert_eq!(backend.dprc_get_connection(dpni).expect("read"), Some(peer));
+    }
+
+    // V-LINK-6 rev 1 (models/board/VERDICTS.json V-LINK-6-rev1, board README:110): the MC removes a
+    // dpni↔dpni edge atomically — disconnect clears both ends; a destroy of a still-connected end leaves the survivor None and drops its id from the root pool.
+    #[test]
+    fn dpni_peer_edge_drops_with_disconnect_and_with_destroy() {
+        let backend = FakeBackend::new();
+        let a = backend
+            .create_dpni(&ConstructName::from("a"), &DpniCfg::defaults())
+            .expect("create a");
+        let b = backend
+            .create_dpni(&ConstructName::from("b"), &DpniCfg::defaults())
+            .expect("create b");
+        let a_ref = ObjectRef::new(Family::Dpni, a.into_inner());
+        let b_ref = ObjectRef::new(Family::Dpni, b.into_inner());
+
+        backend
+            .dprc_connect(DprcId::ROOT, a, b_ref)
+            .expect("connect");
+        assert_eq!(backend.dprc_get_connection(a).expect("read"), Some(b_ref));
+        assert_eq!(backend.dprc_get_connection(b).expect("read"), Some(a_ref));
+        backend
+            .dprc_disconnect(DprcId::ROOT, a)
+            .expect("disconnect");
+        assert_eq!(backend.dprc_get_connection(a).expect("read"), None);
+        assert_eq!(backend.dprc_get_connection(b).expect("read"), None);
+
+        backend
+            .dprc_connect(DprcId::ROOT, a, b_ref)
+            .expect("reconnect");
+        backend.destroy(b).expect("destroy b");
+        assert_eq!(backend.dprc_get_connection(a).expect("read"), None);
+        let pool = backend
+            .observe_pool(None, Family::Dpni)
+            .expect("observe pool");
+        assert!(
+            pool.iter().all(|o| o.object != b_ref),
+            "the destroyed end leaves the root pool (V-LINK-6 rev 1)"
+        );
     }
 }

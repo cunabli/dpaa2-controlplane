@@ -380,17 +380,25 @@ pub struct WireHeldRefusal {
     pub end: WireEnd,
     /// The peer the end is observed connected to.
     pub observed_peer: ObjectRef,
-    /// The peer the plan names for it.
-    pub planned_peer: ObjectRef,
+    /// The peer the plan names for it, or `None` when that peer is not yet created — a mixed
+    /// edge whose other end is still to-create (link-hardening review PASS2-F1; DPRC-I5).
+    pub planned_peer: Option<ObjectRef>,
 }
 
 impl fmt::Display for WireHeldRefusal {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "{} is connected to {} but the plan wires it to {}: disconnect it first (DPRC-I5)",
-            self.end.dpni, self.observed_peer, self.planned_peer
-        )
+        match self.planned_peer {
+            Some(planned) => write!(
+                f,
+                "{} is connected to {} but the plan wires it to {}: disconnect it first (DPRC-I5)",
+                self.end.dpni, self.observed_peer, planned
+            ),
+            None => write!(
+                f,
+                "{} is connected to {} but the plan wires it to a peer not yet created: disconnect it first (DPRC-I5)",
+                self.end.dpni, self.observed_peer
+            ),
+        }
     }
 }
 
@@ -406,28 +414,61 @@ pub enum WirePlan {
     HeldByOtherPeer(WireHeldRefusal),
 }
 
-/// Plans one dpni↔dpni edge from its two resolved-or-pending ends and end `a`'s observed
-/// connection (cross-dprc-links design D2). Pure and sans-io: the dry-run surface (task 5.5)
-/// reuses it so `ensure` executes exactly what dry-run renders. A pending end plans
+/// Plans one dpni↔dpni edge from its two resolved-or-pending ends and BOTH ends' observed
+/// connections (cross-dprc-links design D2/D7; DPRC-I5). Pure and sans-io: the dry-run surface
+/// (cross-dprc-links task 5.5) reuses it so `ensure` executes exactly what dry-run renders. A pending end plans
 /// [`WirePlan::Nothing`] (level-triggered — a later pass resolves it); an end already wired to the
-/// planned peer plans nothing (idempotence); an end wired to a DIFFERENT peer is
-/// [`WirePlan::HeldByOtherPeer`] (DPRC-I5, refused, never a silent rewire); otherwise a fresh
-/// [`WireTransition::connect_wire`] issued at the resolved common ancestor. The planned peer is
-/// end `b`'s dpni as an [`ObjectRef`], the identity the `dprc connect` names.
+/// planned peer plans nothing (idempotence); an end wired to a DIFFERENT peer — on EITHER side — is
+/// [`WirePlan::HeldByOtherPeer`] (refused, never a silent rewire). A foreign-held `b` with a free
+/// `a` names end `b`; the mid-transition asymmetry where `a` is free and `b` already names `a`
+/// plans nothing (a later pass re-reads); only two free ends plan a fresh
+/// [`WireTransition::connect_wire`] at the resolved common ancestor. The planned peer is end `b`'s
+/// dpni as an [`ObjectRef`], the identity the `dprc connect` names.
+///
+/// A mixed edge — exactly one end resolved — whose resolved end is observed connected to ANY peer
+/// while its planned peer is still to-create is held with [`WireHeldRefusal::planned_peer`] `None`:
+/// the observed peer is foreign by construction, since the planned peer does not exist yet
+/// (link-hardening review PASS2-F1; DPRC-I5).
 #[must_use]
-pub fn plan_wire(a: LinkEndState, b: LinkEndState, a_observed: Option<ObjectRef>) -> WirePlan {
+pub fn plan_wire(
+    a: LinkEndState,
+    b: LinkEndState,
+    a_observed: Option<ObjectRef>,
+    b_observed: Option<ObjectRef>,
+) -> WirePlan {
     let (LinkEndState::Resolved(a), LinkEndState::Resolved(b)) = (a, b) else {
-        return WirePlan::Nothing;
+        // Mixed or fully-pending: a lone resolved end observed connected is foreign-held (its
+        // planned peer is not yet created); every other mixed/pending shape plans nothing.
+        let lone = match (a, b) {
+            (LinkEndState::Resolved(end), _) => Some((end, a_observed)),
+            (_, LinkEndState::Resolved(end)) => Some((end, b_observed)),
+            _ => None,
+        };
+        return match lone {
+            Some((end, Some(peer))) => WirePlan::HeldByOtherPeer(WireHeldRefusal {
+                end,
+                observed_peer: peer,
+                planned_peer: None,
+            }),
+            _ => WirePlan::Nothing,
+        };
     };
     let planned_peer = ObjectRef::new(Family::Dpni, b.dpni.into_inner());
-    match a_observed {
-        Some(peer) if peer == planned_peer => WirePlan::Nothing,
-        Some(peer) => WirePlan::HeldByOtherPeer(WireHeldRefusal {
+    let a_ref = ObjectRef::new(Family::Dpni, a.dpni.into_inner());
+    match (a_observed, b_observed) {
+        (Some(peer), _) if peer == planned_peer => WirePlan::Nothing,
+        (Some(peer), _) => WirePlan::HeldByOtherPeer(WireHeldRefusal {
             end: a,
             observed_peer: peer,
-            planned_peer,
+            planned_peer: Some(planned_peer),
         }),
-        None => WirePlan::Connect(WireTransition::connect_wire(a, b)),
+        (None, Some(peer)) if peer != a_ref => WirePlan::HeldByOtherPeer(WireHeldRefusal {
+            end: b,
+            observed_peer: peer,
+            planned_peer: Some(a_ref),
+        }),
+        (None, Some(_)) => WirePlan::Nothing,
+        (None, None) => WirePlan::Connect(WireTransition::connect_wire(a, b)),
     }
 }
 
@@ -917,7 +958,12 @@ mod tests {
         let a = end(0, DprcId::ROOT);
         let b = end(1, DprcId::ROOT);
         assert_eq!(
-            plan_wire(LinkEndState::Resolved(a), LinkEndState::Resolved(b), None),
+            plan_wire(
+                LinkEndState::Resolved(a),
+                LinkEndState::Resolved(b),
+                None,
+                None
+            ),
             WirePlan::Connect(WireTransition::connect_wire(a, b))
         );
     }
@@ -931,7 +977,8 @@ mod tests {
             plan_wire(
                 LinkEndState::Resolved(a),
                 LinkEndState::Resolved(b),
-                Some(peer_ref(1))
+                Some(peer_ref(1)),
+                Some(peer_ref(0))
             ),
             WirePlan::Nothing
         );
@@ -946,13 +993,50 @@ mod tests {
             plan_wire(
                 LinkEndState::Resolved(a),
                 LinkEndState::Resolved(b),
-                Some(peer_ref(9))
+                Some(peer_ref(9)),
+                None
             ),
             WirePlan::HeldByOtherPeer(WireHeldRefusal {
                 end: a,
                 observed_peer: peer_ref(9),
-                planned_peer: peer_ref(1),
+                planned_peer: Some(peer_ref(1)),
             })
+        );
+    }
+
+    #[test]
+    fn plan_wire_foreign_held_b_names_end_b() {
+        // DPRC-I5 on the b side: a free, b foreign-held → refuse naming end b (cross-dprc-links design D7).
+        let a = end(0, DprcId::ROOT);
+        let b = end(1, DprcId::ROOT);
+        assert_eq!(
+            plan_wire(
+                LinkEndState::Resolved(a),
+                LinkEndState::Resolved(b),
+                None,
+                Some(peer_ref(9))
+            ),
+            WirePlan::HeldByOtherPeer(WireHeldRefusal {
+                end: b,
+                observed_peer: peer_ref(9),
+                planned_peer: Some(peer_ref(0)),
+            })
+        );
+    }
+
+    #[test]
+    fn plan_wire_asymmetric_b_already_names_a_plans_nothing() {
+        // Mid-transition asymmetry (a free, b already names a): level-triggered, this pass plans nothing.
+        let a = end(0, DprcId::ROOT);
+        let b = end(1, DprcId::ROOT);
+        assert_eq!(
+            plan_wire(
+                LinkEndState::Resolved(a),
+                LinkEndState::Resolved(b),
+                None,
+                Some(peer_ref(0))
+            ),
+            WirePlan::Nothing
         );
     }
 
@@ -961,11 +1045,11 @@ mod tests {
         // A pending end plans nothing this pass; the level-triggered re-run resolves it.
         let a = end(0, DprcId::ROOT);
         assert_eq!(
-            plan_wire(LinkEndState::Resolved(a), LinkEndState::Pending, None),
+            plan_wire(LinkEndState::Resolved(a), LinkEndState::Pending, None, None),
             WirePlan::Nothing
         );
         assert_eq!(
-            plan_wire(LinkEndState::Pending, LinkEndState::Pending, None),
+            plan_wire(LinkEndState::Pending, LinkEndState::Pending, None, None),
             WirePlan::Nothing
         );
     }

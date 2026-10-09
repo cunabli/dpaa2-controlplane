@@ -9,7 +9,7 @@ Standing gates on every group: `scripts/checks/quality-floor.sh`,
 
 ## 1. Fake edge fidelity + symmetric held refusal (bead 0d0 — S5, S6)
 
-- [ ] 1.1 Make the contract fake obey the V-LINK-6 symmetric-edge law:
+- [x] 1.1 Make the contract fake obey the V-LINK-6 symmetric-edge law:
       disconnect drops both endpoints-mirror entries; destroy drops
       both entries AND the pool_objects row (fake.rs:586-594, :636-646,
       :693-707). Verify: new peer-read test — connect pair,
@@ -17,7 +17,7 @@ Standing gates on every group: `scripts/checks/quality-floor.sh`,
       `dprc_get_connection(peer) == None` and
       `observe_pool(None, Dpni)` omits the destroyed id (transcript
       values, V-LINK-6-rev1).
-- [ ] 1.2 Widen `plan_wire(a, b, a_observed)` with `b_observed`
+- [x] 1.2 Widen `plan_wire(a, b, a_observed)` with `b_observed`
       (plan/connect.rs:418); engine held pre-pass reads both ends
       (engine.rs:1391-1401); fake gains the both-ends precondition.
       Verify: a foreign-held b end yields RewireRefused/Held offline

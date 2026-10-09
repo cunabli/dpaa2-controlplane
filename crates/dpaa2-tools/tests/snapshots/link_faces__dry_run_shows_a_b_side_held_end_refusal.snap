@@ -1,0 +1,9 @@
+---
+source: crates/dpaa2-tools/tests/link_faces.rs
+expression: "render::render_links(&compiled.plan, &links)"
+---
+link transitions (1 link(s)) [exact plan ensure would execute]:
+  REFUSED kernel/dpni/1 <-> sec/dpni/1: dpni.2 is connected to dpni.3 but the plan wires it to dpni.1: disconnect it first (DPRC-I5)
+    - link-edge construct=l0 request=0 value=0 [measured] anchor: object-model.md §2, DPNI-I9 pseudo-wire
+      - dpnis request=1 value=1 [measured] anchor: object-model.md §2: one dpni per terminated port, link end, fabric membership
+      - dpnis request=1 value=1 [measured] anchor: object-model.md §2: one dpni per terminated port, link end, fabric membership

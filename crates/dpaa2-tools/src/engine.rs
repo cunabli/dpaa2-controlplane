@@ -1390,10 +1390,12 @@ pub fn converge_links<M: McControl>(
         match (a, b) {
             (LinkSlot::Have(a), LinkSlot::Have(b)) => {
                 let a_obs = mc.dprc_get_connection(a.dpni)?;
+                let b_obs = mc.dprc_get_connection(b.dpni)?;
                 match plan_wire(
                     LinkEndState::Resolved(*a),
                     LinkEndState::Resolved(*b),
                     a_obs,
+                    b_obs,
                 ) {
                     WirePlan::Connect(_) => any_work = true,
                     WirePlan::HeldByOtherPeer(r) => held.push(r),
@@ -1430,9 +1432,13 @@ pub fn converge_links<M: McControl>(
         let a = materialize_link_end(mc, a)?;
         let b = materialize_link_end(mc, b)?;
         let a_obs = mc.dprc_get_connection(a.dpni)?;
-        if let WirePlan::Connect(WireTransition::ConnectWire { a, b, ancestor }) =
-            plan_wire(LinkEndState::Resolved(a), LinkEndState::Resolved(b), a_obs)
-        {
+        let b_obs = mc.dprc_get_connection(b.dpni)?;
+        if let WirePlan::Connect(WireTransition::ConnectWire { a, b, ancestor }) = plan_wire(
+            LinkEndState::Resolved(a),
+            LinkEndState::Resolved(b),
+            a_obs,
+            b_obs,
+        ) {
             let peer = ObjectRef::new(Family::Dpni, b.dpni.into_inner());
             mc.dprc_connect(ancestor, a.dpni, peer)?;
             plug_root_link_end(mc, a)?;
@@ -1509,6 +1515,7 @@ pub fn plan_links<M: McControl>(plan: &CompiledPlan, mc: &M) -> Result<Vec<LinkD
                 LinkEndState::Resolved(ea),
                 LinkEndState::Resolved(eb),
                 mc.dprc_get_connection(ea.dpni)?,
+                mc.dprc_get_connection(eb.dpni)?,
             ) {
                 WirePlan::Connect(_) => LinkDryRunAction::Connect,
                 WirePlan::Nothing => LinkDryRunAction::Converged,
