@@ -98,7 +98,7 @@ The `/dev/dprc.N` path the portal (§2) will use is not a raw pipe to the
 firmware: the kernel forwards only the commands listed in
 `fsl_mc_accepted_cmds[]` (`drivers/bus/fsl-mc/fsl-mc-uapi.c`) and refuses
 every other one with `-EACCES` before it is sent, whatever the caller's
-privilege. `docs/baseline/mc-ioctl-policy.md` (task 6.5) is that list as a
+privilege. `docs/baseline/mc-ioctl-policy.md` (verify-foundation task 6.5) is that list as a
 committed table — generated from the reference kernel and restool trees,
 whose commits it records — with every verb the adapter and the harness
 drive resolved against it. The same generator writes the list as a Quint
@@ -137,6 +137,46 @@ Consequences for change #10 and beyond:
 Revisit trigger: a kernel bump — regenerate the table and re-run the test;
 a row moving in or out of the list is a change of transport scope.
 
+### 8. The §7 fork resolves by verb scope, not by a global transport choice (amended 2026-10-12)
+
+§7 names two routes to a command outside the whitelist. The route is
+assigned by the verb's scope; neither route is chosen globally:
+
+- **The control plane's verb scope is create / wire / label / observe** —
+  the create-≠-manage law the family baselines carry (the DPSW-I8 /
+  DPDMUX-I2 class: runtime surfaces belong to the object's consumer).
+  Every verb in that scope is inside the whitelist: restool crosses the
+  same kernel check, so restool-parity is whitelist-parity by
+  construction. The portal (§2) carries the control plane entirely over
+  `/dev/dprc.N` on the stock reference pair, and **no kernel change is in
+  scope for change #10**.
+- **Runtime verbs outside the whitelist are consumer-owned** (kernel
+  switchdev, DPDK, the PTP stack, the AIOP tool) and never become
+  control-plane feature work.
+- **Beyond-whitelist observation and probe rows** (the #10 dossier bead
+  dpaa2-controlplane-94k: DPCON-I4, dpni unknowns #4/#11; the reserved
+  probes V-DPNI-4 and V-LINK-3) ride the VFIO transport against objects
+  in a VFIO-bound child container — the consumer-rig route. Whether a
+  dpmac can sit in a VFIO child without disruption is unverified;
+  V-LINK-3 is where the escape hatch below is tested first.
+- **The kernel patch is an escape hatch with a named trigger**: a verb
+  that is (a) outside the whitelist, (b) inside control-plane scope, and
+  (c) targets a root-resident object VFIO cannot reach without
+  disrupting the kernel's topology. No such verb is identified. If the
+  trigger fires, the whitelist extension is proposed upstream (§7's
+  precedents) and the choice is recorded as its own ADR, because a local
+  kernel fork re-pins the reference pair and re-stamps every pair-scoped
+  witness (ADR-0008).
+
+Consequences for `docs/ROADMAP.md`: #13's dependency on #10 is the
+transport and the consumer-rig machinery, not a kernel change; board
+witnesses taken by #11/#12 on the stock reference pair are final; the
+series order is #11 → #12 → #10 so the `McControl` surface freezes
+before the portal implements it — one differential campaign over a
+closed verb set — with #11/#12 board sittings carrying a passive
+ioctl-payload capture that banks #10's encode fixtures (§6's byte-level
+fixtures come from recorded traces).
+
 ## Consequences
 
 **Positive**
@@ -161,7 +201,9 @@ a row moving in or out of the list is a change of transport scope.
 - OpenSpec change `restool-baseline`, `design.md` D6.
 - `docs/ROADMAP.md` — change #10 `mc-portal-backend` and its dependencies.
 - ADR-0001 — the `McControl` trait seam and the workspace unsafe policy.
+- ADR-0008 — board witnesses are stamped to one reference pair; the cost
+  the §8 escape hatch must pay.
 - `src/restool` `mc_v10/` — the wire-format anchor for the portal.
 - `docs/baseline/mc-ioctl-policy.md` and `models/core/ioctl_policy.qnt` —
   the kernel's ioctl whitelist as a table and as a Quint module, every
-  driven verb resolved against it (task 6.5, §7).
+  driven verb resolved against it (verify-foundation task 6.5, §7).
