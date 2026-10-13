@@ -8,7 +8,7 @@
       vendor-recipe refusal, census on the observable cfg signature
       (design D6). Verify: ladder typecheck + simulate green on the
       module and its instantiations.
-- [ ] 1.2 Fill the two ADR-0022 placeholder rows in `core/connect.qnt`
+- [x] 1.2 Fill the two ADR-0022 placeholder rows in `core/connect.qnt`
       (design D5: reification policy + port-bound connects, no teardown
       witness) without touching any other kind's law. Verify: existing
       frozen connection-surface traces replay unchanged; new edge

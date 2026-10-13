@@ -725,6 +725,38 @@ module main {
       .then(kernelBindAt(dpsw0, Set(dpmcp0), Set(dpbp0), Set()))
       .then(check(s.objs.get(dpsw0).pristine))
 
+  // DPSW-I10 / ADR-0022: the dpni↔dpsw.N.M switch-port membership edge —
+  // connect a dpni to an in-bounds switch port (M < num_ifs) then disconnect,
+  // the disconnect-only teardown face with no severed witness
+  // (dpsw-typestate design D5).
+  run DPSW_I10DpniMemberTest =
+    init
+      .then(createObjectAt(Dpni, dprc1))
+      .then(createObjectAt(Dpsw, dprc1))
+      .then(connectEdgeAt(ep(dpni0), { obj: dpsw0, port: 1 }))
+      .then(check(s.conns.exists(c => c._1.obj == dpsw0 or c._2.obj == dpsw0)))
+      .then(disconnectEdgeAt({ obj: dpsw0, port: 1 }))
+      .then(check(not(s.conns.exists(c => c._1.obj == dpsw0 or c._2.obj == dpsw0))))
+
+  // ADR-0022: the dpsw.N.M↔dpmac switch uplink edge — connect dpsw port 0 to a
+  // dpmac then disconnect (dpsw-typestate design D5 no-witness face).
+  run DPSW_UplinkMacTest =
+    init
+      .then(createObjectAt(Dpsw, dprc1))
+      .then(connectEdgeAt({ obj: dpsw0, port: 0 }, ep(mac7)))
+      .then(check(s.conns.exists(c => c._1.obj == dpsw0 or c._2.obj == dpsw0)))
+      .then(disconnectEdgeAt({ obj: dpsw0, port: 0 }))
+      .then(check(not(s.conns.exists(c => c._1.obj == dpsw0 or c._2.obj == dpsw0))))
+
+  // DPSW-I10: a connect beyond the switch's port count (M >= num_ifs) is
+  // refused — the immutable num_ifs bound (connect.dpswPortBound, read from
+  // dpswParams.endpointPorts at model scope).
+  run DPSW_I10OutOfBoundsRefusedTest =
+    init
+      .then(createObjectAt(Dpni, dprc1))
+      .then(createObjectAt(Dpsw, dprc1))
+      .then(connectEdgeAt(ep(dpni0), { obj: dpsw0, port: 2 }).fail())
+
   // DPDMUX-I3: bind-resets-object (dpni-class); the mutable resetable
   // mask that can skip parts of the reset is board-pending, ledgered.
   run DPDMUX_I3Test =

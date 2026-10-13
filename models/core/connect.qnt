@@ -27,6 +27,17 @@ module connect {
     if (b.obj.fam == Dpdmux and a.obj.fam == Dpmac) b.port == 0 else true,
   }
 
+  // DPSW-I10 — switch-port membership is bounded by the switch's immutable
+  // create-time num_ifs (dpsw-typestate design D5; the two ADR-0022 dpsw
+  // edge-row laws): a connect to dpsw.N.M is refused for M >= num_ifs.
+  // CoreState carries no per-object cfg, so num_ifs is read at family scope
+  // from endpointPorts (dpswParams, "fixed at model scope, refine
+  // per-scenario") — the seam a per-instance num_ifs plugs into; the generic
+  // validEndpoint cap coincides with it at this scope. Named here as the
+  // dpsw edge-row law, not a parallel connection path.
+  pure def dpswPortBound(params: Family -> FamilyParams, e: Endpoint): bool =
+    if (e.obj.fam == Dpsw) e.port < params.get(Dpsw).endpointPorts else true
+
   // Teardown-ordering law, typed on the edge KIND (ADR-0019 edge facet):
   // only a dpni↔dpmac edge demands that the edge be severed (the dpmac
   // handed back from KernelOwned to Offered, producing a severed witness)
@@ -35,8 +46,10 @@ module connect {
   // still faces a dpni and nothing re-runs it (ADR-0008 §8; dpmac.md
   // "Kernel-side behavior"). Every other edge kind is vacuous: dpni↔dpni has
   // no driver-handback mechanism, dpdmux is un-disconnectable on the pinned
-  // firmware (ADR-0009), dpsw and dpci carry no recorded hazard — each waits
-  // for its own change. The dpmac family action consumes this guard
+  // firmware (ADR-0009); dpsw's change is here — both dpsw edge kinds get
+  // connect and disconnect faces with no severed-witness demand, the baseline
+  // records no teardown hazard for them (dpsw-typestate design D5) — while
+  // dpci still waits for its own change. The dpmac family action consumes this guard
   // (families/dpmac.qnt dpmac_lifecycle); dpmac-typestate task 2.2 mirrors
   // it as the Rust typestate witness (ADR-0002).
   pure def edgeDemandsSeveredWitness(a: Family, b: Family): bool =
@@ -73,6 +86,8 @@ module connect {
     validEndpoint(s, params, b),
     legalPair(a.obj.fam, b.obj.fam),
     legalPorts(a, b),
+    dpswPortBound(params, a),      // DPSW-I10 switch-port membership bound
+    dpswPortBound(params, b),
     not(connected(s, a)),
     not(connected(s, b)),
   }
