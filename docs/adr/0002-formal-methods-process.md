@@ -38,26 +38,39 @@ taken per model on the same terms as TLA+: only when Quint has been tried
 on that property and found awkward, recorded in the model's header and
 the owning change when taken, never up front.
 
-Sealed gap — `compileLaws` stays simulator-only (amended 2026-09-04, change
-`intent-layer`, task 5.4). The three `compileLaws` predicates (INTENT_I7/I8/I9,
-`models/intent/alphabet.qnt`) are marked for Apalache, but no affordable green
-exists on any available toolchain, so they run at the simulator rung. Three
-measurements (62G machine, quint 0.32.0) seal it: (1) quint's flattener fails
-in ~7s with `[QNT404] Name 'comp::companionDraw' not found` on the qualified
-`import companions as comp` that task 2.6c introduced, under both the pinned
-Apalache 0.56.1 and the latest 0.62.2, so the verify rung is unreachable before
-Apalache starts; (2) with the import de-namespaced as a scratch experiment,
-Apalache 0.62.2 starts its server but quint submits nothing and exits 0 with no
-verdict (12.7s / 779MB RSS) — the identical no-verdict exit-0 shape the
-known-good rung shows under 0.62.2, so quint 0.32.0's client and Apalache
-0.62.2's server do not interoperate and exit 0 proves nothing; (3) the original
-heap wall stands unchanged — Apalache 0.56.1's InlinePass inlines full copies
-of the compile/derive call tree and OOMs at 4G and 24G heap, a 40G server
-running >12 min to ~50G RSS without reaching the checker (accepted 2026-08-30).
-Revisit on any one of: a quint release whose flattener resolves qualified
-re-exported names, a quint/Apalache pair whose client and server interoperate
-with a real verdict, or the `compileLaws` restructure that binds one compile
-per law. Bead dpaa2-controlplane-gqf.26.
+Sealed gap — `compileLaws` stays simulator-only (amended, change
+`intent-layer`, task 5.4; re-measured on quint 0.33.0 / Apalache 0.62.1). The
+three `compileLaws` predicates (INTENT_I7/I8/I9, `models/intent/alphabet.qnt`)
+are marked for Apalache, but no affordable green exists on the pinned
+toolchain, so they run at the simulator rung. The two blockers the quint
+0.32.0 / Apalache 0.56.1 era recorded are resolved: quint 0.33.0's flattener
+handles the qualified `import companions as comp` that task 2.6c introduced
+(no `[QNT404] Name 'comp::companionDraw' not found`), and the InlinePass heap
+wall is gone — the `compileLaws` verify peaks at ~1.15GB RSS in ~20s rather
+than OOMing at 4G/24G/40G heap. A transport blocker replaces them: the spec
+quint 0.33.0 sends to Apalache (the `source.content` of the `CHECK` RPC
+config) is JSON whose size scales with the model, and for the intent and
+family models it is large enough that Apalache 0.62.1's Jackson reader aborts
+on the `config` string at its `StreamReadConstraints` maximum string length
+(20,000,000 chars). The payload is dominated not by the flattened module but
+by the per-node `types` and name-resolution `table` maps quint embeds — for
+`dpio_lifecycle` the `config` string is ~117MB (module ~0.7MB, `types` ~62MB,
+`table` ~42MB). A trivial one-variable spec verifies green in kilobytes, so the
+wall is model-size under 0.33.0's serialization, not a fixed overhead; the
+`20,051,112` the error reports is Jackson's abort offset (identical across
+models), not the payload size. Apalache starts its server and then rejects the
+request before the checker runs (`detailed.log` records only server start, no
+checker activity; exit 1, no verdict), so every non-trivial verify target is
+unreachable on this pairing, not merely `compileLaws`. The Rust and TypeScript
+simulator evaluators agree on the compile-derived invariants (verified on a
+pinned counterexample state), so the simulator rung is evaluator-sound; where
+0.33.0's default Rust sampler reaches intents the prior sampler did not, a
+resulting invariant failure is a model matter, not a toolchain one. Revisit on
+any one of: a quint/Apalache pairing whose verify transport fits Apalache's
+RPC payload limit (or an Apalache build whose limit accepts quint's payload), a
+quint release whose serialization omits the `types`/`table` bulk from the
+Apalache spec, or the `compileLaws` restructure that binds one compile per law.
+Bead dpaa2-controlplane-gqf.26.
 
 ### 2. Models are living artifacts
 
