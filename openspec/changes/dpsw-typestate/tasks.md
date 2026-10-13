@@ -20,7 +20,7 @@
       hand-twin-sufficient (dpseci-hardening convention). Verify:
       marked-Apalache green within ladder bounds; traces committed
       beside the model.
-- [ ] 1.4 Sync `models/COVERAGE.md` DPSW-I1…I10 dispositions with
+- [x] 1.4 Sync `models/COVERAGE.md` DPSW-I1…I10 dispositions with
       anchors per the named-disposition requirement (consumer-owned
       rows → ADR-0004 §8; board rows → the suite ids of group 7).
       Verify: ledger lint passes; no implicit row.
