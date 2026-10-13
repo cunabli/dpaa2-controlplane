@@ -2,7 +2,7 @@
 
 ## 1. Model gate (ADR-0002: Quint first)
 
-- [ ] 1.1 Grow `models/families/dpsw.qnt` to the P1 phase-machine shape
+- [x] 1.1 Grow `models/families/dpsw.qnt` to the P1 phase-machine shape
       with the reset facet (design D1): immutable twelve-field create
       block, the DPSW-I1 bindability predicate as type law, DPSW-I2
       vendor-recipe refusal, census on the observable cfg signature
