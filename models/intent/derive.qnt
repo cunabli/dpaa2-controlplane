@@ -496,23 +496,32 @@ module intent_derive {
   // Apalache rejects a symbolic range bound ("Expected a constant integer
   // expression"), so every sizing fold runs over a constant range filtered to
   // n — the core model's machine.qnt MAX_ENDPOINT_PORTS pattern. The bound is
-  // the largest count the sizing can produce: the kernel dpcon draw
-  // dpnis·cpus with the reference offer's 6 usable dpmacs and 16 CPUs
-  // (intent/inventory.qnt). Poll-mode ties, never exceeds, that bound — three
-  // 25G ports give T = 16 = cpus (design D3; ADR-0002 worker table), so a poll tenant's
-  // dpnis·T reaches the same 96. A count past it truncates the fold, which
+  // the largest count the sizing can EMIT, which is the largest derived request
+  // plus the largest declared extra: the fold runs over `.value`, and the
+  // request/extra idiom (design D5; ADR-0003) makes value = request + extra.
+  // The kernel dpcon draw 16·(dpnis + np) is the largest request. Over the
+  // simulation alphabet (intent/alphabet.qnt: ports <= 3, one link, one fabric,
+  // tenants <= 3) the kernel's dpni origins top out at dpnis = 5 — three
+  // terminated ports, one link end, and one hardware-fabric self-attach (a
+  // kernel-forwarded Hardware fabric listing MTenant("kernel"), the figure-5
+  // shape) — with np = 3, so 16·(5 + 3) = 128; poll-mode dpnis·T stays below it
+  // (T <= 16 = cpus, design D3; ADR-0002 worker table). The alphabet draws at
+  // most two extras (intent/alphabet.qnt EXTRA_COUNTS/addExtra), counts in
+  // {1,2,4}, both on one (tenant, family) summing to 6, so value tops out at
+  // 128 + 6 = 134. A count past this bound truncates the fold, which
   // companionsOnlyDerived and keysAreIdentities trip loudly — never a silent
-  // pass.
-  pure val MAX_DERIVED_COUNT: int = 96
+  // pass; bead dpaa2-controlplane-gbj caught 96 cutting a folded dpcon value
+  // (the earlier bound omitted the fabric-attach/link origins and the extra).
+  pure val MAX_DERIVED_COUNT: int = 134
   pure def countRange(n: int): List[int] =
     range(1, MAX_DERIVED_COUNT + 1).select(i => i <= n)
   pure def countSet(n: int): Set[int] =
     1.to(MAX_DERIVED_COUNT).filter(i => i <= n)
 
   // A set comprehension, not a list fold: Apalache encodes filter/map over
-  // a constant set symbolically, while an unrolled foldl over the 96-element
-  // list multiplies the term at every inline site (the front-end, not Z3,
-  // exhausts the heap).
+  // a constant set symbolically, while an unrolled foldl over the
+  // MAX_DERIVED_COUNT-element list multiplies the term at every inline site
+  // (the front-end, not Z3, exhausts the heap).
   pure def sizedObjs(name: str, fam: Family, container: Container, n: int, attributes: Attributes, rule: str): Set[PlannedObject] =
     countSet(n).map(i =>
       { key: { tenant: name, family: fam, ordinal: i },

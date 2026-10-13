@@ -178,6 +178,25 @@ module intent_main {
       ports: [], links: [{ name: "wire", interfaceA: Named("routerX"), interfaceB: Kernel, from: NotRenamed }],
       fabrics: [], crypto: [], extras: Set() }
 
+  // bead dpaa2-controlplane-gbj: the quint-0.33 Rust sampler's minimal INTENT_I3/I8
+  // trip. A kernel tenant terminates three 10G ports with a declared Dpcon extra of
+  // 2; the kernel dpcon request is dpnis·cpus + np·numQueues = 3·16 + 3·16 = 96 and
+  // the request/extra idiom (design D5; ADR-0003) folds it to value 98 — production
+  // dpaa2-api parity: req 96, extra Some(2), val 98, 98 emitted. The Software fabric
+  // (kernel-forwarded, one own-port member) adds no dpni. Before the MAX_DERIVED_COUNT
+  // fix the emission fold truncated at 96 while the dpcon node reported 98, tripping
+  // companionsOnlyDerived (INTENT_I3) and companionCountsByRegime (INTENT_I8).
+  pure val gbjReproIntent: Intent =
+    { tenants: [kernel16],
+      ports: [{ name: "p1", dpmac: 9, rate: 10000, tenant: Kernel, from: NotRenamed },
+              { name: "p2", dpmac: 4, rate: 10000, tenant: Kernel, from: NotRenamed },
+              { name: "p3", dpmac: 8, rate: 10000, tenant: Kernel, from: NotRenamed }],
+      links: [],
+      fabrics: [{ name: "br", switching: Software, forwardedBy: "kernel",
+                  members: [MPort("p1")], from: NotRenamed }],
+      crypto: [],
+      extras: Set({ tenant: "kernel", family: Dpcon, count: 2 }) }
+
   // The reference inventory reads as the spec's "Reserved and foreign
   // anchors are inventory facts" scenario says: dpmac.3 and dpmac.17
   // Reserved, dpni.0 Foreign, dpbp Counted, dpni Observed, dpcon Unknown.
@@ -782,6 +801,22 @@ module intent_main {
     compileInvariants(pooledIntent, REF_INVENTORY),
     compileInvariants(kernelLinkIntent, REF_INVENTORY),
   }
+
+  // bead dpaa2-controlplane-gbj: the kernel-tenant Dpcon-extra repro compiles, folds
+  // the extra into the dpcon node (req 96, extra Some(2), value 98) and emits 98
+  // objects, so companionsOnlyDerived (INTENT_I3, via planInvariants) and
+  // companionCountsByRegime (INTENT_I8, via compileInvariants) both hold.
+  run gbjKernelDpconExtraFoldsTest =
+    val p = derive(gbjReproIntent, REF_INVENTORY)
+    all {
+      match compile(gbjReproIntent, REF_INVENTORY) { | Ok(_) => true | Refused(_) => false },
+      countFam(p, "kernel", Dpcon) == 98,
+      p.provenance.get({ tenant: "kernel", rule: "dpcon", construct: "" }).request == 96,
+      p.provenance.get({ tenant: "kernel", rule: "dpcon", construct: "" }).extra == Some(2),
+      p.provenance.get({ tenant: "kernel", rule: "dpcon", construct: "" }).value == 98,
+      planInvariants(p),
+      compileInvariants(gbjReproIntent, REF_INVENTORY),
+    }
 
   // The invariants bite: four hand-built bad plans, each a mutation of the
   // router plan, each rejected by the invariant whose relationship it breaks —
