@@ -13,8 +13,8 @@ importers:
         version: 1.5.0(@types/node@26.2.0)
     devDependencies:
       '@informalsystems/quint':
-        specifier: 0.32.0
-        version: 0.32.0
+        specifier: 0.33.0
+        version: 0.33.0
 
 packages:
 
@@ -37,8 +37,8 @@ packages:
     engines: {node: '>=6'}
     hasBin: true
 
-  '@informalsystems/quint@0.32.0':
-    resolution: {integrity: sha512-9Yoji7DU6moRm1ofDaN+ftdxNcEGciiGbm7eN4MjlcCbfv7/Y/zchadcXXRmMZmN9oTPXUk9GmhjQOhADJsiSQ==}
+  '@informalsystems/quint@0.33.0':
+    resolution: {integrity: sha512-1hr+l+3wyKimjNXNl9lovpwmH5C9Ck898FL4yGbuEmFPiz7YRqvFvsB9hlHsaYukXqdUY5nuFKn/qiCon0O88g==}
     engines: {node: '>=18'}
     hasBin: true
 
@@ -667,7 +667,7 @@ snapshots:
       protobufjs: 7.6.5
       yargs: 17.7.3
 
-  '@informalsystems/quint@0.32.0':
+  '@informalsystems/quint@0.33.0':
     dependencies:
       '@grpc/grpc-js': 1.14.4
       '@grpc/proto-loader': 0.7.15
