@@ -20,9 +20,9 @@
 // for every candidate are tabulated in models/COVERAGE.md (task 2.4).
 //
 // Named invariants: stateInvariants (see core/invariants.qnt for the
-// per-id list). Apalache-marked subset: all ten state invariants at
-// bounded depth 1 (rationale and empirical notes in
-// core/invariants.qnt):
+// per-id list, plus DPSW_I10_portBound below — DPSW-I10 marked by
+// dpsw-typestate task 1.3). Apalache-marked subset: all state invariants at bounded depth 1
+// (rationale and empirical notes in core/invariants.qnt):
 //
 //   pnpm exec quint verify models/main.qnt --main=main \
 //     --invariant=stateInvariants --max-steps=1
@@ -58,6 +58,17 @@ module main {
   val DPBP_I2 = inv::DPBP_I2(s)
   val DPIO_I1 = inv::DPIO_I1(s, ALL_PARAMS)
 
+  // DPSW-I10 (ADR-0022; dpsw-typestate task 1.3) — every dpsw endpoint in a
+  // live connection sits within its switch's immutable num_ifs (read at family
+  // scope from endpointPorts). canConnect's dpswPortBound guards it, so this
+  // holds by construction; marked as a state invariant so Apalache checks the
+  // bound, not only the DPSW_I10OutOfBoundsRefusedTest directed refusal.
+  val DPSW_I10_portBound: bool =
+    s.conns.forall(c => and {
+      (c._1.obj.fam == Dpsw) implies (c._1.port < ALL_PARAMS.get(Dpsw).endpointPorts),
+      (c._2.obj.fam == Dpsw) implies (c._2.port < ALL_PARAMS.get(Dpsw).endpointPorts),
+    })
+
   // DPNI-I11 (LAW 6 face): every verb an action emits crosses the kernel's
   // /dev/dprc.N whitelist (VERB_OK, the string channel — no command is
   // refused with -EACCES). VERB_OK is tied to the proven `accepted` rule by
@@ -79,6 +90,7 @@ module main {
     DPMAC_I1,
     DPBP_I2,
     DPIO_I1,
+    DPSW_I10_portBound,
     IOCTL_OK,
   }
 

@@ -13,7 +13,7 @@
       witness) without touching any other kind's law. Verify: existing
       frozen connection-surface traces replay unchanged; new edge
       actions simulate.
-- [ ] 1.3 Mark and check the Apalache invariants (DPSW-I1, DPSW-I2,
+- [x] 1.3 Mark and check the Apalache invariants (DPSW-I1, DPSW-I2,
       DPSW-I7 census judge, DPSW-I9 probe-consumer, DPSW-I10 port
       bound; DPSW-I4 reset facet parameterized conservative) and freeze
       the ITF traces for the new behaviors; record pure operators

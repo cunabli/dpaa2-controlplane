@@ -20,8 +20,10 @@
 //   DPSW-I5 core/invariants.qnt LAW4_twoIdSpaces (DPBP_I5Test witness);
 //   DPSW-I7 dpsw_lifecycle judgeCensus (census-only convergence);
 //   DPSW-I9 dpsw_lifecycle probeBindAt defer face + censusCompetitorDefersTest.
-// Apalache-marked subset: DPSW-I5 (the dpsw_lifecycle encodings stay
-// simulator-only until dpsw-typestate task 1.3 marks them).
+// Apalache-marked subset (dpsw-typestate task 1.3): DPSW-I5 (LAW4_twoIdSpaces,
+// main); DPSW-I1/I2/I4/I9 as dpsw_lifecycle state invariants and DPSW-I7 + the
+// classify refusal mapping as constant pure laws (see dpsw_lifecycle below);
+// DPSW-I10 as a main.qnt port-bound state invariant.
 module dpsw {
   import types.* from "../core/types"
 
@@ -73,8 +75,21 @@ module dpsw {
 //                            never repaired (DPSW-I1);
 //   BoundImpliesResetFacet   a bound switch has its MC-default state reset per
 //                            the reset facet scope (DPSW-I4).
-// Apalache-marked subset: none (simulator-only; dpsw-typestate task 1.3
-// marks the subset).
+// Apalache-marked subset (dpsw-typestate task 1.3, checked via stateInvariants
+// at --max-steps=1): BindableByConstruction (DPSW-I1), BoundImpliesResetFacet
+// (DPSW-I4), VendorShapeUnrepresentable (DPSW-I2), DeferredIsSilentFace
+// (DPSW-I9), and the two constant pure laws ClassifyRefusalMapping (DPSW-I1/I2
+// create verdict) and CensusJudgePoisons (DPSW-I7). DPSW-I10 is marked on
+// main.qnt (the connect surface lives there), DPSW-I5 on core/invariants.qnt.
+//
+// Twin-sufficiency (dpseci-hardening convention; dpsw-typestate task 6.1): the
+// pure operators (kernelBindable, isVendorRecipeShape, classify,
+// observableSigOf, sigCensus, censusDelta, censusConverged, judgeCensus,
+// classifyObservableMismatch, mcDefaultsAfterReset) are hand-twin-sufficient —
+// the Rust twins mirror them directly. The world-mutating surfaces (createAt,
+// probeBindAt, competitorDrawsDpbp, provideDpbp, destroy) are trace-frozen
+// (package.json model:freeze-dpsw) and replayed; the pure census check(...)
+// runs are not frozen.
 module dpsw_lifecycle {
   import dpsw.*
 
@@ -392,11 +407,63 @@ module dpsw_lifecycle {
       | Absent => true
     }
 
-  // The simulator conjunction (pnpm model:simulate passes
-  // --invariant=stateInvariants): both named state invariants.
+  // VendorShapeUnrepresentable (DPSW-I2) — no reachable created switch carries
+  // the ls-addsw vendor-recipe shape: classify is the single writer and refuses
+  // it, so the PER_VLAN/PER_OBJECT default is unrepresentable as a switch.
+  val VendorShapeUnrepresentable: bool =
+    match world.dpsw {
+      | Switch(sw) => not(isVendorRecipeShape(sw.cfg))
+      | Absent => true
+    }
+
+  // DeferredIsSilentFace (DPSW-I9) — the deferred probe is a silent face, not a
+  // failure: a PhaseDeferred switch is unbound, took no draw (its dpmcp draw
+  // still sits in the pool — dpbp is competitor-contended, dpmcp is not), and
+  // its MC-default state is untouched (no reset ran). defer-not-fail.
+  val DeferredIsSilentFace: bool =
+    match world.dpsw {
+      | Switch(sw) =>
+          (sw.phase == PhaseDeferred) implies and {
+            not(isBound(world)),
+            world.pool.dpmcp == PROBE_DRAW.dpmcp,
+            sw.mcDefaults,
+          }
+      | Absent => true
+    }
+
+  // ClassifyRefusalMapping (DPSW-I1/I2) — the create verdict table as a constant
+  // pure law: the vendor shape maps to its named refusal, any other unbindable
+  // cfg to the general refusal, the bindable shape to Accepted. World-independent.
+  pure val ClassifyRefusalMapping: bool = and {
+    classify(VENDOR_RECIPE_CFG) == Refused(VendorRecipeShape),
+    classify(NO_CTRLIF_CFG) == Refused(UnbindableCfg),
+    classify(FEW_FDBS_CFG) == Refused(UnbindableCfg),
+    classify(BINDABLE_CFG) == Accepted,
+  }
+
+  // CensusJudgePoisons (DPSW-I7; ADR-0018) — the census judge poisons on any
+  // unobservable member as a constant pure law: a face with an unobservable
+  // member judges nothing (never a spurious create+destroy), an all-observed
+  // face yields the delta. World-independent.
+  pure val CensusJudgePoisons: bool = and {
+    judgeCensus([sigFour, sigBindable], [SigObserved(sigBindable), SigUnobservable]) == JudgesNothing,
+    match judgeCensus([sigFour, sigBindable], [SigObserved(sigBindable)]) {
+      | JudgesNothing => false
+      | Judges(d) => sigCount(d.creates, sigFour) == 1 and d.destroys.keys().size() == 0
+    },
+  }
+
+  // The Apalache-marked conjunction (pnpm model:verify, --max-steps=1) and the
+  // simulator target (pnpm model:simulate, --invariant=stateInvariants): the
+  // two world-state laws plus the DPSW-I2/I9 state laws and the two constant
+  // pure laws (DPSW-I1/I2 verdict, DPSW-I7 census).
   val stateInvariants: bool = and {
-    BindableByConstruction,
-    BoundImpliesResetFacet,
+    BindableByConstruction,       // DPSW-I1
+    BoundImpliesResetFacet,       // DPSW-I4
+    VendorShapeUnrepresentable,   // DPSW-I2
+    DeferredIsSilentFace,         // DPSW-I9
+    ClassifyRefusalMapping,       // DPSW-I1/I2 create verdict (pure law)
+    CensusJudgePoisons,           // DPSW-I7 census poisoning (pure law)
   }
 
   // A stutter-check step for directed runs.
