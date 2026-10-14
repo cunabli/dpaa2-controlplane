@@ -157,10 +157,14 @@ module intent_types {
   // task 3.3d). It does NOT number dpni ordinals — those come from the fabric's
   // NAME through the attach/wire origins (intent/derive.qnt), so a fabric block
   // reorder never renumbers a dpni (ADR-0015 decision 5).
+  // `macTableSize` is the declared learnable MACs per switched domain (dpsw.md):
+  // a Hardware fabric derives max_fdb_entries from it (intent/derive.qnt dpswObjs),
+  // None taking the family default. A Software fabric owns its own table, so a
+  // macTableSize on one is refused (intent/refuse.qnt).
   // `from` carries an accepted rename clause as the `Rename` sum (Rust twin
   // `renamed: Option<ConstructName>`, dpaa2-api intent.rs) for the matcher
   // (ADR-0015 decision 10 / task 6.5); compile ignores it.
-  type Fabric = { name: str, switching: Switching, forwardedBy: str, members: List[Member], from: Rename }
+  type Fabric = { name: str, switching: Switching, forwardedBy: str, members: List[Member], macTableSize: Option[int], from: Rename }
 
   // An accelerator for one tenant; its dpseci queue count derives from this
   // construct's own `flows` — a tenant-visible demand, never an object count

@@ -375,6 +375,12 @@ materialises for such a reference stays owned by the split materialisation trigg
   fabric's forwarder → align them.
 - `UnsupportedEdge` — a hardware fabric listing a hardware fabric →
   unsupported until dpsw↔dpsw is verified.
+- `MacTableOverflow` — a hardware fabric whose `mac_table_size` × interface
+  count overruns the 16-bit `max_fdb_entries` field → lower the size or split
+  the domain.
+- `MacTableOnSoftwareFabric` — a software-switched fabric declaring
+  `mac_table_size`, a hardware-switch knob the software forwarder owns itself →
+  remove it.
 
 *Sizing (design D3; ADR-0002)*
 - `UnknownRateClass` — a userspace-poll tenant terminates a rate class with no

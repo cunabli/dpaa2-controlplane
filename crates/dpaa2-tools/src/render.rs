@@ -80,7 +80,11 @@ pub fn render_plan(plan: &CompiledPlan) -> String {
             render_attrs(obj.attributes()),
         );
         let mut path = BTreeSet::new();
-        render_prov_tree(plan, obj.provenance(), 2, &mut path, &mut out);
+        // A dpsw roots at its MAC-table sizing node, which inputs the dpsw node — so
+        // the trace names the derived `max_fdb_entries` rule (mac-table /
+        // mac-table-default) above the base dpsw rule (dpsw-typestate task 2.1).
+        let root = dpsw_sizing_root(plan, obj).unwrap_or_else(|| obj.provenance().clone());
+        render_prov_tree(plan, &root, 2, &mut path, &mut out);
     }
     let _ = writeln!(out, "edges:");
     for edge in &plan.edges {
@@ -93,6 +97,21 @@ pub fn render_plan(plan: &CompiledPlan) -> String {
         );
     }
     out
+}
+
+/// The MAC-table sizing node's key for a dpsw object, when one exists: same tenant
+/// and construct as the object's own `dpsw` provenance, rule `mac-table` (declared)
+/// or `mac-table-default` (not). Rooting the tree here surfaces the derived
+/// `max_fdb_entries` rule above the dpsw node it inputs (dpsw-typestate task 2.1).
+fn dpsw_sizing_root(plan: &CompiledPlan, obj: &PlannedObject) -> Option<ProvenanceKey> {
+    if !matches!(obj.attributes(), Attributes::Dpsw { .. }) {
+        return None;
+    }
+    let p = obj.provenance();
+    ["mac-table", "mac-table-default"]
+        .into_iter()
+        .map(|rule| ProvenanceKey::new(p.tenant.clone(), rule, p.construct.clone()))
+        .find(|k| plan.provenance.contains_key(k))
 }
 
 /// Walks the provenance DAG from `key` recursively through its `inputs`, indenting
@@ -637,7 +656,31 @@ pub fn render_refusals(refusals: &BTreeSet<Refusal>) -> String {
         refusals.len()
     );
     for r in refusals {
-        let _ = writeln!(out, "  {r:?}");
+        match r {
+            // Hardware terms with the operator's own numbers, no process identifiers
+            // (dpsw-typestate task 2.1): the product is derived for the line.
+            Refusal::MacTableOverflow {
+                fabric,
+                num_ifs,
+                mac_table_size,
+                ..
+            } => {
+                let product = u64::from(*mac_table_size) * u64::from(*num_ifs);
+                let _ = writeln!(
+                    out,
+                    "  switch '{fabric}': mac_table_size {mac_table_size} × {num_ifs} ports = {product} exceeds max_fdb_entries (16-bit field, max 65535)"
+                );
+            }
+            Refusal::MacTableOnSoftwareFabric { fabric } => {
+                let _ = writeln!(
+                    out,
+                    "  fabric '{fabric}' is software-switched: mac_table_size sizes the hardware switch MAC table; the software forwarder owns its own"
+                );
+            }
+            _ => {
+                let _ = writeln!(out, "  {r:?}");
+            }
+        }
     }
     out
 }
@@ -846,7 +889,11 @@ fn render_attrs(a: &Attributes) -> String {
                 opts.join(",")
             )
         }
-        Attributes::Dpsw { num_ifs, .. } => format!(" num_ifs={num_ifs}"),
+        Attributes::Dpsw {
+            num_ifs,
+            max_fdb_entries,
+            ..
+        } => format!(" num_ifs={num_ifs} max_fdb_entries={max_fdb_entries}"),
         Attributes::Dprc { .. } => " (dprc default options)".to_owned(),
     }
 }

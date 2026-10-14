@@ -151,6 +151,41 @@ fn attach_point_well_formed(p: &CompiledPlan, en: &AttachPoint) -> bool {
     }
 }
 
+/// Every compiled hardware fabric's dpsw attrs are the DPSW-I1 derivation outputs
+/// (`intent-compiler` spec, dpsw-typestate): control interface enabled, `PER_FDB`
+/// flooding and broadcast, `max_fdbs == num_ifs`, and `max_fdb_entries` the declared
+/// `mac_table_size` × `num_ifs` or the family default 1024 when undeclared.
+fn dpsw_attrs_well_formed(c: &Compiled, intent: &Intent) -> bool {
+    c.plan
+        .objects
+        .iter()
+        .filter(|o| o.key().family == Family::Dpsw)
+        .all(|o| {
+            let Attributes::Dpsw {
+                num_ifs,
+                max_fdbs,
+                max_fdb_entries,
+                per_fdb_flooding,
+                per_fdb_broadcast,
+                ctrl_if,
+            } = o.attributes()
+            else {
+                return false;
+            };
+            let mac_table_size = intent
+                .fabrics
+                .iter()
+                .find(|f| f.name == o.provenance().construct)
+                .and_then(|f| f.mac_table_size);
+            let expected = mac_table_size.map_or(1024, |b| u32::from(b) * num_ifs);
+            *ctrl_if
+                && *per_fdb_flooding
+                && *per_fdb_broadcast
+                && *max_fdbs == *num_ifs
+                && *max_fdb_entries == expected
+        })
+}
+
 /// The kernel-owned dprtc.0 key, first in the emission order (`derive.qnt`
 /// `dprtcKey`).
 fn dprtc_key() -> ObjectKey {
@@ -542,6 +577,10 @@ fn intent_and_inventory() -> impl Strategy<Value = (Intent, Inventory)> {
             prop::sample::select(vec![Switching::Hardware, Switching::Software]),
             name(),
             member_list(),
+            // `alphabet.qnt` `MAC_TABLE_SIZES`: None (family default 1024) and a
+            // small declared size that never overflows at these port counts, so the
+            // Ok arm exercises the sizing formula (the overflow draw is unit-tested).
+            prop::sample::select(vec![None, Some(2u16)]),
         ),
         0..=1,
     );
@@ -602,13 +641,16 @@ fn intent_and_inventory() -> impl Strategy<Value = (Intent, Inventory)> {
                 .collect();
             let fabrics = fabrics
                 .into_iter()
-                .map(|(switching, forwarded_by, members)| Fabric {
-                    name: "f1".into(),
-                    switching,
-                    forwarded_by,
-                    members,
-                    renamed: None,
-                })
+                .map(
+                    |(switching, forwarded_by, members, mac_table_size)| Fabric {
+                        name: "f1".into(),
+                        switching,
+                        forwarded_by,
+                        members,
+                        mac_table_size,
+                        renamed: None,
+                    },
+                )
                 .collect();
             let crypto = crypto
                 .into_iter()
@@ -818,6 +860,7 @@ proptest! {
                 prop_assert!(intent_i7_feasible_against_ceilings(&c, &inv), "I7 on {:?}", intent);
                 prop_assert!(intent_i8_companion_counts_by_regime(&c, &intent), "I8 on {:?}", intent);
                 prop_assert!(intent_i9_isolated_container_private(&c, &intent), "I9 on {:?}", intent);
+                prop_assert!(dpsw_attrs_well_formed(&c, &intent), "DPSW-I1 attrs on {:?}", intent);
             }
             Err(refusals) => prop_assert!(!refusals.is_empty(), "empty refusal on {:?}", intent),
         }

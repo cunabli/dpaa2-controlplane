@@ -5,7 +5,9 @@
 use std::collections::BTreeSet;
 
 use crate::core::types::ConstructName;
-use crate::intent::derive::{fabric_by_name, port_by_name};
+use crate::intent::derive::{
+    MAX_FDB_ENTRIES, fabric_by_name, hw_fabric_attach_points, port_by_name,
+};
 use crate::intent::{Fabric, Intent, Member, Switching};
 
 use super::Refusal;
@@ -87,6 +89,35 @@ pub(super) fn fabric_rules_refusals(intent: &Intent, out: &mut BTreeSet<Refusal>
                     out.insert(Refusal::UnsupportedEdge {
                         fabric: f.name.clone(),
                         member: h.clone(),
+                    });
+                }
+            }
+        }
+    }
+}
+
+/// Switched-domain MAC-table sizing (`refuse.qnt` `macTableRefusals`): a Hardware
+/// fabric's `max_fdb_entries` is `mac_table_size` × its interface count, and the
+/// product must fit the 16-bit field or the switch is unbuildable. A Software fabric
+/// owns its own forwarding table, so a `mac_table_size` on one is a hardware-switch
+/// knob misapplied. `None` declared is neither.
+pub(super) fn mac_table_refusals(intent: &Intent, out: &mut BTreeSet<Refusal>) {
+    for f in &intent.fabrics {
+        let Some(b) = f.mac_table_size else { continue };
+        match f.switching {
+            Switching::Software => {
+                out.insert(Refusal::MacTableOnSoftwareFabric {
+                    fabric: f.name.clone(),
+                });
+            }
+            Switching::Hardware => {
+                let ni = u32::try_from(hw_fabric_attach_points(intent, f).len()).unwrap_or(0);
+                if u64::from(b) * u64::from(ni) > u64::from(MAX_FDB_ENTRIES) {
+                    out.insert(Refusal::MacTableOverflow {
+                        fabric: f.name.clone(),
+                        num_ifs: ni,
+                        mac_table_size: b,
+                        bound: MAX_FDB_ENTRIES,
                     });
                 }
             }

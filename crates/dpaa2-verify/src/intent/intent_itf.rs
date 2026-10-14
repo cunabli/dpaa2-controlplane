@@ -315,6 +315,12 @@ fn fabric(v: &Value) -> Result<Fabric, String> {
             .iter()
             .map(member)
             .collect::<Result<_, _>>()?,
+        mac_table_size: match opt_int(field(v, "macTableSize")?)? {
+            Some(n) => {
+                Some(u16::try_from(n).map_err(|_| format!("macTableSize {n} out of u16 range"))?)
+            }
+            None => None,
+        },
         renamed: rename(field(v, "from")?)?,
     })
 }
@@ -580,6 +586,7 @@ fn attributes(v: &Value) -> Result<Attributes, String> {
         "DpswAttrs" => Ok(Attributes::Dpsw {
             num_ifs: num(field(p, "numIfs")?)?,
             max_fdbs: num(field(p, "maxFdbs")?)?,
+            max_fdb_entries: num(field(p, "maxFdbEntries")?)?,
             per_fdb_flooding: flag(field(p, "perFdbFlooding")?)?,
             per_fdb_broadcast: flag(field(p, "perFdbBroadcast")?)?,
             ctrl_if: flag(field(p, "ctrlIf")?)?,
@@ -788,6 +795,18 @@ fn refusal(v: &Value) -> Result<Refusal, String> {
         "UnsupportedEdge" => Refusal::UnsupportedEdge {
             fabric: cname(field(p, "fabric")?)?,
             member: cname(field(p, "member")?)?,
+        },
+        "MacTableOverflow" => Refusal::MacTableOverflow {
+            fabric: cname(field(p, "fabric")?)?,
+            num_ifs: num(field(p, "numIfs")?)?,
+            mac_table_size: {
+                let n = int64(field(p, "macTableSize")?)?;
+                u16::try_from(n).map_err(|_| format!("macTableSize {n} out of u16 range"))?
+            },
+            bound: num(field(p, "bound")?)?,
+        },
+        "MacTableOnSoftwareFabric" => Refusal::MacTableOnSoftwareFabric {
+            fabric: cname(field(p, "fabric")?)?,
         },
         "UnknownRateClass" => Refusal::UnknownRateClass {
             tenant: tname(field(p, "tenant")?)?,

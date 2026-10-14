@@ -1,0 +1,6 @@
+---
+source: crates/dpaa2-tools/tests/render.rs
+expression: render_refusals(&refusals)
+---
+compilation refused: 1 rule(s) broken
+  fabric 'br' is software-switched: mac_table_size sizes the hardware switch MAC table; the software forwarder owns its own

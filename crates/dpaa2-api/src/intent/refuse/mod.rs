@@ -174,6 +174,28 @@ pub enum Refusal {
         /// The inner hardware-fabric member.
         member: ConstructName,
     },
+    /// A hardware fabric whose `mac_table_size` × interface count exceeds the 16-bit
+    /// `max_fdb_entries` bound, so the switch is unbuildable (`dpsw.md`; DPAA2UM
+    /// T101; `refuse.qnt` `macTableRefusals`). The validator lands in the `fabric`
+    /// submodule (ADR-0018). The payload carries the operator's own numbers; rendering
+    /// derives the product.
+    MacTableOverflow {
+        /// The fabric.
+        fabric: ConstructName,
+        /// The fabric's derived interface count.
+        num_ifs: u32,
+        /// The declared learnable-MAC size.
+        mac_table_size: u16,
+        /// The 16-bit ceiling the product overran (the `MAX_FDB_ENTRIES` 65535).
+        bound: u32,
+    },
+    /// A software-switched fabric declaring `mac_table_size` — a hardware-switch knob
+    /// misapplied; the software forwarder owns its own table (`dpsw.md`; `refuse.qnt`
+    /// `macTableRefusals`). Lands in the `fabric` submodule (ADR-0018).
+    MacTableOnSoftwareFabric {
+        /// The fabric.
+        fabric: ConstructName,
+    },
     /// A userspace-poll tenant terminates a rate class with no seeded worker row
     /// (design D3; ADR-0002).
     UnknownRateClass {
@@ -326,7 +348,7 @@ pub enum Refusal {
 /// §5 spelling, aliased to the model's anchor names in the lint). `Refusal` is
 /// payload-carrying, so it cannot be iterated like [`crate::core::family::ALL_FAMILIES`]; this
 /// list stands in, kept honest by the exhaustive `match` in [`Refusal::name`].
-pub const REFUSAL_VARIANTS: [&str; 26] = [
+pub const REFUSAL_VARIANTS: [&str; 28] = [
     "TenantAbsent",
     "MemberUnresolved",
     "SelfMember",
@@ -338,6 +360,8 @@ pub const REFUSAL_VARIANTS: [&str; 26] = [
     "FabricNotKernelForwarded",
     "PortTenantMismatch",
     "UnsupportedEdge",
+    "MacTableOverflow",
+    "MacTableOnSoftwareFabric",
     "UnknownRateClass",
     "CoreBudgetExceeded",
     "QueueEnvelopeExceeded",
@@ -375,6 +399,8 @@ impl Refusal {
             Self::FabricNotKernelForwarded { .. } => "FabricNotKernelForwarded",
             Self::PortTenantMismatch { .. } => "PortTenantMismatch",
             Self::UnsupportedEdge { .. } => "UnsupportedEdge",
+            Self::MacTableOverflow { .. } => "MacTableOverflow",
+            Self::MacTableOnSoftwareFabric { .. } => "MacTableOnSoftwareFabric",
             Self::UnknownRateClass { .. } => "UnknownRateClass",
             Self::CoreBudgetExceeded { .. } => "CoreBudgetExceeded",
             Self::QueueEnvelopeExceeded { .. } => "QueueEnvelopeExceeded",
@@ -662,6 +688,7 @@ fn refusals(intent: &Intent, inv: &Inventory, counts: &BTreeMap<Family, i64>) ->
     port::anchor_refusals(intent, inv, &mut out);
     port::double_claimed_refusals(intent, &mut out);
     fabric::fabric_rules_refusals(intent, &mut out);
+    fabric::mac_table_refusals(intent, &mut out);
     tenant::sizing_refusals(intent, inv, &mut out);
     extra::extra_refusals(intent, &mut out);
     crypto::crypto_refusals(intent, &mut out);

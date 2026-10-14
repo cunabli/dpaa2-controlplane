@@ -1,0 +1,40 @@
+---
+source: crates/dpaa2-tools/tests/render.rs
+expression: "render_dry_run(&compiled.plan, &compiled.warnings, &plan)"
+---
+plan: 6 object(s), 2 edge(s)
+  kernel/dprtc/1 label=kernel @ root
+    - dprtc request=1 value=1 [measured] anchor: DPRTC-I1 singleton, DPRTC-I2 kernel-owned
+  kernel/dpio/1 label=kernel @ root
+    - dpio request=1 value=1 [measured] anchor: ADR-0012 (companions.qnt companionDraw)
+      - cpus request=1 value=1 [measured] anchor: ADR-0012: one dpio per online CPU
+  kernel/dpmcp/1 label=kernel @ root
+    - dpmcp request=2 value=2 [measured] anchor: ADR-0012 (companions.qnt companionDraw); families/dpsw.qnt + dpseci.qnt draw; pool-objects design D9 per-port probe draw
+      - cpus request=1 value=1 [measured] anchor: ADR-0012: one dpio per online CPU
+      - dpnis request=0 value=0 [measured] anchor: object-model.md §2: one dpni per terminated port, link end, fabric membership
+      - ports request=0 value=0 [measured] anchor: design D1: declared port constructs
+  kernel/dpmcp/2 label=kernel @ root
+    - dpmcp request=2 value=2 [measured] anchor: ADR-0012 (companions.qnt companionDraw); families/dpsw.qnt + dpseci.qnt draw; pool-objects design D9 per-port probe draw
+      - cpus request=1 value=1 [measured] anchor: ADR-0012: one dpio per online CPU
+      - dpnis request=0 value=0 [measured] anchor: object-model.md §2: one dpni per terminated port, link end, fabric membership
+      - ports request=0 value=0 [measured] anchor: design D1: declared port constructs
+  kernel/dpbp/1 label=kernel @ root
+    - dpbp request=1 value=1 [measured] anchor: ADR-0012 (companions.qnt companionDraw); families/dpsw.qnt + dpseci.qnt draw; pool-objects design D9 per-port probe draw
+      - dpnis request=0 value=0 [measured] anchor: object-model.md §2: one dpni per terminated port, link end, fabric membership
+      - ports request=0 value=0 [measured] anchor: design D1: declared port constructs
+  kernel/dpsw/1 label=lan @ root num_ifs=2 max_fdb_entries=512
+    - mac-table construct=lan request=512 value=512 [measured] anchor: mac_table_size × num_ifs; kernel per-port FDB split (dpsw.md)
+      - dpsw construct=lan request=2 value=2 [measured] anchor: driver-required: ctrl_if=on flooding=PER_FDB broadcast=PER_FDB max_fdbs=num_ifs (dpsw.md, read-not-verified)
+edges:
+  kernel/dpsw/1#0 <-> dpmac.7  [fabric-edge]
+  kernel/dpsw/1#1 <-> dpmac.9  [fabric-edge]
+0 planned transition(s) [headline: hitless]:
+plan-only (6) [no port-facet executor; reported, not drift or error]:
+  dpbp x1
+  dpio x1
+  dpmcp x2
+  dpsw x1
+  dprtc x1
+warnings (2):
+  UnknownCeiling { family: Dpio, needed: 1 }
+  UnknownCeiling { family: Dpsw, needed: 1 }

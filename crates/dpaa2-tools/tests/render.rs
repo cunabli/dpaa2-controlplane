@@ -11,7 +11,8 @@ use dpaa2_api::core::inventory::{
 use dpaa2_api::core::model::{DpmacId, MacMode};
 use dpaa2_api::intent::refuse::compile;
 use dpaa2_api::intent::{
-    Crypto, Dataplane, Extra, Intent, Isolation, Port, Tenant, TenantRef, kernel_tenant,
+    Crypto, Dataplane, Extra, Fabric, Intent, Isolation, Member, Port, Switching, Tenant,
+    TenantRef, kernel_tenant,
 };
 use dpaa2_api::plan::reconcile::{ReconcileOptions, reconcile_with};
 use dpaa2_tools::render::{render_dry_run, render_refusals};
@@ -159,6 +160,92 @@ fn dry_run_crypto_and_warning() {
         &std::collections::BTreeSet::new(),
     );
     insta::assert_snapshot!(render_dry_run(&compiled.plan, &compiled.warnings, &plan));
+}
+
+/// A kernel-steered switched domain with a declared `mac_table_size`: the dry-run
+/// names the MAC-table sizing rule (`mac-table`) above the base `dpsw` rule it
+/// inputs, and the dpsw attrs line carries the derived `max_fdb_entries`
+/// (256 × 2 ports = 512) (dpsw-typestate task 2.1). `cpus = 1` keeps the dpio draw
+/// small so the dpsw block is easy to read.
+#[test]
+fn dry_run_switched_domain() {
+    let mut inv = inventory();
+    inv.cpus = 1;
+    let intent = Intent {
+        tenants: vec![kernel_tenant(1)],
+        ports: vec![
+            port("lan0", 7, 10_000, "kernel"),
+            port("lan1", 9, 10_000, "kernel"),
+        ],
+        fabrics: vec![Fabric {
+            name: "lan".into(),
+            switching: Switching::Hardware,
+            forwarded_by: "kernel".into(),
+            members: vec![Member::Port("lan0".into()), Member::Port("lan1".into())],
+            mac_table_size: Some(256),
+            renamed: None,
+        }],
+        ..Intent::empty()
+    };
+    let compiled = compile(&intent, &inv).expect("intent must compile");
+    let desired = compiled.desired_topology_root(&intent);
+    let observed = dpaa2_api::core::model::ObservedTopology {
+        dpnis: vec![],
+        dpmacs: vec![],
+    };
+    let plan = reconcile_with(
+        &desired,
+        &observed,
+        ReconcileOptions::default(),
+        &std::collections::BTreeSet::new(),
+    );
+    insta::assert_snapshot!(render_dry_run(&compiled.plan, &compiled.warnings, &plan));
+}
+
+/// A switched domain whose `mac_table_size` × port count overruns the 16-bit
+/// `max_fdb_entries` field: the refusal text states the hardware limit and the
+/// operator's own numbers, no process identifiers (dpsw-typestate task 2.1).
+#[test]
+fn refusal_mac_table_overflow() {
+    let intent = Intent {
+        tenants: vec![kernel_tenant(16)],
+        ports: vec![
+            port("lan0", 7, 10_000, "kernel"),
+            port("lan1", 9, 10_000, "kernel"),
+        ],
+        fabrics: vec![Fabric {
+            name: "lan".into(),
+            switching: Switching::Hardware,
+            forwarded_by: "kernel".into(),
+            members: vec![Member::Port("lan0".into()), Member::Port("lan1".into())],
+            mac_table_size: Some(40_000),
+            renamed: None,
+        }],
+        ..Intent::empty()
+    };
+    let refusals = compile(&intent, &inventory()).expect_err("intent must be refused");
+    insta::assert_snapshot!(render_refusals(&refusals));
+}
+
+/// A software-switched fabric declaring `mac_table_size`: the refusal names the
+/// field as hardware-switch sizing the software forwarder owns itself
+/// (dpsw-typestate task 2.1).
+#[test]
+fn refusal_mac_table_on_software_fabric() {
+    let intent = Intent {
+        tenants: vec![kernel_tenant(16)],
+        fabrics: vec![Fabric {
+            name: "br".into(),
+            switching: Switching::Software,
+            forwarded_by: "kernel".into(),
+            members: vec![],
+            mac_table_size: Some(256),
+            renamed: None,
+        }],
+        ..Intent::empty()
+    };
+    let refusals = compile(&intent, &inventory()).expect_err("intent must be refused");
+    insta::assert_snapshot!(render_refusals(&refusals));
 }
 
 /// A port anchored on a Reserved dpmac: the compile is refused, and the text names

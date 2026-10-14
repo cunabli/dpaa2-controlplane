@@ -148,6 +148,13 @@ pub enum Attributes {
         num_ifs: u32,
         /// FDB count (≥ `num_ifs`).
         max_fdbs: u32,
+        /// Learnable MACs across the switched domain: the declared `mac_table_size`
+        /// × `num_ifs` (the kernel splits the total into one FDB per port, so the
+        /// per-domain size is multiplied back up), or the family default 1024 when
+        /// undeclared (`derive.qnt` `maxFdbEntriesOf`). Held as `u32`: the product
+        /// can exceed the 16-bit hardware field, which the `MacTableOverflow`
+        /// refusal rejects before a plan is used.
+        max_fdb_entries: u32,
         /// `PER_FDB` flooding.
         per_fdb_flooding: bool,
         /// `PER_FDB` broadcast.
@@ -777,12 +784,20 @@ impl Fabric {
     /// kernel-bindable predicate, read-not-verified), sized by its interface count.
     #[must_use]
     pub fn dpsw(&self, ordinal: u32, num_ifs: u32) -> PlannedObject {
+        // max_fdb_entries exactly as `derive.qnt` `maxFdbEntriesOf`: the declared
+        // mac_table_size × num_ifs, or the family default 1024 when undeclared. The
+        // num_ifs == 0 edge is kept verbatim (Some(b) × 0 = 0), unguarded.
+        let max_fdb_entries = match self.mac_table_size {
+            Some(b) => u32::from(b) * num_ifs,
+            None => 1024,
+        };
         PlannedObject {
             key: ObjectKey::new(self.forwarded_by.clone(), Family::Dpsw, ordinal),
             container: self.forwarder_container(),
             attributes: Attributes::Dpsw {
                 num_ifs,
                 max_fdbs: num_ifs,
+                max_fdb_entries,
                 per_fdb_flooding: true,
                 per_fdb_broadcast: true,
                 ctrl_if: true,

@@ -1,0 +1,6 @@
+---
+source: crates/dpaa2-tools/tests/render.rs
+expression: render_refusals(&refusals)
+---
+compilation refused: 1 rule(s) broken
+  switch 'lan': mac_table_size 40000 × 2 ports = 80000 exceeds max_fdb_entries (16-bit field, max 65535)

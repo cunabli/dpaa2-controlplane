@@ -53,6 +53,11 @@ const DPSW_DRAW_DPMCP: i64 = 1;
 const DPSECI_DRAW_DPBP: i64 = 0;
 const DPSECI_DRAW_DPMCP: i64 = 1;
 
+/// The 16-bit `max_fdb_entries` ceiling (`dpsw.md` `--max-fdb-entries` 0..65535;
+/// `derive.qnt` `MAX_FDB_ENTRIES`): a derived `mac_table_size` × `num_ifs` product
+/// past it is unbuildable, refused by [`crate::intent::refuse`] `MacTableOverflow`.
+pub(crate) const MAX_FDB_ENTRIES: u32 = 65535;
+
 /// Workers a single port of the given rate class draws (design D3 (ADR-0002); `derive.qnt`
 /// `WORKER_TABLE`/`workersPerPort`): 10G ⇒ 2 (the seed, decomposed from the verified
 /// `T = 5 = 1 + 2·2` configuration), 25G ⇒ 5 (declared linear-in-rate, unmeasured,
@@ -427,7 +432,7 @@ fn attach_point(intent: &Intent, tenant: &TenantName, fabric_name: &ConstructNam
 /// or member software-fabric-forwarder's attach dpni, hardware-in-hardware skipped
 /// (refused at [`crate::intent::refuse`]); then one interface per software fabric listing `f`
 /// whose forwarder is not already attached through `f`'s own members.
-fn hw_fabric_attach_points(intent: &Intent, f: &Fabric) -> Vec<AttachPoint> {
+pub(crate) fn hw_fabric_attach_points(intent: &Intent, f: &Fabric) -> Vec<AttachPoint> {
     let mut ends = Vec::new();
     for m in &f.members {
         match m {
@@ -855,13 +860,55 @@ fn dpsw_node(intent: &Intent, f: &Fabric) -> ProvenanceNode {
     let ni = i64::try_from(hw_fabric_attach_points(intent, f).len()).unwrap_or(0);
     ProvenanceNode {
         rule: "dpsw".into(),
-        anchor: "dpsw.md kernel bindability predicate (read-not-verified)".to_owned(),
+        anchor: "driver-required: ctrl_if=on flooding=PER_FDB broadcast=PER_FDB max_fdbs=num_ifs (dpsw.md, read-not-verified)".to_owned(),
         mark: Measurement::Measured,
         request: ni,
         extra: None,
         value: ni,
         inputs: BTreeSet::new(),
         constructs: BTreeSet::from([f.name.clone()]),
+    }
+}
+
+/// One MAC-table sizing node per Hardware fabric, keyed like the dpsw node (same
+/// tenant, construct = fabric name) and inputting the dpsw node (`derive.qnt`
+/// `macTableNode`). The value is `max_fdb_entries` = `mac_table_size` × `num_ifs`
+/// when declared, 1024 when not; the rule name and anchor distinguish the two.
+fn mac_table_node(intent: &Intent, tenant: &TenantName, f: &Fabric) -> ProvenanceNode {
+    let ni = i64::try_from(hw_fabric_attach_points(intent, f).len()).unwrap_or(0);
+    let v = match f.mac_table_size {
+        Some(b) => i64::from(b) * ni,
+        None => 1024,
+    };
+    let dpsw_key = BTreeSet::from([ProvenanceKey::new(tenant.clone(), "dpsw", f.name.clone())]);
+    let (rule, anchor) = match f.mac_table_size {
+        Some(_) => (
+            "mac-table",
+            "mac_table_size × num_ifs; kernel per-port FDB split (dpsw.md)",
+        ),
+        None => (
+            "mac-table-default",
+            "default=1024 (DPAA2UM T101 p.867, p.505); 0-sentinel ambiguous (p.487: 64)",
+        ),
+    };
+    ProvenanceNode {
+        rule: rule.into(),
+        anchor: anchor.to_owned(),
+        mark: Measurement::Measured,
+        request: v,
+        extra: None,
+        value: v,
+        inputs: dpsw_key,
+        constructs: BTreeSet::from([f.name.clone()]),
+    }
+}
+
+/// The MAC-table sizing node's rule name: `mac-table` when `mac_table_size` is
+/// declared, `mac-table-default` when not (`derive.qnt` `macTableRule`).
+fn mac_table_rule(f: &Fabric) -> &'static str {
+    match f.mac_table_size {
+        Some(_) => "mac-table",
+        None => "mac-table-default",
     }
 }
 
@@ -1073,10 +1120,16 @@ fn add_tenant_prov(intent: &Intent, s: &Sizing, m: &mut BTreeMap<ProvenanceKey, 
             },
         );
     }
+    // one dpsw node plus its MAC-table sizing node per owned Hardware fabric
+    // (both keyed by the fabric name; `derive.qnt` m5).
     for f in hw_owned_fabrics(intent, nm) {
         m.insert(
             ProvenanceKey::new(nm, "dpsw", &f.name),
             dpsw_node(intent, f),
+        );
+        m.insert(
+            ProvenanceKey::new(nm, mac_table_rule(f), &f.name),
+            mac_table_node(intent, nm, f),
         );
     }
     for p in terminated_ports(intent, nm) {

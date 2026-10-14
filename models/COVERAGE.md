@@ -347,6 +347,12 @@ CryptoFlowsOverDevice fires (task 2.6e).
   is reachable but unhit in 3000 samples (a clean accepted cross-class mix is a
   narrow draw — the sole Free 25G dpmac is 4); its shape precursor is counted
   (`wMixedRates` 457) and the warning is covered by `mixedRateClassWarnsTest`.
+- **MAC-table sizing refusals** (`dpsw-typestate` task 2.1): the `MAC_TABLE_SIZES`
+  draw (None, Some(2), Some(70000)) makes `MacTableOverflow` (a declared size whose
+  product with the interface count passes the 16-bit `max_fdb_entries` bound) and
+  `MacTableOnSoftwareFabric` (a size on a software-switched fabric) reachable;
+  directed coverage lives in `intent/refuse.qnt` `macTableRefusals` and the Rust
+  `compile_tests` twin, with the seeded trace census to be refreshed on its next run.
 
 ## Raw surface laws (task 3.3e)
 

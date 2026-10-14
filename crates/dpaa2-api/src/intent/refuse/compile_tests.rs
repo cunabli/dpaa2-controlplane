@@ -12,7 +12,7 @@ use crate::core::family::Family;
 use crate::core::inventory::{Availability, Ceiling, Inventory};
 use crate::core::model::DpmacId;
 use crate::families::dpseci::{DpseciCfg, DpseciOpt, OptionMask};
-use crate::intent::compiled::{Attributes, Container, ProvenanceNode};
+use crate::intent::compiled::{Attributes, Container, ProvenanceKey, ProvenanceNode};
 use crate::intent::{
     Crypto, Dataplane, Extra, Fabric, Intent, Isolation, Link, Member, Port, Switching, Tenant,
     TenantRef, kernel_tenant,
@@ -165,6 +165,7 @@ fn kernel_forwarded_fabric_resolves_without_a_declared_kernel() {
             switching: Switching::Hardware,
             forwarded_by: "kernel".into(),
             members: vec![Member::Tenant("a".into())],
+            mac_table_size: None,
             renamed: None,
         }],
         ..Intent::empty()
@@ -197,6 +198,7 @@ fn refuse_member_unresolved() {
             switching: Switching::Software,
             forwarded_by: "sw".into(),
             members: vec![Member::Tenant("ghost".into())],
+            mac_table_size: None,
             renamed: None,
         }],
         ..Intent::empty()
@@ -219,6 +221,7 @@ fn refuse_self_member() {
             switching: Switching::Software,
             forwarded_by: "sw".into(),
             members: vec![Member::Tenant("sw".into())],
+            mac_table_size: None,
             renamed: None,
         }],
         ..Intent::empty()
@@ -327,6 +330,7 @@ fn refuse_fabric_not_kernel_forwarded() {
             switching: Switching::Hardware,
             forwarded_by: "sw".into(),
             members: vec![],
+            mac_table_size: None,
             renamed: None,
         }],
         ..Intent::empty()
@@ -350,6 +354,7 @@ fn refuse_port_tenant_mismatch() {
             switching: Switching::Hardware,
             forwarded_by: "kernel".into(),
             members: vec![Member::Port("p".into())],
+            mac_table_size: None,
             renamed: None,
         }],
         ..Intent::empty()
@@ -374,6 +379,7 @@ fn refuse_unsupported_edge() {
                 switching: Switching::Hardware,
                 forwarded_by: "kernel".into(),
                 members: vec![Member::Fabric("f2".into())],
+                mac_table_size: None,
                 renamed: None,
             },
             Fabric {
@@ -381,6 +387,7 @@ fn refuse_unsupported_edge() {
                 switching: Switching::Hardware,
                 forwarded_by: "kernel".into(),
                 members: vec![],
+                mac_table_size: None,
                 renamed: None,
             },
         ],
@@ -1000,6 +1007,7 @@ fn dpsw_hardware_fabric() {
             switching: Switching::Hardware,
             forwarded_by: "kernel".into(),
             members: vec![Member::Port("p7".into()), Member::Port("p8".into())],
+            mac_table_size: None,
             renamed: None,
         }],
         ..Intent::empty()
@@ -1011,14 +1019,138 @@ fn dpsw_hardware_fabric() {
         Attributes::Dpsw {
             num_ifs: 2,
             max_fdbs: 2,
+            max_fdb_entries: 1024,
             per_fdb_flooding: true,
             per_fdb_broadcast: true,
             ctrl_if: true,
         }
     );
     assert_eq!(provenance(&c, "kernel", "dpsw", "br").value, 2);
+    // undeclared mac_table_size defaults the sizing node to mac-table-default=1024.
+    let mt = provenance(&c, "kernel", "mac-table-default", "br");
+    assert_eq!(mt.value, 1024);
+    assert_eq!(mt.request, 1024);
+    assert_eq!(
+        mt.anchor,
+        "default=1024 (DPAA2UM T101 p.867, p.505); 0-sentinel ambiguous (p.487: 64)"
+    );
+    // the sizing node inputs the dpsw node of the same fabric.
+    assert!(
+        mt.inputs
+            .contains(&ProvenanceKey::new("kernel", "dpsw", "br"))
+    );
     // the two member ports are dpsw interfaces (fabric-edges), not port-edges.
     assert_eq!(c.plan.edges.len(), 2);
+}
+
+/// A declared `mac_table_size` sizes `max_fdb_entries` as the product with the
+/// interface count (`derive.qnt` `maxFdbEntriesOf` Some arm): 512 × 4 ports = 2048,
+/// and the sizing provenance node is named `mac-table` with the product value, the
+/// product × split anchor, and the dpsw node as input.
+#[test]
+fn dpsw_mac_table_declared_sizes_the_product() {
+    let intent = Intent {
+        tenants: vec![kernel_tenant(16)],
+        ports: vec![
+            port("p5", 3, 10_000, "kernel"),
+            port("p6", 4, 10_000, "kernel"),
+            port("p7", 7, 10_000, "kernel"),
+            port("p8", 8, 10_000, "kernel"),
+        ],
+        fabrics: vec![Fabric {
+            name: "br".into(),
+            switching: Switching::Hardware,
+            forwarded_by: "kernel".into(),
+            members: vec![
+                Member::Port("p5".into()),
+                Member::Port("p6".into()),
+                Member::Port("p7".into()),
+                Member::Port("p8".into()),
+            ],
+            mac_table_size: Some(512),
+            renamed: None,
+        }],
+        ..Intent::empty()
+    };
+    let c = ok(&intent, &ref_inv());
+    assert_eq!(
+        attributes_of(&c, "kernel", Family::Dpsw, 1),
+        Attributes::Dpsw {
+            num_ifs: 4,
+            max_fdbs: 4,
+            max_fdb_entries: 2048,
+            per_fdb_flooding: true,
+            per_fdb_broadcast: true,
+            ctrl_if: true,
+        }
+    );
+    let mt = provenance(&c, "kernel", "mac-table", "br");
+    assert_eq!(mt.value, 2048);
+    assert_eq!(mt.request, 2048);
+    assert_eq!(
+        mt.anchor,
+        "mac_table_size × num_ifs; kernel per-port FDB split (dpsw.md)"
+    );
+    assert!(
+        mt.inputs
+            .contains(&ProvenanceKey::new("kernel", "dpsw", "br"))
+    );
+}
+
+/// A declared `mac_table_size` whose product with the interface count overruns the
+/// 16-bit `max_fdb_entries` bound is refused typed, carrying the operator's own
+/// numbers (`refuse.qnt` `macTableRefusals`): 40000 × 2 ports = 80000 > 65535.
+#[test]
+fn dpsw_mac_table_overflow_is_refused() {
+    let intent = Intent {
+        tenants: vec![kernel_tenant(16)],
+        ports: vec![
+            port("p7", 7, 10_000, "kernel"),
+            port("p8", 8, 10_000, "kernel"),
+        ],
+        fabrics: vec![Fabric {
+            name: "br".into(),
+            switching: Switching::Hardware,
+            forwarded_by: "kernel".into(),
+            members: vec![Member::Port("p7".into()), Member::Port("p8".into())],
+            mac_table_size: Some(40_000),
+            renamed: None,
+        }],
+        ..Intent::empty()
+    };
+    assert_eq!(
+        err(&intent, &ref_inv()),
+        BTreeSet::from([Refusal::MacTableOverflow {
+            fabric: "br".into(),
+            num_ifs: 2,
+            mac_table_size: 40_000,
+            bound: 65535,
+        }])
+    );
+}
+
+/// A software-switched fabric declaring `mac_table_size` is refused typed, naming
+/// the fabric (`refuse.qnt` `macTableRefusals` Software arm).
+#[test]
+fn dpsw_mac_table_on_software_fabric_is_refused() {
+    let intent = Intent {
+        tenants: vec![knl("sw")],
+        fabrics: vec![Fabric {
+            name: "br".into(),
+            switching: Switching::Software,
+            forwarded_by: "sw".into(),
+            members: vec![],
+            mac_table_size: Some(256),
+            renamed: None,
+        }],
+        ..Intent::empty()
+    };
+    assert_eq!(
+        err(&intent, &ref_inv()),
+        BTreeSet::from([Refusal::MacTableOnSoftwareFabric {
+            fabric: "br".into(),
+        }])
+    );
 }
 
 #[test]

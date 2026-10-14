@@ -587,6 +587,10 @@ fn convert_fabric(
         switching,
         forwarded_by,
         members,
+        // The raw schema `mac_table_size` field is dpsw-typestate task 2.3, out of
+        // scope at this parse layer; the cooked fabric defaults to the family 1024
+        // (intent_raw.qnt cooking).
+        mac_table_size: None,
         renamed: f.renamed.as_ref().map(|r| r.from.clone()),
     })
 }

@@ -27,7 +27,7 @@
 
 ## 2. Intent layer (vocabulary + derivation)
 
-- [ ] 2.1 Add the switched-domain construct to the accepted vocabulary
+- [x] 2.1 Add the switched-domain construct to the accepted vocabulary
       and the pure derivation compiler with per-rule provenance
       (intent-compiler delta; design D3 forced fields). Verify: unit
       tests per derivation rule; dry-run names each rule.

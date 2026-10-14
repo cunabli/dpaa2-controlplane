@@ -130,6 +130,12 @@ module intent_alphabet {
   pure val EXTRA_COUNTS: Set[int] = Set(0, 1, 2, 4)
   pure val EXTRA_FAMILIES: Set[Family] = Set(Dpio, Dpbp, Dpmcp, Dpcon, Dpni)
 
+  // The macTableSize draw (dpsw-typestate task 2.1): None (family default 1024),
+  // a sane declared size, and one past the 16-bit max_fdb_entries bound so the
+  // overflow refusal is reachable with any member count >= 1. A Some on a Software
+  // fabric reaches the MacTableOnSoftwareFabric refusal.
+  pure val MAC_TABLE_SIZES: Set[Option[int]] = Set(None, Some(2), Some(70000))
+
   // A hand-enumerated slice of the member-list space: ports, tenants, a
   // self-member fabric (MFabric("f1"), the only fabric), a member resolving
   // to the kernel, and the empty list — small, so a step never draws a huge
@@ -204,10 +210,11 @@ module intent_alphabet {
     nondet switching = SWITCHINGS.oneOf()
     nondet forwardedBy = tenantNames(intent).oneOf()
     nondet members = MEMBER_LISTS.oneOf()
+    nondet macTableSize = MAC_TABLE_SIZES.oneOf()
     all {
       intent.fabrics.length() == 0,
       intent' = intent.with("fabrics", intent.fabrics.append({
-        name: "f1", switching: switching, forwardedBy: forwardedBy, members: members, from: NotRenamed })),
+        name: "f1", switching: switching, forwardedBy: forwardedBy, members: members, macTableSize: macTableSize, from: NotRenamed })),
     }
   }
 
@@ -300,6 +307,8 @@ module intent_alphabet {
   val wFabricNotKernelForwarded = hasRefusal(r => match r { | FabricNotKernelForwarded(_) => true | _ => false })
   val wPortTenantMismatch = hasRefusal(r => match r { | PortTenantMismatch(_) => true | _ => false })
   val wUnsupportedEdge = hasRefusal(r => match r { | UnsupportedEdge(_) => true | _ => false })
+  val wMacTableOverflow = hasRefusal(r => match r { | MacTableOverflow(_) => true | _ => false })
+  val wMacTableOnSoftwareFabric = hasRefusal(r => match r { | MacTableOnSoftwareFabric(_) => true | _ => false })
   val wUnknownRateClass = hasRefusal(r => match r { | UnknownRateClass(_) => true | _ => false })
   val wCoreBudgetExceeded = hasRefusal(r => match r { | CoreBudgetExceeded(_) => true | _ => false })
   val wQueueEnvelopeExceeded = hasRefusal(r => match r { | QueueEnvelopeExceeded(_) => true | _ => false })

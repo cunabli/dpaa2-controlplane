@@ -43,7 +43,7 @@ module fabric {
             { name: "wan1", dpmac: 10, rate: 10000, tenant: Named("router"), from: NotRenamed }],
     links: [],
     fabrics: [{ name: "lan", switching: Hardware, forwardedBy: KERNEL,
-                members: [MPort("lan0"), MPort("lan1"), MTenant("router")], from: NotRenamed }],
+                members: [MPort("lan0"), MPort("lan1"), MTenant("router")], macTableSize: None, from: NotRenamed }],
     crypto: [],
     extras: Set(),
   }
@@ -64,7 +64,7 @@ module fabric {
           all {
             p.objs.filter(o => o.key.family == Dpsw) ==
               Set({ key: { tenant: KERNEL, family: Dpsw, ordinal: 1 }, container: Root,
-                    attributes: DpswAttrs({ numIfs: 3, maxFdbs: 3, perFdbFlooding: true,
+                    attributes: DpswAttrs({ numIfs: 3, maxFdbs: 3, maxFdbEntries: 1024, perFdbFlooding: true,
                                        perFdbBroadcast: true, ctrlIf: true }),
                     provenance: { tenant: KERNEL, rule: "dpsw", construct: "lan" } }),
             countFam(p, KERNEL, Dpni) == 0,

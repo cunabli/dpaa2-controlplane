@@ -368,8 +368,10 @@ module intent_raw {
           acc.append({ name: n, interfaceA: tenantRefOf(l.interfaceA), interfaceB: tenantRefOf(l.interfaceB), from: renameOf(l.from) })),
       fabrics: raw.fabrics.keys().fold([], (acc, n) =>
         val f = raw.fabrics.get(n)
+        // macTableSize None here: the raw schema field is dpsw-typestate task 2.3,
+        // out of scope at this parse layer — the cooked fabric defaults to 1024.
         acc.append({ name: n, switching: f.switching, forwardedBy: f.forwardedBy,
-          members: f.members.foldl([], (a2, m) => a2.append(classifyMember(raw, m))), from: renameOf(f.from) })),
+          members: f.members.foldl([], (a2, m) => a2.append(classifyMember(raw, m))), macTableSize: None, from: renameOf(f.from) })),
       crypto: raw.crypto.foldl([], (acc, k) => acc.append({ tenant: k.tenant, flows: k.flows })),
       extras: raw.extras.keys().fold(Set(), (acc, t) =>
         raw.extras.get(t).keys().fold(acc, (a2, fam) =>

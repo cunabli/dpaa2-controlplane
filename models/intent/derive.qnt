@@ -66,7 +66,7 @@ module intent_derive {
     | Unsized
     | DpniAttrs({ cfg: CreateCfg })
     | DpseciAttrs({ cfg: dsl::CreateCfg })
-    | DpswAttrs({ numIfs: int, maxFdbs: int, perFdbFlooding: bool, perFdbBroadcast: bool, ctrlIf: bool })
+    | DpswAttrs({ numIfs: int, maxFdbs: int, maxFdbEntries: int, perFdbFlooding: bool, perFdbBroadcast: bool, ctrlIf: bool })
     | DprcAttrs({ options: Set[Permission] })
 
   // A provenance node's address: (tenant, rule, construct). Tenant-level
@@ -539,13 +539,31 @@ module intent_derive {
                container: Root, attributes: DprcAttrs({ options: DPRC_DEFAULT_OPTIONS }),
                provenance: { tenant: s.name, rule: "dprc", construct: "" } })
 
+  // The 16-bit max_fdb_entries ceiling (dpsw.md --max-fdb-entries 0..65535): the
+  // derived mac_table_size × num_ifs product must fit it or the switch is
+  // unbuildable (intent/refuse.qnt macTableRefusals).
+  pure val MAX_FDB_ENTRIES: int = 65535
+
+  // The max_fdb_entries a Hardware fabric derives: the declared mac_table_size
+  // times num_ifs — the kernel splits the total evenly into one FDB per port, so
+  // the per-domain size is multiplied back up (dpsw.md) — or the family default
+  // 1024 when undeclared (DPAA2UM T101 p.505). The 0 let-MC-decide sentinel is
+  // never emitted (DPAA2UM self-contradicts: 64 p.487 vs 1024 T101).
+  pure def maxFdbEntriesOf(declared: Option[int], numIfs: int): int =
+    match declared { | Some(b) => b * numIfs | None => 1024 }
+
+  // "mac-table" when mac_table_size is declared, "mac-table-default" when not —
+  // the sizing provenance rule name (also the node's ProvenanceKey rule).
+  pure def macTableRule(f: Fabric): str =
+    match f.macTableSize { | Some(_) => "mac-table" | None => "mac-table-default" }
+
   // One dpsw per owned Hardware fabric, ordinal by fabric NAME among the
   // forwarder's Hardware fabrics (hwOwnedFabrics is name-sorted, task 3.3d); the
   // kernel-bindable predicate (dpsw.md,
   // read-not-verified): num_ifs = the fabric's interface count, max_fdbs =
-  // num_ifs, PER_FDB flooding and broadcast, control interface enabled. The
-  // dpsw node is keyed by the fabric name (construct), so two fabrics of one
-  // forwarder do not collide.
+  // num_ifs, max_fdb_entries = mac_table_size × num_ifs (default 1024), PER_FDB
+  // flooding and broadcast, control interface enabled. The dpsw node is keyed by
+  // the fabric name (construct), so two fabrics of one forwarder do not collide.
   pure def dpswObjs(intent: Intent, s: Sizing): Set[PlannedObject] =
     hwOwnedFabrics(intent, s.name).foldl({ i: 0, set: Set() }, (acc, f) =>
       val ni = hwFabricAttachPoints(intent, f).length()
@@ -554,6 +572,7 @@ module intent_derive {
           key: { tenant: s.name, family: Dpsw, ordinal: acc.i + 1 },
           container: s.container,
           attributes: DpswAttrs({ numIfs: ni, maxFdbs: ni,
+                             maxFdbEntries: maxFdbEntriesOf(f.macTableSize, ni),
                              perFdbFlooding: true, perFdbBroadcast: true, ctrlIf: true }),
           provenance: { tenant: s.name, rule: "dpsw", construct: f.name } })) }).set
 
@@ -720,8 +739,25 @@ module intent_derive {
   // One dpsw node per Hardware fabric, keyed by the fabric name (construct).
   pure def dpswNode(intent: Intent, f: Fabric): ProvenanceNode =
     val ni = hwFabricAttachPoints(intent, f).length()
-    { rule: "dpsw", anchor: "dpsw.md kernel bindability predicate (read-not-verified)", mark: Measured,
+    { rule: "dpsw", anchor: "driver-required: ctrl_if=on flooding=PER_FDB broadcast=PER_FDB max_fdbs=num_ifs (dpsw.md, read-not-verified)", mark: Measured,
       request: ni, extra: None, value: ni, inputs: Set(), constructs: Set(f.name) }
+
+  // One MAC-table sizing node per Hardware fabric, keyed like the dpsw node
+  // (same tenant, construct = fabric name) and inputting the dpsw node. The
+  // value is max_fdb_entries = mac_table_size × num_ifs when declared, 1024 when
+  // not; the rule name and anchor distinguish the two.
+  pure def macTableNode(intent: Intent, tenant: str, f: Fabric): ProvenanceNode =
+    val ni = hwFabricAttachPoints(intent, f).length()
+    val v = maxFdbEntriesOf(f.macTableSize, ni)
+    val dpswKey = Set({ tenant: tenant, rule: "dpsw", construct: f.name })
+    match f.macTableSize {
+      | Some(_) =>
+          { rule: "mac-table", anchor: "mac_table_size × num_ifs; kernel per-port FDB split (dpsw.md)", mark: Measured,
+            request: v, extra: None, value: v, inputs: dpswKey, constructs: Set(f.name) }
+      | None =>
+          { rule: "mac-table-default", anchor: "default=1024 (DPAA2UM T101 p.867, p.505); 0-sentinel ambiguous (p.487: 64)", mark: Measured,
+            request: v, extra: None, value: v, inputs: dpswKey, constructs: Set(f.name) }
+    }
 
   pure val dprtcNode: ProvenanceNode =
     { rule: "dprtc", anchor: "DPRTC-I1 singleton, DPRTC-I2 kernel-owned", mark: Measured,
@@ -805,9 +841,11 @@ module intent_derive {
                         mark: Measured, request: s.numDpseci, extra: None, value: s.numDpseci,
                         inputs: Set(), constructs: Set(nm) })
              else m3
-    // one dpsw node per owned Hardware fabric (keyed by the fabric name)
+    // one dpsw node plus its MAC-table sizing node per owned Hardware fabric
+    // (both keyed by the fabric name)
     val m5 = hwOwnedFabrics(intent, nm).foldl(m4, (mm, f) =>
-      mm.put({ tenant: nm, rule: "dpsw", construct: f.name }, dpswNode(intent, f)))
+      mm.put({ tenant: nm, rule: "dpsw", construct: f.name }, dpswNode(intent, f))
+        .put({ tenant: nm, rule: macTableRule(f), construct: f.name }, macTableNode(intent, nm, f)))
     // one port-edge node per owned terminated port (keyed by the port name)
     terminatedPorts(intent, nm).foldl(m5, (mm, p) =>
       mm.put({ tenant: nm, rule: "port-edge", construct: p.name },
@@ -904,7 +942,7 @@ module intent_derive {
     Unsized,
     DpniAttrs({ cfg: profileCfg(ProfileKernel) }),
     DpseciAttrs({ cfg: dsl::KERNEL_CFG }),
-    DpswAttrs({ numIfs: 0, maxFdbs: 0, perFdbFlooding: false, perFdbBroadcast: false, ctrlIf: false }),
+    DpswAttrs({ numIfs: 0, maxFdbs: 0, maxFdbEntries: 0, perFdbFlooding: false, perFdbBroadcast: false, ctrlIf: false }),
     DprcAttrs({ options: Set() }))
   pure val MARKS_USE: Set[Measurement] = Set(Measured, Unmeasured)
   pure val ORIGINS_USE: Set[Origin] = Set(

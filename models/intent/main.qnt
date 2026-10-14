@@ -91,7 +91,7 @@ module intent_main {
               { name: "p8", dpmac: 8, rate: 10000, tenant: Kernel, from: NotRenamed }],
       links: [],
       fabrics: [{ name: "lan", switching: Hardware, forwardedBy: "kernel",
-                  members: [MPort("p7"), MPort("p8"), MTenant("router")], from: NotRenamed }],
+                  members: [MPort("p7"), MPort("p8"), MTenant("router")], macTableSize: None, from: NotRenamed }],
       crypto: [{ tenant: "router", flows: 4 }],
       extras: Set() }
   pure val softwareFabricIntent: Intent =
@@ -100,7 +100,7 @@ module intent_main {
               { name: "p8", dpmac: 8, rate: 10000, tenant: Named("vpp"), from: NotRenamed }],
       links: [],
       fabrics: [{ name: "br", switching: Software, forwardedBy: "vpp",
-                  members: [MPort("p7"), MPort("p8"), MTenant("kernel")], from: NotRenamed }],
+                  members: [MPort("p7"), MPort("p8"), MTenant("kernel")], macTableSize: None, from: NotRenamed }],
       crypto: [],
       extras: Set() }
   pure val chainIntent: Intent =
@@ -111,9 +111,9 @@ module intent_main {
               { name: "p10", dpmac: 10, rate: 10000, tenant: Named("vpp"), from: NotRenamed }],
       links: [],
       fabrics: [{ name: "hw", switching: Hardware, forwardedBy: "kernel",
-                  members: [MPort("p8"), MPort("p9")], from: NotRenamed },
+                  members: [MPort("p8"), MPort("p9")], macTableSize: None, from: NotRenamed },
                 { name: "sw", switching: Software, forwardedBy: "vpp",
-                  members: [MPort("p7"), MFabric("hw")], from: NotRenamed }],
+                  members: [MPort("p7"), MFabric("hw")], macTableSize: None, from: NotRenamed }],
       crypto: [],
       extras: Set() }
   pure val hwInHwIntent: Intent =
@@ -121,8 +121,8 @@ module intent_main {
       ports: [{ name: "p8", dpmac: 8, rate: 10000, tenant: Kernel, from: NotRenamed },
               { name: "p9", dpmac: 9, rate: 10000, tenant: Kernel, from: NotRenamed }],
       links: [],
-      fabrics: [{ name: "hw1", switching: Hardware, forwardedBy: "kernel", members: [MPort("p8")], from: NotRenamed },
-                { name: "hw2", switching: Hardware, forwardedBy: "kernel", members: [MFabric("hw1"), MPort("p9")], from: NotRenamed }],
+      fabrics: [{ name: "hw1", switching: Hardware, forwardedBy: "kernel", members: [MPort("p8")], macTableSize: None, from: NotRenamed },
+                { name: "hw2", switching: Hardware, forwardedBy: "kernel", members: [MFabric("hw1"), MPort("p9")], macTableSize: None, from: NotRenamed }],
       crypto: [], extras: Set() }
   pure val linkIntent: Intent =
     { tenants: [{ name: "routerA", dataplane: UserspacePoll, maxCores: 8, isolation: Isolated, from: NotRenamed },
@@ -193,7 +193,7 @@ module intent_main {
               { name: "p3", dpmac: 8, rate: 10000, tenant: Kernel, from: NotRenamed }],
       links: [],
       fabrics: [{ name: "br", switching: Software, forwardedBy: "kernel",
-                  members: [MPort("p1")], from: NotRenamed }],
+                  members: [MPort("p1")], macTableSize: None, from: NotRenamed }],
       crypto: [],
       extras: Set({ tenant: "kernel", family: Dpcon, count: 2 }) }
 
@@ -313,7 +313,7 @@ module intent_main {
     all {
       p.objs.filter(o => o.key.family == Dpsw) ==
         Set({ key: { tenant: "kernel", family: Dpsw, ordinal: 1 }, container: Root,
-              attributes: DpswAttrs({ numIfs: 3, maxFdbs: 3, perFdbFlooding: true, perFdbBroadcast: true, ctrlIf: true }),
+              attributes: DpswAttrs({ numIfs: 3, maxFdbs: 3, maxFdbEntries: 1024, perFdbFlooding: true, perFdbBroadcast: true, ctrlIf: true }),
               provenance: { tenant: "kernel", rule: "dpsw", construct: "lan" } }),
       countFam(p, "router", Dpni) == 1,
       objsOfFam(p, "router", Dpni).forall(o => match o.attributes { | DpniAttrs(a) => a.cfg.numQueues == 1 | _ => false }),
@@ -369,7 +369,7 @@ module intent_main {
     all {
       p.objs.filter(o => o.key.family == Dpsw) ==
         Set({ key: { tenant: "kernel", family: Dpsw, ordinal: 1 }, container: Root,
-              attributes: DpswAttrs({ numIfs: 3, maxFdbs: 3, perFdbFlooding: true, perFdbBroadcast: true, ctrlIf: true }),
+              attributes: DpswAttrs({ numIfs: 3, maxFdbs: 3, maxFdbEntries: 1024, perFdbFlooding: true, perFdbBroadcast: true, ctrlIf: true }),
               provenance: { tenant: "kernel", rule: "dpsw", construct: "hw" } }),
       countFam(p, "vpp", Dpni) == 3,
       countFam(p, "kernel", Dpni) == 0,
@@ -488,8 +488,8 @@ module intent_main {
     val twoFabrics = { tenants: [kernel16],
       ports: [{ name: "p8", dpmac: 8, rate: 10000, tenant: Kernel, from: NotRenamed }],
       links: [],
-      fabrics: [{ name: "f1", switching: Hardware, forwardedBy: "kernel", members: [MPort("p8")], from: NotRenamed },
-                { name: "f2", switching: Hardware, forwardedBy: "kernel", members: [MPort("p8")], from: NotRenamed }],
+      fabrics: [{ name: "f1", switching: Hardware, forwardedBy: "kernel", members: [MPort("p8")], macTableSize: None, from: NotRenamed },
+                { name: "f2", switching: Hardware, forwardedBy: "kernel", members: [MPort("p8")], macTableSize: None, from: NotRenamed }],
       crypto: [], extras: Set() }
     all {
       refusedWith(compile(twoPorts, REF_INVENTORY),
@@ -504,12 +504,12 @@ module intent_main {
     val tenantForwarded = { tenants: [router],
       ports: [wan0],
       links: [],
-      fabrics: [{ name: "rsw", switching: Hardware, forwardedBy: "router", members: [MPort("wan0")], from: NotRenamed }],
+      fabrics: [{ name: "rsw", switching: Hardware, forwardedBy: "router", members: [MPort("wan0")], macTableSize: None, from: NotRenamed }],
       crypto: [], extras: Set() }
     val mismatch = { tenants: [kernel16, router],
       ports: [{ name: "px", dpmac: 8, rate: 10000, tenant: Named("router"), from: NotRenamed }],
       links: [],
-      fabrics: [{ name: "ksw", switching: Hardware, forwardedBy: "kernel", members: [MPort("px")], from: NotRenamed }],
+      fabrics: [{ name: "ksw", switching: Hardware, forwardedBy: "kernel", members: [MPort("px")], macTableSize: None, from: NotRenamed }],
       crypto: [], extras: Set() }
     all {
       refusedWith(compile(tenantForwarded, REF_INVENTORY),
@@ -640,8 +640,8 @@ module intent_main {
       ports: [{ name: "p8", dpmac: 8, rate: 10000, tenant: Kernel, from: NotRenamed },
               { name: "p9", dpmac: 9, rate: 10000, tenant: Kernel, from: NotRenamed }],
       links: [],
-      fabrics: [{ name: "hw1", switching: Hardware, forwardedBy: "kernel", members: [MPort("p8")], from: NotRenamed },
-                { name: "hw2", switching: Hardware, forwardedBy: "kernel", members: [MFabric("hw1"), MPort("p9")], from: NotRenamed }],
+      fabrics: [{ name: "hw1", switching: Hardware, forwardedBy: "kernel", members: [MPort("p8")], macTableSize: None, from: NotRenamed },
+                { name: "hw2", switching: Hardware, forwardedBy: "kernel", members: [MFabric("hw1"), MPort("p9")], macTableSize: None, from: NotRenamed }],
       crypto: [], extras: Set() }
     refusedWith(compile(intent, REF_INVENTORY),
       r => r == UnsupportedEdge({ fabric: "hw2", member: "hw1" }))
