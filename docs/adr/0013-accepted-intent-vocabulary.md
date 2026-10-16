@@ -381,6 +381,8 @@ materialises for such a reference stays owned by the split materialisation trigg
 - `MacTableOnSoftwareFabric` — a software-switched fabric declaring
   `mac_table_size`, a hardware-switch knob the software forwarder owns itself →
   remove it.
+- `EmptyFabric` — a hardware fabric deriving zero dpsw interfaces (`num_ifs`
+  accepts 1–65535) → a 0-interface switch is unrenderable; add a member.
 
 *Sizing (design D3; ADR-0002)*
 - `UnknownRateClass` — a userspace-poll tenant terminates a rate class with no

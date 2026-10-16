@@ -317,6 +317,30 @@ module intent_invariants {
       .with("fabrics", intent.fabrics.foldl([], (acc, f) => [f].concat(acc)))
     compile(intent, inv) == compile(reversed, inv)
 
+  // ---- dpswDerivationLawful (dpsw-typestate task 2.2): every derived dpsw is bindable and sized ----
+  // On an accepted compile, every Dpsw plan object carries the DPSW-I1 kernel-
+  // bindability triplet (ctrlIf, perFdbFlooding, perFdbBroadcast all true,
+  // models/families/dpsw.qnt), one FDB per interface (maxFdbs == numIfs), at least
+  // one interface (numIfs >= 1 — the EmptyFabric refusal fences the 0-port switch),
+  // and a max_fdb_entries in 1..MAX_FDB_ENTRIES (derive.qnt) — never the forbidden 0.
+  // The companion per-forwarder count law is companionCountsByRegime (INTENT_I8), not
+  // duplicated here. A refused intent has no plan to check.
+  pure def dpswDerivationLawful(intent: Intent, inv: Inventory): bool =
+    match compile(intent, inv) {
+      | Ok(r) => r.plan.objs.forall(o =>
+          (o.key.family == Dpsw) implies
+            match o.attributes {
+              | DpswAttrs(a) => and {
+                  a.ctrlIf, a.perFdbFlooding, a.perFdbBroadcast,
+                  a.maxFdbs == a.numIfs,
+                  a.numIfs >= 1,
+                  a.maxFdbEntries >= 1 and a.maxFdbEntries <= MAX_FDB_ENTRIES,
+                }
+              | _ => false
+            })
+      | Refused(_) => true
+    }
+
   // ---- the two rungs ----
 
   pure def planInvariants(p: Plan): bool = and {

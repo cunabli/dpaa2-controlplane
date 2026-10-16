@@ -124,3 +124,19 @@ pub(super) fn mac_table_refusals(intent: &Intent, out: &mut BTreeSet<Refusal>) {
         }
     }
 }
+
+/// A Hardware fabric with no interfaces (`refuse.qnt` `emptyFabricRefusals`): a
+/// Hardware fabric whose derived dpsw interface-endpoint list is empty is a 0-port
+/// switch, and the MC's `num_ifs` accepts 1–65535 (`dpsw.md`; DPAA2UM T101), so it
+/// is unrenderable. This closes the only path emitting `max_fdb_entries = 0` (a
+/// declared `mac_table_size` × 0 interfaces). A Software fabric owns its own
+/// forwarder, so it is exempt.
+pub(super) fn empty_fabric_refusals(intent: &Intent, out: &mut BTreeSet<Refusal>) {
+    for f in &intent.fabrics {
+        if f.switching == Switching::Hardware && hw_fabric_attach_points(intent, f).is_empty() {
+            out.insert(Refusal::EmptyFabric {
+                fabric: f.name.clone(),
+            });
+        }
+    }
+}

@@ -152,9 +152,12 @@ fn attach_point_well_formed(p: &CompiledPlan, en: &AttachPoint) -> bool {
 }
 
 /// Every compiled hardware fabric's dpsw attrs are the DPSW-I1 derivation outputs
-/// (`intent-compiler` spec, dpsw-typestate): control interface enabled, `PER_FDB`
-/// flooding and broadcast, `max_fdbs == num_ifs`, and `max_fdb_entries` the declared
-/// `mac_table_size` × `num_ifs` or the family default 1024 when undeclared.
+/// (`intent-compiler` spec scenario "The derivation invariants hold", dpsw-typestate):
+/// control interface enabled, `PER_FDB` flooding and broadcast, `max_fdbs == num_ifs`,
+/// and `max_fdb_entries` the declared `mac_table_size` × `num_ifs` or the family
+/// default 1024 when undeclared. The MC bounds hold too (`dpswDerivationLawful`): a
+/// built dpsw has `num_ifs >= 1` (`EmptyFabric` closes the 0-interface path) and
+/// `1 <= max_fdb_entries <= 65535`.
 fn dpsw_attrs_well_formed(c: &Compiled, intent: &Intent) -> bool {
     c.plan
         .objects
@@ -183,6 +186,9 @@ fn dpsw_attrs_well_formed(c: &Compiled, intent: &Intent) -> bool {
                 && *per_fdb_broadcast
                 && *max_fdbs == *num_ifs
                 && *max_fdb_entries == expected
+                && *num_ifs >= 1
+                && *max_fdb_entries >= 1
+                && *max_fdb_entries <= 65535
         })
 }
 

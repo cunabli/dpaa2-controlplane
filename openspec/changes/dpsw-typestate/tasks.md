@@ -31,7 +31,7 @@
       and the pure derivation compiler with per-rule provenance
       (intent-compiler delta; design D3 forced fields). Verify: unit
       tests per derivation rule; dry-run names each rule.
-- [ ] 2.2 Add the typed regime refusal (design D4: non-kernel steering
+- [x] 2.2 Add the typed regime refusal (design D4: non-kernel steering
       refused at compile) and the derivation invariants run. Verify:
       refusal unit test + invariant suite green.
 - [ ] 2.3 Parse the construct in `dpaa2-config` (topology-config delta:

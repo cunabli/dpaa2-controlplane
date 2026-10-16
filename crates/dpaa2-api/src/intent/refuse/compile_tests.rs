@@ -12,7 +12,7 @@ use crate::core::family::Family;
 use crate::core::inventory::{Availability, Ceiling, Inventory};
 use crate::core::model::DpmacId;
 use crate::families::dpseci::{DpseciCfg, DpseciOpt, OptionMask};
-use crate::intent::compiled::{Attributes, Container, ProvenanceKey, ProvenanceNode};
+use crate::intent::compiled::{AttachPoint, Attributes, Container, ProvenanceKey, ProvenanceNode};
 use crate::intent::{
     Crypto, Dataplane, Extra, Fabric, Intent, Isolation, Link, Member, Port, Switching, Tenant,
     TenantRef, kernel_tenant,
@@ -323,13 +323,15 @@ fn refuse_over_rate() {
 
 #[test]
 fn refuse_fabric_not_kernel_forwarded() {
+    // A forwarder-owned member port keeps the fabric non-empty so EmptyFabric stays silent (`main.qnt` `fabricNotKernelForwardedTest` twin).
     let intent = Intent {
         tenants: vec![knl("sw")],
+        ports: vec![port("p", 7, 10_000, "sw")],
         fabrics: vec![Fabric {
             name: "f".into(),
             switching: Switching::Hardware,
             forwarded_by: "sw".into(),
-            members: vec![],
+            members: vec![Member::Port("p".into())],
             mac_table_size: None,
             renamed: None,
         }],
@@ -371,14 +373,19 @@ fn refuse_port_tenant_mismatch() {
 
 #[test]
 fn refuse_unsupported_edge() {
+    // Each fabric carries a member port so EmptyFabric stays silent (`main.qnt` `unsupportedEdgeTest` twin).
     let intent = Intent {
         tenants: vec![kernel_tenant(16)],
+        ports: vec![
+            port("p8", 8, 10_000, "kernel"),
+            port("p9", 9, 10_000, "kernel"),
+        ],
         fabrics: vec![
             Fabric {
                 name: "f1".into(),
                 switching: Switching::Hardware,
                 forwarded_by: "kernel".into(),
-                members: vec![Member::Fabric("f2".into())],
+                members: vec![Member::Fabric("f2".into()), Member::Port("p9".into())],
                 mac_table_size: None,
                 renamed: None,
             },
@@ -386,7 +393,7 @@ fn refuse_unsupported_edge() {
                 name: "f2".into(),
                 switching: Switching::Hardware,
                 forwarded_by: "kernel".into(),
-                members: vec![],
+                members: vec![Member::Port("p8".into())],
                 mac_table_size: None,
                 renamed: None,
             },
@@ -399,6 +406,54 @@ fn refuse_unsupported_edge() {
             fabric: "f1".into(),
             member: "f2".into(),
         }])
+    );
+}
+
+#[test]
+fn refuse_empty_fabric() {
+    // A kernel-forwarded Hardware fabric with no members derives zero dpsw interfaces;
+    // the MC's num_ifs is 1–65535, so the 0-port switch is refused (`refuse.qnt` `emptyFabricRefusals`).
+    let intent = Intent {
+        tenants: vec![kernel_tenant(16)],
+        fabrics: vec![Fabric {
+            name: "esw".into(),
+            switching: Switching::Hardware,
+            forwarded_by: "kernel".into(),
+            members: vec![],
+            mac_table_size: None,
+            renamed: None,
+        }],
+        ..Intent::empty()
+    };
+    assert_eq!(
+        err(&intent, &ref_inv()),
+        BTreeSet::from([Refusal::EmptyFabric {
+            fabric: "esw".into(),
+        }])
+    );
+}
+
+#[test]
+fn refuse_vpp_steered_domain() {
+    // A Hardware fabric a UserspacePoll (VPP) tenant forwards is refused by the regime rule (dpsw-typestate design D4; DPSW-I6): only the kernel drives a dpsw.
+    // Empty members also co-fire EmptyFabric, so only the FabricNotKernelForwarded membership is asserted, not the whole Refused set.
+    let intent = Intent {
+        tenants: vec![poll("vpp")],
+        fabrics: vec![Fabric {
+            name: "vsw".into(),
+            switching: Switching::Hardware,
+            forwarded_by: "vpp".into(),
+            members: vec![],
+            mac_table_size: None,
+            renamed: None,
+        }],
+        ..Intent::empty()
+    };
+    assert!(
+        err(&intent, &ref_inv()).contains(&Refusal::FabricNotKernelForwarded {
+            fabric: "vsw".into(),
+            forwarded_by: "vpp".into(),
+        })
     );
 }
 
@@ -1041,6 +1096,49 @@ fn dpsw_hardware_fabric() {
     );
     // the two member ports are dpsw interfaces (fabric-edges), not port-edges.
     assert_eq!(c.plan.edges.len(), 2);
+}
+
+/// A kernel-steered Hardware fabric with one `UserspacePoll` (VPP) tenant member: the
+/// dpsw sizes to `num_ifs` 1, and that interface's endpoint is the VPP tenant's dpni —
+/// switch-port membership (`derive.qnt` `hwFabricAttachPoints`, `attachPoint`).
+#[test]
+fn dpsw_switch_port_member_is_a_vpp_dpni() {
+    let intent = Intent {
+        tenants: vec![kernel_tenant(16), poll("vpp")],
+        fabrics: vec![Fabric {
+            name: "br".into(),
+            switching: Switching::Hardware,
+            forwarded_by: "kernel".into(),
+            members: vec![Member::Tenant("vpp".into())],
+            mac_table_size: None,
+            renamed: None,
+        }],
+        ..Intent::empty()
+    };
+    let c = ok(&intent, &ref_inv());
+    assert_eq!(
+        attributes_of(&c, "kernel", Family::Dpsw, 1),
+        Attributes::Dpsw {
+            num_ifs: 1,
+            max_fdbs: 1,
+            max_fdb_entries: 1024,
+            per_fdb_flooding: true,
+            per_fdb_broadcast: true,
+            ctrl_if: true,
+        }
+    );
+    // the one dpsw interface attaches the VPP tenant's dpni (0-port surface).
+    let iface = c
+        .plan
+        .edges
+        .iter()
+        .find(|e| matches!(e.a(), AttachPoint::Object { key, .. } if key.family == Family::Dpsw))
+        .expect("a dpsw fabric-edge");
+    assert!(matches!(
+        iface.b(),
+        AttachPoint::Object { key, port: 0 }
+            if key.family == Family::Dpni && key.tenant.as_str() == "vpp"
+    ));
 }
 
 /// A declared `mac_table_size` sizes `max_fdb_entries` as the product with the

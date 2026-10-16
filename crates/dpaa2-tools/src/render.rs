@@ -677,6 +677,12 @@ pub fn render_refusals(refusals: &BTreeSet<Refusal>) -> String {
                     "  fabric '{fabric}' is software-switched: mac_table_size sizes the hardware switch MAC table; the software forwarder owns its own"
                 );
             }
+            Refusal::EmptyFabric { fabric } => {
+                let _ = writeln!(
+                    out,
+                    "  switch '{fabric}' has no member interfaces: a hardware switched domain needs at least one (the MC accepts 1 to 65535)"
+                );
+            }
             _ => {
                 let _ = writeln!(out, "  {r:?}");
             }

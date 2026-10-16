@@ -270,8 +270,12 @@ module intent_alphabet {
   // Compiled — no plan key rides a construct's document position.
   val positionLaw = positionIndependence(intent, REF_INVENTORY)
 
-  // The simulator rung: all three, over the alphabet's reachable intents.
-  val intentInvariants = and { compileLaws, acceptedPlanLaws, positionLaw }
+  // The derivation-invariant law (dpsw-typestate task 2.2): every accepted plan's
+  // dpsw objects are DPSW-I1 bindable and sized, never the forbidden 0 entries.
+  val dpswLaw = dpswDerivationLawful(intent, REF_INVENTORY)
+
+  // The simulator rung: all four, over the alphabet's reachable intents.
+  val intentInvariants = and { compileLaws, acceptedPlanLaws, positionLaw, dpswLaw }
 
   // ---- coverage witnesses (task 2.4) ----
   // One named predicate per coverage dimension, counted by `pnpm
@@ -309,6 +313,7 @@ module intent_alphabet {
   val wUnsupportedEdge = hasRefusal(r => match r { | UnsupportedEdge(_) => true | _ => false })
   val wMacTableOverflow = hasRefusal(r => match r { | MacTableOverflow(_) => true | _ => false })
   val wMacTableOnSoftwareFabric = hasRefusal(r => match r { | MacTableOnSoftwareFabric(_) => true | _ => false })
+  val wEmptyFabric = hasRefusal(r => match r { | EmptyFabric(_) => true | _ => false })
   val wUnknownRateClass = hasRefusal(r => match r { | UnknownRateClass(_) => true | _ => false })
   val wCoreBudgetExceeded = hasRefusal(r => match r { | CoreBudgetExceeded(_) => true | _ => false })
   val wQueueEnvelopeExceeded = hasRefusal(r => match r { | QueueEnvelopeExceeded(_) => true | _ => false })

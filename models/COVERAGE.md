@@ -353,6 +353,11 @@ CryptoFlowsOverDevice fires (task 2.6e).
   `MacTableOnSoftwareFabric` (a size on a software-switched fabric) reachable;
   directed coverage lives in `intent/refuse.qnt` `macTableRefusals` and the Rust
   `compile_tests` twin, with the seeded trace census to be refreshed on its next run.
+- **Empty-fabric refusal** (`dpsw-typestate` task 2.2): a Hardware fabric deriving
+  zero dpsw interfaces is refused `EmptyFabric` — `MEMBER_LISTS`' empty list reaches
+  the 0-port switch, so `wEmptyFabric` holds in 488 of 3000 traces; directed coverage
+  lives in `intent/main.qnt` `emptyFabricTest` and the law `dpswDerivationLawful`
+  (`intent/invariants.qnt`), which closes the only path to `max_fdb_entries = 0`.
 
 ## Raw surface laws (task 3.3e)
 

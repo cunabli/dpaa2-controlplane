@@ -71,6 +71,7 @@ module intent_refuse {
     | UnsupportedEdge({ fabric: str, member: str })             // Hardware fabric listing a Hardware fabric (object-model.md §2; derive.qnt (d))
     | MacTableOverflow({ fabric: str, numIfs: int, macTableSize: int, bound: int }) // Hardware fabric whose mac_table_size × interface count exceeds the 16-bit max_fdb_entries bound (dpsw.md; DPAA2UM T101)
     | MacTableOnSoftwareFabric({ fabric: str })                 // a Software fabric declaring mac_table_size — hardware-switch sizing the software forwarder owns itself (dpsw.md)
+    | EmptyFabric({ fabric: str })                              // a Hardware fabric deriving zero dpsw interfaces — MC num_ifs accepts 1..65535, so a 0-port switch is unrenderable (dpsw.md; DPAA2UM T101; DPSW-I1)
     | UnknownRateClass({ tenant: str, rates: List[int] })     // userspace-poll tenant terminating a rate class with no seeded worker row (design D3; ADR-0002; derive.qnt (b))
     | CoreBudgetExceeded({ tenant: str, t: int, maxCores: int }) // userspace-poll T > maxCores (design D3; ADR-0012 never rations)
     | QueueEnvelopeExceeded({ tenant: str, numQueues: int, hi: int }) // derived per-dpni queue count past the dpni.qnt numQueues 1-32 envelope (bead guu.4a; V-DPNI create surface)
@@ -290,6 +291,18 @@ module intent_refuse {
             }
       })
 
+  // ---- rule 6c: a Hardware fabric with no interfaces (dpsw-typestate task 2.2) ----
+  // A Hardware fabric deriving zero dpsw interfaces (hwFabricAttachPoints empty,
+  // derive.qnt) is a 0-port switch: the MC's num_ifs accepts 1..65535 (dpsw.md;
+  // DPAA2UM T101), so it is unrenderable — refused. This closes the only path
+  // emitting max_fdb_entries = 0 (a declared mac_table_size × 0 interfaces). A
+  // Software fabric owns its own forwarder, so it is exempt.
+  pure def emptyFabricRefusals(intent: Intent, inv: Inventory): Set[Refusal] =
+    intent.fabrics.foldl(Set(), (acc, f) =>
+      if (f.switching == Hardware and hwFabricAttachPoints(intent, f).length() == 0)
+        acc.union(Set(EmptyFabric({ fabric: f.name })))
+      else acc)
+
   // ---- rule 7: userspace-poll thread-count sizing (design D3; ADR-0012) ----
   // Under the online-CPU reading of open question 2 (KERNEL_BUDGET_IS_DPIO_COUNT =
   // false), maxCores is not a bound on the kernel dataplane, so no
@@ -482,6 +495,7 @@ module intent_refuse {
       .union(doubleClaimedRefusals(intent, inv))
       .union(fabricRulesRefusals(intent, inv))
       .union(macTableRefusals(intent, inv))
+      .union(emptyFabricRefusals(intent, inv))
       .union(sizingRefusals(intent, inv))
       .union(extraRefusals(intent, inv))
       .union(cryptoRefusals(intent, inv))
@@ -539,6 +553,7 @@ module intent_refuse {
     UnsupportedEdge({ fabric: "f", member: "m" }),
     MacTableOverflow({ fabric: "f", numIfs: 0, macTableSize: 0, bound: 0 }),
     MacTableOnSoftwareFabric({ fabric: "f" }),
+    EmptyFabric({ fabric: "f" }),
     UnknownRateClass({ tenant: "c", rates: [] }),
     CoreBudgetExceeded({ tenant: "c", t: 0, maxCores: 0 }),
     QueueEnvelopeExceeded({ tenant: "c", numQueues: 0, hi: 0 }),

@@ -518,6 +518,17 @@ module intent_main {
         r => r == PortTenantMismatch({ fabric: "ksw", port: "px", tenant: "router" })),
     }
 
+  // A Hardware fabric with no members derives zero dpsw interfaces; MC num_ifs is
+  // 1..65535, so the 0-port switch is refused EmptyFabric (dpsw-typestate task 2.2;
+  // dpsw.md), the only path that would emit max_fdb_entries = 0.
+  run emptyFabricTest =
+    val empty = { tenants: [kernel16],
+      ports: [],
+      links: [],
+      fabrics: [{ name: "esw", switching: Hardware, forwardedBy: "kernel", members: [], macTableSize: None, from: NotRenamed }],
+      crypto: [], extras: Set() }
+    refusalSet(compile(empty, REF_INVENTORY)) == Set(EmptyFabric({ fabric: "esw" }))
+
   // An extra on a non-companion family is never silently ignored, and an extra
   // whose count is below 1 is refused (design D5; ADR-0003): a Dpni extra trips
   // ExtraNotCompanion, a count-0 Dpio extra trips ExtraNotPositive.
@@ -849,5 +860,14 @@ module intent_main {
     positionIndependence(chainIntent, REF_INVENTORY),
     positionIndependence(mixedClassIntent, REF_INVENTORY),
     positionIndependence(routerIntent, REF_INVENTORY),
+  }
+
+  // The derivation invariants hold (dpsw-typestate task 2.2): every dpsw the
+  // hardware-fabric hand intents derive is DPSW-I1 bindable and sized within
+  // 1..MAX_FDB_ENTRIES; hwInHwIntent is refused, so its arm is vacuous.
+  run dpswDerivationLawfulTest = all {
+    dpswDerivationLawful(fabricCryptoIntent, REF_INVENTORY),
+    dpswDerivationLawful(chainIntent, REF_INVENTORY),
+    dpswDerivationLawful(hwInHwIntent, REF_INVENTORY),
   }
 }

@@ -248,6 +248,27 @@ fn refusal_mac_table_on_software_fabric() {
     insta::assert_snapshot!(render_refusals(&refusals));
 }
 
+/// A hardware switched domain with no member interfaces: the refusal states the
+/// hardware bound in operator terms — a hardware switch needs at least one member
+/// interface, the MC accepting 1 to 65535 (dpsw-typestate task 2.2).
+#[test]
+fn refusal_empty_fabric() {
+    let intent = Intent {
+        tenants: vec![kernel_tenant(16)],
+        fabrics: vec![Fabric {
+            name: "lan".into(),
+            switching: Switching::Hardware,
+            forwarded_by: "kernel".into(),
+            members: vec![],
+            mac_table_size: None,
+            renamed: None,
+        }],
+        ..Intent::empty()
+    };
+    let refusals = compile(&intent, &inventory()).expect_err("intent must be refused");
+    insta::assert_snapshot!(render_refusals(&refusals));
+}
+
 /// A port anchored on a Reserved dpmac: the compile is refused, and the text names
 /// every broken rule with its offending construct (design D5/D10; ADR-0003, restool-baseline).
 #[test]

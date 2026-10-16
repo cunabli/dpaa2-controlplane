@@ -1,0 +1,6 @@
+---
+source: crates/dpaa2-tools/tests/render.rs
+expression: render_refusals(&refusals)
+---
+compilation refused: 1 rule(s) broken
+  switch 'lan' has no member interfaces: a hardware switched domain needs at least one (the MC accepts 1 to 65535)

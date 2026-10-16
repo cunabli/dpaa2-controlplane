@@ -786,7 +786,8 @@ impl Fabric {
     pub fn dpsw(&self, ordinal: u32, num_ifs: u32) -> PlannedObject {
         // max_fdb_entries exactly as `derive.qnt` `maxFdbEntriesOf`: the declared
         // mac_table_size × num_ifs, or the family default 1024 when undeclared. The
-        // num_ifs == 0 edge is kept verbatim (Some(b) × 0 = 0), unguarded.
+        // num_ifs == 0 edge is kept verbatim (Some(b) × 0 = 0), unguarded here:
+        // EmptyFabric (refuse.qnt emptyFabricRefusals) refuses the 0-interface path upstream.
         let max_fdb_entries = match self.mac_table_size {
             Some(b) => u32::from(b) * num_ifs,
             None => 1024,

@@ -196,6 +196,16 @@ pub enum Refusal {
         /// The fabric.
         fabric: ConstructName,
     },
+    /// A hardware fabric deriving zero dpsw interfaces — the MC's `num_ifs` accepts
+    /// 1–65535, so a 0-interface switch is unrenderable (`dpsw.md`; DPAA2UM T101;
+    /// `refuse.qnt` `emptyFabricRefusals`). This closes the only path emitting
+    /// `max_fdb_entries = 0` (a declared `mac_table_size` × 0 interfaces). A software
+    /// fabric owns its own forwarder, so it is exempt. Lands in the `fabric` submodule
+    /// (ADR-0018).
+    EmptyFabric {
+        /// The fabric.
+        fabric: ConstructName,
+    },
     /// A userspace-poll tenant terminates a rate class with no seeded worker row
     /// (design D3; ADR-0002).
     UnknownRateClass {
@@ -348,7 +358,7 @@ pub enum Refusal {
 /// §5 spelling, aliased to the model's anchor names in the lint). `Refusal` is
 /// payload-carrying, so it cannot be iterated like [`crate::core::family::ALL_FAMILIES`]; this
 /// list stands in, kept honest by the exhaustive `match` in [`Refusal::name`].
-pub const REFUSAL_VARIANTS: [&str; 28] = [
+pub const REFUSAL_VARIANTS: [&str; 29] = [
     "TenantAbsent",
     "MemberUnresolved",
     "SelfMember",
@@ -362,6 +372,7 @@ pub const REFUSAL_VARIANTS: [&str; 28] = [
     "UnsupportedEdge",
     "MacTableOverflow",
     "MacTableOnSoftwareFabric",
+    "EmptyFabric",
     "UnknownRateClass",
     "CoreBudgetExceeded",
     "QueueEnvelopeExceeded",
@@ -401,6 +412,7 @@ impl Refusal {
             Self::UnsupportedEdge { .. } => "UnsupportedEdge",
             Self::MacTableOverflow { .. } => "MacTableOverflow",
             Self::MacTableOnSoftwareFabric { .. } => "MacTableOnSoftwareFabric",
+            Self::EmptyFabric { .. } => "EmptyFabric",
             Self::UnknownRateClass { .. } => "UnknownRateClass",
             Self::CoreBudgetExceeded { .. } => "CoreBudgetExceeded",
             Self::QueueEnvelopeExceeded { .. } => "QueueEnvelopeExceeded",
@@ -689,6 +701,7 @@ fn refusals(intent: &Intent, inv: &Inventory, counts: &BTreeMap<Family, i64>) ->
     port::double_claimed_refusals(intent, &mut out);
     fabric::fabric_rules_refusals(intent, &mut out);
     fabric::mac_table_refusals(intent, &mut out);
+    fabric::empty_fabric_refusals(intent, &mut out);
     tenant::sizing_refusals(intent, inv, &mut out);
     extra::extra_refusals(intent, &mut out);
     crypto::crypto_refusals(intent, &mut out);

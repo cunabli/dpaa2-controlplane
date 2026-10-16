@@ -808,6 +808,9 @@ fn refusal(v: &Value) -> Result<Refusal, String> {
         "MacTableOnSoftwareFabric" => Refusal::MacTableOnSoftwareFabric {
             fabric: cname(field(p, "fabric")?)?,
         },
+        "EmptyFabric" => Refusal::EmptyFabric {
+            fabric: cname(field(p, "fabric")?)?,
+        },
         "UnknownRateClass" => Refusal::UnknownRateClass {
             tenant: tname(field(p, "tenant")?)?,
             rates: ints_list(field(p, "rates")?)?,
