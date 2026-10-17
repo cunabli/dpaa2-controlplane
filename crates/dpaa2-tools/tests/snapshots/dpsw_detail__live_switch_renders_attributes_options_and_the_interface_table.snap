@@ -1,0 +1,13 @@
+---
+source: crates/dpaa2-tools/tests/dpsw_detail.rs
+expression: "render::render_dpsw_details(&rows)"
+---
+dpsw detail (1 object(s)) [read-only; never gates convergence]:
+  dpsw.3 num_ifs=2 max_vlans=16 max_fdbs=8 max_fdb_entries=1024 fdb_aging_time=300 max_fdb_mc_groups=32 component_type=CVlan flooding_cfg=PerFdb broadcast_cfg=PerFdb mem_size=4096 plugged=true drawn=false
+    options=[CtrlIfDis,raw:0x200]
+    if 0: endpoint=dpni.11 link=up taildrop=enabled=true,units=BUFFERS,threshold=100 max_frame_length=1522
+      counters (2):
+        tx_frames = 42
+        rx_frames = unread
+    if 1: endpoint=disconnected link=n/a taildrop=unknown max_frame_length=1522
+      counters (0):

@@ -27,12 +27,17 @@ use dpaa2_api::plan::pool::PoolDrift;
 use dpaa2_api::plan::populate::ChildPlan;
 use dpaa2_api::plan::{Class, Plan, Transition};
 
-use dpaa2_api::contract::DpseciPortalReadout;
+use dpaa2_api::contract::{DpseciPortalReadout, DpswIfFace};
 use dpaa2_api::core::model::ObjectRef;
+use dpaa2_api::families::dpsw::{
+    BroadcastCfg, ComponentType, CounterReadout as DpswCounterReadout, DpswCounterRead,
+    FdbAgingTime, FloodingCfg, IfLinkState, MaxFdbEntries, MaxFdbMcGroups, MaxFdbs, MaxVlans,
+    NumIfs, ObservedOpts, Taildrop,
+};
 use dpaa2_api::plan::connect::ChildDeferredVisibility;
 
 use crate::engine::{LinkConnection, LinkDryRun, LinkDryRunAction, LinkRow};
-use crate::status::{DpseciRow, PortDetail};
+use crate::status::{DpseciRow, DpswRow, PortDetail};
 
 /// Renders the whole dry-run text: the compiled objects with their provenance trees
 /// and edges, the transitions `reconcile` would execute, the plan-only report, and
@@ -817,6 +822,145 @@ fn render_dpseci_portal(out: &mut String, portal: &DpseciPortalReadout) {
         DpseciPortalReadout::Unobservable { reason } => {
             let _ = writeln!(out, "    portal=no-observable ({reason})");
         }
+    }
+}
+
+/// Renders the read-only dpsw switch detail view (dpsw-typestate task 5.1), mirroring
+/// [`render_dpseci_details`]: one object line with the `dpsw info` attributes, decoded options,
+/// and plugged/drawn binding state, then a per-interface table keyed by interface index carrying
+/// the endpoint, link state, taildrop, and counters. Every honest-unknown face — an absent
+/// attribute, an absent options line, an [`Unobservable`](DpswIfFace::Unobservable) port, an absent
+/// link/taildrop/max-frame-length — renders the literal `unknown`, never blank or zero
+/// (provisioning-cli spec "The CLI exposes a read-only switch detail view"; DPSW-I7). A genuinely
+/// free port is the distinct `disconnected` token. The header states the view is read-only and
+/// never gates convergence, so link and counters are display-only and the exit code stays
+/// port-driven (dpsw-typestate design D6).
+#[must_use]
+pub fn render_dpsw_details(rows: &[DpswRow]) -> String {
+    let mut out = String::new();
+    let _ = writeln!(
+        out,
+        "dpsw detail ({} object(s)) [read-only; never gates convergence]:",
+        rows.len()
+    );
+    if rows.is_empty() {
+        let _ = writeln!(out, "  (none)");
+    }
+    for r in rows {
+        let d = &r.detail;
+        let _ = writeln!(
+            out,
+            "  {object} num_ifs={num_ifs} max_vlans={max_vlans} max_fdbs={max_fdbs} \
+             max_fdb_entries={mfe} fdb_aging_time={aging} max_fdb_mc_groups={mcg} \
+             component_type={ct} flooding_cfg={fc} broadcast_cfg={bc} mem_size={mem} \
+             plugged={plugged} drawn={drawn}",
+            object = r.object,
+            num_ifs = render_opt(d.num_ifs.map(NumIfs::get)),
+            max_vlans = render_opt(d.max_vlans.map(MaxVlans::get)),
+            max_fdbs = render_opt(d.max_fdbs.map(MaxFdbs::get)),
+            mfe = render_opt(d.max_fdb_entries.map(MaxFdbEntries::get)),
+            aging = render_opt(d.fdb_aging_time.map(FdbAgingTime::get)),
+            mcg = render_opt(d.max_fdb_mc_groups.map(MaxFdbMcGroups::get)),
+            ct = render_opt(d.component_type.map(ComponentType::name)),
+            fc = render_opt(d.flooding_cfg.map(FloodingCfg::name)),
+            bc = render_opt(d.broadcast_cfg.map(BroadcastCfg::name)),
+            mem = render_opt(d.mem_size),
+            plugged = r.plugged,
+            drawn = r.drawn,
+        );
+        render_dpsw_options(&mut out, d.options.as_ref());
+        for (idx, iface) in &d.ifaces {
+            let _ = writeln!(
+                out,
+                "    if {idx}: endpoint={ep} link={link} taildrop={td} max_frame_length={mfl}",
+                ep = render_if_face(&iface.face),
+                link = render_if_link(iface.link),
+                td = render_taildrop(iface.taildrop.as_ref()),
+                mfl = render_opt(iface.max_frame_length),
+            );
+            render_dpsw_counters(&mut out, &iface.counters);
+        }
+    }
+    out
+}
+
+/// An observed optional attribute, or the crate honest-unknown token when `info` omitted the
+/// line (provisioning-cli spec: an absent attribute is `unknown`, never blank or zero —
+/// distinct from the dpseci queue `-`, which is a separate surface).
+fn render_opt<T: std::fmt::Display>(v: Option<T>) -> String {
+    v.map_or_else(|| "unknown".to_owned(), |x| x.to_string())
+}
+
+/// Renders the dpsw observed options under its object line, the [`render_dpseci_portal`] idiom:
+/// a present [`ObservedOpts`] prints the named MC flags then each attributed raw escape as
+/// `raw:0x<value>`, so an unnamed bit renders by its raw value (dpsw-typestate design D6). An
+/// absent options line (`None`) is the honest-unknown token, never an empty list.
+fn render_dpsw_options(out: &mut String, options: Option<&ObservedOpts>) {
+    match options {
+        Some(o) => {
+            let mut opts: Vec<String> = o.named().iter().map(|f| f.name().to_owned()).collect();
+            opts.extend(
+                o.escapes()
+                    .iter()
+                    .map(|e| format!("raw:0x{:x}", e.raw_value())),
+            );
+            let _ = writeln!(out, "    options=[{}]", opts.join(","));
+        }
+        None => {
+            let _ = writeln!(out, "    options=unknown");
+        }
+    }
+}
+
+/// The operator token for one interface's connection face. A
+/// [`Connected`](DpswIfFace::Connected) port names its endpoint ref; a
+/// [`Disconnected`](DpswIfFace::Disconnected) port is genuinely free; an
+/// [`Unobservable`](DpswIfFace::Unobservable) face is honest-unknown, never read as free
+/// (DPSW-I7; provisioning-cli spec "A blanked connection line is not freedom").
+fn render_if_face(face: &DpswIfFace) -> String {
+    match face {
+        DpswIfFace::Connected(obj) => obj.to_string(),
+        DpswIfFace::Disconnected => "disconnected".to_owned(),
+        DpswIfFace::Unobservable => "unknown".to_owned(),
+    }
+}
+
+/// The operator token for an interface link state; an absent `link state:` line is honest-unknown,
+/// never a defaulted `down` (DPSW-I7).
+fn render_if_link(link: Option<IfLinkState>) -> String {
+    match link {
+        Some(IfLinkState::Up) => "up".to_owned(),
+        Some(IfLinkState::Down) => "down".to_owned(),
+        Some(IfLinkState::NotApplicable) => "n/a".to_owned(),
+        None => "unknown".to_owned(),
+    }
+}
+
+/// Renders the taildrop readout inline; an absent block is honest-unknown, never defaulted zeros.
+fn render_taildrop(td: Option<&Taildrop>) -> String {
+    td.map_or_else(
+        || "unknown".to_owned(),
+        |t| {
+            format!(
+                "enabled={},units={},threshold={}",
+                t.enabled, t.units, t.threshold
+            )
+        },
+    )
+}
+
+/// Renders a dpsw per-interface counter read-back, the [`render_counters`] idiom for the dpsw
+/// vocabulary type. A truncated mid-list row reads `unread`, never `0`, so a silent truncation is
+/// never shown as zeros (DPSW-I7).
+fn render_dpsw_counters(out: &mut String, counters: &DpswCounterReadout) {
+    let rows = counters.rows();
+    let _ = writeln!(out, "      counters ({}):", rows.len());
+    for (name, read) in rows {
+        let value = match read {
+            DpswCounterRead::Known(v) => v.to_string(),
+            DpswCounterRead::Unread => "unread".to_owned(),
+        };
+        let _ = writeln!(out, "        {name} = {value}");
     }
 }
 

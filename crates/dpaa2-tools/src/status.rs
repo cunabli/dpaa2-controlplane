@@ -6,7 +6,7 @@
 
 use core::fmt;
 
-use dpaa2_api::contract::{DpseciDetail, KernelControl, McControl};
+use dpaa2_api::contract::{DpseciDetail, DpswDetail, KernelControl, McControl};
 use dpaa2_api::core::error::Error;
 use dpaa2_api::core::family::Family;
 use dpaa2_api::core::model::{
@@ -183,6 +183,51 @@ pub fn dpseci_details<M: McControl>(mc: &M, container: DprcId) -> Result<Vec<Dps
         .map(|row| {
             let detail = mc.observe_dpseci(container, row.object)?;
             Ok(DpseciRow {
+                object: row.object,
+                plugged: row.plugged,
+                drawn: row.drawn,
+                detail,
+            })
+        })
+        .collect()
+}
+
+/// One dpsw object's read-only detail surface for the `status --detail` face
+/// (dpsw-typestate task 5.1): the pool-observed object ref and plugged/drawn binding state, beside
+/// the witnessable [`DpswDetail`] (the `dpsw info` attributes, decoded options, and the per-interface
+/// endpoint/link/taildrop/counter table). Display-only by construct, like [`DpseciRow`] —
+/// [`dpsw_details`] gathers it after reconcile and no field here is ever an input to a plan,
+/// drift, or assertion (dpsw-typestate design D6).
+#[derive(Clone, Debug)]
+pub struct DpswRow {
+    /// The `family.ordinal` reference, from the pool observation.
+    pub object: ObjectRef,
+    /// Whether the object reads back plugged (in its container's allocatable pool).
+    pub plugged: bool,
+    /// Whether a consumer draws the object (the pool-census binding signal).
+    pub drawn: bool,
+    /// The witnessable detail: attributes, decoded options, and the per-interface table.
+    pub detail: DpswDetail,
+}
+
+/// Gathers the read-only dpsw detail rows for one container (dpsw-typestate task 5.1),
+/// mirroring [`dpseci_details`]: it lists the container's dpsw objects and their plugged/drawn
+/// state through [`McControl::observe_pool`], then reads each object's witnessable detail through
+/// [`McControl::observe_dpsw`]. Any absent line is the honest-unknown face in the [`DpswDetail`],
+/// never an error, so this read exits zero (dpsw-typestate design D6).
+///
+/// Display-only by construct: it runs after reconcile and feeds only the detail render — never an
+/// input to the plan the exit code gates on (provisioning-cli spec "Link and counters are
+/// display-only").
+///
+/// # Errors
+/// Propagates a backend read failure ([`McControl::observe_pool`] or [`McControl::observe_dpsw`]).
+pub fn dpsw_details<M: McControl>(mc: &M, container: DprcId) -> Result<Vec<DpswRow>, Error> {
+    mc.observe_pool(Some(container), Family::Dpsw)?
+        .into_iter()
+        .map(|row| {
+            let detail = mc.observe_dpsw(container, row.object)?;
+            Ok(DpswRow {
                 object: row.object,
                 plugged: row.plugged,
                 drawn: row.drawn,

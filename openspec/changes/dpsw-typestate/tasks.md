@@ -69,7 +69,7 @@
 
 ## 5. CLI surface
 
-- [ ] 5.1 Render the read-only switch detail row in
+- [x] 5.1 Render the read-only switch detail row in
       `dpaa2ctl status --detail` (provisioning-cli delta). Verify:
       snapshot test incl. an `Unobservable` port face.
 

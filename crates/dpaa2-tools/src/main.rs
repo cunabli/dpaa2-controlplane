@@ -173,6 +173,15 @@ fn run(cli: &Cli) -> Result<ExitCode, Error> {
                     dpseci_rows.extend(status::dpseci_details(&mc, *id)?);
                 }
                 print!("{}", render::render_dpseci_details(&dpseci_rows));
+                // The read-only dpsw switch detail rows across the root and each observed child
+                // container (dpsw-typestate task 5.1): the `dpsw info` attributes, decoded options,
+                // and the per-interface endpoint/link/taildrop/counter table, honest-unknown on any
+                // absent face. Display-only — the exit code stays port-driven, below.
+                let mut dpsw_rows = status::dpsw_details(&mc, DprcId::ROOT)?;
+                for id in mc.observe_containers()?.keys() {
+                    dpsw_rows.extend(status::dpsw_details(&mc, *id)?);
+                }
+                print!("{}", render::render_dpsw_details(&dpsw_rows));
                 // The read-only dpni↔dpni link rows and standing obligation rows (cross-dprc-links task 5.5):
                 // endpoints and connection state from dprc_get_connection, honest-unknown on an
                 // unavailable read. Display-only — the exit code stays port-driven, below.

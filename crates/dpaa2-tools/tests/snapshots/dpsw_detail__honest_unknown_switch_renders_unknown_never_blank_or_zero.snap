@@ -1,0 +1,9 @@
+---
+source: crates/dpaa2-tools/tests/dpsw_detail.rs
+expression: text
+---
+dpsw detail (1 object(s)) [read-only; never gates convergence]:
+  dpsw.7 num_ifs=unknown max_vlans=unknown max_fdbs=unknown max_fdb_entries=unknown fdb_aging_time=unknown max_fdb_mc_groups=unknown component_type=unknown flooding_cfg=unknown broadcast_cfg=unknown mem_size=unknown plugged=true drawn=false
+    options=unknown
+    if 0: endpoint=unknown link=unknown taildrop=unknown max_frame_length=unknown
+      counters (0):
