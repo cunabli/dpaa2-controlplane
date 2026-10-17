@@ -3,6 +3,9 @@
 //! machine-readable verdicts, and the four-ledger cross-check (R1–R10).
 
 pub mod adapter;
+/// The passive ioctl-payload capture tap: the corpus parser and the recorder
+/// seam (dpsw-typestate D7; ADR-0004 §6/§8).
+pub mod capture;
 pub mod driver;
 /// The read-only fit-check emitter: renders a board sitting from a probe
 /// plan (2026-08-30-verify-foundation task 4.1, 2026-08-22-restool-baseline design D12).

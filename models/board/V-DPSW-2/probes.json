@@ -1,6 +1,7 @@
 {
   "suite": "V-DPSW-2",
   "class": "lifecycle",
+  "capture": true,
   "steps": [
     {
       "label": "capture root container pre-probe (banked for the closing machine diff)",

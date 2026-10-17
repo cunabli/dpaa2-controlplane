@@ -24,6 +24,7 @@ use crate::board::adapter::{
     Binding, Cmd, Drive, ExitEvidence, Expected, Family, MbtTrace, Observed, Probe, StepVerdict,
     drive, expect, readback,
 };
+use crate::board::capture::Recorder;
 use crate::board::safety::{self, RunClass, TrafficClass};
 
 /// The operator's answer to a confirmation prompt. Pause is not a
@@ -405,6 +406,12 @@ pub struct ProbePlan {
     pub suite: String,
     /// The declared traffic class; must be the class the run declares.
     pub class: TrafficClass,
+    /// Whether the sitting carries the passive ioctl-payload capture tap
+    /// (dpsw-typestate D7). Opt-in and default off, so existing plans are
+    /// unaffected; when set the driver gates the capture chain in its preamble
+    /// before any mutating step and brackets each step's recorder.
+    #[serde(default)]
+    pub capture: bool,
     /// The steps, in order.
     pub steps: Vec<ProbeStep>,
 }
@@ -655,16 +662,24 @@ fn transcribe(transcript: &mut dyn std::io::Write, record: &ProbeRecord) -> Resu
 /// carries it — and again immediately before it executes. A divergence
 /// asks the operator whether to continue; nothing here aborts by itself.
 ///
+/// When the plan opts into the capture tap (dpsw-typestate D7), the
+/// `recorder`'s preamble gate runs before any step — a dead tap fails here,
+/// loud, with no step run — and every step's command is bracketed by the
+/// recorder. The tap never changes a step: the driven argv is byte-identical
+/// with capture on or off (pass a [`crate::board::capture::NullRecorder`] when
+/// off).
+///
 /// # Errors
 ///
 /// Fails on a safety violation, a plan whose declared class is not the
-/// run's, or a transcript write failure. Divergences and aborts are
-/// outcomes, not errors.
+/// run's, a dead capture tap, or a transcript write failure. Divergences and
+/// aborts are outcomes, not errors.
 pub fn drive_probes(
     plan: &ProbePlan,
     cfg: DriveConfig,
     io: &mut dyn BoardIo,
     prompt: &mut dyn Prompt,
+    recorder: &mut dyn Recorder,
     transcript: &mut dyn std::io::Write,
 ) -> Result<Outcome, String> {
     if plan.class != cfg.run.class {
@@ -674,6 +689,9 @@ pub fn drive_probes(
         ));
     }
     check_plan(cfg.run, plan)?;
+    if plan.capture {
+        recorder.preamble()?;
+    }
 
     for (i, step) in plan.steps.iter().enumerate() {
         let mut record = ProbeRecord::of(&plan.suite, i, step);
@@ -704,7 +722,16 @@ pub fn drive_probes(
             for text in step_texts(step) {
                 safety::check_text(cfg.run, &text).map_err(|v| format!("step {i}: {v}"))?;
             }
-            let (code, output) = io.exec(argv);
+            // The recorder brackets the step's unchanged argv: it starts, the
+            // step runs verbatim, it stops. Off (NullRecorder) it just runs,
+            // so the driven argv is identical capture on or off (dpsw-typestate D7).
+            let mut result = (None, String::new());
+            recorder
+                .step(&format!("{i:02}-{}", step.label), &mut || {
+                    result = io.exec(argv);
+                })
+                .map_err(|e| format!("step {i}: {e}"))?;
+            let (code, output) = result;
             prompt.note(&output);
             record.exit_code = code;
             record.output = Some(output);
@@ -752,7 +779,26 @@ mod tests {
     use crate::board::adapter::{
         BindView, MachineView, MbtStep, ModelAction, ObjRef, ObjView, ROOT_DPRC,
     };
+    use crate::board::capture::{BpftraceRecorder, NullRecorder};
     use crate::board::safety::TrafficClass;
+
+    /// A capture-recorder double: the preamble passes, each step runs
+    /// verbatim, and the bracketed tags are kept — bpftrace with no board.
+    struct FakeRecorder {
+        tags: Vec<String>,
+    }
+
+    impl Recorder for FakeRecorder {
+        fn preamble(&mut self) -> Result<(), String> {
+            Ok(())
+        }
+
+        fn step(&mut self, tag: &str, run: &mut dyn FnMut()) -> Result<(), String> {
+            self.tags.push(tag.to_owned());
+            run();
+            Ok(())
+        }
+    }
 
     const LIFECYCLE: DriveConfig = DriveConfig {
         run: RunClass {
@@ -1326,6 +1372,7 @@ mod tests {
             promoted,
             &mut board,
             &mut prompt,
+            &mut NullRecorder,
             &mut transcript,
         )
         .unwrap();
@@ -1371,8 +1418,15 @@ mod tests {
         let mut prompt = Scripted::new(vec![Decision::Step, Decision::Step, Decision::Step]);
         let mut board = ProbeBoard::new(answers.clone(), "dprtc.0   plugged\n");
         let mut transcript = Vec::new();
-        let outcome =
-            drive_probes(&plan, LIFECYCLE, &mut board, &mut prompt, &mut transcript).unwrap();
+        let outcome = drive_probes(
+            &plan,
+            LIFECYCLE,
+            &mut board,
+            &mut prompt,
+            &mut NullRecorder,
+            &mut transcript,
+        )
+        .unwrap();
         assert_eq!(outcome, Outcome::Completed, "the operator kept probing");
         assert_eq!(prompt.asked, 3, "step, divergence, step");
         assert!(!records(&transcript)[0].exit_verdict.as_ref().unwrap().pass);
@@ -1380,8 +1434,15 @@ mod tests {
         let mut prompt = Scripted::new(vec![Decision::Step, Decision::Abort]);
         let mut board = ProbeBoard::new(answers, "dprtc.0   plugged\n");
         let mut transcript = Vec::new();
-        let outcome =
-            drive_probes(&plan, LIFECYCLE, &mut board, &mut prompt, &mut transcript).unwrap();
+        let outcome = drive_probes(
+            &plan,
+            LIFECYCLE,
+            &mut board,
+            &mut prompt,
+            &mut NullRecorder,
+            &mut transcript,
+        )
+        .unwrap();
         assert_eq!(outcome, Outcome::Diverged(0));
     }
 
@@ -1401,8 +1462,15 @@ mod tests {
         let mut prompt = Scripted::new(vec![]);
         let mut board = ProbeBoard::new(vec![], "");
         let mut transcript = Vec::new();
-        let err =
-            drive_probes(&plan, LIFECYCLE, &mut board, &mut prompt, &mut transcript).unwrap_err();
+        let err = drive_probes(
+            &plan,
+            LIFECYCLE,
+            &mut board,
+            &mut prompt,
+            &mut NullRecorder,
+            &mut transcript,
+        )
+        .unwrap_err();
         assert!(err.contains("--uart"), "{err}");
         assert!(board.ran.is_empty(), "the safe step 0 never ran either");
         assert_eq!(prompt.asked, 0);
@@ -1415,8 +1483,88 @@ mod tests {
         let mut prompt = Scripted::new(vec![]);
         let mut board = ProbeBoard::new(vec![], "");
         let mut transcript = Vec::new();
-        let err =
-            drive_probes(&plan, LIFECYCLE, &mut board, &mut prompt, &mut transcript).unwrap_err();
+        let err = drive_probes(
+            &plan,
+            LIFECYCLE,
+            &mut board,
+            &mut prompt,
+            &mut NullRecorder,
+            &mut transcript,
+        )
+        .unwrap_err();
         assert!(err.contains("link-signaling"), "{err}");
+    }
+
+    // --- capture tap (dpsw-typestate D7) -----------------------------
+
+    /// A one-command plan driven twice — capture off, then on — must run the
+    /// identical argv; the recorder brackets the step, it never alters it. The
+    /// label carries a `/` (the board's `DPSW-I3/I9` shape) and the recorder
+    /// receives the index-prefixed tag, pinning the call-site contract that
+    /// keeps the committed corpus names unique and ordered (ADR-0004 §6).
+    #[test]
+    fn a_tapped_render_drives_the_identical_steps_as_an_untapped_one() {
+        let base = r#"{"suite":"V-DPSW-X","class":"lifecycle","steps":[
+            {"label":"DPSW-I3/I9 probe","expect":"e","cmd":["restool","dpsw","info","dpsw.9"],"exit":"any"}
+        ]}"#;
+        let untapped = parse_probe_plan(base).unwrap();
+        let tapped =
+            parse_probe_plan(&base.replace(r#""steps""#, r#""capture":true,"steps""#)).unwrap();
+        assert!(tapped.capture && !untapped.capture);
+
+        let drive = |plan: &ProbePlan, rec: &mut dyn Recorder| {
+            let mut board = ProbeBoard::new(vec![(Some(0), "ok\n".to_owned())], "");
+            let mut prompt = Scripted::new(vec![Decision::Step]);
+            let mut transcript = Vec::new();
+            drive_probes(
+                plan,
+                LIFECYCLE,
+                &mut board,
+                &mut prompt,
+                rec,
+                &mut transcript,
+            )
+            .unwrap();
+            board.ran
+        };
+
+        let off = drive(&untapped, &mut NullRecorder);
+        let mut fake = FakeRecorder { tags: Vec::new() };
+        let on = drive(&tapped, &mut fake);
+        assert_eq!(off, on, "capture must not change the driven argv");
+        assert_eq!(
+            fake.tags,
+            vec!["00-DPSW-I3/I9 probe".to_owned()],
+            "the call site index-prefixes the raw label; sanitizing the slash is the recorder's job"
+        );
+    }
+
+    /// Capture requested but the recorder is unavailable (a nonexistent
+    /// bpftrace path): the preamble refuses with a named error before any
+    /// mutating step runs.
+    #[test]
+    fn a_dead_tap_refuses_before_any_step_runs() {
+        let plan = parse_probe_plan(
+            r#"{"suite":"V-DPSW-X","class":"lifecycle","capture":true,"steps":[
+                {"label":"mutate","expect":"e","cmd":["restool","dpsw","create","--num-ifs=2"],"exit":"any"}
+            ]}"#,
+        )
+        .unwrap();
+        let mut board = ProbeBoard::new(vec![], "");
+        let mut prompt = Scripted::new(vec![]);
+        let mut rec = BpftraceRecorder::new("/nonexistent/bpftrace-xyz", std::env::temp_dir());
+        let mut transcript = Vec::new();
+        let err = drive_probes(
+            &plan,
+            LIFECYCLE,
+            &mut board,
+            &mut prompt,
+            &mut rec,
+            &mut transcript,
+        )
+        .unwrap_err();
+        assert!(err.contains("bpftrace"), "{err}");
+        assert!(board.ran.is_empty(), "no step runs when the tap is dead");
+        assert_eq!(prompt.asked, 0);
     }
 }

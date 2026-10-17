@@ -76,17 +76,32 @@ and its sittings bank the portal's encode fixtures.
   surface has exit-code truth gaps (DPSW-I7), so the family joins the
   dpseci-typestate design D9 census discipline; no verb outcome is
   trusted without re-observation.
-- **D7 — the capture tap is a suite-driver concern, strace-based,
-  loud-fail.** The tap wraps the suite's restool spawns with an
-  ioctl-payload recorder (strace on the spawn, payloads parsed offline
-  into the fixture corpus committed beside suite results). It lives in
-  `dpaa2-verify`'s suite preamble/driver — never in `dpaa2-mc`, keeping
-  the shim policy-free and the oracle unmodified. Alternatives —
-  patching restool to dump payloads (rejected: the oracle must stay the
-  stock binary, ADR-0004 §1), or a kernel-side trace (rejected: board
-  setup burden, and ADR-0004 §6 wants exactly recorded ioctl payloads,
-  which strace yields). A missing recorder fails the sitting preamble
-  before any mutating step.
+- **D7 — the capture tap is a suite-driver concern, eBPF-based
+  (bpftrace), loud-fail.** The tap records the 64-byte MC command and
+  response of every restool `SEND_MC_COMMAND` ioctl passively: a
+  bpftrace program on the `sys_enter_ioctl`/`sys_exit_ioctl` syscall
+  tracepoints, filtered on `comm == "restool"` and the request
+  `_IOWR('R', 0xE0, 64)` (the one constant
+  `dpaa2-hal`'s `portal::SEND_MC_COMMAND` pins), dumps the command
+  bytes at enter and the kernel-written response from the same user
+  buffer at exit; payloads parse offline into the fixture corpus
+  committed beside suite results. It lives in `dpaa2-verify`'s suite
+  preamble/driver — never in `dpaa2-mc`, keeping the shim policy-free
+  and the oracle unmodified. The tap requires the tracing-enabled
+  reference kernel (its packaging repo's `tracing.config` fragment:
+  `FTRACE_SYSCALLS`/`BPF_EVENTS`; config-only, the `uname` pair and
+  `REF_PAIR_ASSERT` unchanged) and the board's bpftrace; the sitting
+  preamble proves the whole chain — recorder present, probes attached,
+  and a read-only restool self-query yielding a payload record —
+  before any mutating step, else it fails loudly. Alternatives —
+  strace on the spawn (rejected on evidence: strace has no
+  ioctl-buffer dump facility, an undecoded ioctl's third argument
+  prints as a bare pointer under every flag; bead
+  dpaa2-controlplane-dbf.17), patching restool (rejected: the oracle
+  must stay the stock binary, ADR-0004 §1), LD_PRELOAD injection
+  (rejected: it alters the oracle's process environment, where eBPF
+  observes from outside), and a kernel source patch (rejected:
+  ADR-0008 re-pins the pair; the Kconfig fragment does not).
 - **D8 — the Tier-B shared frame, stated for #12.** What dpdmux
   inherits from this change: the ownership-matrix regime law idiom
   (dpsw kernel-steered / dpdmux DPDK-steered — mirror images; each

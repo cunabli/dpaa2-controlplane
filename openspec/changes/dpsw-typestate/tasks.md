@@ -84,7 +84,7 @@
       (end-to-end switched-domain), traffic class per ADR-0003,
       reference pair asserted. Verify: generated suites pass the
       harness lint; V-DPSW-1/4 verdicts untouched.
-- [ ] 6.3 Add the capture tap to the suite driver preamble (design D7:
+- [x] 6.3 Add the capture tap to the suite driver preamble (design D7:
       strace-wrapped spawns, offline payload parse, loud preamble fail)
       and the corpus parse round-trip check. Verify: offline test —
       tapped and untapped renders drive identical steps; dead-tap test

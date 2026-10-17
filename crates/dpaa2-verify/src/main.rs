@@ -506,11 +506,26 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
                 let json = std::fs::read_to_string(&probes)
                     .map_err(|e| format!("reading {}: {e}", probes.display()))?;
                 let plan = dpaa2_verify::board::driver::parse_probe_plan(&json)?;
+                // The capture tap (dpsw-typestate D7) writes per-step payload
+                // files beside the transcript; off, the null recorder just
+                // runs each step so the driven argv is unchanged.
+                let results = transcript
+                    .parent()
+                    .filter(|p| !p.as_os_str().is_empty())
+                    .map_or_else(|| PathBuf::from("."), Path::to_path_buf);
+                let bpftrace = std::env::var_os("BPFTRACE")
+                    .map_or_else(|| PathBuf::from("bpftrace"), PathBuf::from);
+                let mut bpf =
+                    dpaa2_verify::board::capture::BpftraceRecorder::new(bpftrace, results);
+                let mut null = dpaa2_verify::board::capture::NullRecorder;
+                let recorder: &mut dyn dpaa2_verify::board::capture::Recorder =
+                    if plan.capture { &mut bpf } else { &mut null };
                 dpaa2_verify::board::driver::drive_probes(
                     &plan,
                     cfg,
                     &mut board,
                     &mut StdinPrompt,
+                    recorder,
                     &mut out,
                 )?
             } else {

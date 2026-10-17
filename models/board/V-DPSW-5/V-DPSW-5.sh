@@ -103,9 +103,48 @@ if grep -nE 'dpmac[.]3([^0-9]|$)|dpmac[.]17([^0-9]|$)|dpni[.]0([^0-9]|$)' "$SELF
   exit 1
 fi
 
+# --- passive ioctl-payload capture tap (dpsw-typestate design D7; ADR-0004 §6/§8) ---
+# A bpftrace program on the ioctl syscall tracepoints, filtered to comm==restool and
+# restool's SEND_MC_COMMAND request, records the 64-byte MC command+response of every
+# MC ioctl. It is SYSTEM-WIDE and comm-filtered, so dpaa2ctl's restool children are
+# captured with no per-spawn plumbing. Observation-only: it never alters a step. The
+# payloads parse offline into the #10 encode-fixture corpus (crates/dpaa2-verify
+# src/board/capture.rs). A dead tap fails the sitting loudly before any mutating step.
+BPFTRACE="${BPFTRACE:-bpftrace}"
+# dpaa2-hal portal::SEND_MC_COMMAND = _IOWR('R', 0xE0, 64); the single pinned request.
+CAP_CMD="0xc04052e0"
+CAP_PROG='tracepoint:syscalls:sys_enter_ioctl /comm == "restool" && args->cmd == '"$CAP_CMD"'/ { @p[tid] = args->arg; printf("CMD fd=%d %r\n", args->fd, buf(args->arg, 64)); } tracepoint:syscalls:sys_exit_ioctl /@p[tid] != 0/ { printf("RSP ret=%d %r\n", args->ret, buf(@p[tid], 64)); delete(@p[tid]); }'
+CAP_PID=""
+# cap_wait_attach FILE...: bounded wait for bpftrace's "Attaching" banner on ANY of the
+# recorder's streams — the banner moved between stdout and stderr across bpftrace
+# versions (board sitting 2026-10-18, v0.23.2 prints it on stdout; the Recorder in
+# crates/dpaa2-verify src/board/capture.rs checks both the same way). The attach race
+# is real; a timeout is a loud failure, never a shorter capture.
+cap_wait_attach() { i=0; while [ "$i" -lt 10 ]; do grep -q Attaching "$@" 2>/dev/null && return 0; sleep 1; i=$((i+1)); done; return 1; }
+# cap_start LABEL: spawn the recorder writing capture-LABEL.mc, wait for the banner.
+cap_start() {
+  st="$RESULTS/capture-$1.mc"; se="$RESULTS/capture-$1.err"
+  "$BPFTRACE" -e "$CAP_PROG" > "$st" 2>"$se" &
+  CAP_PID=$!
+  cap_wait_attach "$st" "$se" || { kill "$CAP_PID" 2>/dev/null || true; CAP_PID=""; echo "refusing: capture recorder did not attach for $1 (dpsw-typestate design D7)" >&2; return 1; }
+}
+# cap_stop: SIGINT the recorder so bpftrace flushes, then reap it.
+cap_stop() { [ -n "$CAP_PID" ] || return 0; kill -INT "$CAP_PID" 2>/dev/null || true; wait "$CAP_PID" 2>/dev/null || true; CAP_PID=""; }
+# capture_preamble: prove the whole chain before any mutating step — bpftrace present,
+# probes attach, and a read-only self-query yields >=1 CMD/RSP pair — else refuse.
+capture_preamble() {
+  command -v "$BPFTRACE" >/dev/null 2>&1 || { echo "refusing: capture tap requested but bpftrace ($BPFTRACE) not found (dpsw-typestate design D7)" >&2; return 1; }
+  cap_start selftest || return 1
+  restool dprc list >/dev/null 2>&1 || true
+  sleep 1
+  cap_stop
+  { grep -q '^CMD ' "$RESULTS/capture-selftest.mc" && grep -q '^RSP ' "$RESULTS/capture-selftest.mc"; } || { echo "refusing: capture self-test yielded no CMD/RSP pair — a dead tap (dpsw-typestate design D7)" >&2; return 1; }
+}
+
 # --- helpers ---
-# run N cmd...: echo, execute, capture stdout, stderr and the exit code.
-run() { n="$1"; shift; echo "+ $*"; "$@" >"$RESULTS/step-$n-out.txt" 2>"$RESULTS/step-$n-err.txt"; echo $? > "$RESULTS/step-$n-exit.txt"; }
+# run N cmd...: echo, execute bracketed by the capture recorder (one trace file per
+# step), capture stdout, stderr and the exit code.
+run() { n="$1"; shift; echo "+ $*"; cap_start "step-$n" || exit 1; "$@" >"$RESULTS/step-$n-out.txt" 2>"$RESULTS/step-$n-err.txt"; rc=$?; cap_stop; echo "$rc" > "$RESULTS/step-$n-exit.txt"; }
 probe() { f="$1"; shift; echo "+ (probe) $*"; "$@" > "$RESULTS/$f" 2>/dev/null || true; }
 pool_capture() { restool dprc show mc.global --resources > "$RESULTS/$1" 2>/dev/null || true; }
 expect_zero() { rc=$(cat "$RESULTS/step-$1-exit.txt"); if [ "$rc" = 0 ]; then echo "PASS step $1: $2"; else echo "FAIL step $1: $2 (exit $rc)" >&2; fi; }
@@ -126,6 +165,11 @@ mc="$(restool -m 2>/dev/null || true)"
 case "$mc" in *10.39.0*) ;; *) echo "refusing: MC firmware is not 10.39.0: $mc" >&2; exit 1 ;; esac
 kernel="$(uname -r)"
 case "$kernel" in 6.6.52*) ;; *) echo "refusing: kernel is not 6.6.52: $kernel" >&2; exit 1 ;; esac
+
+# --- capture-tap preamble gate (dpsw-typestate design D7) ---
+# Prove the whole chain before any mutating step and before the teardown trap is
+# armed (nothing is created yet, so a refusal leaves nothing to tear down).
+capture_preamble || exit 1
 
 # --- unconditional teardown (ADR-0003 §6/§7) — the backstop, idempotent with the teardown leg ---
 # Reconcile the switched domain back to baseline through the reconciler's own reverse

@@ -23,7 +23,11 @@ use std::path::Path;
 /// the request restool sends to a `/dev/dprc.N` node — the legacy `0x4` goes only
 /// to `/dev/mc_restool`, `restool/common/fsl_mc_sys.c`:81). `_IOWR('R', 0xE0,
 /// struct mc_command)` over the 64-byte command.
-const SEND_MC_COMMAND: libc::c_ulong = ioc(IOC_READ | IOC_WRITE, b'R', 0xE0, FRAME_LEN);
+///
+/// Public so the passive capture tap (`dpaa2-verify`, dpsw-typestate D7)
+/// filters on the one request value without mirroring it — its single
+/// source of truth.
+pub const SEND_MC_COMMAND: libc::c_ulong = ioc(IOC_READ | IOC_WRITE, b'R', 0xE0, FRAME_LEN);
 
 const IOC_READ: libc::c_ulong = 2;
 const IOC_WRITE: libc::c_ulong = 1;
