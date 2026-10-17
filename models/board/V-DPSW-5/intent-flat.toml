@@ -1,0 +1,27 @@
+# The pre-interposition (flat) operand of suite V-DPSW-5 (dpsw-typestate task 6.2, bead
+# dpaa2-controlplane-dbf.16): the FLAT topology the interposition leg stands up first — a
+# kernel-netlink dpni facing the wired 10G dpmac.7 directly (dpni <-> dpmac.7 port-edge),
+# with NO switch. The suite converges this first, then converges intent-a.toml, whose
+# switched domain SEVERS this edge through the typed severed-witness path and re-homes both
+# ends into the dpsw, with no driverless interval observed (system-integration delta "An
+# existing port interposes into the domain"; design D10; plan/dpsw.rs plan_interposition).
+#
+# The tenant is the SAME `edge` tenant intent-a.toml makes a fabric member, so the dpni the
+# flat edge creates is the dpni the switched convergence re-homes onto the switch — the
+# baseline sharing topology (docs/baseline/dpsw.md "Lifecycle ordering": disconnect the
+# dpni from its dpmac first, interpose the dpsw, hand the dpni to the other regime). Pinned
+# offline beside intent-a.toml by crates/dpaa2-tools/tests/vdpsw5_intents.rs.
+
+[intent]
+schema = 1
+
+[tenant.edge]
+dataplane = "kernel-netlink"
+max_cores = 16
+
+# The flat port: the edge tenant terminates the wired 10G dpmac.7 directly — a dpni <->
+# dpmac.7 port-edge, the edge the switched convergence severs.
+[port.uplink]
+dpmac = "dpmac.7"
+rate = 10000
+tenant = "edge"

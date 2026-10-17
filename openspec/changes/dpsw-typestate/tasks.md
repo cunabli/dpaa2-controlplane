@@ -79,7 +79,7 @@
       ITF frozen-trace replay for the dpsw lifecycle and edge kinds.
       Verify: `cargo test` replay green; `lastVerbs` resolve against
       the ioctl-policy module.
-- [ ] 6.2 Render the board program: one discovery suite (DPSW-I4 reset
+- [x] 6.2 Render the board program: one discovery suite (DPSW-I4 reset
       scope, DPSW-I5 bpid law, FDB budget) and one witness suite
       (end-to-end switched-domain), traffic class per ADR-0003,
       reference pair asserted. Verify: generated suites pass the

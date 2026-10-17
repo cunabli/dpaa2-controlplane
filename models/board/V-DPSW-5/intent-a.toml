@@ -1,0 +1,50 @@
+# The switched-domain operand of suite V-DPSW-5 (dpsw-typestate task 6.2, bead
+# dpaa2-controlplane-dbf.16): ONE intent that converges a kernel-bound, traffic-capable
+# switch — the system-integration delta "The switched domain is witnessed end to end on
+# the board", design D9/D10.
+#
+# Lives in the suite dir, not models/intent/scenarios/, for the reason V-DPMAC-3 /
+# V-DPSECI-3 operands do: a board-suite operand is an input to a dpaa2ctl sitting, not a
+# models/intent/scenarios pairing (no `.qnt`, no frozen trace); its derivation is pinned
+# offline by crates/dpaa2-tools/tests/vdpsw5_intents.rs.
+#
+# Companions drawn exactly per DPSW-I3 (system-integration delta): the dpsw draws 1 dpmcp
+# + 1 dpbp from its own container, 0 dpcon, 0 dpio (the shared kernel dpio service). The
+# switched-domain construct carries only its steering tenant, its ports, and the optional
+# mac_table_size — flooding_cfg / broadcast_cfg / the ctrl-if flag are NOT intent knobs,
+# they are derivation outputs of the DPSW-I1 bindability law (topology-config delta; design
+# D3). The fabric is kernel-forwarded because a dpsw is kernel-ownable only (DPSW-I6;
+# design D4).
+
+[intent]
+schema = 1
+
+# The member dataplane tenant: a kernel-netlink dpni joins the switch as a member interface.
+# Kernel-owned on purpose — the board witness needs an enabled, countable member port. A
+# member with no running consumer leaves its switch port link-down, and the switch does not
+# forward to an unbridged standalone port, so the broadcast oracle read 0 structurally (bead
+# dpaa2-controlplane-dbf.19 / V-DPSW-5 rev 1 finding). Kernel-owned, the member's netdev is
+# bridgeable and its statistics page counts. Its dpni lands in the tenant's own child
+# container. In the interposition leg (intent-flat.toml) this same tenant's dpni first faces
+# dpmac.7 flat; the switched convergence re-homes it onto the switch.
+[tenant.edge]
+dataplane = "kernel-netlink"
+max_cores = 16
+
+# The uplink port: the wired 10G dpmac.7 (ADR-0003 §4 flagged pair, the only wired port
+# this suite names — dpmac.3 / dpmac.17 / dpni.0 are never named). No tenant, so the
+# kernel terminates it; as a fabric member it becomes the dpsw's uplink interface
+# (dpsw.N#0 <-> dpmac.7), a bare-dpmac fabric-edge, no dpni.
+[port.uplink]
+dpmac = "dpmac.7"
+rate = 10000
+
+# The switched domain: a hardware (dpsw) fabric the kernel forwards, over the uplink port
+# and the edge tenant's dpni. Member order numbers the dpsw interfaces. mac_table_size is
+# the learnable-MAC sizing input; max_fdb_entries derives as mac_table_size × num_ifs
+# (256 × 2 = 512, dpsw-typestate design D3).
+[fabric.lan]
+switching = "hardware"
+forwarded_by = "kernel"
+members = ["uplink", "edge"]
+mac_table_size = 256
