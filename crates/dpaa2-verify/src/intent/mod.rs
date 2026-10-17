@@ -17,6 +17,9 @@ pub mod dprc_itf;
 /// Reader for frozen dpseci create-surface ITF traces (dpseci-typestate task 2.3); the
 /// create-surface twin of [`dpni_itf`], replayed by `tests/dpseci_replay.rs`.
 pub mod dpseci_itf;
+/// Reader for frozen dpsw-lifecycle ITF traces (dpsw-typestate task 6.1); the
+/// create-plus-pool stepped-machine twin of [`dpseci_itf`], replayed by `tests/dpsw_replay.rs`.
+pub mod dpsw_itf;
 pub mod edits_itf;
 pub mod intent_itf;
 /// Reader for frozen link-lifecycle ITF traces (cross-dprc-links task 4.1); the dpni↔dpni wire

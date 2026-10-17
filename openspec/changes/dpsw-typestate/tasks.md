@@ -75,7 +75,7 @@
 
 ## 6. Verify harness (twins, suites, capture tap)
 
-- [ ] 6.1 Add MBT twins: property twins over the pure operators and
+- [x] 6.1 Add MBT twins: property twins over the pure operators and
       ITF frozen-trace replay for the dpsw lifecycle and edge kinds.
       Verify: `cargo test` replay green; `lastVerbs` resolve against
       the ioctl-policy module.
