@@ -24,10 +24,11 @@ accordingly (ADR-0015 matcher).
 
 - **WHEN** a switched-domain converges on a container missing the dpbp
   or dpmcp
-- **THEN** the plan creates the companions in the dpsw's own container
-  before the dpsw, so the probe-defer starvation face (`ls-addsw`'s
-  inverted dpbp condition, `docs/baseline/dpsw.md` "Option inventory")
-  cannot arise
+- **THEN** the compiled pool derivation and the grow-pass ordering
+  guarantee the companions present co-resident in the dpsw's own
+  container before the dpsw create — not this plan emitting the creates
+  — so the probe-defer starvation face (`ls-addsw`'s inverted dpbp
+  condition, `docs/baseline/dpsw.md` "Option inventory") cannot arise
 
 ### Requirement: dpsw convergence judges read-back, never exit codes
 

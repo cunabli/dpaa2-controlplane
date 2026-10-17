@@ -45,7 +45,7 @@
       D2), lifecycle typestates, census judgment. Verify: unit tests
       mirror the model laws; an unbindable cfg does not compile or is
       constructor-refused.
-- [ ] 3.2 Add the plan surface: companion placement → create → port
+- [x] 3.2 Add the plan surface: companion placement → create → port
       connects → plug ordering, destroy-and-recreate disruption
       classing, the two edge-kind rows in `dpaa2-api::plan` (reconciler
       delta). Verify: plan unit tests incl. companion-starvation and

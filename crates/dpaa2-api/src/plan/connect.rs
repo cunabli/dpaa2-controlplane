@@ -59,6 +59,20 @@ pub fn legal_ports(a: Family, a_port: u32, b: Family, b_port: u32) -> bool {
         && (b != Family::Dpdmux || a != Family::Dpmac || b_port == 0)
 }
 
+/// Whether a switch-port endpoint is within the switch's created `num_ifs`
+/// (`core/connect.qnt` `dpswPortBound`; DPSW-I10).
+///
+/// A connect to `dpsw.N.M` is refused for `M >= num_ifs` — the immutable create-time port
+/// count bounds switch-port membership (dpsw-typestate design D5; the two ADR-0022 dpsw
+/// edge-row laws). The model reads `num_ifs` at family scope (`core/connect.qnt`: "the seam
+/// a per-instance `num_ifs` plugs into"); this Rust twin takes the created instance's
+/// `num_ifs` as a parameter instead. Vacuously true for a non-dpsw endpoint, mirroring the
+/// model's `e.obj.fam == Dpsw` guard.
+#[must_use]
+pub fn dpsw_port_bound(fam: Family, port: u32, num_ifs: u32) -> bool {
+    fam != Family::Dpsw || port < num_ifs
+}
+
 /// Whether tearing this edge down demands a severed witness (`core/connect.qnt`
 /// `edgeDemandsSeveredWitness`).
 ///
@@ -122,10 +136,12 @@ pub enum ReificationPolicy {
 /// The reification policy for an edge, or `None` when the pair is not legal
 /// (ADR-0022 edge-kind table).
 ///
-/// Order-insensitive. Three kinds carry a defined policy — dpni↔dpmac (connect + kernel
-/// bind, severed-witness teardown), dpni↔dpni (ancestor connect, disconnect-only), and
-/// the dpdmux↔dpmac uplink (ancestor connect, teardown refused on the pinned firmware,
-/// ADR-0009). The remaining legal kinds are [`ReificationPolicy::AwaitsOwnChange`].
+/// Order-insensitive. The delivered kinds carry a defined policy — dpni↔dpmac (connect +
+/// kernel bind, severed-witness teardown), the two switch edges dpni↔dpsw and dpsw↔dpmac
+/// (ancestor connect, disconnect-only; no teardown hazard recorded — dpsw-typestate D5),
+/// dpni↔dpni (ancestor connect, disconnect-only), and the dpdmux↔dpmac uplink (ancestor
+/// connect, teardown refused on the pinned firmware, ADR-0009). The remaining legal kinds
+/// are [`ReificationPolicy::AwaitsOwnChange`].
 #[must_use]
 pub fn reification_policy(a: Family, b: Family) -> Option<ReificationPolicy> {
     let unordered = |x: Family, y: Family| (a == x && b == y) || (a == y && b == x);
@@ -133,6 +149,14 @@ pub fn reification_policy(a: Family, b: Family) -> Option<ReificationPolicy> {
         Some(ReificationPolicy::Defined {
             connect: ConnectAuthority::AncestorConnectThenKernelBind,
             teardown: TeardownLaw::SeveredWitness,
+        })
+    } else if unordered(Family::Dpni, Family::Dpsw) || unordered(Family::Dpsw, Family::Dpmac) {
+        // Both dpsw edge kinds: ancestor connect, disconnect-only teardown. The baseline
+        // records no teardown hazard for either, so neither demands a severed witness
+        // (dpsw-typestate design D5; ADR-0022; `core/connect.qnt` edge-row comment).
+        Some(ReificationPolicy::Defined {
+            connect: ConnectAuthority::AncestorConnect,
+            teardown: TeardownLaw::DisconnectOnly,
         })
     } else if unordered(Family::Dpni, Family::Dpni) {
         Some(ReificationPolicy::Defined {
@@ -807,6 +831,19 @@ mod tests {
     }
 
     #[test]
+    fn dpsw_port_bound_refuses_beyond_num_ifs() {
+        // DPSW-I10 (`core/connect.qnt` `dpswPortBound`): a connect to dpsw.N.M accepts for
+        // M < num_ifs and refuses at M >= num_ifs, the created port count being the bound.
+        assert!(dpsw_port_bound(Family::Dpsw, 0, 2));
+        assert!(dpsw_port_bound(Family::Dpsw, 1, 2));
+        assert!(!dpsw_port_bound(Family::Dpsw, 2, 2));
+        assert!(!dpsw_port_bound(Family::Dpsw, 9, 2));
+        // A non-dpsw endpoint is never bounded by this switch-port law.
+        assert!(dpsw_port_bound(Family::Dpmac, 9, 2));
+        assert!(dpsw_port_bound(Family::Dpni, 9, 2));
+    }
+
+    #[test]
     fn policy_rows_match_the_adr_0022_table() {
         assert_eq!(
             reification_policy(Family::Dpni, Family::Dpmac),
@@ -830,6 +867,19 @@ mod tests {
                 teardown: TeardownLaw::Refused,
             })
         );
+        // Both dpsw edge kinds: ancestor connect, disconnect-only, no severed witness
+        // (dpsw-typestate D5; ADR-0022).
+        for (a, b) in [(Family::Dpni, Family::Dpsw), (Family::Dpsw, Family::Dpmac)] {
+            assert_eq!(
+                reification_policy(a, b),
+                Some(ReificationPolicy::Defined {
+                    connect: ConnectAuthority::AncestorConnect,
+                    teardown: TeardownLaw::DisconnectOnly,
+                }),
+                "{a:?}-{b:?}"
+            );
+            assert_eq!(reification_policy(b, a), reification_policy(a, b));
+        }
         // A legal kind without delivered machinery is an explicit variant, not `None`.
         assert_eq!(
             reification_policy(Family::Dpci, Family::Dpci),
