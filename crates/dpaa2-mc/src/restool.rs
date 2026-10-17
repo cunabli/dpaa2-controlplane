@@ -7,7 +7,7 @@
 //! code** and keeps the workspace `unsafe_code = "forbid"` lint intact (mc-backend
 //! spec). netdev observation and driver binding live in [`SysfsKernel`](crate::SysfsKernel).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::io;
 use std::path::Path;
 
@@ -27,7 +27,7 @@ use dpaa2_api::families::dpni::{
 };
 use dpaa2_api::families::dprc;
 use dpaa2_api::families::dpseci::{self, DpseciCfg};
-use dpaa2_api::families::dpsw::DpswCfg;
+use dpaa2_api::families::dpsw::{BroadcastCfg, ComponentType, DpswCfg, DpswOpt, FloodingCfg};
 use dpaa2_api::families::pool_lifecycle::{ObservedPoolObject, RawLabel};
 use dpaa2_api::intent::compiled::Container;
 use dpaa2_api::plan::dprc as dprc_plan;
@@ -437,6 +437,109 @@ pub(crate) fn read_dpseci_over_portal(
     Ok(DpseciReadout::Observed(map_dpseci_attributes(
         attr, version,
     )))
+}
+
+// ---- dpsw create render (dpsw-typestate task 4.1; bead dpaa2-controlplane-dbf.12) ----
+
+/// Each named dpsw option flag's wire bit, from `restool/mc_v10/fsl_dpsw.h`
+/// (`DPSW_OPT_FLOODING_DIS` 0x1 :51, `MULTICAST_DIS` 0x4 :54, `CTRL_IF_DIS` 0x10 :57,
+/// `FLOODING_METERING_DIS` 0x20 :60, `METERING_EN` 0x40 :63, `BP_PER_IF` 0x80 :72,
+/// `LAG_DIS` 0x100 :68). Adapter policy stays in the southbound (ADR-0018); the
+/// wildcard-free match forces a new [`DpswOpt`] variant to state its bit before it compiles.
+const fn dpsw_opt_bit(opt: DpswOpt) -> u32 {
+    match opt {
+        DpswOpt::FloodingDis => 0x1,
+        DpswOpt::MulticastDis => 0x4,
+        DpswOpt::CtrlIfDis => 0x10,
+        DpswOpt::FloodingMeteringDis => 0x20,
+        DpswOpt::MeteringEn => 0x40,
+        DpswOpt::BpPerIf => 0x80,
+        DpswOpt::LagDis => 0x100,
+    }
+}
+
+/// Folds the named option set into the one raw `u32` the shim emits (`--options=0x…`), the
+/// [`dpseci_options_mask`] idiom. restool's `parse_generic_create_options` tries each token
+/// against the flag names first, then falls back to `strtoull`-of-hex for an unmatched token
+/// (`restool/restool.c:1585-1593`), so a computed hex mask is accepted verbatim — the form
+/// dpseci create already renders, kept identical here.
+fn dpsw_options_mask(opts: &BTreeSet<DpswOpt>) -> u32 {
+    opts.iter()
+        .fold(0u32, |raw, &flag| raw | dpsw_opt_bit(flag))
+}
+
+/// The restool `--component-type` value token for a [`ComponentType`]. restool's
+/// `dpsw_parse_component_type` `strcmp`s the argument against the stringified enum name
+/// (`restool/dpsw_commands.c:305-308`, `OPTION_MAP_ENTRY` = `{#_option, _option}`), so the
+/// full `DPSW_COMPONENT_TYPE_*` token is what it parses — `docs/baseline/dpsw.md` "Option
+/// inventory" abbreviates it to `C_VLAN`/`S_VLAN`. Adapter policy — the token spelling stays here.
+const fn dpsw_component_type_arg(c: ComponentType) -> &'static str {
+    match c {
+        ComponentType::CVlan => "DPSW_COMPONENT_TYPE_C_VLAN",
+        ComponentType::SVlan => "DPSW_COMPONENT_TYPE_S_VLAN",
+    }
+}
+
+/// The restool `--flooding-cfg` value token for a [`FloodingCfg`]. restool `strcmp`s the full
+/// stringified enum name (`restool/dpsw_commands.c:311-313`); the baseline abbreviates it to
+/// `PER_VLAN`/`PER_FDB`. Adapter policy — the token spelling stays here (ADR-0018).
+const fn dpsw_flooding_cfg_arg(f: FloodingCfg) -> &'static str {
+    match f {
+        FloodingCfg::PerVlan => "DPSW_FLOODING_PER_VLAN",
+        FloodingCfg::PerFdb => "DPSW_FLOODING_PER_FDB",
+    }
+}
+
+/// The restool `--broadcast-cfg` value token for a [`BroadcastCfg`]. restool `strcmp`s the full
+/// stringified enum name (`restool/dpsw_commands.c:317-319`); the baseline abbreviates it to
+/// `PER_OBJECT`/`PER_FDB`. Adapter policy — the token spelling stays here (ADR-0018).
+const fn dpsw_broadcast_cfg_arg(b: BroadcastCfg) -> &'static str {
+    match b {
+        BroadcastCfg::PerObject => "DPSW_BROADCAST_PER_OBJECT",
+        BroadcastCfg::PerFdb => "DPSW_BROADCAST_PER_FDB",
+    }
+}
+
+/// Builds the `restool --script dpsw create …` argument vector from the typed create block,
+/// rendering it verbatim field-for-field (dpsw-typestate task 4.1; design D6): every field the
+/// [`DpswCfg`] accessor surface exposes gets its flag, never re-derived or defaulted
+/// (`create_dpsw_in` contract; mc-backend "The create renders the compiled block exactly").
+/// `--options` is one computed raw hex mask, emitted only when nonzero — an empty set sends no
+/// flag, the [`dpseci_create_args`] idiom. The two dead/unobservable `dpsw_cfg` fields restool
+/// still carries (`--mem-size`, and there is no create `--max-meters-per-if` at all) have no
+/// [`DpswCfg`] accessor — the census signature drops them (`families/dpsw.rs`) — so they are
+/// not rendered and restool applies its own 0 default. The container arg rides last, as the
+/// dprc-script create recipe renders it.
+fn build_dpsw_create_args(cfg: &DpswCfg, container: &str) -> Vec<String> {
+    let mut args = vec![
+        "--script".to_owned(),
+        "dpsw".to_owned(),
+        "create".to_owned(),
+        format!("--num-ifs={}", cfg.num_ifs()),
+    ];
+    let mask = dpsw_options_mask(cfg.options());
+    if mask != 0 {
+        args.push(format!("--options=0x{mask:x}"));
+    }
+    args.push(format!("--max-vlans={}", cfg.max_vlans()));
+    args.push(format!("--max-fdbs={}", cfg.max_fdbs()));
+    args.push(format!("--max-fdb-entries={}", cfg.max_fdb_entries()));
+    args.push(format!("--fdb-aging-time={}", cfg.fdb_aging_time()));
+    args.push(format!("--max-fdb-mc-groups={}", cfg.max_fdb_mc_groups()));
+    args.push(format!(
+        "--component-type={}",
+        dpsw_component_type_arg(cfg.component_type())
+    ));
+    args.push(format!(
+        "--flooding-cfg={}",
+        dpsw_flooding_cfg_arg(cfg.flooding_cfg())
+    ));
+    args.push(format!(
+        "--broadcast-cfg={}",
+        dpsw_broadcast_cfg_arg(cfg.broadcast_cfg())
+    ));
+    args.push(format!("--container={container}"));
+    args
 }
 
 /// Renders a child-DPRC option mask into the `--options=` argument for `dprc create`,
@@ -852,6 +955,21 @@ impl<R: Runner> RestoolMc<R> {
     pub fn observe_dpseci_info(&self, dpseci: &ObjectRef) -> Result<parse::RawDpseciInfo, Error> {
         let out = self.run_verb(&["dpseci", "info", &dpseci.to_string()])?;
         Ok(parse::parse_dpseci_info(&out))
+    }
+
+    /// `restool dpsw info dpsw.N` through the one `run_verb` funnel, returning the raw parse
+    /// carrier verbatim (dpsw-typestate task 4.1; the `observe_dpseci_info` precedent). This
+    /// drives the info verb only; the typed [`DpswDetail`] assembly — decoded attributes,
+    /// options, the per-interface block — is dpsw-typestate task 4.2's job
+    /// ([`RawDpswInfo`](parse::RawDpswInfo) carries the raw lines that parse consumes).
+    ///
+    /// # Errors
+    /// Returns [`Error::McStatus`]/[`Error::RestoolGuard`] on a refusal, or [`Error::Backend`]
+    /// on a dead spawn — the one `run_verb` error path (a dead/aborting spawn is a typed
+    /// observation failure, never inherited partial state; mc-backend spec).
+    pub fn observe_dpsw_info(&self, dpsw: &ObjectRef) -> Result<parse::RawDpswInfo, Error> {
+        let out = self.run_verb(&["dpsw", "info", &dpsw.to_string()])?;
+        Ok(parse::parse_dpsw_info(&out))
     }
 }
 
@@ -1390,36 +1508,58 @@ impl<R: Runner> McControl for RestoolMc<R> {
         Ok(())
     }
 
-    // dpsw-typestate task 4.2 replaces this loud stub with the real `dpsw info` read. The
-    // McControl verb surface is closed (the #10 mc-portal-backend differential campaign asserts
-    // every verb), so the verb lives here named, never a silent trait default — until the shim
-    // lands, an invocation is a named `Error::Backend` gap.
+    // The typed `dpsw info` assembly (decoded attributes, options, the per-interface block)
+    // is dpsw-typestate task 4.2: the info verb is now driven (`observe_dpsw_info`), but the
+    // typed `DpswDetail` is not yet built, so this loud stub stays. The McControl verb surface
+    // is closed (the #10 mc-portal-backend differential campaign asserts every verb), so the
+    // verb lives here named, never a silent trait default.
     fn observe_dpsw(&self, _container: DprcId, dpsw: ObjectRef) -> Result<DpswDetail, Error> {
         Err(Error::Backend(format!(
             "observe_dpsw is not wired until the dpsw-typestate task 4.2 shim lands ({dpsw})"
         )))
     }
 
-    // dpsw-typestate task 4.1 replaces this loud stub with the verbatim create render (the
-    // `cfg_from_attributes` block); the gap is named, never a silent skip.
+    // Renders the typed `DpswCfg` verbatim via `build_dpsw_create_args`; re-observation is the
+    // convergence oracle, the exit code never the verdict (`docs/baseline/dpsw.md`).
+    // Plugging is NOT this verb's job: it creates and stamps the create-time label (ADR-0015 law),
+    // and the reconciler plugs last after the port connects (`docs/baseline/dpsw.md` "Lifecycle
+    // ordering"; plan surface `PlugSwitch`; bead dpaa2-controlplane-dbf.22).
     fn create_dpsw_in(
         &self,
-        _container: Option<DprcId>,
-        _cfg: &DpswCfg,
+        container: Option<DprcId>,
+        cfg: &DpswCfg,
         label: &ConstructName,
     ) -> Result<ObjectRef, Error> {
-        Err(Error::Backend(format!(
-            "create_dpsw_in is not wired until the dpsw-typestate task 4.1 shim lands ({})",
-            label.as_str()
-        )))
+        let args = build_dpsw_create_args(cfg, &self.container_name(container));
+        let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
+        let out = self.run_verb(&arg_refs)?;
+        let obj = parse::parse_object_ref(&out)
+            .ok_or_else(|| Error::Parse(format!("no object id in `{}`", out.trim())))?
+            .to_owned();
+        self.stamp_label(&obj, label)?;
+        let ordinal = obj
+            .rsplit_once('.')
+            .and_then(|(_, n)| n.parse::<u32>().ok())
+            .ok_or_else(|| Error::Parse(format!("no ordinal in created `{obj}`")))?;
+        Ok(ObjectRef::new(Family::Dpsw, ordinal))
     }
 
-    // dpsw-typestate task 4.1 replaces this loud stub with the re-observation-confirmed destroy
-    // (`docs/baseline/dpsw.md` "Silent-failure notes"); the gap is named, never a silent skip.
-    fn destroy_dpsw(&self, _container: Option<DprcId>, dpsw: &ObjectRef) -> Result<(), Error> {
-        Err(Error::Backend(format!(
-            "destroy_dpsw is not wired until the dpsw-typestate task 4.1 shim lands ({dpsw})"
-        )))
+    // Verifies destruction by re-observing presence, not the exit code: a child-container destroy
+    // exits 0 while the object survives (`docs/baseline/dpsw.md` "Silent-failure notes"). Mirrors `destroy_dpseci`.
+    fn destroy_dpsw(&self, container: Option<DprcId>, dpsw: &ObjectRef) -> Result<(), Error> {
+        self.run_verb(&[Family::Dpsw.as_str(), "destroy", &dpsw.to_string()])?;
+        self.sync()?;
+        let show = self.run_verb(&["dprc", "show", &self.container_name(container)])?;
+        let survived = parse::parse_dprc_rows(&show)
+            .into_iter()
+            .any(|r| r.family == Family::Dpsw && r.num == dpsw.ordinal());
+        if survived {
+            return Err(Error::Backend(format!(
+                "dpsw destroy reported success but {dpsw} is still present \
+                 (silent child-container destroy, docs/baseline/dpsw.md)"
+            )));
+        }
+        Ok(())
     }
 
     fn observe_pool(
@@ -2936,5 +3076,138 @@ mod tests {
                 .expect_err("busy"),
             Error::McStatus { status: 0x10 }
         ));
+    }
+
+    // ---- dpsw create/destroy/info paths (dpsw-typestate task 4.1; bead dpaa2-controlplane-dbf.12) ----
+
+    /// A kernel-bindable dpsw create block (`dpsw.qnt` `BINDABLE_CFG`): 2 ports, `PER_FDB`
+    /// flooding and broadcast, `max_fdbs` covering `num_ifs` — varied only by its option set so a
+    /// render test can isolate the `--options` flag.
+    fn dpsw_cfg(options: BTreeSet<DpswOpt>) -> DpswCfg {
+        use dpaa2_api::families::dpsw::{
+            DpswCreate, FdbAgingTime, MaxFdbEntries, MaxFdbMcGroups, MaxFdbs, MaxVlans, NumIfs,
+        };
+        DpswCfg::new(DpswCreate {
+            num_ifs: NumIfs::new(2).unwrap(),
+            options,
+            max_vlans: MaxVlans::new(16).unwrap(),
+            max_fdbs: MaxFdbs::new(2).unwrap(),
+            max_fdb_entries: MaxFdbEntries::new(1024).unwrap(),
+            fdb_aging_time: FdbAgingTime::new(300).unwrap(),
+            max_fdb_mc_groups: MaxFdbMcGroups::new(32).unwrap(),
+            mem_size: 0,
+            component_type: ComponentType::CVlan,
+            flooding_cfg: FloodingCfg::PerFdb,
+            broadcast_cfg: BroadcastCfg::PerFdb,
+            max_meters_per_if: 0,
+        })
+        .expect("the 2-port PER_FDB shape is kernel-bindable")
+    }
+
+    #[test]
+    fn build_dpsw_create_args_render_the_bindable_block_field_for_field() {
+        // The acceptance render: every DpswCfg-exposed field gets its flag with the exact
+        // restool token. FLOODING_DIS=0x1 | BP_PER_IF=0x80 = 0x81 (restool/mc_v10/fsl_dpsw.h);
+        // the full DPSW_* enum tokens are what restool's strcmp parsers accept (dpsw_commands.c).
+        let mut opts = BTreeSet::new();
+        opts.insert(DpswOpt::FloodingDis);
+        opts.insert(DpswOpt::BpPerIf);
+        assert_eq!(
+            build_dpsw_create_args(&dpsw_cfg(opts), "dprc.5"),
+            vec![
+                "--script",
+                "dpsw",
+                "create",
+                "--num-ifs=2",
+                "--options=0x81",
+                "--max-vlans=16",
+                "--max-fdbs=2",
+                "--max-fdb-entries=1024",
+                "--fdb-aging-time=300",
+                "--max-fdb-mc-groups=32",
+                "--component-type=DPSW_COMPONENT_TYPE_C_VLAN",
+                "--flooding-cfg=DPSW_FLOODING_PER_FDB",
+                "--broadcast-cfg=DPSW_BROADCAST_PER_FDB",
+                "--container=dprc.5",
+            ]
+        );
+    }
+
+    #[test]
+    fn build_dpsw_create_args_omit_options_when_the_set_is_empty() {
+        // An empty option set sends no --options flag (the dpseci_create_args precedent); the
+        // remaining counts and modes still render verbatim.
+        let args = build_dpsw_create_args(&dpsw_cfg(BTreeSet::new()), "dprc.1");
+        assert!(!args.iter().any(|a| a.starts_with("--options")));
+        assert!(args.contains(&"--num-ifs=2".to_owned()));
+        assert!(args.contains(&"--component-type=DPSW_COMPONENT_TYPE_C_VLAN".to_owned()));
+        assert!(args.contains(&"--container=dprc.1".to_owned()));
+    }
+
+    #[test]
+    fn create_dpsw_in_renders_create_then_stamp_without_plugging() {
+        let runner = ScriptedRunner::new(vec![
+            (
+                "--script dpsw create --num-ifs=2 --max-vlans=16 --max-fdbs=2 \
+                 --max-fdb-entries=1024 --fdb-aging-time=300 --max-fdb-mc-groups=32 \
+                 --component-type=DPSW_COMPONENT_TYPE_C_VLAN \
+                 --flooding-cfg=DPSW_FLOODING_PER_FDB \
+                 --broadcast-cfg=DPSW_BROADCAST_PER_FDB --container=dprc.5",
+                ok("dpsw.7\n"),
+            ),
+            ("dprc set-label dpsw.7 --label=switch0", ok("")),
+        ]);
+        let mc = RestoolMc::with_runner(runner, DEFAULT_CONTAINER);
+        let obj = mc
+            .create_dpsw_in(
+                Some(DprcId::new(5)),
+                &dpsw_cfg(BTreeSet::new()),
+                &ConstructName::from("switch0"),
+            )
+            .expect("create dpsw");
+        assert_eq!(obj, ObjectRef::new(Family::Dpsw, 7));
+        let calls = mc.runner().calls();
+        assert_eq!(calls.len(), 2, "create then stamp, no plug in between");
+        assert_eq!(
+            calls[1],
+            vec!["dprc", "set-label", "dpsw.7", "--label=switch0"]
+        );
+        assert!(
+            !calls.iter().any(|c| c.contains(&"assign".to_owned())),
+            "the dpsw verb must not plug"
+        );
+    }
+
+    #[test]
+    fn destroy_dpsw_errors_when_the_object_survives_a_success_report() {
+        // The child-container silent failure (`docs/baseline/dpsw.md` "Silent-failure notes"):
+        // exit 0 but the dpsw is still listed — re-observation is the only verdict.
+        let still = dprc_show(&["dpsw.7          switch0         plugged"]);
+        let runner = ScriptedRunner::new(vec![
+            ("dpsw destroy dpsw.7", ok("dpsw.7 is destroyed\n")),
+            ("dprc sync", ok("")),
+            ("dprc show dprc.5", ok(&still)),
+        ]);
+        let mc = RestoolMc::with_runner(runner, DEFAULT_CONTAINER);
+        let err = mc
+            .destroy_dpsw(Some(DprcId::new(5)), &ObjectRef::new(Family::Dpsw, 7))
+            .expect_err("object survived the destroy");
+        assert!(matches!(err, Error::Backend(_)), "got {err:?}");
+    }
+
+    #[test]
+    fn observe_dpsw_info_holds_the_spawn_lines_raw() {
+        // The 4.1 raw drive: id is typed, every line is kept verbatim (dpsw-typestate task 4.2
+        // consumes them).
+        let body = "dpsw version: 8.13\ndpsw id: 7\nplugged state: plugged\n\
+                    number of interfaces: 2\n";
+        let runner = ScriptedRunner::canned(&[("dpsw info dpsw.7", body)]);
+        let mc = RestoolMc::with_runner(runner, DEFAULT_CONTAINER);
+        let info = mc
+            .observe_dpsw_info(&ObjectRef::new(Family::Dpsw, 7))
+            .expect("info parse");
+        assert_eq!(info.id, Some(7));
+        assert_eq!(info.lines, body.lines().collect::<Vec<_>>());
+        assert_eq!(mc.runner().calls()[0], vec!["dpsw", "info", "dpsw.7"]);
     }
 }

@@ -57,7 +57,7 @@
 
 ## 4. Southbound shim (restool verbs)
 
-- [ ] 4.1 Drive create/destroy/info through the shim (taildrop update
+- [x] 4.1 Drive create/destroy/info through the shim (taildrop update
       out of scope — observation-only, proposal Out-of-scope),
       rendering the compiled block verbatim with create-time labeling
       (mc-backend delta). Verify: render unit tests field-for-field;

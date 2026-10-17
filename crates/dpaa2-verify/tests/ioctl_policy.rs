@@ -88,6 +88,29 @@ fn every_table_verdict_recomputes_from_the_whitelist() {
 }
 
 #[test]
+fn dpsw_verbs_resolve_through_the_whitelist() {
+    // The three dpsw verbs the shim now emits (dpsw-typestate task 4.1) must each resolve to
+    // an accepted §1 whitelist row, or the kernel refuses a command the shim drives.
+    use dpaa2_verify::board::ioctlpolicy::Verdict;
+    let md = policy_md();
+    let wl = Whitelist::parse(&md);
+    let verbs = parse_verbs(&md);
+    for key in ["dpsw create", "dpsw destroy", "dpsw info"] {
+        let row = verbs
+            .iter()
+            .find(|r| r.key == key)
+            .unwrap_or_else(|| panic!("no §2 verb row for {key:?}"));
+        assert!(!row.cmdids.is_empty(), "{key:?} lists no command ids");
+        for &id in &row.cmdids {
+            assert!(
+                matches!(wl.check(id), Verdict::Accepted { .. }),
+                "{key:?} cmdid {id:#06x} is not accepted by the whitelist"
+            );
+        }
+    }
+}
+
+#[test]
 fn outside_the_whitelist_probes_are_refused() {
     let md = policy_md();
     let wl = Whitelist::parse(&md);

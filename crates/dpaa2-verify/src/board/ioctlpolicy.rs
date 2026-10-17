@@ -290,6 +290,10 @@ pub const ADAPTER_VERBS: &[&str] = &[
     "dpni update",
     "dpni destroy",
     "dpmac info",
+    // dpsw create/destroy are driven by the shim (dpsw-typestate task 4.1); `dpsw info` is a
+    // read, so like `dpseci info` it rides HARNESS_VERBS only.
+    "dpsw create",
+    "dpsw destroy",
 ];
 
 /// The preamble, post-boot and read-back verbs the suite harness issues

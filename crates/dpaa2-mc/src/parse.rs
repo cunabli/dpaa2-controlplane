@@ -456,6 +456,37 @@ pub fn parse_dpseci_info(stdout: &str) -> RawDpseciInfo {
     info
 }
 
+/// What `restool dpsw info dpsw.N` prints, kept raw (dpsw-typestate task 4.1; bead
+/// dpaa2-controlplane-dbf.12). This 4.1 carrier drives the info verb and holds the spawn's
+/// output verbatim; the typed assembly — decoded attributes, options, and the per-interface
+/// block (endpoint, link, taildrop, max frame length, counters) — is dpsw-typestate task 4.2
+/// (`crates/dpaa2-api/src/contract/mc.rs` `DpswDetail`), which consumes [`lines`](Self::lines).
+/// Kept raw on purpose: truncation honesty (a mid-counter-list cut never reading as zeros,
+/// DPSW-I7) is 4.2's law, not this carrier's.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct RawDpswInfo {
+    /// The dpsw object id, from the `dpsw id:` line (`dpsw_commands.c:521`).
+    pub id: Option<u32>,
+    /// The spawn's output lines, verbatim and in order — the per-interface block carries
+    /// meaningful indentation, so they are not trimmed here (the 4.2 parse reads them).
+    pub lines: Vec<String>,
+}
+
+/// Parses `restool dpsw info dpsw.N` into the raw carrier (dpsw-typestate task 4.1). Only the
+/// `dpsw id:` line is typed here; every line is kept verbatim for the dpsw-typestate task 4.2
+/// typed parse.
+#[must_use]
+pub fn parse_dpsw_info(stdout: &str) -> RawDpswInfo {
+    let mut info = RawDpswInfo::default();
+    for line in stdout.lines() {
+        if let Some(rest) = line.trim().strip_prefix("dpsw id:") {
+            info.id = rest.trim().parse::<u32>().ok();
+        }
+        info.lines.push(line.to_owned());
+    }
+    info
+}
+
 /// What `restool dpmac info dpmac.N` tells us about a DPMAC.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RawDpmacInfo {
