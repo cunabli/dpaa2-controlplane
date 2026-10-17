@@ -611,6 +611,76 @@ impl ObservedOpts {
     }
 }
 
+// ---- the display-only per-interface observation surface (dpsw-typestate task 4.2; design D6) ----
+
+/// One switch interface's link state, from the `dpsw info` per-interface `link state:` line
+/// (`docs/baseline/dpsw.md` "Command surface"). Display-only — it is not part of the census
+/// signature, so no plan judges drift on it. `n/a` ([`NotApplicable`](Self::NotApplicable)) is
+/// a distinct typed value, never a defaulted [`Down`](Self::Down) (DPSW-I7: an unapplicable
+/// line is never invented as a down reading).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IfLinkState {
+    /// `up`.
+    Up,
+    /// `down`.
+    Down,
+    /// `n/a` — the port has no link to report (e.g. an unconnected interface).
+    NotApplicable,
+}
+
+/// A switch interface's taildrop readout from the `dpsw info` per-interface block (Taildrop
+/// enabled/units/threshold; `docs/baseline/dpsw.md` "Command surface"). Display-only: the
+/// restool taildrop `update` verb is out of scope here, so this is observed, never judged or
+/// rewritten. `units` rides verbatim as restool rendered it — the shim owns the token spelling
+/// (ADR-0018).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Taildrop {
+    /// `Taildrop enabled:`.
+    pub enabled: bool,
+    /// `Taildrop units:`, verbatim (e.g. `BUFFERS`).
+    pub units: String,
+    /// `Taildrop threshold:`.
+    pub threshold: u32,
+}
+
+/// One dpsw per-interface counter read (dpsw-typestate task 4.2; the dpmac
+/// [`CounterRead`](crate::families::dpmac::CounterRead) idiom, DPMAC-I7): the row was rendered
+/// and read back this value, or the list was truncated mid-row and the counter was left
+/// unread. An unread counter is [`Unread`](Self::Unread), never [`Known(0)`](Self::Known), so a
+/// mid-list truncation never reads as zeros (DPSW-I7; `docs/baseline/dpsw.md` "Silent-failure
+/// notes": a mid-list counter failure truncates output).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DpswCounterRead {
+    /// The counter was rendered and read back this value (a present-but-zero counter is `Known(0)`).
+    Known(u64),
+    /// The counter was not rendered (the list was truncated before it) — never `Known(0)`.
+    Unread,
+}
+
+/// The vocabulary-checked per-interface counter readout (dpsw-typestate task 4.2; the dpmac
+/// [`CounterReadout`](crate::families::dpmac::CounterReadout) idiom). Each entry pairs a
+/// verbatim restool counter name with its read; the shim supplies the 13-row vocabulary and its
+/// spellings (ADR-0018), and a mid-list truncation leaves the tail rows
+/// [`DpswCounterRead::Unread`], carried not zero-filled (DPSW-I7). Display-only, never a census
+/// input. Built once by the shim's classifier through [`new`](Self::new).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CounterReadout(Vec<(String, DpswCounterRead)>);
+
+impl CounterReadout {
+    /// Builds the readout from the shim's vocabulary-checked rows — the only writer, so a
+    /// readout that exists came through the classifier (dpsw-typestate task 4.2).
+    #[must_use]
+    pub fn new(rows: Vec<(String, DpswCounterRead)>) -> Self {
+        Self(rows)
+    }
+
+    /// The vocabulary rows, each a verbatim name beside its read.
+    #[must_use]
+    pub fn rows(&self) -> &[(String, DpswCounterRead)] {
+        &self.0
+    }
+}
+
 // ---- the P1 phase machine types (dpsw-typestate design D2; `dpsw.qnt` `SwitchPhase` /
 //      `SwitchData`) ----
 

@@ -62,7 +62,7 @@
       rendering the compiled block verbatim with create-time labeling
       (mc-backend delta). Verify: render unit tests field-for-field;
       ioctl-policy resolution test covers the new verbs.
-- [ ] 4.2 Parse `dpsw info` into the typed observation (per-if block,
+- [x] 4.2 Parse `dpsw info` into the typed observation (per-if block,
       raw-escape options, absence ≠ zero counters, `Unobservable`
       connection face). Verify: parse unit tests over captured fixture
       output incl. truncation and missing-line cases.

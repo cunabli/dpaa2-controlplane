@@ -75,10 +75,12 @@ fn dpsw_detail_of(cfg: &DpswCfg) -> DpswDetail {
         component_type: Some(cfg.component_type()),
         flooding_cfg: Some(cfg.flooding_cfg()),
         broadcast_cfg: Some(cfg.broadcast_cfg()),
-        options: cfg
-            .options()
-            .iter()
-            .fold(ObservedOpts::empty(), |opts, &flag| opts.with_named(flag)),
+        mem_size: None,
+        options: Some(
+            cfg.options()
+                .iter()
+                .fold(ObservedOpts::empty(), |opts, &flag| opts.with_named(flag)),
+        ),
         ifaces: BTreeMap::new(),
     }
 }

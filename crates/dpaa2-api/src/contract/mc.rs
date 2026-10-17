@@ -11,8 +11,8 @@ use crate::families::dpni::{DpniCfg, LinkState};
 use crate::families::dprc;
 use crate::families::dpseci::{DpseciCfg, OptionMask};
 use crate::families::dpsw::{
-    BroadcastCfg, ComponentType, DpswCfg, FdbAgingTime, FloodingCfg, MaxFdbEntries, MaxFdbMcGroups,
-    MaxFdbs, MaxVlans, NumIfs, ObservedOpts,
+    BroadcastCfg, ComponentType, CounterReadout, DpswCfg, FdbAgingTime, FloodingCfg, IfLinkState,
+    MaxFdbEntries, MaxFdbMcGroups, MaxFdbs, MaxVlans, NumIfs, ObservedOpts, Taildrop,
 };
 use crate::families::pool_lifecycle::ObservedPoolObject;
 use crate::plan::dprc::ObservedContainer;
@@ -83,6 +83,27 @@ pub enum DpswIfFace {
     Unobservable,
 }
 
+/// One switch interface's full read-back from the `dpsw info` per-interface block
+/// (dpsw-typestate task 4.2; `docs/baseline/dpsw.md` "Command surface"). The [`face`](Self::face)
+/// is the only census-relevant member (projected by [`crate::plan::dpsw::port_unconnected`]); the
+/// link, taildrop, max-frame-length, and counter members are display-only observability, read
+/// never judged. Each is an honest optional — `None` when `info` omitted the line — except the
+/// counter readout, which is vocabulary-checked and carries its own per-row unread shape
+/// (DPSW-I7, absence never a defaulted value).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DpswIfDetail {
+    /// The connection face — the census-relevant member.
+    pub face: DpswIfFace,
+    /// `link state:` typed `up`/`down`/`n/a`, `None` when the line was absent (display-only).
+    pub link: Option<IfLinkState>,
+    /// The taildrop readout, `None` when the block was absent (display-only).
+    pub taildrop: Option<Taildrop>,
+    /// `max frame length:`, `None` when the line was absent (display-only).
+    pub max_frame_length: Option<u32>,
+    /// The vocabulary-checked counter readout, truncation-honest (display-only).
+    pub counters: CounterReadout,
+}
+
 /// The witnessable detail of one dpsw object, assembled from `dpsw info` (dpsw-typestate
 /// task 4.2) and projected to the observable-signature face the dpsw-typestate task 3.3 census
 /// judges ([`crate::plan::dpsw::observed_face_of`]). This type is pure read-back; mutation
@@ -91,14 +112,14 @@ pub enum DpswIfFace {
 ///
 /// Each observable-signature attribute line is honestly optional — `None` when `info` omitted
 /// it, so a missing line is an honest unknown the projection reads as unobservable, never a
-/// defaulted value (DPSW-I7; dpsw-typestate design D6). The observed options carry the named
-/// MC flags plus any unnamed bit attributed as a display-only raw escape (the
-/// dpseci-hardening design D1/D2 precedent). The two unobservable create fields (`mem_size`,
-/// `max_meters_per_if`) have no `info` line and so are absent by construction
-/// (`docs/baseline/dpsw.md` "Command surface").
+/// defaulted value (DPSW-I7; dpsw-typestate design D6). The observed options are themselves
+/// `Option<ObservedOpts>`: an absent options line decodes to `None`, never the empty set, so a
+/// blanked option list is a typed decode escape the projection reads as unobservable (a present
+/// options line carries the named MC flags plus any unnamed bit attributed as a display-only raw
+/// escape, the dpseci-hardening design D1/D2 precedent).
 ///
-/// The dpsw-typestate task 4.2 parse extends the per-interface block (link, taildrop, max frame
-/// length, counters) when it lands; only the connection face is carried now.
+/// The per-interface [`DpswIfDetail`] carries the census-relevant connection face plus the
+/// display-only link/taildrop/max-frame-length/counter block (dpsw-typestate task 4.2).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DpswDetail {
     /// `num_ifs:` — the immutable port count, `None` when the line was absent.
@@ -119,10 +140,17 @@ pub struct DpswDetail {
     pub flooding_cfg: Option<FloodingCfg>,
     /// `broadcast_cfg:`, `None` when the line was absent.
     pub broadcast_cfg: Option<BroadcastCfg>,
-    /// The decoded options — named flags plus any attributed raw escape, display-only.
-    pub options: ObservedOpts,
-    /// The per-interface connection faces, keyed by interface index.
-    pub ifaces: BTreeMap<u32, DpswIfFace>,
+    /// `frame storage memory size:` — display-only. NOTE: `docs/baseline/dpsw.md` "Command
+    /// surface" claims `info` never prints `mem_size`; the V-DPSW-4 capture
+    /// (`results/V-DPSW-4-rev1/refusal-dpsw-info.txt`) contradicts that, so it is read here for
+    /// display. Whether it joins the census signature is the group-7 sitting, adjudicated by
+    /// dpsw-typestate task 8.1 (model untouched); `None` when the line was absent.
+    pub mem_size: Option<u16>,
+    /// The decoded options — named flags plus any attributed raw escape — or `None` when the
+    /// options line was absent (an absent line is a typed decode escape, never the empty set).
+    pub options: Option<ObservedOpts>,
+    /// The per-interface read-back detail, keyed by interface index.
+    pub ifaces: BTreeMap<u32, DpswIfDetail>,
 }
 
 /// Southbound MC-portal control at MC-command granularity.

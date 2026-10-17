@@ -11,9 +11,11 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::io;
 use std::path::Path;
 
-use dpaa2_api::contract::{DpseciDetail, DpseciPortalReadout, DpswDetail, McControl};
+use dpaa2_api::contract::{
+    DpseciDetail, DpseciPortalReadout, DpswDetail, DpswIfDetail, DpswIfFace, McControl,
+};
 use dpaa2_api::core::error::Error;
-use dpaa2_api::core::family::{DERIVED_FAMILIES, Family};
+use dpaa2_api::core::family::{ALL_FAMILIES, DERIVED_FAMILIES, Family};
 use dpaa2_api::core::inventory::{Availability, Ceiling, DpmacOffer, Inventory};
 use dpaa2_api::core::model::{
     DpmacId, DpniId, DprcId, ObjectRef, ObservedDpmac, ObservedDpni, ObservedTopology,
@@ -27,7 +29,11 @@ use dpaa2_api::families::dpni::{
 };
 use dpaa2_api::families::dprc;
 use dpaa2_api::families::dpseci::{self, DpseciCfg};
-use dpaa2_api::families::dpsw::{BroadcastCfg, ComponentType, DpswCfg, DpswOpt, FloodingCfg};
+use dpaa2_api::families::dpsw::{
+    BroadcastCfg, ComponentType, CounterReadout as DpswCounterReadout, DpswCfg, DpswCounterRead,
+    DpswOpt, FdbAgingTime, FloodingCfg, IfLinkState, MaxFdbEntries, MaxFdbMcGroups, MaxFdbs,
+    MaxVlans, NumIfs, ObservedOpts, RawEscape as DpswRawEscape, Taildrop,
+};
 use dpaa2_api::families::pool_lifecycle::{ObservedPoolObject, RawLabel};
 use dpaa2_api::intent::compiled::Container;
 use dpaa2_api::plan::dprc as dprc_plan;
@@ -540,6 +546,302 @@ fn build_dpsw_create_args(cfg: &DpswCfg, container: &str) -> Vec<String> {
     ));
     args.push(format!("--container={container}"));
     args
+}
+
+// ---- dpsw info typed parse + assembly (dpsw-typestate task 4.2; bead dpaa2-controlplane-dbf.13) ----
+
+/// The 13 per-interface counter rows `restool dpsw info` renders on this board, verbatim and in
+/// print order (`docs/baseline/dpsw.md` "Command surface"; `results/V-DPSW-4-rev1/`). Adapter
+/// policy — the verbatim vocabulary lives in the southbound, the `DPMAC_COUNTERS_1039` precedent
+/// (ADR-0018).
+const DPSW_COUNTERS: [&str; 13] = [
+    "dpsw_cnt_ing_frame",
+    "dpsw_cnt_ing_byte",
+    "dpsw_cnt_ing_fltr_frame",
+    "dpsw_cnt_ing_frame_discard",
+    "dpsw_cnt_ing_mcast_frame",
+    "dpsw_cnt_ing_mcast_byte",
+    "dpsw_cnt_ing_bcast_frame",
+    "dpsw_cnt_ing_bcast_bytes",
+    "dpsw_cnt_egr_frame",
+    "dpsw_cnt_egr_byte",
+    "dpsw_cnt_egr_frame_discard",
+    "dpsw_cnt_egr_stp_frame_discard",
+    "dpsw_cnt_ing_no_buffer_discard",
+];
+
+/// Classifies the rendered counter rows against the 13-row vocabulary (DPSW-I7; the dpmac
+/// [`classify_dpmac_counters`] idiom). Each vocabulary row whose rendered name matches at its
+/// position reads a [`DpswCounterRead::Known`] value — a present-but-zero counter is `Known(0)`;
+/// a row past a mid-list truncation (or a name deviation) is [`DpswCounterRead::Unread`], carried
+/// not zero-filled (`docs/baseline/dpsw.md` "Silent-failure notes").
+fn classify_dpsw_counters(rows: &[(String, u64)]) -> DpswCounterReadout {
+    DpswCounterReadout::new(
+        DPSW_COUNTERS
+            .iter()
+            .enumerate()
+            .map(|(i, &name)| {
+                let read = match rows.get(i) {
+                    Some((rendered, v)) if rendered == name => DpswCounterRead::Known(*v),
+                    _ => DpswCounterRead::Unread,
+                };
+                (name.to_owned(), read)
+            })
+            .collect(),
+    )
+}
+
+/// Decodes a raw `dpsw_attr.options` mask into the typed observation — the inverse of
+/// [`dpsw_opt_bit`], the [`decode_dpseci_options`] idiom. Named vocabulary bits become flags;
+/// each remaining set bit rides as a per-bit [`DpswRawEscape`], so an unnamed firmware bit is
+/// attributed, never merged into the named flags (dpseci-hardening design D1). restool blanks its
+/// decoded name list on an unknown bit, so the raw mask — not the names — is decoded here
+/// (`docs/baseline/dpsw.md` "Silent-failure notes").
+fn decode_dpsw_options(raw: u32) -> ObservedOpts {
+    let mut opts = ObservedOpts::empty();
+    let mut consumed = 0u32;
+    for flag in DpswOpt::MC_VOCABULARY {
+        let bit = dpsw_opt_bit(flag);
+        if raw & bit != 0 {
+            opts = opts.with_named(flag);
+            consumed |= bit;
+        }
+    }
+    let unnamed = raw & !consumed;
+    for bit_pos in 0..u32::BITS {
+        let bit = 1u32 << bit_pos;
+        if unnamed & bit != 0 {
+            opts = opts.with_escape(DpswRawEscape::new(bit));
+        }
+    }
+    opts
+}
+
+/// Parses a `dpsw_attr.options value is:` token, accepting the decimal form the board capture
+/// shows (`0`) and the hex form restool renders elsewhere (`0x…`). `None` on an unparsable token
+/// leaves the options honestly absent, never a defaulted empty set.
+fn parse_dpsw_opt_mask(tok: &str) -> Option<u32> {
+    tok.strip_prefix("0x").map_or_else(
+        || tok.parse::<u32>().ok(),
+        |h| u32::from_str_radix(h, 16).ok(),
+    )
+}
+
+/// Decodes a `component_type:` or `flooding cfg:` token by inverting the create render spelling
+/// (single source: [`dpsw_component_type_arg`]/[`dpsw_flooding_cfg_arg`]; the 2-variant sets
+/// mirror `families/dpsw.rs` `*_VARIANTS`, ADR-0014). A token outside the vocabulary reads
+/// `None` — an honest unknown, never a wrong variant. `broadcast cfg:` does NOT invert cleanly;
+/// it has its own [`decode_broadcast_cfg`].
+fn decode_component_type(tok: &str) -> Option<ComponentType> {
+    [ComponentType::CVlan, ComponentType::SVlan]
+        .into_iter()
+        .find(|&c| dpsw_component_type_arg(c) == tok)
+}
+
+fn decode_flooding_cfg(tok: &str) -> Option<FloodingCfg> {
+    [FloodingCfg::PerVlan, FloodingCfg::PerFdb]
+        .into_iter()
+        .find(|&f| dpsw_flooding_cfg_arg(f) == tok)
+}
+
+/// Decodes a `broadcast cfg:` token across restool's print/parse asymmetry. The PRINT path
+/// emits the typo'd `DPSW_BRODCAST_PER_FDB` (missing `A`) for `PER_FDB` unconditionally
+/// (`dpsw_commands.c:544-545`), while the CREATE parser accepts only the correct
+/// `DPSW_BROADCAST_PER_FDB` (`dpsw_commands.c:318-319`). The kernel-bindable cfg requires
+/// broadcast `PER_FDB` (DPSW-I1), so every converged board dpsw reads back the typo'd token —
+/// both spellings decode to [`BroadcastCfg::PerFdb`], else the census is permanently
+/// unobservable on the only shape we create. The write side is unchanged: its twin
+/// [`dpsw_broadcast_cfg_arg`] stays the single source of the correct create spellings, which
+/// the two canonical tokens here still invert.
+fn decode_broadcast_cfg(tok: &str) -> Option<BroadcastCfg> {
+    if tok == "DPSW_BRODCAST_PER_FDB" {
+        return Some(BroadcastCfg::PerFdb);
+    }
+    [BroadcastCfg::PerObject, BroadcastCfg::PerFdb]
+        .into_iter()
+        .find(|&b| dpsw_broadcast_cfg_arg(b) == tok)
+}
+
+/// Decodes a per-interface `connection:` token: `none` is an explicit [`DpswIfFace::Disconnected`],
+/// a `family.N` object is [`DpswIfFace::Connected`], any other token (and, at the caller, an
+/// absent line) is [`DpswIfFace::Unobservable`] — a blanked connection line is not freedom
+/// (DPSW-I7; `docs/baseline/dpsw.md` "Silent-failure notes").
+fn decode_dpsw_connection(tok: &str) -> DpswIfFace {
+    if tok == "none" {
+        return DpswIfFace::Disconnected;
+    }
+    match tok.split_once('.') {
+        Some((kind, idx)) => {
+            match (
+                ALL_FAMILIES.iter().copied().find(|f| f.as_str() == kind),
+                idx.parse::<u32>(),
+            ) {
+                (Some(fam), Ok(n)) => DpswIfFace::Connected(ObjectRef::new(fam, n)),
+                _ => DpswIfFace::Unobservable,
+            }
+        }
+        None => DpswIfFace::Unobservable,
+    }
+}
+
+fn parse_if_link_state(tok: &str) -> Option<IfLinkState> {
+    match tok {
+        "up" => Some(IfLinkState::Up),
+        "down" => Some(IfLinkState::Down),
+        "n/a" => Some(IfLinkState::NotApplicable),
+        _ => None,
+    }
+}
+
+/// Accumulates one `interface N:` block's lines before it is frozen into a [`DpswIfDetail`].
+#[derive(Default)]
+struct IfAccum {
+    face: Option<DpswIfFace>,
+    link: Option<IfLinkState>,
+    taildrop_enabled: Option<bool>,
+    taildrop_units: Option<String>,
+    taildrop_threshold: Option<u32>,
+    max_frame_length: Option<u32>,
+    counters: Vec<(String, u64)>,
+}
+
+impl IfAccum {
+    /// Absorbs one tab-indented per-interface line (already trimmed).
+    fn absorb(&mut self, line: &str) {
+        if let Some(r) = line.strip_prefix("connection:") {
+            self.face = Some(decode_dpsw_connection(r.trim()));
+        } else if let Some(r) = line.strip_prefix("link state:") {
+            self.link = parse_if_link_state(r.trim());
+        } else if let Some(r) = line.strip_prefix("Taildrop enabled:") {
+            self.taildrop_enabled = Some(r.trim() == "true");
+        } else if let Some(r) = line.strip_prefix("Taildrop units:") {
+            self.taildrop_units = Some(r.trim().to_owned());
+        } else if let Some(r) = line.strip_prefix("Taildrop threshold:") {
+            self.taildrop_threshold = r.trim().parse().ok();
+        } else if let Some(r) = line.strip_prefix("max frame length:") {
+            self.max_frame_length = r.trim().parse().ok();
+        } else if line.starts_with("dpsw_cnt_")
+            && let Some((name, val)) = line.split_once(':')
+            && let Ok(v) = val.trim().parse::<u64>()
+        {
+            self.counters.push((name.trim().to_owned(), v));
+        }
+    }
+
+    /// Freezes the block into its typed detail: an absent `connection:` line is `Unobservable`,
+    /// the taildrop is carried only when all three lines were present, counters are
+    /// vocabulary-checked.
+    fn freeze(self) -> DpswIfDetail {
+        let taildrop = match (
+            self.taildrop_enabled,
+            self.taildrop_units,
+            self.taildrop_threshold,
+        ) {
+            (Some(enabled), Some(units), Some(threshold)) => Some(Taildrop {
+                enabled,
+                units,
+                threshold,
+            }),
+            _ => None,
+        };
+        DpswIfDetail {
+            face: self.face.unwrap_or(DpswIfFace::Unobservable),
+            link: self.link,
+            taildrop,
+            max_frame_length: self.max_frame_length,
+            counters: classify_dpsw_counters(&self.counters),
+        }
+    }
+}
+
+/// Absorbs one top-level (non-indented) attribute line into the detail (already trimmed). Each
+/// absent line stays `None` — an honest unknown the census reads as unobservable (DPSW-I7).
+fn absorb_dpsw_attr(detail: &mut DpswDetail, line: &str) {
+    if let Some(r) = line.strip_prefix("dpsw_attr.options value is:") {
+        if let Some(raw) = parse_dpsw_opt_mask(r.trim()) {
+            detail.options = Some(decode_dpsw_options(raw));
+        }
+    } else if let Some(r) = line.strip_prefix("max VLANs:") {
+        detail.max_vlans = r.trim().parse().ok().and_then(|v| MaxVlans::new(v).ok());
+    } else if let Some(r) = line.strip_prefix("max FDB entries:") {
+        detail.max_fdb_entries = r
+            .trim()
+            .parse()
+            .ok()
+            .and_then(|v| MaxFdbEntries::new(v).ok());
+    } else if let Some(r) = line.strip_prefix("max FDB MC groups:") {
+        detail.max_fdb_mc_groups = r
+            .trim()
+            .parse()
+            .ok()
+            .and_then(|v| MaxFdbMcGroups::new(v).ok());
+    } else if let Some(r) = line.strip_prefix("max FDBs:") {
+        detail.max_fdbs = r.trim().parse().ok().and_then(|v| MaxFdbs::new(v).ok());
+    } else if let Some(r) = line.strip_prefix("FDB aging time:") {
+        detail.fdb_aging_time = r
+            .trim()
+            .parse()
+            .ok()
+            .and_then(|v| FdbAgingTime::new(v).ok());
+    } else if let Some(r) = line.strip_prefix("frame storage memory size:") {
+        detail.mem_size = r.trim().parse().ok();
+    } else if let Some(r) = line.strip_prefix("number of interfaces:") {
+        detail.num_ifs = r.trim().parse().ok().and_then(|v| NumIfs::new(v).ok());
+    } else if let Some(r) = line.strip_prefix("component_type:") {
+        detail.component_type = decode_component_type(r.trim());
+    } else if let Some(r) = line.strip_prefix("flooding cfg:") {
+        detail.flooding_cfg = decode_flooding_cfg(r.trim());
+    } else if let Some(r) = line.strip_prefix("broadcast cfg:") {
+        detail.broadcast_cfg = decode_broadcast_cfg(r.trim());
+    }
+}
+
+/// Assembles the raw `dpsw info` lines into the typed [`DpswDetail`] (dpsw-typestate task 4.2,
+/// dpsw-typestate design D6). Non-indented lines are top-level attributes; a `interface N:` header opens a
+/// tab-indented per-interface block that runs until the next non-indented line. Every absent
+/// line is an honest unknown, never a defaulted value (DPSW-I7).
+fn assemble_dpsw_detail(raw: &parse::RawDpswInfo) -> DpswDetail {
+    let mut detail = DpswDetail {
+        num_ifs: None,
+        max_vlans: None,
+        max_fdbs: None,
+        max_fdb_entries: None,
+        fdb_aging_time: None,
+        max_fdb_mc_groups: None,
+        component_type: None,
+        flooding_cfg: None,
+        broadcast_cfg: None,
+        mem_size: None,
+        options: None,
+        ifaces: BTreeMap::new(),
+    };
+    let mut cur: Option<(u32, IfAccum)> = None;
+    let flush = |detail: &mut DpswDetail, cur: Option<(u32, IfAccum)>| {
+        if let Some((n, acc)) = cur {
+            detail.ifaces.insert(n, acc.freeze());
+        }
+    };
+    for line in &raw.lines {
+        let indented = line.starts_with([' ', '\t']);
+        let trimmed = line.trim();
+        if indented {
+            if let Some((_, acc)) = cur.as_mut() {
+                acc.absorb(trimmed);
+            }
+            continue;
+        }
+        if let Some(rest) = trimmed.strip_prefix("interface ") {
+            flush(&mut detail, cur.take());
+            if let Ok(n) = rest.trim_end_matches(':').trim().parse::<u32>() {
+                cur = Some((n, IfAccum::default()));
+            }
+            continue;
+        }
+        flush(&mut detail, cur.take());
+        absorb_dpsw_attr(&mut detail, trimmed);
+    }
+    flush(&mut detail, cur.take());
+    detail
 }
 
 /// Renders a child-DPRC option mask into the `--options=` argument for `dprc create`,
@@ -1508,15 +1810,13 @@ impl<R: Runner> McControl for RestoolMc<R> {
         Ok(())
     }
 
-    // The typed `dpsw info` assembly (decoded attributes, options, the per-interface block)
-    // is dpsw-typestate task 4.2: the info verb is now driven (`observe_dpsw_info`), but the
-    // typed `DpswDetail` is not yet built, so this loud stub stays. The McControl verb surface
-    // is closed (the #10 mc-portal-backend differential campaign asserts every verb), so the
-    // verb lives here named, never a silent trait default.
+    // Drives one `dpsw info` spawn and assembles the typed detail (dpsw-typestate task 4.2). A
+    // dead/aborting spawn is a typed observation failure through `observe_dpsw_info`, never
+    // inherited partial state (mirrors `observe_dpseci`). `_container` is kept as the #10
+    // (mc-portal-backend) seam; the restool read is id-addressed.
     fn observe_dpsw(&self, _container: DprcId, dpsw: ObjectRef) -> Result<DpswDetail, Error> {
-        Err(Error::Backend(format!(
-            "observe_dpsw is not wired until the dpsw-typestate task 4.2 shim lands ({dpsw})"
-        )))
+        let info = self.observe_dpsw_info(&dpsw)?;
+        Ok(assemble_dpsw_detail(&info))
     }
 
     // Renders the typed `DpswCfg` verbatim via `build_dpsw_create_args`; re-observation is the
@@ -3209,5 +3509,179 @@ mod tests {
         assert_eq!(info.id, Some(7));
         assert_eq!(info.lines, body.lines().collect::<Vec<_>>());
         assert_eq!(mc.runner().calls()[0], vec!["dpsw", "info", "dpsw.7"]);
+    }
+
+    // ---- dpsw info typed parse + assembly (dpsw-typestate task 4.2; bead dpaa2-controlplane-dbf.13) ----
+
+    /// One `interface N:` block with `n` counter rows, tab-indented as restool prints it.
+    fn dpsw_if_block(idx: u32, connection: &str, link: &str, n: usize) -> String {
+        let mut s = format!(
+            "interface {idx}:\n\tconnection: {connection}\n\tlink state: {link}\n\
+             \tTaildrop enabled: false\n\tTaildrop units: BUFFERS\n\tTaildrop threshold: 192\n\
+             \tmax frame length: 1536\n"
+        );
+        for name in DPSW_COUNTERS.iter().take(n) {
+            s.push('\t');
+            s.push_str(name);
+            s.push_str(": 0\n");
+        }
+        s
+    }
+
+    /// The V-DPSW-4 capture verbatim (`results/V-DPSW-4-rev1/refusal-dpsw-info.txt`): two
+    /// interfaces, 13 counters each, options mask 0, every attribute line present.
+    fn v_dpsw_4_capture() -> String {
+        format!(
+            "dpsw version: 8.13\ndpsw id: 0\nplugged state: plugged\nendpoints:\n{}{}\
+             dpsw_attr.options value is: 0\nmax VLANs: 8\nmax FDBs: 8\nmax FDB entries: 64\n\
+             FDB aging time: 256\nmax FDB MC groups: 8\nframe storage memory size: 768\n\
+             number of interfaces: 2\ncurrent number of VLANs: 1\ncurrent number of FDBs: 1\n\
+             component_type: DPSW_COMPONENT_TYPE_C_VLAN\nflooding cfg: DPSW_FLOODING_PER_VLAN\n\
+             broadcast cfg: DPSW_BROADCAST_PER_OBJECT\n",
+            dpsw_if_block(0, "dpmac.5", "down", 13),
+            dpsw_if_block(1, "none", "n/a", 13),
+        )
+    }
+
+    #[test]
+    fn dpsw_detail_parses_the_v_dpsw_4_capture() {
+        let detail = assemble_dpsw_detail(&parse::parse_dpsw_info(&v_dpsw_4_capture()));
+        // Attribute lines decoded to the typed vocabulary, including the display-only mem_size.
+        assert_eq!(detail.num_ifs.map(NumIfs::get), Some(2));
+        assert_eq!(detail.max_vlans.map(MaxVlans::get), Some(8));
+        assert_eq!(detail.max_fdbs.map(MaxFdbs::get), Some(8));
+        assert_eq!(detail.max_fdb_entries.map(MaxFdbEntries::get), Some(64));
+        assert_eq!(detail.fdb_aging_time.map(FdbAgingTime::get), Some(256));
+        assert_eq!(detail.max_fdb_mc_groups.map(MaxFdbMcGroups::get), Some(8));
+        assert_eq!(detail.mem_size, Some(768));
+        assert_eq!(detail.component_type, Some(ComponentType::CVlan));
+        assert_eq!(detail.flooding_cfg, Some(FloodingCfg::PerVlan));
+        assert_eq!(detail.broadcast_cfg, Some(BroadcastCfg::PerObject));
+        // Options mask 0 decodes to the empty named set, no escape.
+        let opts = detail.options.expect("options line present");
+        assert!(opts.named().is_empty() && opts.escapes().is_empty());
+        // Interface 0: connected uplink, link down, 13 Known counters.
+        let if0 = &detail.ifaces[&0];
+        assert_eq!(
+            if0.face,
+            DpswIfFace::Connected(ObjectRef::new(Family::Dpmac, 5))
+        );
+        assert_eq!(if0.link, Some(IfLinkState::Down));
+        assert_eq!(if0.max_frame_length, Some(1536));
+        assert_eq!(if0.taildrop.as_ref().map(|t| t.threshold), Some(192));
+        assert_eq!(if0.counters.rows().len(), 13);
+        assert!(
+            if0.counters
+                .rows()
+                .iter()
+                .all(|(_, r)| matches!(r, DpswCounterRead::Known(0)))
+        );
+        // Interface 1: explicitly disconnected, link n/a.
+        let if1 = &detail.ifaces[&1];
+        assert_eq!(if1.face, DpswIfFace::Disconnected);
+        assert_eq!(if1.link, Some(IfLinkState::NotApplicable));
+        assert_eq!(if1.counters.rows().len(), 13);
+    }
+
+    #[test]
+    fn truncated_counter_list_stays_honest() {
+        // Spec scenario "A truncated counter list stays honest": the capture is cut after 5 of
+        // interface 0's counters — the read rows are carried Known, the rest typed Unread, no zeros.
+        let cut = format!(
+            "dpsw version: 8.13\ndpsw id: 0\nplugged state: plugged\nendpoints:\n{}",
+            dpsw_if_block(0, "dpmac.5", "down", 5),
+        );
+        let detail = assemble_dpsw_detail(&parse::parse_dpsw_info(&cut));
+        let rows = detail.ifaces[&0].counters.rows();
+        assert_eq!(rows.len(), 13);
+        for (i, (_, read)) in rows.iter().enumerate() {
+            if i < 5 {
+                assert_eq!(*read, DpswCounterRead::Known(0));
+            } else {
+                assert_eq!(*read, DpswCounterRead::Unread);
+            }
+        }
+        // The attribute lines past the cut stay honest unknowns, never defaulted.
+        assert_eq!(detail.num_ifs, None);
+        assert_eq!(detail.options, None);
+    }
+
+    #[test]
+    fn missing_connection_line_is_unobservable() {
+        // A port block with no connection line reads Unobservable, never Disconnected (DPSW-I7).
+        let body = "endpoints:\ninterface 0:\n\tlink state: down\n\tmax frame length: 1536\n";
+        let detail = assemble_dpsw_detail(&parse::parse_dpsw_info(body));
+        assert_eq!(detail.ifaces[&0].face, DpswIfFace::Unobservable);
+    }
+
+    #[test]
+    fn absent_options_line_leaves_options_none() {
+        // mc-backend spec: an absent options line decodes to None, never the empty set.
+        let body = "endpoints:\nnumber of interfaces: 2\n";
+        let detail = assemble_dpsw_detail(&parse::parse_dpsw_info(body));
+        assert_eq!(detail.options, None);
+    }
+
+    #[test]
+    fn unknown_option_bit_rides_as_an_attributed_escape() {
+        // dpseci-hardening design D1: a bit outside the named vocabulary (0x200) rides as a
+        // per-bit escape, never merged into the named flags; CtrlIfDis (0x10) round-trips.
+        let opts = decode_dpsw_options(0x210);
+        assert!(opts.named().contains(&DpswOpt::CtrlIfDis));
+        assert!(opts.escapes().contains(&DpswRawEscape::new(0x200)));
+        // Through the assembly, the options line carries the escape for display.
+        let body =
+            "endpoints:\ninterface 0:\n\tconnection: none\ndpsw_attr.options value is: 0x200\n";
+        let detail = assemble_dpsw_detail(&parse::parse_dpsw_info(body));
+        let o = detail.options.expect("options line present");
+        assert!(o.escapes().contains(&DpswRawEscape::new(0x200)));
+    }
+
+    #[test]
+    fn converged_broadcast_reads_the_typod_print_token() {
+        // restool's print path emits the typo'd DPSW_BRODCAST_PER_FDB for PER_FDB
+        // (dpsw_commands.c:544-545); a kernel-bindable board dpsw (DPSW-I1) reads it back, so it
+        // decodes to PerFdb, never None — else the census is permanently unobservable on the only
+        // shape we create (results/V-DPSW-1-rev2/step-3-probe-0.txt).
+        assert_eq!(
+            decode_broadcast_cfg("DPSW_BRODCAST_PER_FDB"),
+            Some(BroadcastCfg::PerFdb)
+        );
+        assert_eq!(
+            decode_broadcast_cfg("DPSW_BROADCAST_PER_FDB"),
+            Some(BroadcastCfg::PerFdb)
+        );
+        // Through the assembly, the V-DPSW-1 full print (PER_FDB shape) decodes typed both ways.
+        let capture = format!(
+            "dpsw version: 8.13\ndpsw id: 0\nplugged state: unplugged\nendpoints:\n{}{}\
+             dpsw_attr.options value is: 0\nmax VLANs: 8\nmax FDBs: 8\nmax FDB entries: 64\n\
+             FDB aging time: 256\nmax FDB MC groups: 8\nframe storage memory size: 768\n\
+             number of interfaces: 2\ncurrent number of VLANs: 1\ncurrent number of FDBs: 1\n\
+             component_type: DPSW_COMPONENT_TYPE_C_VLAN\nflooding cfg: DPSW_FLOODING_PER_FDB\n\
+             broadcast cfg: DPSW_BRODCAST_PER_FDB\n",
+            dpsw_if_block(0, "dpmac.5", "down", 13),
+            dpsw_if_block(1, "none", "n/a", 13),
+        );
+        let detail = assemble_dpsw_detail(&parse::parse_dpsw_info(&capture));
+        assert_eq!(detail.flooding_cfg, Some(FloodingCfg::PerFdb));
+        assert_eq!(detail.broadcast_cfg, Some(BroadcastCfg::PerFdb));
+    }
+
+    #[test]
+    fn observe_dpsw_assembles_the_typed_detail() {
+        // The 4.2 wiring: observe_dpsw drives `dpsw info` and assembles the typed detail (the
+        // loud stub is gone); re-observation is the convergence oracle.
+        let cap = v_dpsw_4_capture();
+        let runner = ScriptedRunner::canned(&[("dpsw info dpsw.3", &cap)]);
+        let mc = RestoolMc::with_runner(runner, DEFAULT_CONTAINER);
+        let detail = mc
+            .observe_dpsw(DprcId::new(1), ObjectRef::new(Family::Dpsw, 3))
+            .expect("typed assembly");
+        assert_eq!(detail.num_ifs.map(NumIfs::get), Some(2));
+        assert_eq!(
+            detail.ifaces[&0].face,
+            DpswIfFace::Connected(ObjectRef::new(Family::Dpmac, 5))
+        );
+        assert_eq!(mc.runner().calls()[0], vec!["dpsw", "info", "dpsw.3"]);
     }
 }

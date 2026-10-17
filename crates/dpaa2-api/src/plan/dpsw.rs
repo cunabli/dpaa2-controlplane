@@ -498,13 +498,17 @@ pub fn plan_interposition(
 /// [`ObservedFace`]). Any attributed raw escape makes the face [`ObservedFace::SigUnobservable`]:
 /// an escape is nameable evidence of an *unnameable* option bit, so folding it into the signature
 /// would make the read-back differ from every planned cfg and drive a destroy+create loop — the
-/// dpseci-hardening design D2 rationale, kept verbatim. Any absent required sig line is likewise
-/// [`ObservedFace::SigUnobservable`] (absence of evidence is never drift, DPSW-I7). Only an
-/// all-present, escape-free detail yields [`ObservedFace::SigObserved`] from the named options and
-/// the decoded fields.
+/// dpseci-hardening design D2 rationale, kept verbatim. An absent options line (`None`) is itself
+/// [`ObservedFace::SigUnobservable`]: a blanked option list is a typed decode escape, never the
+/// empty set. Any absent required sig line is likewise [`ObservedFace::SigUnobservable`] (absence
+/// of evidence is never drift, DPSW-I7). Only an all-present, escape-free detail yields
+/// [`ObservedFace::SigObserved`] from the named options and the decoded fields.
 #[must_use]
 pub fn observed_face_of(detail: &DpswDetail) -> ObservedFace {
-    if !detail.options.escapes().is_empty() {
+    let Some(options) = &detail.options else {
+        return ObservedFace::SigUnobservable;
+    };
+    if !options.escapes().is_empty() {
         return ObservedFace::SigUnobservable;
     }
     let (
@@ -533,7 +537,7 @@ pub fn observed_face_of(detail: &DpswDetail) -> ObservedFace {
     };
     ObservedFace::SigObserved(ObservableSig {
         num_ifs: num_ifs.get(),
-        options: detail.options.named().clone(),
+        options: options.named().clone(),
         max_vlans: max_vlans.get(),
         max_fdbs: max_fdbs.get(),
         max_fdb_entries: max_fdb_entries.get(),
@@ -870,10 +874,12 @@ mod tests {
             component_type: Some(cfg.component_type()),
             flooding_cfg: Some(cfg.flooding_cfg()),
             broadcast_cfg: Some(cfg.broadcast_cfg()),
-            options: cfg
-                .options()
-                .iter()
-                .fold(ObservedOpts::empty(), |opts, &flag| opts.with_named(flag)),
+            mem_size: None,
+            options: Some(
+                cfg.options()
+                    .iter()
+                    .fold(ObservedOpts::empty(), |opts, &flag| opts.with_named(flag)),
+            ),
             ifaces: BTreeMap::new(),
         }
     }
@@ -913,9 +919,14 @@ mod tests {
         // dpseci-hardening design D2: an attributed raw escape poisons the census face, yet the
         // detail still names the escape for display.
         let mut detail = observed_detail(&bindable());
-        detail.options = detail.options.with_escape(RawEscape::new(0x100));
+        let poisoned = detail
+            .options
+            .take()
+            .unwrap()
+            .with_escape(RawEscape::new(0x100));
+        assert!(poisoned.escapes().contains(&RawEscape::new(0x100)));
+        detail.options = Some(poisoned);
         assert_eq!(observed_face_of(&detail), ObservedFace::SigUnobservable);
-        assert!(detail.options.escapes().contains(&RawEscape::new(0x100)));
     }
 
     #[test]
@@ -923,6 +934,15 @@ mod tests {
         // DPSW-I7: any absent required sig line leaves the face unobservable, never defaulted.
         let mut detail = observed_detail(&bindable());
         detail.num_ifs = None;
+        assert_eq!(observed_face_of(&detail), ObservedFace::SigUnobservable);
+    }
+
+    #[test]
+    fn absent_options_line_is_unobservable() {
+        // mc-backend spec: a blanked option list is a typed decode escape — an absent options
+        // line (None) is never the empty set, so the face is unobservable (DPSW-I7).
+        let mut detail = observed_detail(&bindable());
+        detail.options = None;
         assert_eq!(observed_face_of(&detail), ObservedFace::SigUnobservable);
     }
 }
