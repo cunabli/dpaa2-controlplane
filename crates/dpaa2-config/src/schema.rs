@@ -318,6 +318,23 @@ construct_table! {
         /// The members, in declaration order — each names a port, tenant, or fabric.
         #[serde(default, deserialize_with = "name_vec")]
         pub members: Vec<ConstructName>,
+        /// The optional learnable MACs per switched domain (dpsw-typestate design D3).
+        /// Fallible, so it stays `i64`: [`crate::parse`] must name the offending fabric
+        /// when it is out of range; a `u16` type error would lose it.
+        #[serde(default)]
+        pub mac_table_size: Option<i64>,
+        /// Present only to reject the flooding config with a targeted, fabric-named error:
+        /// it is a bindability-law derivation output (dpsw-typestate design D3), never intent.
+        #[serde(default)]
+        pub flooding_cfg: Option<String>,
+        /// Present only to reject the broadcast config with a targeted, fabric-named error:
+        /// it is a bindability-law derivation output (dpsw-typestate design D3), never intent.
+        #[serde(default)]
+        pub broadcast_cfg: Option<String>,
+        /// Present only to reject the control-interface flag with a targeted, fabric-named
+        /// error: it is a bindability-law derivation output (dpsw-typestate design D3), never intent.
+        #[serde(default)]
+        pub ctrl_if: Option<bool>,
         /// An optional `renamed = { from = "<old>" }` declaring the fabric's prior
         /// name (ADR-0015 decision 10; task 6.3). Shares the port/link/fabric namespace.
         #[serde(default)]

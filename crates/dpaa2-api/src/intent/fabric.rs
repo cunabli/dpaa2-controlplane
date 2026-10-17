@@ -46,8 +46,8 @@ pub struct Fabric {
     /// `Fabric.macTableSize`): a [`Switching::Hardware`] fabric derives
     /// `max_fdb_entries` from it (the `derive` module `Fabric::dpsw`), `None` taking
     /// the family default. A [`Switching::Software`] fabric owns its own table, so a
-    /// `mac_table_size` on one is refused ([`crate::intent::refuse`]). The raw schema
-    /// field is dpsw-typestate task 2.3; this parse layer supplies `None`.
+    /// `mac_table_size` on one is refused ([`crate::intent::refuse`]). The northbound
+    /// schema now supplies it (dpsw-typestate task 2.3).
     pub mac_table_size: Option<u16>,
     /// An accepted `renamed = { from }` clause — the fabric's prior name, or `None`
     /// when absent (ADR-0015 decision 10 / task 6.5). For the rename matcher only;

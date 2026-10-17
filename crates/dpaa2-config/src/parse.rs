@@ -445,6 +445,18 @@ fn convert_priority(tenant: &TenantName, raw: i64) -> Result<DpconPriority, Erro
         })
 }
 
+/// Converts the optional `mac_table_size` knob into the neutral `u16`. The northbound
+/// schema bound owns the `NonZero` law (dpsw-typestate design D3), so zero is refused here;
+/// `u16::MAX` caps it because the neutral field is `u16`. Any refusal names the fabric, the
+/// key, the raw value, and the accepted range — the [`convert_priority`] idiom.
+fn convert_mac_table_size(fabric: &ConstructName, raw: i64) -> Result<u16, Error> {
+    u16::try_from(raw).ok().filter(|&v| v >= 1).ok_or_else(|| {
+        cfg(format!(
+            "fabric `{fabric}` `mac_table_size` {raw} is outside the accepted range 1..=65535"
+        ))
+    })
+}
+
 /// Rejects any derived count field named on a construct with a targeted message
 /// (topology-config spec: "A count field is rejected" — every construct table, not just
 /// the tenant). `subject` names the offending construct (e.g. ``tenant `router` ``);
@@ -565,6 +577,20 @@ fn convert_fabric(
 ) -> Result<Fabric, Error> {
     let name = name.clone();
     reject_counts(&format!("fabric `{name}`"), counts_of!(f))?;
+    // The flooding/broadcast configs and the control-interface flag are bindability-law
+    // derivation outputs (dpsw-typestate design D3), never intent; refuse any that is set,
+    // naming the fabric and the key (mirrors `reject_counts`).
+    for (field, set) in [
+        ("flooding_cfg", f.flooding_cfg.is_some()),
+        ("broadcast_cfg", f.broadcast_cfg.is_some()),
+        ("ctrl_if", f.ctrl_if.is_some()),
+    ] {
+        if set {
+            return Err(cfg(format!(
+                "fabric `{name}` sets `{field}`, but that is derived from the intent, never declared"
+            )));
+        }
+    }
     let forwarded_by = f.forwarded_by.clone();
     // `compile` also refuses this (`TenantAbsent`); the config duplicates the check
     // deliberately — a dedup would silently break raw-conformance.
@@ -582,15 +608,18 @@ fn convert_fabric(
         .iter()
         .map(|m| classify_member(&name, m, tenants, ports, fabrics))
         .collect::<Result<Vec<_>, _>>()?;
+    // The range authority stays in the schema bound (dpsw-typestate design D3); `None`
+    // takes the family default at cooking (intent_raw.qnt).
+    let mac_table_size = f
+        .mac_table_size
+        .map(|v| convert_mac_table_size(&name, v))
+        .transpose()?;
     Ok(Fabric {
         name,
         switching,
         forwarded_by,
         members,
-        // The raw schema `mac_table_size` field is dpsw-typestate task 2.3, out of
-        // scope at this parse layer; the cooked fabric defaults to the family 1024
-        // (intent_raw.qnt cooking).
-        mac_table_size: None,
+        mac_table_size,
         renamed: f.renamed.as_ref().map(|r| r.from.clone()),
     })
 }
@@ -1606,6 +1635,65 @@ mod tests {
         // An omitted knob parses to today's behavior exactly: no priority on the tenant.
         let intent = parse(PRIORITY_TENANT);
         assert_eq!(intent.tenants[0].priority, None);
+    }
+
+    // ---- Requirement: the switched-domain MAC-table sizing knob (dpsw-typestate task 2.3) ----
+
+    const SIZED_FABRIC: &str = r#"
+        [tenant.router]
+        dataplane = "userspace-poll"
+        max_cores = 16
+
+        [port.lan0]
+        dpmac = "dpmac.7"
+        rate = 10000
+
+        [fabric.lan]
+        switching = "hardware"
+        forwarded_by = "router"
+        members = ["lan0", "router"]
+    "#;
+
+    #[test]
+    fn scenario_mac_table_size_parses_and_rides_the_neutral_fabric() {
+        let intent = parse(&format!("{SIZED_FABRIC}mac_table_size = 64\n"));
+        let fabric = &intent.fabrics[0];
+        assert_eq!(fabric.name.as_str(), "lan");
+        assert_eq!(fabric.forwarded_by, "router".into());
+        assert_eq!(
+            fabric.members,
+            [Member::Port("lan0".into()), Member::Tenant("router".into())]
+        );
+        assert_eq!(fabric.mac_table_size, Some(64));
+    }
+
+    #[test]
+    fn scenario_omitted_mac_table_size_is_none() {
+        // An omitted knob parses to today's behavior exactly: no sizing on the fabric.
+        let intent = parse(SIZED_FABRIC);
+        assert_eq!(intent.fabrics[0].mac_table_size, None);
+    }
+
+    #[test]
+    fn scenario_out_of_range_mac_table_size_is_refused() {
+        for value in ["0", "-1", "65536"] {
+            let err = parse_err(&format!("{SIZED_FABRIC}mac_table_size = {value}\n"));
+            assert!(err.contains("lan"), "names the fabric: {err}");
+            assert!(err.contains("mac_table_size"), "names the key: {err}");
+        }
+    }
+
+    #[test]
+    fn scenario_derived_fabric_fields_are_refused() {
+        for (toml, key) in [
+            (r#"flooding_cfg = "per_fdb""#, "flooding_cfg"),
+            (r#"broadcast_cfg = "per_fdb""#, "broadcast_cfg"),
+            ("ctrl_if = false", "ctrl_if"),
+        ] {
+            let err = parse_err(&format!("{SIZED_FABRIC}{toml}\n"));
+            assert!(err.contains("lan"), "names the fabric: {err}");
+            assert!(err.contains(key), "names the field: {err}");
+        }
     }
 
     // ---- Requirement: link tables carry no attributes ----

@@ -34,7 +34,7 @@
 - [x] 2.2 Add the typed regime refusal (design D4: non-kernel steering
       refused at compile) and the derivation invariants run. Verify:
       refusal unit test + invariant suite green.
-- [ ] 2.3 Parse the construct in `dpaa2-config` (topology-config delta:
+- [x] 2.3 Parse the construct in `dpaa2-config` (topology-config delta:
       name-keyed, linted enums, forced fields absent from the schema).
       Verify: round-trip parse test; forced-field refusal test.
 
