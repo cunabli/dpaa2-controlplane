@@ -40,7 +40,7 @@
 
 ## 3. Reconciler core (isomorphic Rust)
 
-- [ ] 3.1 Add `crates/dpaa2-api/src/families/dpsw.rs` structurally
+- [x] 3.1 Add `crates/dpaa2-api/src/families/dpsw.rs` structurally
       isomorphic to the model: constructor-gated create block (design
       D2), lifecycle typestates, census judgment. Verify: unit tests
       mirror the model laws; an unbindable cfg does not compile or is

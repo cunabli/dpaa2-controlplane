@@ -11,4 +11,5 @@ pub mod dpmac;
 pub mod dpni;
 pub mod dprc;
 pub mod dpseci;
+pub mod dpsw;
 pub mod pool_lifecycle;

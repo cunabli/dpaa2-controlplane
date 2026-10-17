@@ -14,6 +14,7 @@
 pub mod connect;
 pub mod dprc;
 pub mod dpseci;
+pub mod dpsw;
 pub mod matcher;
 pub mod pool;
 pub mod populate;
