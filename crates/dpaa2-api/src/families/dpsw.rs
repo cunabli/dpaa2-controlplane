@@ -540,6 +540,77 @@ impl DpswCfg {
     }
 }
 
+// ---- the observed-options read-back carrier (dpsw-typestate task 3.3; design D6) ----
+
+/// The raw-mask escape — a provenance-carrying attribution of an unnamed option bit, **not**
+/// a backdoor (dpseci-hardening design D1 precedent; dpseci `RawEscape` idiom). `dpsw info`
+/// blanks its whole decoded option list on an unknown bit (`docs/baseline/dpsw.md` "Command
+/// surface"); when the portal decode recovers that bit, it rides here attributed, display-only,
+/// never merged into the named [`DpswOpt`] flags. dpsw-local: the dpseci twin is
+/// `dpseci.qnt`-anchored, so the families stay isomorphic, not shared (dpsw-typestate design D6).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct RawEscape(u32);
+
+impl RawEscape {
+    /// Builds an escape carrying the raw mask bit — the only path a raw bit reaches the mask,
+    /// so an unknown firmware bit stays attributed, distinct from the named vocabulary.
+    #[must_use]
+    pub const fn new(bits: u32) -> Self {
+        Self(bits)
+    }
+
+    /// The raw mask bit this escape carries.
+    #[must_use]
+    pub const fn raw_value(self) -> u32 {
+        self.0
+    }
+}
+
+/// The observed options of a read-back dpsw — the named MC flags plus any unnamed bit
+/// attributed as a [`RawEscape`] (dpseci `OptionMask` idiom; dpseci-hardening design D1). The
+/// two halves are distinct: a named flag is a judgeable [`DpswOpt`], an escape is display-only
+/// evidence of an unnameable bit that poisons the census face (dpseci-hardening design D2;
+/// [`crate::plan::dpsw::observed_face_of`]). Built additively from [`ObservedOpts::empty`].
+#[derive(Debug, Clone, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct ObservedOpts {
+    named: BTreeSet<DpswOpt>,
+    escapes: BTreeSet<RawEscape>,
+}
+
+impl ObservedOpts {
+    /// The empty observation — no option bit decoded.
+    #[must_use]
+    pub fn empty() -> Self {
+        Self::default()
+    }
+
+    /// Adds a named MC flag (builder form). Idempotent — the set holds each flag once.
+    #[must_use]
+    pub fn with_named(mut self, flag: DpswOpt) -> Self {
+        self.named.insert(flag);
+        self
+    }
+
+    /// Adds a provenance-carrying raw escape (builder form). The only path a raw bit enters.
+    #[must_use]
+    pub fn with_escape(mut self, escape: RawEscape) -> Self {
+        self.escapes.insert(escape);
+        self
+    }
+
+    /// The named flags this observation carries.
+    #[must_use]
+    pub fn named(&self) -> &BTreeSet<DpswOpt> {
+        &self.named
+    }
+
+    /// The raw escapes this observation carries.
+    #[must_use]
+    pub fn escapes(&self) -> &BTreeSet<RawEscape> {
+        &self.escapes
+    }
+}
+
 // ---- the P1 phase machine types (dpsw-typestate design D2; `dpsw.qnt` `SwitchPhase` /
 //      `SwitchData`) ----
 

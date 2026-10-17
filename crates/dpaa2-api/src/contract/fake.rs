@@ -14,7 +14,7 @@ use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::collections::HashSet;
 
-use crate::contract::{DpseciDetail, DpseciPortalReadout, KernelControl, McControl};
+use crate::contract::{DpseciDetail, DpseciPortalReadout, DpswDetail, KernelControl, McControl};
 use crate::core::error::Error;
 use crate::core::family::Family;
 use crate::core::inventory::Inventory;
@@ -30,6 +30,9 @@ use crate::families::dpmac::{
 use crate::families::dpni::{DpniCfg, DpniObservation, LinkState, NumQueues};
 use crate::families::dprc::ContainerState;
 use crate::families::dpseci::DpseciCfg;
+use crate::families::dpsw::{
+    DpswCfg, FdbAgingTime, MaxFdbEntries, MaxFdbMcGroups, MaxFdbs, MaxVlans, NumIfs, ObservedOpts,
+};
 use crate::families::pool_lifecycle::{ObservedPoolObject, RawDriver, RawLabel};
 use crate::intent::compiled::Container;
 use crate::plan::dprc::ObservedContainer;
@@ -54,6 +57,29 @@ fn dpseci_detail_of(cfg: &DpseciCfg) -> DpseciDetail {
             api_major: 5,
             api_minor: 4,
         },
+    }
+}
+
+/// The read-back detail a freshly-created dpsw reads back (dpsw-typestate task 3.3): every
+/// observable-signature line present verbatim and the named options decoded, so the census
+/// judges the created object's true signature on the next pass. The per-interface faces are
+/// empty — connection faces are not part of the census signature.
+fn dpsw_detail_of(cfg: &DpswCfg) -> DpswDetail {
+    DpswDetail {
+        num_ifs: NumIfs::new(cfg.num_ifs()).ok(),
+        max_vlans: MaxVlans::new(cfg.max_vlans()).ok(),
+        max_fdbs: MaxFdbs::new(cfg.max_fdbs()).ok(),
+        max_fdb_entries: MaxFdbEntries::new(cfg.max_fdb_entries()).ok(),
+        fdb_aging_time: FdbAgingTime::new(cfg.fdb_aging_time()).ok(),
+        max_fdb_mc_groups: MaxFdbMcGroups::new(cfg.max_fdb_mc_groups()).ok(),
+        component_type: Some(cfg.component_type()),
+        flooding_cfg: Some(cfg.flooding_cfg()),
+        broadcast_cfg: Some(cfg.broadcast_cfg()),
+        options: cfg
+            .options()
+            .iter()
+            .fold(ObservedOpts::empty(), |opts, &flag| opts.with_named(flag)),
+        ifaces: BTreeMap::new(),
     }
 }
 
@@ -139,6 +165,11 @@ struct FakeState {
     /// unknown-object arm; the detail carries its own portal readout so a test scripts the
     /// Observed and the honest-unknown faces alike.
     dpseci_details: HashMap<ObjectRef, DpseciDetail>,
+    /// Scripted dpsw detail per object, answered by [`McControl::observe_dpsw`] (the
+    /// dpsw-typestate task 3.3 census seam). Absent ⇒ a backend error, mirroring the dpseci arm;
+    /// the detail carries its own optional sig lines and options, so a test scripts the observed
+    /// and honest-unknown faces alike.
+    dpsw_details: HashMap<ObjectRef, DpswDetail>,
 }
 
 /// In-memory fake implementing both southbound ports over a shared state.
@@ -173,6 +204,7 @@ impl FakeBackend {
                 carriers: HashMap::new(),
                 counters: HashMap::new(),
                 dpseci_details: HashMap::new(),
+                dpsw_details: HashMap::new(),
             }),
         }
     }
@@ -415,6 +447,48 @@ impl FakeBackend {
                 },
             ));
             st.dpseci_details.insert(object, detail);
+        }
+        self
+    }
+
+    /// Scripts the detail [`McControl::observe_dpsw`] reads back for one dpsw object, so a census
+    /// test drives the observed and honest-unknown faces with no `/dev` node (dpsw-typestate task
+    /// 3.3). An unscripted object reads a backend error, the fake's unknown-object arm.
+    #[must_use]
+    pub fn with_dpsw_detail(self, dpsw: ObjectRef, detail: DpswDetail) -> Self {
+        self.state.borrow_mut().dpsw_details.insert(dpsw, detail);
+        self
+    }
+
+    /// Seeds a dpsw row and its scripted detail into `container` in one call, as if a prior run
+    /// or bare restool had left it — the fixture the dpsw-typestate task 3.3 census convergence
+    /// judges. The row is plugged and stamped `label`; `detail` carries its own optional sig
+    /// lines and options, so a test seeds a matching signature, a mismatching one, or the
+    /// honest-unknown face the census reads as [`crate::plan::dpsw::ObservedFace::SigUnobservable`].
+    /// The ordinal advances the next-pool counter so a later create never collides.
+    #[must_use]
+    pub fn with_dpsw_object(
+        self,
+        container: DprcId,
+        object: ObjectRef,
+        label: &ConstructName,
+        detail: DpswDetail,
+    ) -> Self {
+        {
+            let mut st = self.state.borrow_mut();
+            if object.ordinal() >= st.next_pool {
+                st.next_pool = object.ordinal() + 1;
+            }
+            st.pool_objects.push((
+                container,
+                ObservedPoolObject {
+                    object,
+                    label: RawLabel::from(label.as_str()),
+                    plugged: true,
+                    drawn: false,
+                },
+            ));
+            st.dpsw_details.insert(object, detail);
         }
         self
     }
@@ -918,6 +992,43 @@ impl McControl for FakeBackend {
         st.audit.push(format!("destroy:{dpseci}"));
         st.pool_objects.retain(|(_, o)| &o.object != dpseci);
         st.dpseci_details.remove(dpseci);
+        Ok(())
+    }
+
+    // Scripted per object; an unscripted dpsw is a backend error, the dpseci observe arm
+    // (dpsw-typestate task 3.3). The scripted detail carries its own sig lines and options, so a
+    // test feeds the observed and honest-unknown faces alike.
+    fn observe_dpsw(&self, _container: DprcId, dpsw: ObjectRef) -> Result<DpswDetail, Error> {
+        self.state
+            .borrow()
+            .dpsw_details
+            .get(&dpsw)
+            .cloned()
+            .ok_or_else(|| Error::Backend(format!("fake: no dpsw {dpsw}")))
+    }
+
+    // A created dpsw is a plugged, stamped pool row plus a recorded detail synthesized from the
+    // cfg, so the census converges on a second pass (dpsw-typestate task 3.3).
+    fn create_dpsw_in(
+        &self,
+        container: Option<DprcId>,
+        cfg: &DpswCfg,
+        label: &ConstructName,
+    ) -> Result<ObjectRef, Error> {
+        let object = self.push_pool_object(container, Family::Dpsw, label);
+        self.state
+            .borrow_mut()
+            .dpsw_details
+            .insert(object, dpsw_detail_of(cfg));
+        Ok(object)
+    }
+
+    // Removes the object from the pool rows and detail map, auditing like the dpseci destroy (dpsw-typestate task 3.3).
+    fn destroy_dpsw(&self, _container: Option<DprcId>, dpsw: &ObjectRef) -> Result<(), Error> {
+        let mut st = self.state.borrow_mut();
+        st.audit.push(format!("destroy:{dpsw}"));
+        st.pool_objects.retain(|(_, o)| &o.object != dpsw);
+        st.dpsw_details.remove(dpsw);
         Ok(())
     }
 

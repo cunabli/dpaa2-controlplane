@@ -11,7 +11,7 @@ use std::collections::BTreeMap;
 use std::io;
 use std::path::Path;
 
-use dpaa2_api::contract::{DpseciDetail, DpseciPortalReadout, McControl};
+use dpaa2_api::contract::{DpseciDetail, DpseciPortalReadout, DpswDetail, McControl};
 use dpaa2_api::core::error::Error;
 use dpaa2_api::core::family::{DERIVED_FAMILIES, Family};
 use dpaa2_api::core::inventory::{Availability, Ceiling, DpmacOffer, Inventory};
@@ -27,6 +27,7 @@ use dpaa2_api::families::dpni::{
 };
 use dpaa2_api::families::dprc;
 use dpaa2_api::families::dpseci::{self, DpseciCfg};
+use dpaa2_api::families::dpsw::DpswCfg;
 use dpaa2_api::families::pool_lifecycle::{ObservedPoolObject, RawLabel};
 use dpaa2_api::intent::compiled::Container;
 use dpaa2_api::plan::dprc as dprc_plan;
@@ -1387,6 +1388,38 @@ impl<R: Runner> McControl for RestoolMc<R> {
             )));
         }
         Ok(())
+    }
+
+    // dpsw-typestate task 4.2 replaces this loud stub with the real `dpsw info` read. The
+    // McControl verb surface is closed (the #10 mc-portal-backend differential campaign asserts
+    // every verb), so the verb lives here named, never a silent trait default — until the shim
+    // lands, an invocation is a named `Error::Backend` gap.
+    fn observe_dpsw(&self, _container: DprcId, dpsw: ObjectRef) -> Result<DpswDetail, Error> {
+        Err(Error::Backend(format!(
+            "observe_dpsw is not wired until the dpsw-typestate task 4.2 shim lands ({dpsw})"
+        )))
+    }
+
+    // dpsw-typestate task 4.1 replaces this loud stub with the verbatim create render (the
+    // `cfg_from_attributes` block); the gap is named, never a silent skip.
+    fn create_dpsw_in(
+        &self,
+        _container: Option<DprcId>,
+        _cfg: &DpswCfg,
+        label: &ConstructName,
+    ) -> Result<ObjectRef, Error> {
+        Err(Error::Backend(format!(
+            "create_dpsw_in is not wired until the dpsw-typestate task 4.1 shim lands ({})",
+            label.as_str()
+        )))
+    }
+
+    // dpsw-typestate task 4.1 replaces this loud stub with the re-observation-confirmed destroy
+    // (`docs/baseline/dpsw.md` "Silent-failure notes"); the gap is named, never a silent skip.
+    fn destroy_dpsw(&self, _container: Option<DprcId>, dpsw: &ObjectRef) -> Result<(), Error> {
+        Err(Error::Backend(format!(
+            "destroy_dpsw is not wired until the dpsw-typestate task 4.1 shim lands ({dpsw})"
+        )))
     }
 
     fn observe_pool(

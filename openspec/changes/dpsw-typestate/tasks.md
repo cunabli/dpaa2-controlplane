@@ -50,7 +50,7 @@
       classing, the two edge-kind rows in `dpaa2-api::plan` (reconciler
       delta). Verify: plan unit tests incl. companion-starvation and
       port-overflow refusals.
-- [ ] 3.3 Wire read-back-only convergence (design D6): typed
+- [x] 3.3 Wire read-back-only convergence (design D6): typed
       honest-unknown observation faces feed the census; exit codes
       never judge. Verify: silent-destroy-failure and
       blanked-connection-line unit tests.

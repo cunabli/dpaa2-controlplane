@@ -13,6 +13,7 @@ use std::cell::Cell;
 use std::collections::BTreeMap;
 
 use dpaa2_api::contract::DpseciDetail;
+use dpaa2_api::contract::DpswDetail;
 use dpaa2_api::contract::McControl;
 use dpaa2_api::contract::fake::FakeBackend;
 use dpaa2_api::core::error::Error;
@@ -25,6 +26,7 @@ use dpaa2_api::families::dpmac::DpmacObservation;
 use dpaa2_api::families::dpni::{DpniCfg, LinkState};
 use dpaa2_api::families::dprc;
 use dpaa2_api::families::dpseci::DpseciCfg;
+use dpaa2_api::families::dpsw::DpswCfg;
 use dpaa2_api::families::pool_lifecycle::ObservedPoolObject;
 use dpaa2_api::intent::refuse::{Compiled, compile};
 use dpaa2_api::intent::{Dataplane, Intent, Isolation, Link, Tenant, TenantRef, kernel_tenant};
@@ -236,6 +238,20 @@ impl McControl for SpawnCounter {
     }
     fn destroy_dpseci(&self, container: Option<DprcId>, dpseci: &ObjectRef) -> Result<(), Error> {
         self.inner.destroy_dpseci(container, dpseci)
+    }
+    fn observe_dpsw(&self, container: DprcId, dpsw: ObjectRef) -> Result<DpswDetail, Error> {
+        self.inner.observe_dpsw(container, dpsw)
+    }
+    fn create_dpsw_in(
+        &self,
+        container: Option<DprcId>,
+        cfg: &DpswCfg,
+        label: &ConstructName,
+    ) -> Result<ObjectRef, Error> {
+        self.inner.create_dpsw_in(container, cfg, label)
+    }
+    fn destroy_dpsw(&self, container: Option<DprcId>, dpsw: &ObjectRef) -> Result<(), Error> {
+        self.inner.destroy_dpsw(container, dpsw)
     }
 }
 

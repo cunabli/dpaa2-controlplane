@@ -13,6 +13,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
+use crate::contract::{DpswDetail, DpswIfFace};
 use crate::core::error::Error;
 use crate::core::family::Family;
 use crate::core::model::{DpmacId, DpniId, ObjectRef};
@@ -491,6 +492,73 @@ pub fn plan_interposition(
     }
 }
 
+// ---- the read-back projection into the census face (dpsw-typestate task 3.3; design D6) ----
+
+/// Projects one dpsw's read-back [`DpswDetail`] to its census face (dpsw-typestate design D6;
+/// [`ObservedFace`]). Any attributed raw escape makes the face [`ObservedFace::SigUnobservable`]:
+/// an escape is nameable evidence of an *unnameable* option bit, so folding it into the signature
+/// would make the read-back differ from every planned cfg and drive a destroy+create loop — the
+/// dpseci-hardening design D2 rationale, kept verbatim. Any absent required sig line is likewise
+/// [`ObservedFace::SigUnobservable`] (absence of evidence is never drift, DPSW-I7). Only an
+/// all-present, escape-free detail yields [`ObservedFace::SigObserved`] from the named options and
+/// the decoded fields.
+#[must_use]
+pub fn observed_face_of(detail: &DpswDetail) -> ObservedFace {
+    if !detail.options.escapes().is_empty() {
+        return ObservedFace::SigUnobservable;
+    }
+    let (
+        Some(num_ifs),
+        Some(max_vlans),
+        Some(max_fdbs),
+        Some(max_fdb_entries),
+        Some(fdb_aging_time),
+        Some(max_fdb_mc_groups),
+        Some(component_type),
+        Some(flooding_cfg),
+        Some(broadcast_cfg),
+    ) = (
+        detail.num_ifs,
+        detail.max_vlans,
+        detail.max_fdbs,
+        detail.max_fdb_entries,
+        detail.fdb_aging_time,
+        detail.max_fdb_mc_groups,
+        detail.component_type,
+        detail.flooding_cfg,
+        detail.broadcast_cfg,
+    )
+    else {
+        return ObservedFace::SigUnobservable;
+    };
+    ObservedFace::SigObserved(ObservableSig {
+        num_ifs: num_ifs.get(),
+        options: detail.options.named().clone(),
+        max_vlans: max_vlans.get(),
+        max_fdbs: max_fdbs.get(),
+        max_fdb_entries: max_fdb_entries.get(),
+        fdb_aging_time: fdb_aging_time.get(),
+        max_fdb_mc_groups: max_fdb_mc_groups.get(),
+        component_type,
+        flooding_cfg,
+        broadcast_cfg,
+    })
+}
+
+/// Whether a switch port reads back unconnected (dpsw-typestate design D6; reconciler spec "A
+/// blanked connection line is not freedom"). An [`DpswIfFace::Unobservable`] port judges nothing
+/// (`None`) — no plan treats a blanked `connection:` line as unconnected, the `has_endpoint`
+/// misread (DPSW-I7); a connected port is `Some(false)`, an explicitly disconnected port
+/// `Some(true)`.
+#[must_use]
+pub fn port_unconnected(face: &DpswIfFace) -> Option<bool> {
+    match face {
+        DpswIfFace::Unobservable => None,
+        DpswIfFace::Connected(_) => Some(false),
+        DpswIfFace::Disconnected => Some(true),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeSet;
@@ -498,6 +566,7 @@ mod tests {
     use super::*;
     use crate::families::dpsw::{
         DpswCreate, FdbAgingTime, MaxFdbEntries, MaxFdbMcGroups, MaxFdbs, MaxVlans, NumIfs,
+        ObservedOpts, RawEscape,
     };
 
     /// The bindable 2-port shape (`dpsw.qnt` `BINDABLE_CFG`), with `mem_size`/
@@ -784,5 +853,76 @@ mod tests {
         ));
         // The sever minted the dpmac edge law's proof, bound to the severed dpni.
         assert_eq!(plan.proof.dpni(), dpni);
+    }
+
+    // ---- read-back-only convergence and honest-unknown faces (dpsw-typestate task 3.3; design D6) ----
+
+    /// A fully-observed detail synthesized from a cfg — every sig line present, no escape, no
+    /// per-interface faces (faces are not part of the signature).
+    fn observed_detail(cfg: &DpswCfg) -> DpswDetail {
+        DpswDetail {
+            num_ifs: NumIfs::new(cfg.num_ifs()).ok(),
+            max_vlans: MaxVlans::new(cfg.max_vlans()).ok(),
+            max_fdbs: MaxFdbs::new(cfg.max_fdbs()).ok(),
+            max_fdb_entries: MaxFdbEntries::new(cfg.max_fdb_entries()).ok(),
+            fdb_aging_time: FdbAgingTime::new(cfg.fdb_aging_time()).ok(),
+            max_fdb_mc_groups: MaxFdbMcGroups::new(cfg.max_fdb_mc_groups()).ok(),
+            component_type: Some(cfg.component_type()),
+            flooding_cfg: Some(cfg.flooding_cfg()),
+            broadcast_cfg: Some(cfg.broadcast_cfg()),
+            options: cfg
+                .options()
+                .iter()
+                .fold(ObservedOpts::empty(), |opts, &flag| opts.with_named(flag)),
+            ifaces: BTreeMap::new(),
+        }
+    }
+
+    #[test]
+    fn silent_destroy_failure_does_not_converge() {
+        // reconciler spec "A silent destroy failure does not converge" (DPSW-I7): the plan omits
+        // the victim, but its read-back face still carries the survivor's observed sig, so the
+        // census judges a destroy residue, never success.
+        let survivor = observed_face_of(&observed_detail(&bindable()));
+        let planned: Vec<ObservableSig> = Vec::new();
+        match judge_census(&planned, &[survivor]) {
+            FamilyJudgment::JudgesNothing => panic!("an all-observed census must judge a delta"),
+            FamilyJudgment::Judges(d) => {
+                assert!(!d.is_empty(), "a surviving object is not converged");
+                assert_eq!(d.destroys.get(&sig_bindable()), Some(&1));
+            }
+        }
+    }
+
+    #[test]
+    fn blanked_connection_line_is_not_freedom() {
+        // reconciler spec "A blanked connection line is not freedom": a blanked connection line
+        // is Unobservable, so port_unconnected judges nothing, never Some(true) (the has_endpoint
+        // misread, DPSW-I7).
+        assert_eq!(port_unconnected(&DpswIfFace::Unobservable), None);
+        assert_ne!(port_unconnected(&DpswIfFace::Unobservable), Some(true));
+        assert_eq!(
+            port_unconnected(&DpswIfFace::Connected(oref(Family::Dpni, 7))),
+            Some(false)
+        );
+        assert_eq!(port_unconnected(&DpswIfFace::Disconnected), Some(true));
+    }
+
+    #[test]
+    fn escape_poisons_the_face_display_only() {
+        // dpseci-hardening design D2: an attributed raw escape poisons the census face, yet the
+        // detail still names the escape for display.
+        let mut detail = observed_detail(&bindable());
+        detail.options = detail.options.with_escape(RawEscape::new(0x100));
+        assert_eq!(observed_face_of(&detail), ObservedFace::SigUnobservable);
+        assert!(detail.options.escapes().contains(&RawEscape::new(0x100)));
+    }
+
+    #[test]
+    fn missing_sig_line_is_unobservable() {
+        // DPSW-I7: any absent required sig line leaves the face unobservable, never defaulted.
+        let mut detail = observed_detail(&bindable());
+        detail.num_ifs = None;
+        assert_eq!(observed_face_of(&detail), ObservedFace::SigUnobservable);
     }
 }

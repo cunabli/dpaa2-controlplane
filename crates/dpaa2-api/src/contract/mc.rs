@@ -10,6 +10,10 @@ use crate::families::dpmac::DpmacObservation;
 use crate::families::dpni::{DpniCfg, LinkState};
 use crate::families::dprc;
 use crate::families::dpseci::{DpseciCfg, OptionMask};
+use crate::families::dpsw::{
+    BroadcastCfg, ComponentType, DpswCfg, FdbAgingTime, FloodingCfg, MaxFdbEntries, MaxFdbMcGroups,
+    MaxFdbs, MaxVlans, NumIfs, ObservedOpts,
+};
 use crate::families::pool_lifecycle::ObservedPoolObject;
 use crate::plan::dprc::ObservedContainer;
 
@@ -59,6 +63,66 @@ pub enum DpseciPortalReadout {
         /// Why the read could not run (device missing / permission denied).
         reason: String,
     },
+}
+
+/// One switch interface's connection face, read back from the `dpsw info` per-interface
+/// block (dpsw-typestate design D6; `docs/baseline/dpsw.md` "Command surface"). The three
+/// faces are kept distinct because a missing `connection:` line is **not** a free port: an
+/// endpoint of unexpected type with `if_id != 0` prints no `connection:` line at all, which
+/// ls-main's `has_endpoint` misreads as free (`docs/baseline/dpsw.md` "Silent-failure notes").
+/// That blanked line is [`Unobservable`](Self::Unobservable), never
+/// [`Disconnected`](Self::Disconnected) — no plan judges an unobservable port unconnected
+/// (DPSW-I7; reconciler spec "A blanked connection line is not freedom").
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DpswIfFace {
+    /// The port faces a named endpoint (a member dpni or an uplink dpmac).
+    Connected(ObjectRef),
+    /// The port read back an explicit no-endpoint face — genuinely unconnected.
+    Disconnected,
+    /// The `connection:` line was absent or blanked; the face cannot be judged this run.
+    Unobservable,
+}
+
+/// The witnessable detail of one dpsw object, assembled from `dpsw info` (dpsw-typestate
+/// task 4.2) and projected to the observable-signature face the dpsw-typestate task 3.3 census
+/// judges ([`crate::plan::dpsw::observed_face_of`]). This type is pure read-back; mutation
+/// rides the [`McControl::create_dpsw_in`]/[`McControl::destroy_dpsw`] verbs, never a field
+/// here.
+///
+/// Each observable-signature attribute line is honestly optional — `None` when `info` omitted
+/// it, so a missing line is an honest unknown the projection reads as unobservable, never a
+/// defaulted value (DPSW-I7; dpsw-typestate design D6). The observed options carry the named
+/// MC flags plus any unnamed bit attributed as a display-only raw escape (the
+/// dpseci-hardening design D1/D2 precedent). The two unobservable create fields (`mem_size`,
+/// `max_meters_per_if`) have no `info` line and so are absent by construction
+/// (`docs/baseline/dpsw.md` "Command surface").
+///
+/// The dpsw-typestate task 4.2 parse extends the per-interface block (link, taildrop, max frame
+/// length, counters) when it lands; only the connection face is carried now.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DpswDetail {
+    /// `num_ifs:` — the immutable port count, `None` when the line was absent.
+    pub num_ifs: Option<NumIfs>,
+    /// `max_vlans:`, `None` when the line was absent.
+    pub max_vlans: Option<MaxVlans>,
+    /// `max_fdbs:`, `None` when the line was absent.
+    pub max_fdbs: Option<MaxFdbs>,
+    /// `max_fdb_entries:`, `None` when the line was absent.
+    pub max_fdb_entries: Option<MaxFdbEntries>,
+    /// `fdb_aging_time:`, `None` when the line was absent.
+    pub fdb_aging_time: Option<FdbAgingTime>,
+    /// `max_fdb_mc_groups:`, `None` when the line was absent.
+    pub max_fdb_mc_groups: Option<MaxFdbMcGroups>,
+    /// `component_type:`, `None` when the line was absent.
+    pub component_type: Option<ComponentType>,
+    /// `flooding_cfg:`, `None` when the line was absent.
+    pub flooding_cfg: Option<FloodingCfg>,
+    /// `broadcast_cfg:`, `None` when the line was absent.
+    pub broadcast_cfg: Option<BroadcastCfg>,
+    /// The decoded options — named flags plus any attributed raw escape, display-only.
+    pub options: ObservedOpts,
+    /// The per-interface connection faces, keyed by interface index.
+    pub ifaces: BTreeMap<u32, DpswIfFace>,
 }
 
 /// Southbound MC-portal control at MC-command granularity.
@@ -480,6 +544,52 @@ pub trait McControl {
     /// Returns [`Error::McStatus`]/[`Error::RestoolGuard`] on a refusal, or [`Error::Backend`]
     /// when the object is still present after a success-reported destroy.
     fn destroy_dpseci(&self, container: Option<DprcId>, dpseci: &ObjectRef) -> Result<(), Error>;
+
+    // ---- dpsw census verbs (dpsw-typestate task 3.3; design D6) ----
+    // Distinct verbs: destroy re-observes presence to confirm it, mirroring destroy_dpseci.
+
+    /// Reads one dpsw object's witnessable detail from a single `dpsw info` spawn — the
+    /// observed half of the census seam (dpsw-typestate task 3.3): its signature feeds
+    /// [`create_dpsw_in`](Self::create_dpsw_in)/[`destroy_dpsw`](Self::destroy_dpsw) through the
+    /// pure census judgment ([`crate::plan::dpsw::observed_face_of`]), mirroring
+    /// [`observe_dpmac`](Self::observe_dpmac)'s report-only shape. `dpsw` names the object for
+    /// the `info` spawn; `container` names the container the census is scoped to. Portal/info
+    /// unavailability is the typed honest-unknown face in the [`DpswDetail`], never an error,
+    /// exactly as [`observe_dpseci`](Self::observe_dpseci) treats it (dpsw-typestate design D6).
+    ///
+    /// # Errors
+    /// Returns [`Error::McStatus`]/[`Error::RestoolGuard`] on a refusal of the `info` spawn, or
+    /// [`Error::Backend`] on a dead spawn; a missing line is the typed unobservable face, not an
+    /// error.
+    fn observe_dpsw(&self, container: DprcId, dpsw: ObjectRef) -> Result<DpswDetail, Error>;
+
+    /// Creates one dpsw in `container` (`None` ⇒ the shim root), stamped `label` and plugged,
+    /// rendering the typed [`DpswCfg`] verbatim — the compiled block the plan carries, never
+    /// re-derived; the dpsw-typestate task 4.1 render must emit exactly what
+    /// [`crate::plan::dpsw::cfg_from_attributes`] built (dpsw-typestate design D6). The create
+    /// fills one planned-signature surplus the census resolved (the multiset judgment of
+    /// dpsw-typestate design D6).
+    ///
+    /// # Errors
+    /// Returns [`Error::McStatus`]/[`Error::RestoolGuard`] on a refusal, [`Error::Backend`] on a
+    /// dead spawn, or [`Error::Parse`] when the created id cannot be read back.
+    fn create_dpsw_in(
+        &self,
+        container: Option<DprcId>,
+        cfg: &DpswCfg,
+        label: &ConstructName,
+    ) -> Result<ObjectRef, Error>;
+
+    /// Destroys one dpsw in `container`, confirming destruction by re-observing presence, never
+    /// the exit code: `dpsw destroy` in a child container overwrites the destroy error with
+    /// `dprc_close`'s result and exits 0 while the object survives (`docs/baseline/dpsw.md`
+    /// "Silent-failure notes"; DPSW-I7). The destroy drains one observed-signature surplus the
+    /// census resolved (the multiset judgment of dpsw-typestate design D6).
+    ///
+    /// # Errors
+    /// Returns [`Error::McStatus`]/[`Error::RestoolGuard`] on a refusal, or [`Error::Backend`]
+    /// when the object is still present after a success-reported destroy.
+    fn destroy_dpsw(&self, container: Option<DprcId>, dpsw: &ObjectRef) -> Result<(), Error>;
 
     /// Observes one pool family's objects in `container` through a single `dprc show`,
     /// filtered to `family`, each row reported verbatim as an [`ObservedPoolObject`] —

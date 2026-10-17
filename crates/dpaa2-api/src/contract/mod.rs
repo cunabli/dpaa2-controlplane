@@ -27,4 +27,4 @@ mod mc;
 
 pub use config::ConfigSource;
 pub use kernel::KernelControl;
-pub use mc::{DpseciDetail, DpseciPortalReadout, McControl};
+pub use mc::{DpseciDetail, DpseciPortalReadout, DpswDetail, DpswIfFace, McControl};
