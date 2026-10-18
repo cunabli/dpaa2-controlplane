@@ -1,0 +1,7 @@
+schema: spec-driven
+created: 2026-10-18
+goal: "Formalize the ensure orchestration layer: a guarded-action convergence
+  model in Quint over the pass pipeline (completeness, order-as-guards, bounded
+  convergence, confluence follow-on) plus a capacity face of the census (tokens
+  re-minted from observation), so no compiled construct family is ever silently
+  dropped and intents are admitted against observed finite hardware budgets."

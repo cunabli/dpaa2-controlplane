@@ -32,6 +32,7 @@ Two operating modes frame the whole series (design D8; restool-baseline):
 | 12 | `dpdmux-typestate` | Demux object; kernel/VPP port-sharing topologies; board sittings carry the capture tap (ADR-0004 §8) | 9 | — |
 | 13 | `tier-c-families` | dpaiop, dpci, dpdcei, dpdmai, dprtc, dpdbg — split into per-family changes as reached; each first answers board-exercisability from its baseline doc | 10 (transport + consumer-rig machinery, not a kernel change — ADR-0004 §8) | — |
 | 14 | `dpl-tape-out` | Intent → DPL compilation via the build DTI (ASIC mode). Spec must solve the ownership inversion (DPL objects are foreign under current rules) and the return of persisted state | 3, 10 | — |
+| 15 | `resource-aware-orchestration` | The ensure pipeline formalized as a guarded-action convergence model in Quint (ADR-0023): completeness (no dead family — the dpsw-typestate executor gap class made unrepresentable), order-as-guards, bounded convergence, confluence follow-on; plus the capacity face of the census (per-container pools + dpsw FDB budget) with typed admission refusals at dry-run. #12 incorporates by adding only its rows and pass — that is this change's DoD | 11 | proposed 2026-10-18 (proposal/design/ADR-0023 settled; implementation scheduled directly after #11 archives, before #12) |
 
 Tiers (design D1; restool-baseline): A = #4–8 datapath core; B = #11–12 switching; C = #13.
 All 16 families are ported; tiers order the work, they do not cut it.
