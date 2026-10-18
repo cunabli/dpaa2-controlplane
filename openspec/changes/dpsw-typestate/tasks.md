@@ -92,7 +92,7 @@
 
 ## 7. Board milestone (operator in loop)
 
-- [ ] 7.1 Pre-run record commit after offline gates (board-suite
+- [x] 7.1 Pre-run record commit after offline gates (board-suite
       protocol), then the discovery sitting; feed divergences back to
       model/baseline before proceeding. Verify: suite verdicts
       recorded; model ladder green after any amendment.

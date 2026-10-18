@@ -867,6 +867,19 @@
       "refusals": []
     }
   },
+  "V-DPSW-2": {
+    "V-DPSW-2-run2/V-DPSW-2-run2": {
+      "pass": true,
+      "date": "2026-10-18",
+      "kind": "probes",
+      "revision": 2,
+      "steps": "11/11",
+      "source_hash": "fnv1a64:e97d4519969e8c5e",
+      "hook": null,
+      "archive": null,
+      "refusals": []
+    }
+  },
   "V-DPSW-4": {
     "V-DPSW-4-rev1": {
       "pass": true,

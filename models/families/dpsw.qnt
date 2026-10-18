@@ -182,9 +182,14 @@ module dpsw_lifecycle {
   // dpsw_reset dismantles VLAN 1 everywhere and FDB 0 before the driver
   // rebuilds its own). The dpsw flib has no set_resetable analogue (baseline
   // unknown-register #2: "is reset always total?"), so the scope stays a
-  // visible model parameter — refine this const to ResetPartial when the
-  // discovery sitting (dpsw-typestate design D9) measures what reset
-  // preserves, rather than burying the assumption in the bind action.
+  // visible model parameter. V-DPSW-2 rev 2 (bead dpaa2-controlplane-dbf.18,
+  // 2026-10-18) confirmed it conservative within a measured bound: `dpsw info`
+  // read back byte-identical pre- vs post-bind (steps 3/5), so the create-
+  // visible ATTRIBUTE surface survives the bind-time reset untouched. The
+  // VLAN-1/FDB-0 table state that TOTAL actually governs stays restool-
+  // unreachable (the five-verb reach limit), so TOTAL is unfalsified and the
+  // scope stays ResetTotal deliberately — refine this const to ResetPartial
+  // only when a future table-reading probe measures what reset preserves.
   type ResetScope = ResetTotal | ResetPartial
   pure val RESET_FACET_SCOPE: ResetScope = ResetTotal
 

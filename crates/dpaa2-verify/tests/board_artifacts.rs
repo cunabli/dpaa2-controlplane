@@ -38,6 +38,53 @@ fn board_files(suffix: &str) -> Vec<PathBuf> {
     found
 }
 
+/// Every `*.mc` capture file under `models/board/`, walked recursively from
+/// the board root so a suite's `corpus/` subdir is covered alongside its
+/// hand-banked fixtures.
+fn capture_files() -> Vec<PathBuf> {
+    let board = PathBuf::from(format!("{}/../../models/board", env!("CARGO_MANIFEST_DIR")));
+    let mut found = Vec::new();
+    let mut stack = vec![board];
+    while let Some(dir) = stack.pop() {
+        for entry in std::fs::read_dir(&dir).expect("board dir") {
+            let path = entry.expect("entry").path();
+            if path.is_dir() {
+                stack.push(path);
+            } else if path.extension().and_then(|e| e.to_str()) == Some("mc") {
+                found.push(path);
+            }
+        }
+    }
+    found.sort();
+    found
+}
+
+/// The dpsw-typestate D7 promise: the corpus format is asserted by a parse
+/// round-trip at commit time. Every committed `*.mc` — the hand-banked fixture
+/// and each banked sitting corpus — must parse to at least one CMD/RSP step, or
+/// the recorder's grammar has drifted out from under the corpus (bead
+/// dpaa2-controlplane-dbf.18).
+#[test]
+fn committed_captures_parse_with_at_least_one_step() {
+    use dpaa2_verify::board::capture::Corpus;
+    let captures = capture_files();
+    // 1 hand-banked V-DPSW-2 fixture + the 11-file V-DPSW-2 discovery corpus;
+    // a count below that is an accidentally-empty walk passing vacuously.
+    assert!(
+        captures.len() >= 12,
+        "expected the committed captures under models/board, found {captures:?}"
+    );
+    for path in captures {
+        let text = std::fs::read_to_string(&path).expect("read committed capture");
+        let corpus = Corpus::parse(&text).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+        assert!(
+            !corpus.steps.is_empty(),
+            "{}: parsed no CMD/RSP step",
+            path.display()
+        );
+    }
+}
+
 #[test]
 fn committed_probe_plans_parse_and_clear_the_envelope() {
     let plans = board_files("probes.json");
