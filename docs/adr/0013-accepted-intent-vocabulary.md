@@ -282,10 +282,23 @@ visibility (no per-object ACL):
 
 - **isolated** (the default) — its own child dprc, MC-isolated from siblings.
   Both a userspace-poll process and a *declared kernel-netlink namespace* land
-  here; the latter gets a kernel-bound child dprc that the kernel drives
-  (`drivers/bus/fsl-mc/dprc-driver.c`: `match_id_table` binds any obj_type
-  "dprc" l.882-885, `dprc_scan_container` rescans l.746,
-  `dprc_add_new_devices` adds discovered child dprcs l.202-224). Its draw is
+  here; the latter's child dprc is kernel-driven, but the bus does not bind a
+  runtime-created child dprc on its own. A runtime-created child dprc is
+  `unplugged`, and restool refuses to change a dprc's plugged state by design;
+  the fsl-mc bus match skips unplugged objects (the root dprc is the only
+  exception), so a bare bind returns `ENODEV` with no probe — the match
+  refusing, not a scan race. The `fsl_mc_dprc` driver does match obj_type
+  "dprc" (`drivers/bus/fsl-mc/dprc-driver.c` `match_id_table` l.882-885) and,
+  once bound, rescans and adds discovered children (`dprc_scan_container`
+  l.746, `dprc_add_new_devices` l.202-224). The control plane binds a declared
+  kernel-netlink namespace by writing `driver_override = fsl_mc_dprc` on the
+  child — which bypasses the plugged check, the mechanism `vfio-fsl-mc` already
+  uses on never-plugged child dprcs — and then the `fsl_mc_dprc` driver's bind
+  file, level-triggered: `ENOENT` on the override write or `ENODEV` on the bind
+  (either racing the asynchronous post-sync scan) is deferral, re-kicked the
+  next pass, not an error (finding 54,
+  `docs/upstream/fsl-mc-no-autobind-child-dprc.md`; bead
+  `dpaa2-controlplane-dbf.19`). Its draw is
   the child-resident kernel draw above — **dpio 0** (the kernel-global per-CPU
   dpio list, `drivers/soc/fsl/dpio/dpio-service.c` l.54), dpbp/dpmcp one per
   dpni, dpcon dpnis·cpus — drawn from its parent container's pool

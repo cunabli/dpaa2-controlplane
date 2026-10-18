@@ -24,6 +24,14 @@ as the suite verdict with divergences fed back to the model
   kicks, never an immediate read), and the read-back census equals the
   compiled plan
 
+#### Scenario: The member port is kernel-owned and countable
+
+- **WHEN** the witness measures reachability across the switched domain
+- **THEN** the member dpni is kernel-owned (kernel-netlink), so the
+  reachability oracle has an enabled, countable port, and switch-port
+  forwarding is established by VLAN-aware bridge enslavement performed by
+  the suite, not by the convergence engine
+
 #### Scenario: An existing port interposes into the domain
 
 - **WHEN** the suite converges a switched-domain over a dpmac that an
