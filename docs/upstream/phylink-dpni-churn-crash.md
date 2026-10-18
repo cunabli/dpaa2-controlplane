@@ -168,3 +168,73 @@ is recorded as finding 52, a sibling signature of the same
 dpaa2-mac/phylink teardown lifetime family, not an amendment to the
 PCS mechanism above. Evidence:
 `~/dpaa2-board-evidence/V-DPMAC-3-rev1/dmesg.txt`.
+
+## Pinned trigger window (2026-10-18, V-DPSW-5 rev 5)
+
+The switched-domain suite pins the trigger to one window, caught live
+on the serial console. The control plane severs dpni↔dpmac.7; the
+post-mutation bus sync invites the kernel to rescan while the dpmac is
+endpoint-free, so the standalone `fsl_dpaa2_mac` driver attaches:
+
+```
+fsl_dpaa2_mac dpmac.7 mac7: configuring for inband/10gbase-r
+```
+
+Roughly 300 ms later the dpsw connect forces that attachment to
+unregister, and link transitions land *during* the unregister:
+
+```
+fsl_dpaa2_mac dpmac.7 mac7 (unregistering): Link is Down
+fsl_dpaa2_mac dpmac.7 mac7 (unregistering): Link is Up
+```
+
+An armed phylink-side timer or delayed work outlives the free, and a
+panic follows in under a second. The window is the same per-transition
+lifetime race the churn and single-fire sections describe, now with a
+precise sequence: a wired port left endpoint-free for a few hundred
+milliseconds is enough to attach, arm, and then free the standalone
+driver underneath its own queued work. Evidence: suite V-DPSW-5 revs
+1–5, bead dpaa2-controlplane-dbf.19, console capture under
+`results/V-DPSW-5/`.
+
+## Third signature: timer-wheel corruption turns fatal (2026-10-18, V-DPSW-5 revs 1–5)
+
+Finding 52's `kernel/time/timer.c:1738` `__run_timers` WARNING recurs
+in this suite (revs 1, 3) and then escalates to fatal Oopses in
+`__run_timers` (revs 2, 5): an hlist unlink faults on a garbage `next`
+pointer, with `LIST_POISON2` (`0xdead000000000122`) visible in the
+registers. One instance wrote to read-only memory (rev 5), another
+dereferenced a near-NULL address (rev 2). Each fires on an idle CPU
+(`swapper`) in softirq context, so each is a panic, not a recoverable
+warning. This confirms finding 52's detached-timer signature as the
+same teardown-lifetime family and shows it can be fatal, not only a
+WARNING; the owning timer is still unidentified from the traces.
+Evidence: suite V-DPSW-5 revs 1–5, bead dpaa2-controlplane-dbf.19,
+captures under `results/V-DPSW-5/`.
+
+## Fourth signature: delayed slab-corruption fallout (2026-10-18, V-DPSW-5 rev 3)
+
+One run shows the corruption outliving the teardown by more than a
+minute. Rev 3 first took the original workqueue Oops byte-identical to
+the trace above (`phylink_mac_pcs_get_state+0x5c/0xac` via
+`phylink_resolve`), then logged later, periodic Oopses in
+`kmem_cache_free` via `skb_free_head` on netlink paths, ending in a
+fatal panic roughly 80 s after teardown. One use-after-free surfaces on
+many downstream allocators: the freed object is handed back to the slab
+and the corruption is observed only later, when an unrelated netlink
+free walks the poisoned cache. Evidence: suite V-DPSW-5 rev 3, bead
+dpaa2-controlplane-dbf.19, capture under `results/V-DPSW-5/`.
+
+## Control-plane mitigation: no post-mutation sync on disconnect (2026-10-18, V-DPSW-5)
+
+The restool shim's dprc disconnect verb no longer issues the
+post-mutation bus sync. With the sync removed, the kernel is never
+pointed at a transiently endpoint-free wired port, so the standalone
+`fsl_dpaa2_mac` driver is not invited to attach into the trigger
+window above; the next mutating verb's sync carries the disconnected
+state instead. This fences the trigger tool-side, as the churn refusal
+and the single-fire framing already do for their paths. The kernel
+patch remains the real fix — the resolve worker and the armed timer
+must be cancelled or flushed before the PCS and the standalone driver
+are freed — and this doc is its seed. Evidence: suite V-DPSW-5 revs
+1–5, bead dpaa2-controlplane-dbf.19, captures under `results/V-DPSW-5/`.

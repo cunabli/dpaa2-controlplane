@@ -493,3 +493,25 @@ cites the suite and the design record that carry the numbers.
     does not close it (ADR-0008 §10); the root-cause fix re-reads the
     descriptor before releasing the driver (finding 39). Evidence:
     ADR-0008 §4/§9/§10, suite V-TRAF-1 rev 1/4. — candidate
+
+## From the dpsw-typestate sitting (suite V-DPSW-5, 2026-10-18)
+
+### Linux kernel
+
+54. **The fsl-mc bus does not auto-bind a runtime-created child dprc.** A
+    `dprc create` + sync leaves the child (`dprc.2`) present in
+    `/sys/bus/fsl-mc/devices` with an empty driver link, zero probe
+    attempts in dmesg, and its residents never scanned; `fsl_mc_dprc`
+    matches obj_type "dprc" (`match_id_table`, `dprc-driver.c:882-885`) but
+    the post-sync scan attempts no probe for a child added after boot, so it
+    sits matched-but-unbound. An explicit write to
+    `/sys/bus/fsl-mc/drivers/fsl_mc_dprc/bind` does attach it, but races the
+    asynchronous post-sync scan and returns `-ENODEV` (`-119`) when it
+    loses. Consequence: a kernel-owned tenant's child container needs an
+    explicit bind write from the control plane, issued level-triggered —
+    re-kicked each pass, `ENODEV` read as deferral, not error. Bus code, so
+    upstream-relevant. The dedicated kernel-facing writeup is
+    `fsl-mc-no-autobind-child-dprc.md`. Evidence: V-DPSW-5 rev 3 banked
+    diagnostics (`results/V-DPSW-5/rev3/member-bind-sysfs.txt`,
+    `member-bind-dmesg.txt`) and rev 4 (the bind race), bead
+    dpaa2-controlplane-dbf.19. — candidate
