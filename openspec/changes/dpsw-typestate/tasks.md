@@ -90,6 +90,21 @@
       tapped and untapped renders drive identical steps; dead-tap test
       fails the preamble.
 
+- [x] 6.4 Wire the switched-domain pass into `dpaa2ctl ensure`
+      (system-integration delta's typed path; found missing by the 7.2
+      offline pre-check, bead dbf.22): dispatch the task-3.2 plan after
+      the links pass (create via the shim verbs, interposition sever
+      first, read-back judgment only), tear down an undeclared root
+      dpsw under the double gate in the baseline recipe order (port
+      disconnects → kernel unbind → destroy; allocator-claimed root
+      companions get `driver/unbind` before any `--plugged=0`), and
+      refuse typed any compiled construct family without an executor
+      (exhaustive-match completeness guard). Companion placement is
+      co-residency in the dpsw's container (root), not a child dprc —
+      the 3.2 plan shape is amended in its own seal. Verify: engine
+      unit tests over the fake backend (create, interposition,
+      teardown, guard refusal); offline pins and quality floor green.
+
 ## 7. Board milestone (operator in loop)
 
 - [x] 7.1 Pre-run record commit after offline gates (board-suite

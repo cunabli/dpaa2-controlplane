@@ -32,7 +32,8 @@ use crate::families::dpni::{
 };
 use crate::families::dpseci::{DpseciCfg, DpseciOpt, OptionMask};
 use crate::intent::compiled::{
-    AttachPoint, CompiledPlan, Measurement, ObjectKey, PlannedObject, ProvenanceKey, ProvenanceNode,
+    AttachPoint, BindingRegime, CompiledPlan, Container, Measurement, ObjectKey, PlannedObject,
+    ProvenanceKey, ProvenanceNode,
 };
 use crate::intent::{
     Crypto, Dataplane, Fabric, Intent, KERNEL, Link, Member, Port, Switching, Tenant, kernel_tenant,
@@ -1298,11 +1299,24 @@ pub(crate) fn derive(intent: &Intent, inv: &Inventory) -> CompiledPlan {
 
     let provenance = full_prov(intent, &priced, &sizing);
 
+    // Each container-owning tenant's kernel-bind regime from its dataplane (ADR-0013 §283-293; bead
+    // dpaa2-controlplane-dbf.19); keyed by the DPRC's owner so a drawer never shadows its holder.
+    let child_regimes = ets
+        .iter()
+        .filter_map(|t| match t.container() {
+            Container::Child(name) if name == t.name => {
+                Some((t.name.clone(), BindingRegime::of(t.dataplane)))
+            }
+            _ => None,
+        })
+        .collect();
+
     CompiledPlan {
         objects,
         edges,
         order,
         provenance,
+        child_regimes,
     }
 }
 

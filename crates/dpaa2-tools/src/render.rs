@@ -532,7 +532,7 @@ pub fn render_population(children: &[ChildPlan]) -> String {
             label = cp.label,
             child = cp.child,
             ch = cp.headline(),
-            bound = cp.bound,
+            bound = cp.vfio_bound(),
         );
         let _ = writeln!(
             out,

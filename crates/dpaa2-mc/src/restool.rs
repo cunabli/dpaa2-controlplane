@@ -1595,6 +1595,14 @@ impl<R: Runner> McControl for RestoolMc<R> {
         self.sync()
     }
 
+    /// Alone among the mutating verbs, disconnect does NOT post-sync: a post-disconnect
+    /// sync invites the standalone dpmac driver onto a transiently endpoint-free wired
+    /// port — the churn window behind the phylink UAF (V-DPSW-5 rev 5, bead
+    /// dpaa2-controlplane-dbf.19; `docs/upstream/phylink-dpni-churn-crash.md`). The sever
+    /// reaches the kernel's bus view through the next mutation's sync (a connect, unplug,
+    /// or destroy always follows a disconnect in an engine pass), or at latest the next
+    /// level-triggered ensure; the engine's own read-back is MC-direct via restool, never
+    /// the kernel bus.
     fn dprc_disconnect(&self, ancestor: DprcId, dpni: DpniId) -> Result<(), Error> {
         // Renders the passed ancestor, not self.container (ancestor-explicit).
         self.run_verb(&[
@@ -1603,7 +1611,7 @@ impl<R: Runner> McControl for RestoolMc<R> {
             &ancestor.to_string(),
             &format!("--endpoint={dpni}"),
         ])?;
-        self.sync()
+        Ok(())
     }
 
     fn destroy(&self, dpni: DpniId) -> Result<(), Error> {
@@ -1862,6 +1870,26 @@ impl<R: Runner> McControl for RestoolMc<R> {
         Ok(())
     }
 
+    // Renders the ADR-0022 sub-indexed switch endpoint `dpsw.N.ifx` on endpoint1 and the peer on
+    // endpoint2, issued at the common ancestor — the dpsw sibling of `dprc_connect`. No plug: the
+    // reconciler plugs the dpsw last (`docs/baseline/dpsw.md` "Lifecycle ordering").
+    fn connect_switch_port(
+        &self,
+        ancestor: DprcId,
+        dpsw: ObjectRef,
+        ifx: u32,
+        peer: ObjectRef,
+    ) -> Result<(), Error> {
+        self.run_verb(&[
+            "dprc",
+            "connect",
+            &ancestor.to_string(),
+            &format!("--endpoint1={dpsw}.{ifx}"),
+            &format!("--endpoint2={peer}"),
+        ])?;
+        self.sync()
+    }
+
     fn observe_pool(
         &self,
         container: Option<DprcId>,
@@ -1990,10 +2018,8 @@ mod tests {
 
     #[test]
     fn dprc_disconnect_renders_singular_endpoint_flag_at_the_passed_ancestor() {
-        let runner = ScriptedRunner::new(vec![
-            ("dprc disconnect dprc.2 --endpoint=dpni.1", ok("")),
-            ("dprc sync", ok("")),
-        ]);
+        let runner =
+            ScriptedRunner::new(vec![("dprc disconnect dprc.2 --endpoint=dpni.1", ok(""))]);
         let mc = RestoolMc::with_runner(runner, DEFAULT_CONTAINER);
 
         mc.dprc_disconnect(DprcId::new(2), DpniId::new(1))
@@ -2004,6 +2030,10 @@ mod tests {
             mc.runner().calls()[0],
             vec!["dprc", "disconnect", "dprc.2", "--endpoint=dpni.1"],
         );
+        // Disconnect alone does not post-sync (V-DPSW-5 rev 5, bead dpaa2-controlplane-dbf.19);
+        // the neighbouring `dprc_connect` test proves a mutating verb still syncs.
+        assert_eq!(mc.runner().calls().len(), 1);
+        assert!(!mc.runner().calls().iter().any(|c| c == &["dprc", "sync"]),);
     }
 
     #[test]
@@ -2052,6 +2082,46 @@ mod tests {
             ],
         );
         assert_eq!(mc.runner().calls().len(), 2);
+    }
+
+    #[test]
+    fn connect_switch_port_renders_the_sub_indexed_endpoint() {
+        // ADR-0022 sub-indexed endpoint: endpoint1 is dpsw.N.ifx, endpoint2 is the peer; then
+        // sync, and no plug precedes (the dpsw plugs last, docs/baseline/dpsw.md).
+        let runner = ScriptedRunner::new(vec![
+            (
+                "dprc connect dprc.1 --endpoint1=dpsw.7.0 --endpoint2=dpmac.3",
+                ok(""),
+            ),
+            ("dprc sync", ok("")),
+        ]);
+        let mc = RestoolMc::with_runner(runner, DEFAULT_CONTAINER);
+
+        mc.connect_switch_port(
+            DprcId::ROOT,
+            ObjectRef::new(Family::Dpsw, 7),
+            0,
+            ObjectRef::new(Family::Dpmac, 3),
+        )
+        .expect("connect_switch_port");
+
+        assert_eq!(
+            mc.runner().calls()[0],
+            vec![
+                "dprc",
+                "connect",
+                "dprc.1",
+                "--endpoint1=dpsw.7.0",
+                "--endpoint2=dpmac.3"
+            ],
+        );
+        assert!(
+            !mc.runner()
+                .calls()
+                .iter()
+                .any(|c| c.contains(&"assign".to_owned())),
+            "the switch-port connect must not plug"
+        );
     }
 
     #[test]

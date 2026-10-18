@@ -253,6 +253,15 @@ impl McControl for SpawnCounter {
     fn destroy_dpsw(&self, container: Option<DprcId>, dpsw: &ObjectRef) -> Result<(), Error> {
         self.inner.destroy_dpsw(container, dpsw)
     }
+    fn connect_switch_port(
+        &self,
+        ancestor: DprcId,
+        dpsw: ObjectRef,
+        ifx: u32,
+        peer: ObjectRef,
+    ) -> Result<(), Error> {
+        self.inner.connect_switch_port(ancestor, dpsw, ifx, peer)
+    }
 }
 
 #[test]

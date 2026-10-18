@@ -33,7 +33,7 @@ use crate::core::model::DpmacId;
 use crate::core::types::{ConstructName, RuleName, TenantName};
 use crate::families::dpni::DpniCfg;
 use crate::families::dpseci::DpseciCfg;
-use crate::intent::{Fabric, Link, Port, Tenant};
+use crate::intent::{Dataplane, Fabric, Link, Port, Tenant};
 
 /// A derived object's identity (design D6; ADR-0004; `derive.qnt` `ObjectKey`). This is the plan
 /// key, the thing every collection sorts and traces by. The MC label the object carries
@@ -167,6 +167,36 @@ pub enum Attributes {
         /// The restool-default option mask.
         options: BTreeSet<Permission>,
     },
+}
+
+/// How a child DPRC's kernel bind is driven (ADR-0013 §283-293; bead dpaa2-controlplane-dbf.19).
+///
+/// A userspace dataplane consumes its own DPRC handed to `vfio-fsl-mc`; a kernel-netlink tenant's
+/// DPRC is instead bound to the kernel's own `fsl_mc_dprc` driver explicitly (no auto-bind; finding 54) — the
+/// fsl-mc bus scan that follows gives the tenant's dpni its `dpaa2-eth` netdev. The convergence layer reads this to
+/// decide whether to VFIO-grab a child or leave it for the kernel; a VFIO handoff on a
+/// kernel-netlink tenant would hide its dpni from the kernel (ADR-0013 §283-293). Derived purely
+/// from the owning tenant's [`Dataplane`] by [`BindingRegime::of`], carried per child container on
+/// [`CompiledPlan::child_regimes`].
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
+pub enum BindingRegime {
+    /// The DPRC is handed to `vfio-fsl-mc` for a userspace consumer (poll or event).
+    VfioConsumer,
+    /// The DPRC is bound to the kernel's `fsl_mc_dprc` driver explicitly (kernel-netlink; no auto-bind).
+    KernelDriven,
+}
+
+impl BindingRegime {
+    /// Derives the regime from the owning tenant's dataplane (ADR-0013 §283-293): a kernel-netlink
+    /// tenant is [`KernelDriven`](Self::KernelDriven); a userspace (poll or event) tenant is a
+    /// [`VfioConsumer`](Self::VfioConsumer).
+    #[must_use]
+    pub fn of(dataplane: Dataplane) -> Self {
+        match dataplane {
+            Dataplane::KernelNetlink => Self::KernelDriven,
+            Dataplane::UserspacePoll | Dataplane::UserspaceEvent => Self::VfioConsumer,
+        }
+    }
 }
 
 /// A provenance node's address (design D6; ADR-0004; `derive.qnt` `ProvenanceKey`): tenant-level
@@ -465,6 +495,13 @@ pub struct CompiledPlan {
     pub order: Vec<ObjectKey>,
     /// The provenance DAG, keyed by [`ProvenanceKey`].
     pub provenance: BTreeMap<ProvenanceKey, ProvenanceNode>,
+    /// The kernel-bind regime per container-owning tenant (ADR-0013 §283-293; bead
+    /// dpaa2-controlplane-dbf.19): keyed by the tenant whose own child DPRC this names, so the
+    /// population pass reads a child's regime off the plan instead of re-deriving the dataplane
+    /// in the engine. A Rust-side derivation the model twin (`derive.qnt` `Plan`) does not carry,
+    /// so it rides outside `objects`/`edges`/`order`/`provenance` and the model conformance
+    /// projection ignores it.
+    pub child_regimes: BTreeMap<TenantName, BindingRegime>,
 }
 
 impl CompiledPlan {
@@ -530,6 +567,23 @@ impl CompiledPlan {
         match obj.attributes() {
             Attributes::Dpni { cfg } => Some(cfg.clone()),
             _ => None,
+        }
+    }
+
+    /// The kernel-bind [`BindingRegime`] of a container (ADR-0013 §283-293; bead
+    /// dpaa2-controlplane-dbf.19): read off [`child_regimes`](Self::child_regimes) for a child, the
+    /// value the compiler stamped from the owning tenant's dataplane. The root — and any child the
+    /// plan carries no regime for — defaults to [`BindingRegime::VfioConsumer`], the historical
+    /// single-regime behaviour.
+    #[must_use]
+    pub fn child_regime(&self, container: &Container) -> BindingRegime {
+        match container {
+            Container::Root => BindingRegime::VfioConsumer,
+            Container::Child(tenant) => self
+                .child_regimes
+                .get(tenant)
+                .copied()
+                .unwrap_or(BindingRegime::VfioConsumer),
         }
     }
 }

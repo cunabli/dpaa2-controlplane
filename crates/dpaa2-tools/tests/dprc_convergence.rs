@@ -19,7 +19,7 @@ use dpaa2_api::families::dprc::{ContainerState, ObservedResident, Options, Resid
 use dpaa2_api::families::pool_lifecycle::{
     ObservedPoolObject, PoolDisposition, RawDriver, RawLabel,
 };
-use dpaa2_api::intent::compiled::Container;
+use dpaa2_api::intent::compiled::{BindingRegime, Container};
 use dpaa2_api::intent::refuse::{Compiled, compile};
 use dpaa2_api::intent::{Dataplane, Intent, Isolation, Port, Tenant, TenantRef};
 use dpaa2_api::plan::Class;
@@ -501,6 +501,102 @@ fn compiled_reference() -> Compiled {
     compile(&intent, &ref_inventory(16)).expect("reference intent must compile")
 }
 
+/// A single isolated kernel-netlink tenant ("edge") terminating one 10G port: its dpni lands in
+/// the edge tenant's own child dprc, which the control plane binds to `fsl_mc_dprc` explicitly — never
+/// VFIO (ADR-0013 §283-293; bead dpaa2-controlplane-dbf.19 / V-DPSW-5 rev 2).
+fn compiled_kernel_edge() -> Compiled {
+    let intent = Intent {
+        tenants: vec![Tenant {
+            name: "edge".into(),
+            dataplane: Dataplane::KernelNetlink,
+            max_cores: 16,
+            isolation: Isolation::Isolated,
+            renamed: None,
+            priority: None,
+        }],
+        ports: vec![Port {
+            name: "lan0".into(),
+            dpmac: DpmacId::new(7),
+            rate: 10_000,
+            tenant: TenantRef::from_name("edge".into()),
+            mac: None,
+            mac_mode: MacMode::Assert,
+            renamed: None,
+        }],
+        ..Intent::empty()
+    };
+    compile(&intent, &ref_inventory(16)).expect("kernel-edge intent must compile")
+}
+
+#[test]
+fn population_kernel_child_is_not_vfio_handed_and_judges_by_readback() {
+    // bead dpaa2-controlplane-dbf.19 / ADR-0013 §283-293: the engine never VFIO-grabs a kernel
+    // tenant's child; seeded bound to the kernel driver (the explicit bind), the pass reads converged.
+    let compiled = compiled_kernel_edge();
+    let backend =
+        FakeBackend::new().with_bound_dprc(DprcId::new(2), RawDriver::from("fsl_mc_dprc"));
+    assert_eq!(
+        engine::converge_containers(&compiled.plan, &backend, disruptive_cfg()).unwrap(),
+        ContainerOutcome::Converged
+    );
+    assert_eq!(
+        engine::converge_population(&compiled.plan, &backend, &backend, disruptive_cfg()).unwrap(),
+        PopulationOutcome::Converged
+    );
+    let audit = backend.audit();
+    assert!(
+        !audit
+            .iter()
+            .any(|a| a == "vfio_set_override:dprc.2" || a == "vfio_bind:dprc.2"),
+        "a kernel-driven child is never VFIO-grabbed: {audit:?}"
+    );
+    assert!(
+        !audit.iter().any(|a| a == "dprc_kernel_bind:dprc.2"),
+        "an already kernel-bound child gets no bind kick (bead dpaa2-controlplane-dbf.19): {audit:?}"
+    );
+    let plans = engine::plan_population(&compiled.plan, &backend, &backend).unwrap();
+    assert_eq!(plans.len(), 1);
+    assert_eq!(plans[0].regime, BindingRegime::KernelDriven);
+    assert!(plans[0].kernel_bound(), "reads back bound to fsl_mc_dprc");
+    assert!(!plans[0].vfio_bound(), "never bound to vfio-fsl-mc");
+}
+
+#[test]
+fn population_unbound_kernel_child_is_converging_not_an_error() {
+    // bead dpaa2-controlplane-dbf.19 / ADR-0013 §283-293: a kernel child the kernel has not yet
+    // auto-bound is converging on the next pass, not an error — residents created, nothing VFIO-handed.
+    let compiled = compiled_kernel_edge();
+    let backend = FakeBackend::new();
+    assert_eq!(
+        engine::converge_containers(&compiled.plan, &backend, disruptive_cfg()).unwrap(),
+        ContainerOutcome::Converged
+    );
+    assert_eq!(
+        engine::converge_population(&compiled.plan, &backend, &backend, disruptive_cfg()).unwrap(),
+        PopulationOutcome::Converged,
+        "an unbound kernel child converges this pass (its bind kick probes async)"
+    );
+    let audit = backend.audit();
+    assert!(
+        !audit
+            .iter()
+            .any(|a| a == "vfio_set_override:dprc.2" || a == "vfio_bind:dprc.2"),
+        "no VFIO handoff for a kernel-driven child: {audit:?}"
+    );
+    assert!(
+        audit.iter().any(|a| a == "dprc_kernel_bind:dprc.2"),
+        "an unbound kernel child is bound to fsl_mc_dprc explicitly (bead dpaa2-controlplane-dbf.19): {audit:?}"
+    );
+    assert_eq!(
+        backend
+            .observe_pool(Some(DprcId::new(2)), Family::Dpni)
+            .unwrap()
+            .len(),
+        1,
+        "the kernel tenant's dpni is created for the explicit bind to expose"
+    );
+}
+
 #[test]
 fn population_converges_the_child_then_reruns_clean() {
     // pool-objects design D11 / system-integration req 1: converge the container, then populate
@@ -866,12 +962,120 @@ fn container_prune_unbinds_and_disconnects_before_destroy() {
             .unwrap_or_else(|| panic!("{needle} not audited in {audit:?}"))
     };
     assert!(
-        pos("vfio_unbind") < pos("disconnect"),
+        pos("unbind_current") < pos("disconnect"),
         "unbind before disconnect: {audit:?}"
     );
     assert!(
         pos("disconnect") < pos("dprc_destroy"),
         "disconnect before destroy: {audit:?}"
+    );
+}
+
+#[test]
+fn container_prune_unbind_is_driver_agnostic_and_level_triggered() {
+    // bead dbf.19 / V-DPSW-5 rev 1 7.2 pre-check: the teardown unbind now goes read-first through
+    // the driver-agnostic unbind_current — a kernel-dprc-bound container unbinds through the same
+    // seam, an unbound one records nothing (the old unconditional vfio_unbind errored ENODEV).
+    let compiled = compiled_empty();
+
+    let kernel_bound = FakeBackend::new()
+        .with_container(
+            DprcId::new(5),
+            orphan_container("foreign", Options::DEFAULT, Container::Root),
+        )
+        .with_bound_dprc(DprcId::new(5), RawDriver::from("fsl_mc_dprc"));
+    assert!(matches!(
+        engine::prune_containers(
+            &compiled.plan,
+            &kernel_bound,
+            &kernel_bound,
+            prune_disruptive_cfg()
+        )
+        .unwrap(),
+        PruneOutcome::Pruned { .. }
+    ));
+    let audit = kernel_bound.audit();
+    assert!(
+        audit.iter().any(|a| a == "unbind_current:dprc.5"),
+        "a kernel-bound container is unbound through the driver-agnostic seam: {audit:?}"
+    );
+
+    // Unbound candidate: bound_driver reads None, so the unbind is skipped (level-triggered).
+    let unbound = FakeBackend::new().with_container(
+        DprcId::new(6),
+        orphan_container("foreign", Options::DEFAULT, Container::Root),
+    );
+    assert!(matches!(
+        engine::prune_containers(&compiled.plan, &unbound, &unbound, prune_disruptive_cfg())
+            .unwrap(),
+        PruneOutcome::Pruned { .. }
+    ));
+    assert!(
+        !unbound
+            .audit()
+            .iter()
+            .any(|a| a.starts_with("unbind_current:")),
+        "an unbound container records no unbind: {:?}",
+        unbound.audit()
+    );
+}
+
+#[test]
+fn container_prune_skips_disconnect_for_an_unconnected_child_dpni() {
+    // bead dbf.19 / board sitting V-DPSW-5 rev 1: a candidate child holds two dpnis — one still
+    // connected to a root peer, one left UNCONNECTED by the interposition sever. An unconditional
+    // DPRC_DISCONNECT on the unconnected one is NO_RESOURCE (0x8) on the board and aborts the run;
+    // reading dprc_get_connection first means exactly the standing edge is severed.
+    let compiled = compiled_empty();
+    let child = DprcId::new(5);
+    let backend = FakeBackend::new()
+        .with_container(
+            child,
+            orphan_container("foreign", Options::DEFAULT, Container::Root),
+        )
+        .with_bound_dprc(child, RawDriver::from("vfio-fsl-mc"))
+        .with_pool_object(
+            child,
+            ObservedPoolObject {
+                object: ObjectRef::new(Family::Dpni, 10),
+                label: RawLabel::from("foreign"),
+                plugged: true,
+                drawn: false,
+            },
+        )
+        .with_pool_object(
+            child,
+            ObservedPoolObject {
+                object: ObjectRef::new(Family::Dpni, 11),
+                label: RawLabel::from("foreign"),
+                plugged: true,
+                drawn: false,
+            },
+        );
+    // Only dpni.10 stands connected; dpni.11 is left unconnected (its edge already severed).
+    backend
+        .dprc_connect(
+            DprcId::ROOT,
+            DpniId::new(10),
+            ObjectRef::new(Family::Dpmac, 4),
+        )
+        .unwrap();
+
+    assert!(matches!(
+        engine::prune_containers(&compiled.plan, &backend, &backend, prune_disruptive_cfg())
+            .unwrap(),
+        PruneOutcome::Pruned { .. }
+    ));
+    let disconnects: Vec<String> = backend
+        .audit()
+        .into_iter()
+        .filter(|a| a.starts_with("disconnect:"))
+        .collect();
+    assert_eq!(
+        disconnects,
+        vec!["disconnect:dpni.10"],
+        "exactly the connected dpni is disconnected; the unconnected one is skipped: {:?}",
+        backend.audit()
     );
 }
 
