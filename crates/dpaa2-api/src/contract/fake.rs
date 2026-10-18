@@ -14,7 +14,10 @@ use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::collections::HashSet;
 
-use crate::contract::{DpseciDetail, DpseciPortalReadout, DpswDetail, KernelControl, McControl};
+use crate::contract::{
+    DpseciDetail, DpseciPortalReadout, DpswDetail, DpswIfDetail, DpswIfFace, KernelControl,
+    McControl,
+};
 use crate::core::error::Error;
 use crate::core::family::Family;
 use crate::core::inventory::Inventory;
@@ -897,6 +900,11 @@ impl McControl for FakeBackend {
             return Ok(());
         };
         let mut st = self.state.borrow_mut();
+        // The dpsw plug is audited (only the dpsw plug) so a switched-domain create test asserts
+        // it lands last, after the port connects (dpsw-typestate task 6.4).
+        if object.family() == Family::Dpsw && plugged {
+            st.audit.push(format!("plug_dpsw:{object}"));
+        }
         let in_use = st.in_use.contains(&object);
         if let Some((_, obj)) = st.pool_objects.iter_mut().find(|(_, o)| o.object == object) {
             if !plugged && (obj.drawn || in_use) {
@@ -1009,20 +1017,58 @@ impl McControl for FakeBackend {
             .ok_or_else(|| Error::Backend(format!("fake: no dpsw {dpsw}")))
     }
 
-    // A created dpsw is a plugged, stamped pool row plus a recorded detail synthesized from the
-    // cfg, so the census converges on a second pass (dpsw-typestate task 3.3).
+    // A created dpsw is an UNPLUGGED, stamped pool row plus a recorded detail synthesized from
+    // the cfg, matching the restool contract: create+stamp, then the reconciler plugs last
+    // (`docs/baseline/dpsw.md` "Lifecycle ordering"). The plug rides `dprc_assign(..., Some(true))`.
     fn create_dpsw_in(
         &self,
         container: Option<DprcId>,
         cfg: &DpswCfg,
         label: &ConstructName,
     ) -> Result<ObjectRef, Error> {
-        let object = self.push_pool_object(container, Family::Dpsw, label);
-        self.state
-            .borrow_mut()
-            .dpsw_details
-            .insert(object, dpsw_detail_of(cfg));
+        let mut st = self.state.borrow_mut();
+        let object = ObjectRef::new(Family::Dpsw, st.next_pool);
+        st.next_pool += 1;
+        st.audit.push(format!("create_dpsw:{object}"));
+        st.pool_objects.push((
+            container.unwrap_or(DprcId::ROOT),
+            ObservedPoolObject {
+                object,
+                label: RawLabel::from(label.as_str()),
+                plugged: false,
+                drawn: false,
+            },
+        ));
+        st.dpsw_details.insert(object, dpsw_detail_of(cfg));
         Ok(object)
+    }
+
+    // Records the switch-port edge on the dpsw's detail so a later observe_dpsw reflects the
+    // connected interface, and audits the ordered call so a create test asserts create → connects
+    // → plug (dpsw-typestate task 6.4). An unscripted dpsw is tolerated (no detail to annotate).
+    fn connect_switch_port(
+        &self,
+        _ancestor: DprcId,
+        dpsw: ObjectRef,
+        ifx: u32,
+        peer: ObjectRef,
+    ) -> Result<(), Error> {
+        let mut st = self.state.borrow_mut();
+        st.audit
+            .push(format!("connect_switch_port:{dpsw}.{ifx}->{peer}"));
+        if let Some(detail) = st.dpsw_details.get_mut(&dpsw) {
+            detail.ifaces.insert(
+                ifx,
+                DpswIfDetail {
+                    face: DpswIfFace::Connected(peer),
+                    link: None,
+                    taildrop: None,
+                    max_frame_length: None,
+                    counters: crate::families::dpsw::CounterReadout::new(Vec::new()),
+                },
+            );
+        }
+        Ok(())
     }
 
     // Removes the object from the pool rows and detail map, auditing like the dpseci destroy (dpsw-typestate task 3.3).
@@ -1091,12 +1137,28 @@ impl KernelControl for FakeBackend {
 
     // The reconcile/convergence tests never bind VFIO (that face is board-only, design
     // D6; ADR-0004), so the fake reports an unbound, group-less, override-clear child and accepts
-    // the actuations as no-ops.
-    fn vfio_set_override(&self, _dprc: DprcId) -> Result<(), Error> {
+    // the actuations as no-ops, audited so a test asserts a kernel child is never VFIO-grabbed (bead dpaa2-controlplane-dbf.19).
+    fn vfio_set_override(&self, dprc: DprcId) -> Result<(), Error> {
+        self.state
+            .borrow_mut()
+            .audit
+            .push(format!("vfio_set_override:{dprc}"));
         Ok(())
     }
 
-    fn vfio_bind(&self, _dprc: DprcId) -> Result<(), Error> {
+    fn vfio_bind(&self, dprc: DprcId) -> Result<(), Error> {
+        self.state
+            .borrow_mut()
+            .audit
+            .push(format!("vfio_bind:{dprc}"));
+        Ok(())
+    }
+
+    fn dprc_kernel_bind(&self, dprc: DprcId) -> Result<(), Error> {
+        self.state
+            .borrow_mut()
+            .audit
+            .push(format!("dprc_kernel_bind:{dprc}"));
         Ok(())
     }
 
@@ -1117,6 +1179,16 @@ impl KernelControl for FakeBackend {
 
     fn iommu_group(&self, _dprc: DprcId) -> Result<Option<u32>, Error> {
         Ok(None)
+    }
+
+    // The root-device unbind is a board sysfs write with no in-memory state (ADR-0008 §8); only
+    // the audit records it, so a teardown test asserts unbind_current precedes destroy_dpsw.
+    fn unbind_current(&self, object: &ObjectRef) -> Result<(), Error> {
+        self.state
+            .borrow_mut()
+            .audit
+            .push(format!("unbind_current:{object}"));
+        Ok(())
     }
 }
 

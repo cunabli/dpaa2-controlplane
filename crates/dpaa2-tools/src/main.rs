@@ -21,7 +21,7 @@ use dpaa2_api::plan::reconcile::{ReconcileOptions, reconcile_with};
 use dpaa2_mc::{RestoolMc, SysfsKernel};
 use dpaa2_tools::engine::{
     self, ContainerOutcome, ConvergeConfig, LinkOutcome, Outcome, PoolOutcome, PoolPass,
-    PopulationOutcome, PruneOutcome, RootDpniPruneOutcome,
+    PopulationOutcome, PruneOutcome, RootDpniPruneOutcome, SwitchOutcome, SwitchPruneOutcome,
 };
 use dpaa2_tools::{StatusReport, complete_kernel, link, render, status};
 
@@ -278,6 +278,14 @@ fn ensure(
     let Some((intent, compiled)) = compile_intent(mc, &cli.config)? else {
         return Ok(ExitCode::FAILURE);
     };
+    // Completeness guard (ADR-0023 "no dead family"): every compiled construct maps to a pass
+    // that reifies it, else the run is refused here — before any dispatch — rather than
+    // dropping the construct silently. A dpseci construct has no ensure executor today, so an
+    // intent naming one is refused typed (the gap the dpsw-typestate change surfaced).
+    if let Err(refusal) = engine::reify_guard(&compiled.plan) {
+        println!("refused: {refusal}");
+        return Ok(ExitCode::FAILURE);
+    }
     // Warnings are named on stderr so the executed plan on stdout stays clean; the
     // dry-run text carries the same set inline (design D2/D3; ADR-0002).
     let warnings = render::render_warnings(&compiled.warnings);
@@ -361,6 +369,14 @@ fn ensure(
         return Ok(code);
     }
 
+    // Converge each kernel-forwarded switched domain after the links (dpsw-typestate task 6.4):
+    // the member dpnis exist by now, so each root dpsw is created (or destroy-and-recreated on
+    // cfg drift) in the baseline recipe order — sever-first on interposition, then create →
+    // connect ports → plug last. A create/recreate over-allow refusal exits non-zero.
+    if let Some(code) = run_switches(mc, kernel, &compiled.plan, cfg)? {
+        return Ok(code);
+    }
+
     // Prune undeclared consumer containers under the double gate (dprc-encapsulation task 4.3).
     // A separate pass so an empty intent still prunes; the report is printed before the
     // outcome, and a below-disruptive refusal exits non-zero, changing nothing.
@@ -391,6 +407,16 @@ fn ensure(
             println!("refused: undeclared container {id} could not be pruned: {attribution:?}");
             return Ok(ExitCode::FAILURE);
         }
+    }
+
+    // Prune undeclared managed-labelled root dpsws under the double gate, BEFORE the root-dpni
+    // prune (dpsw-typestate task 6.4): each is unbound then destroyed; its pool companions return
+    // to the free pool as grow-only residue, never unplugged here (ADR-0020). A survivor or
+    // over-allow refusal exits non-zero.
+    if let Some(code) =
+        report_switch_prune(&engine::prune_switches(&compiled.plan, mc, kernel, cfg)?)
+    {
+        return Ok(code);
     }
 
     // Prune undeclared managed-labelled root dpnis under the same double gate (pool-objects design D10/D11).
@@ -537,6 +563,65 @@ fn run_links(
                 println!("refused: {r}");
             }
             Ok(Some(ExitCode::FAILURE))
+        }
+    }
+}
+
+/// Converges the switched domains, mapping a create/recreate over-allow refusal to its operator
+/// message and a non-zero exit (dpsw-typestate task 6.4). Returns `Some(exit)` on a refusal,
+/// `None` when every switched domain converged.
+///
+/// # Errors
+/// Propagates a backend/kernel read/dispatch error.
+fn run_switches(
+    mc: &RestoolMc<dpaa2_mc::RestoolRunner>,
+    kernel: &SysfsKernel,
+    plan: &dpaa2_api::intent::compiled::CompiledPlan,
+    cfg: ConvergeConfig,
+) -> Result<Option<ExitCode>, Error> {
+    match engine::converge_switches(plan, mc, kernel, cfg)? {
+        SwitchOutcome::Converged => Ok(None),
+        SwitchOutcome::DisruptionRefused { headline, allowed } => {
+            println!(
+                "{}",
+                gate_refusal_message("converging a switched domain is", headline, allowed, false)
+            );
+            Ok(Some(ExitCode::FAILURE))
+        }
+    }
+}
+
+/// Maps a root-dpsw prune outcome to its operator message and a non-zero exit, or `None` when
+/// nothing blocked (dpsw-typestate task 6.4), mirroring [`report_root_dpni_prune`].
+fn report_switch_prune(outcome: &SwitchPruneOutcome) -> Option<ExitCode> {
+    match outcome {
+        SwitchPruneOutcome::Clean | SwitchPruneOutcome::Pruned { .. } => None,
+        SwitchPruneOutcome::ReportOnly { candidates } => {
+            println!(
+                "report-only: {} undeclared managed-labelled root dpsw(s) {candidates:?} — \
+                 re-run with `--prune --allow disruptive` to tear them down.",
+                candidates.len()
+            );
+            None
+        }
+        SwitchPruneOutcome::DisruptionRefused {
+            headline,
+            allowed,
+            candidates,
+        } => {
+            println!(
+                "{}",
+                gate_refusal_message(
+                    &format!(
+                        "pruning {} undeclared root dpsw(s) {candidates:?} is",
+                        candidates.len()
+                    ),
+                    *headline,
+                    *allowed,
+                    true
+                )
+            );
+            Some(ExitCode::FAILURE)
         }
     }
 }

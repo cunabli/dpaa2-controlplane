@@ -11,6 +11,13 @@
 //! (mc-backend spec requirement 1). It is idempotent and level-triggered: a converged child
 //! yields empty deltas and no create, and a second pass over it does too.
 //!
+//! The handoff serves a userspace consumer only: a VFIO-regime child is handed its own
+//! VFIO-bound dprc, while a kernel-netlink tenant's child is left for the kernel's own
+//! `fsl_mc_dprc` driver to auto-bind (ADR-0013 §283-293; bead dpaa2-controlplane-dbf.19) — the
+//! bus scan that gives its dpni a `dpaa2-eth` netdev. The plan carries the regime
+//! ([`ChildPlan::regime`](dpaa2_api::plan::populate::ChildPlan)); the engine honors it and never
+//! VFIO-grabs a kernel-driven child.
+//!
 //! [`vfio_handoff`] drives the kernel-side transition dprc-encapsulation modeled as
 //! [`Container<Plugged>::bind_vfio`](dpaa2_api::families::dprc::Container): set the
 //! `driver_override`, bind `vfio-fsl-mc`, read the bound-driver link back, and let the core
@@ -215,7 +222,8 @@ fn judge_dpseci<M: McControl>(
 
 /// Reads a child dprc's population plan (pool-objects design D11): pure of any mutation —
 /// the arity of the child's dpnis, each one's planned peer and observed/connected state, the
-/// trio census and disposition, the dpio seat counts, and the VFIO bind state. The count→
+/// trio census and disposition, the dpio seat counts, the kernel-bind regime, and the observed
+/// bound driver (ADR-0013 §283-293; bead dpaa2-controlplane-dbf.19). The count→
 /// individual boundary stays in the plan (pool-objects design D2): every count comes from
 /// the compiled plan and every observation from a read.
 ///
@@ -285,10 +293,10 @@ pub fn plan_child_population<M: McControl, K: KernelControl>(
     let required = derived_seats(plan, container);
     let observed_seats =
         i64::try_from(mc.observe_pool(Some(child), Family::Dpio)?.len()).unwrap_or(i64::MAX);
-    let bound = matches!(
-        VfioBind::classify(kernel.bound_driver(child)?.as_ref().map(RawDriver::as_str)),
-        VfioBind::BoundVfioFslMc
-    );
+    // The raw bound driver and the plan-carried regime (ADR-0013 §283-293; bead
+    // dpaa2-controlplane-dbf.19); the `ChildPlan` predicates judge them, the engine never re-derives.
+    let observed_driver = kernel.bound_driver(child)?;
+    let regime = plan.child_regime(container);
 
     let dpseci = judge_dpseci(mc, child, label, &planned_dpseci_cfgs(plan, container))?;
 
@@ -299,7 +307,8 @@ pub fn plan_child_population<M: McControl, K: KernelControl>(
         families,
         seats: (required, observed_seats),
         dpseci,
-        bound,
+        regime,
+        observed_driver,
     })
 }
 
@@ -903,7 +912,7 @@ mod tests {
             &no_children(),
         )
         .expect("plan");
-        assert!(cplan.bound, "a vfio-fsl-mc child reads back bound");
+        assert!(cplan.vfio_bound(), "a vfio-fsl-mc child reads back bound");
     }
 
     #[test]

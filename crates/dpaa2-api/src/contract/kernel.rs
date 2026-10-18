@@ -1,5 +1,5 @@
 use crate::core::error::Error;
-use crate::core::model::{DpniId, DprcId};
+use crate::core::model::{DpniId, DprcId, ObjectRef};
 use crate::families::dpmac::CarrierSource;
 use crate::families::pool_lifecycle::RawDriver;
 
@@ -94,6 +94,19 @@ pub trait KernelControl {
     /// Returns an error if the bind write fails.
     fn vfio_bind(&self, dprc: DprcId) -> Result<(), Error>;
 
+    /// Binds a kernel-driven child DPRC to [`dprc::FSL_MC_DPRC_DRIVER`](crate::families::dprc::FSL_MC_DPRC_DRIVER)
+    /// (writes the container id to that driver's `bind` attribute). The board proved the
+    /// fsl-mc bus does NOT auto-bind a runtime-created child dprc: it sits on the bus with
+    /// an empty `driver` link and no probe attempt, so its resident dpnis are never scanned.
+    /// Convergence therefore binds the kernel driver explicitly; no `driver_override` is
+    /// needed because `fsl_mc_dprc` is the matching driver (V-DPSW-5 rev 3, bead
+    /// dpaa2-controlplane-dbf.19; the ADR-0013 §283 auto-bind mechanism is amended at the docs task).
+    /// The probe is async, so the caller keeps its converging-on-next-pass verdict.
+    ///
+    /// # Errors
+    /// Returns an error if the bind write fails.
+    fn dprc_kernel_bind(&self, dprc: DprcId) -> Result<(), Error>;
+
     /// Unbinds the child DPRC from `vfio-fsl-mc` and clears its `driver_override`,
     /// restoring eligibility for [`dprc::FSL_MC_DPRC_DRIVER`](crate::families::dprc::FSL_MC_DPRC_DRIVER)
     /// — the unbind scenario's whole contract (the cleared override is what re-opens the
@@ -130,4 +143,18 @@ pub trait KernelControl {
     /// # Errors
     /// Returns an error only if the kernel state cannot be read at all.
     fn iommu_group(&self, dprc: DprcId) -> Result<Option<u32>, Error>;
+
+    /// Releases whatever driver currently binds a flat root fsl-mc device `object` (a
+    /// `dpsw.N` for the switched-domain teardown) — reads the bound driver first and unbinds
+    /// only while one holds the device, so a re-run over an already-unbound device is a no-op
+    /// (level-triggered idempotence, the sibling of the dpni [`unbind`](Self::unbind) and the
+    /// child [`vfio_unbind`](Self::vfio_unbind)). The unbind precedes the typed `destroy_dpsw`,
+    /// since a destroy issued against a still-bound root device is refused (ADR-0008 §8;
+    /// `docs/baseline/dpsw.md` "Lifecycle ordering"). Unlike [`unbind`](Self::unbind), the
+    /// driver name is not fixed (`fsl_dpaa2_switch`): a dpsw the kernel left unbound carries
+    /// none, so the read-back decides it (adapters report, never judge).
+    ///
+    /// # Errors
+    /// Returns an error if the bound-driver read or the unbind write fails.
+    fn unbind_current(&self, object: &ObjectRef) -> Result<(), Error>;
 }

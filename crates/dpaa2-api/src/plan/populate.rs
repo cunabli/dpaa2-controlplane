@@ -12,9 +12,12 @@ use crate::core::model::{DpniId, DprcId, ObjectRef};
 use crate::core::types::ConstructName;
 use crate::families::dpio::{SeatDisposition, SeatRegime, seat_disposition};
 use crate::families::dpni::DpniCfg;
+use crate::families::dprc::{FSL_MC_DPRC_DRIVER, VfioBind};
 use crate::families::dpseci::DpseciCfg;
-use crate::families::pool_lifecycle::{PoolCensus, PoolDeltas, PoolFamily, ShrinkBelowDraw};
-use crate::intent::compiled::ObjectKey;
+use crate::families::pool_lifecycle::{
+    PoolCensus, PoolDeltas, PoolFamily, RawDriver, ShrinkBelowDraw,
+};
+use crate::intent::compiled::{BindingRegime, ObjectKey};
 use crate::plan::Class;
 use crate::plan::dpseci::{CensusDelta, Sig};
 
@@ -132,11 +135,37 @@ pub struct ChildPlan {
     /// The child's dpseci face: the observable-signature census, or typed unobservable
     /// (dpseci-typestate design D9).
     pub dpseci: ChildDpseci,
-    /// Whether the child reads back bound to `vfio-fsl-mc` (ADR-0017 drift gate).
-    pub bound: bool,
+    /// How this child's kernel bind is driven (ADR-0013 §283-293; bead dpaa2-controlplane-dbf.19),
+    /// read off the compiled plan at planning time — a VFIO consumer is handed to `vfio-fsl-mc`, a
+    /// kernel-driven child left for the kernel's `fsl_mc_dprc` driver to auto-bind.
+    pub regime: BindingRegime,
+    /// The bus driver the child reads back bound to, or `None` when it has none (the generalized
+    /// drift-gate observation): judged by [`vfio_bound`](Self::vfio_bound) against `vfio-fsl-mc`
+    /// (ADR-0017) and by [`kernel_bound`](Self::kernel_bound) against `fsl_mc_dprc` (ADR-0013
+    /// §283-293). The adapter reports the raw name; these predicates judge it.
+    pub observed_driver: Option<RawDriver>,
 }
 
 impl ChildPlan {
+    /// Whether the child reads back bound to `vfio-fsl-mc` (ADR-0017 drift gate): the VFIO
+    /// consumer's converged bind, and a kernel-driven child's wrong-binding drift (ADR-0013
+    /// §283-293). Judges [`observed_driver`](Self::observed_driver) through [`VfioBind::classify`].
+    #[must_use]
+    pub fn vfio_bound(&self) -> bool {
+        matches!(
+            VfioBind::classify(self.observed_driver.as_ref().map(RawDriver::as_str)),
+            VfioBind::BoundVfioFslMc
+        )
+    }
+
+    /// Whether the child reads back bound to the kernel's `fsl_mc_dprc` driver (ADR-0013 §283-293):
+    /// the kernel-driven regime's converged bind — the auto-bind that gives the tenant's dpni its
+    /// `dpaa2-eth` netdev.
+    #[must_use]
+    pub fn kernel_bound(&self) -> bool {
+        self.observed_driver.as_ref().map(RawDriver::as_str) == Some(FSL_MC_DPRC_DRIVER)
+    }
+
     /// Whether the child is converged: every planned dpni present and connected, every trio
     /// census meets its requirement, and the dpio seats MEET their requirement — a surplus
     /// converges grow-only and is reported as the typed residue (`dpio.qnt` `seatDisposition`;

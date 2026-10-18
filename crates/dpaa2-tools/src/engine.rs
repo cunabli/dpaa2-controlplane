@@ -21,13 +21,15 @@ use dpaa2_api::core::model::{
 use dpaa2_api::core::types::{ConstructName, TenantName};
 use dpaa2_api::families::dpio::derived_seats;
 use dpaa2_api::families::dprc::Options;
+use dpaa2_api::families::dpsw::DpswCfg;
 use dpaa2_api::families::pool_lifecycle::{
     CustodyScope, ObservedPoolObject, PoolDeltas, PoolFamily, PoolMembership, RawLabel,
     ShrinkBelowDraw, census_of, derived_requirement, drift_disposition, label_membership,
 };
 use dpaa2_api::intent::KERNEL;
 use dpaa2_api::intent::compiled::{
-    Attributes, CompiledPlan, Container, ObjectKey, PlannedObject, ProvenanceKey,
+    AttachPoint, Attributes, BindingRegime, CompiledPlan, Container, ObjectKey, PlannedObject,
+    ProvenanceKey,
 };
 use dpaa2_api::plan::connect::{
     CONNECT_ANCESTOR, ChildDeferredVisibility, LinkEndState, WireEnd, WireHeldRefusal, WirePlan,
@@ -37,6 +39,10 @@ use dpaa2_api::plan::dprc::{
     Attribution, ConsumerConvergence, ContainerPlan, ContainerStep, ContainerVerdict, PruneBucket,
     PruneItem, Verb, attribute_refusal, derive_consumer_containers, plan_consumer_convergence,
     plan_prune, verdict,
+};
+use dpaa2_api::plan::dpsw::{
+    DriftRepair, InterposeStep, cfg_from_attributes, observed_face_of, plan_cfg_drift,
+    plan_interposition,
 };
 use dpaa2_api::plan::populate::ChildPlan;
 use dpaa2_api::plan::reconcile::{ReconcileOptions, reconcile_with};
@@ -561,25 +567,464 @@ pub fn prune_root_dpnis<M: McControl, K: KernelControl>(
 }
 
 /// Releases one candidate container's consumer bindings before its residents are torn down
-/// (pool-objects design D11 teardown walk): undoes the VFIO handoff so restool can reach the
+/// (pool-objects design D11 teardown walk): undoes the kernel handoff so restool can reach the
 /// residents, then disconnects each child dpni from its root peer (the DPNI-I9 disconnect from
 /// the common ancestor). Consumers before pools — the residents' unplug/destroy follows.
 ///
+/// Read-first on BOTH seams. The unbind goes through the driver-agnostic
+/// [`KernelControl::unbind_current`]: the bound driver is read first and the unbind issues only
+/// while one holds the container, so a container the kernel left unbound (or a kernel-bound one,
+/// never VFIO-bound) is skipped instead of forced. The old unconditional
+/// [`KernelControl::vfio_unbind`] errored `ENODEV` on any non-VFIO-bound container — on the trap
+/// re-run, and it would hit the MAIN path once the member container is kernel-bound (bead dbf.19;
+/// V-DPSW-5 rev 1 7.2 pre-check).
+///
+/// The disconnect read-first follows the [`McControl::dprc_get_connection`] contract law: a child
+/// dpni left UNCONNECTED (its edge severed earlier by the interposition pass) makes the MC refuse
+/// `DPRC_DISCONNECT` with `NO_RESOURCE` (0x8) — a fatal errno that aborted the whole ensure run
+/// before `prune_switches` and leaked the dpsw (bead dbf.19; board sitting V-DPSW-5 rev 1). So
+/// the connection is read first and the disconnect issues only for an edge that still stands.
+///
 /// # Errors
-/// Propagates the first backend/kernel error the unbind, child-dpni observation, or a
-/// disconnect raises.
+/// Propagates the first backend/kernel error a bound-driver read, the unbind, child-dpni
+/// observation, a connection read, or a disconnect raises.
 fn release_child_bindings<M: McControl, K: KernelControl>(
     mc: &M,
     kernel: &K,
     id: DprcId,
 ) -> Result<(), Error> {
-    kernel.vfio_unbind(id)?;
+    if kernel.bound_driver(id)?.is_some() {
+        kernel.unbind_current(&ObjectRef::new(Family::Dprc, id.into_inner()))?;
+    }
     for row in mc.observe_pool(Some(id), Family::Dpni)? {
         let dpni = DpniId::new(row.object.ordinal());
+        if mc.dprc_get_connection(dpni)?.is_none() {
+            continue;
+        }
         mc.dprc_disconnect(CONNECT_ANCESTOR, dpni)?;
         tracing::info!(%id, %dpni, "disconnected child dpni before container teardown");
     }
     Ok(())
+}
+
+// ---- the switched-domain pass + the completeness guard (dpsw-typestate task 6.4; ADR-0023) ----
+
+/// A compiled construct this engine has no executor for (ADR-0023 "no dead family"): the plan
+/// names it but no pass reifies it, so it is refused in the operator's voice rather than
+/// silently dropped. Carries the offending construct's label and family for the one-line message.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ReifyRefusal {
+    /// The construct's MC label (its construct name).
+    pub label: ConstructName,
+    /// The family the engine cannot reify.
+    pub family: Family,
+}
+
+impl std::fmt::Display for ReifyRefusal {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "intent names a construct this engine cannot reify: `{}` ({})",
+            self.label,
+            self.family.as_str()
+        )
+    }
+}
+
+/// The ADR-0023 completeness obligation's Rust twin ("no dead family"): every construct family
+/// the compiler can emit maps to the pass that reifies it, or to a typed refusal — never a silent
+/// drop. The match over [`Attributes`] is exhaustive with NO wildcard arm, so a new construct
+/// family cannot be added to the plan vocabulary without stating its executor here (a compile
+/// error otherwise). Run over `plan.objects` before any dispatch, so an unreifiable construct is
+/// named at planning time, not as a mid-convergence errno.
+///
+/// # Errors
+/// Returns the first construct the engine has no executor for ([`ReifyRefusal`]).
+pub fn reify_guard(plan: &CompiledPlan) -> Result<(), ReifyRefusal> {
+    for obj in &plan.objects {
+        match obj.attributes() {
+            // Companions (dpio/dpbp/dpmcp/dpcon) ride the pool passes (`converge_pools`).
+            Attributes::Unsized
+            // The port loop, child population, and link passes.
+            | Attributes::Dpni { .. }
+            // The container-only convergence pass (`converge_containers`).
+            | Attributes::Dprc { .. }
+            // The switched-domain pass (`converge_switches`).
+            | Attributes::Dpsw { .. } => {}
+            // No executor today: the dpseci census verbs exist, but no ensure pass drives them —
+            // the gap the dpsw-typestate change surfaced (ADR-0023 seed). Refused typed.
+            Attributes::Dpseci { .. } => {
+                return Err(ReifyRefusal {
+                    label: obj.label().clone(),
+                    family: obj.key().family,
+                });
+            }
+        }
+    }
+    Ok(())
+}
+
+/// The outcome of the switched-domain create pass (dpsw-typestate task 6.4), mirroring
+/// [`LinkOutcome`]: converged, or the whole pass refused because a create/recreate exceeds the
+/// run's `--allow` gate (ADR-0015 decision 12). A teardown-verdict survivor is an
+/// [`Error::Backend`], the [`prune_root_dpnis`] precedent.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SwitchOutcome {
+    /// Every planned root dpsw is present with a matching signature (idempotence), or was
+    /// created/recreated and read back present.
+    Converged,
+    /// A create or recreate would actuate [`Class::Disruptive`] but the run allows less; nothing
+    /// was dispatched (ADR-0015 decision 12).
+    DisruptionRefused {
+        /// The disruptive headline the create/recreate would actuate.
+        headline: Class,
+        /// The maximum class the run allowed.
+        allowed: Class,
+    },
+}
+
+/// What the switched-domain pass resolved for one planned dpsw (reads only), judged before the
+/// gate so no verdict re-reads the board during dispatch.
+enum SwitchVerdict {
+    /// Present with a matching observable signature — nothing to do (idempotence; DPSW-I7).
+    Converged,
+    /// Absent — create it (create → connect edges → plug last).
+    Create,
+    /// Present but a create-time field drifted — destroy and recreate, never in-place
+    /// (`plan_cfg_drift`; every dpsw cfg field is immutable). Carries the observed dpsw to destroy.
+    Recreate {
+        /// The observed dpsw the drift repair destroys before the recreate.
+        destroy: ObjectRef,
+    },
+}
+
+/// One planned dpsw beside its desired cfg and the pre-dispatch verdict.
+struct SwitchWork<'a> {
+    obj: &'a PlannedObject,
+    cfg: DpswCfg,
+    verdict: SwitchVerdict,
+}
+
+/// The root, kernel-owned dpsws a plan carries (DPSW-I6: a dpsw is kernel-ownable only, so a
+/// kernel-forwarded fabric's dpsw lives in [`Container::Root`]).
+fn planned_root_dpsws(plan: &CompiledPlan) -> Vec<&PlannedObject> {
+    plan.objects
+        .iter()
+        .filter(|o| {
+            matches!(o.attributes(), Attributes::Dpsw { .. }) && o.container() == &Container::Root
+        })
+        .collect()
+}
+
+/// The planned fabric edges of one dpsw as `(ifx, far endpoint)` pairs: each plan edge touching
+/// the dpsw key on one side yields its switch-interface index and the endpoint the port faces —
+/// a member dpni or the uplink dpmac (the two ADR-0022 edge rows; dpsw-typestate design D6).
+fn switch_edges(plan: &CompiledPlan, dpsw: &ObjectKey) -> Vec<(u32, AttachPoint)> {
+    let mut edges = Vec::new();
+    for e in &plan.edges {
+        match (e.a(), e.b()) {
+            (AttachPoint::Object { key, port }, far) | (far, AttachPoint::Object { key, port })
+                if key == dpsw =>
+            {
+                edges.push((*port, far.clone()));
+            }
+            _ => {}
+        }
+    }
+    edges
+}
+
+/// Resolves one planned switch-edge endpoint to the MC [`ObjectRef`] a `connect_switch_port`
+/// peer renders (dpsw-typestate task 6.4): a bare dpmac is addressed directly; a member dpni is
+/// resolved by its construct label in its container — the dpni the population/link passes already
+/// created by the time this runs (member dpnis exist by then). A dpni that cannot be resolved is
+/// a loud [`Error::Backend`], never a silently-skipped edge.
+fn resolve_switch_peer<M: McControl>(
+    plan: &CompiledPlan,
+    mc: &M,
+    children: &BTreeMap<ConstructName, DprcId>,
+    endpoint: &AttachPoint,
+) -> Result<ObjectRef, Error> {
+    let key = match endpoint {
+        AttachPoint::Mac(dpmac) => return Ok(ObjectRef::new(Family::Dpmac, dpmac.into_inner())),
+        AttachPoint::Object { key, .. } => key,
+    };
+    if key.family != Family::Dpni {
+        return Err(Error::Backend(format!(
+            "switch edge endpoint {key} is neither a dpmac nor a dpni"
+        )));
+    }
+    let member = plan
+        .objects
+        .iter()
+        .find(|o| o.key() == key)
+        .ok_or_else(|| Error::Backend(format!("switch member {key} is not in the plan")))?;
+    let id = link_container_id(member.container(), children).ok_or_else(|| {
+        Error::Backend(format!(
+            "switch member {key}'s container is not observed yet"
+        ))
+    })?;
+    let row = mc
+        .observe_pool(link_observe_scope(id), Family::Dpni)?
+        .into_iter()
+        .find(|r| r.label.as_str() == member.label().as_str())
+        .ok_or_else(|| {
+            Error::Backend(format!(
+                "switch member `{}` ({key}) is not yet created in its container",
+                member.label()
+            ))
+        })?;
+    Ok(ObjectRef::new(Family::Dpni, row.object.ordinal()))
+}
+
+/// The dpni currently facing `dpmac`, looked up across both regimes: a root dpni through the
+/// observed topology's `connected_to` edge, then — the V-DPSW-5 witness shape — a child dpni by
+/// sweeping each observed child container's dpni pool rows and (dpsw-typestate design D10)
+/// asking `dprc_get_connection` whether it faces the uplink dpmac. The sweep is bounded to the
+/// containers the observation already enumerates (no new verb, no bus rescan). `None` when the
+/// dpmac is free — a fresh switched-domain create with no flat edge to sever.
+fn dpni_facing_uplink<M: McControl>(mc: &M, dpmac: DpmacId) -> Result<Option<DpniId>, Error> {
+    if let Some(dpni) = mc
+        .observe()?
+        .dpnis
+        .iter()
+        .find(|d| d.connected_to == Some(dpmac))
+        .map(|d| d.id)
+    {
+        return Ok(Some(dpni));
+    }
+    let uplink = ObjectRef::new(Family::Dpmac, dpmac.into_inner());
+    for &id in mc.observe_containers()?.keys() {
+        for row in mc.observe_pool(Some(id), Family::Dpni)? {
+            let dpni = DpniId::new(row.object.ordinal());
+            if mc.dprc_get_connection(dpni)? == Some(uplink) {
+                return Ok(Some(dpni));
+            }
+        }
+    }
+    Ok(None)
+}
+
+/// Dispatches one dpsw create in the baseline recipe order (`docs/baseline/dpsw.md` "Lifecycle
+/// ordering"): the flat-to-switched sever FIRST when the uplink dpmac already faces a dpni (the
+/// typed severed-witness path, `plan_interposition`), then create → connect each planned edge →
+/// plug the dpsw last. The connects go through the interface-indexed `connect_switch_port`
+/// (ADR-0022); the plug is `dprc_assign(..., Some(true))` on the dpsw object (DPSW-I9's recipe tail).
+fn dispatch_switch_create<M: McControl>(
+    plan: &CompiledPlan,
+    mc: &M,
+    children: &BTreeMap<ConstructName, DprcId>,
+    obj: &PlannedObject,
+    cfg: &DpswCfg,
+) -> Result<(), Error> {
+    let edges = switch_edges(plan, obj.key());
+
+    // Interposition (dpsw-typestate design D10): the planned uplink dpmac and the member ifx name
+    // the rewire. When that dpmac currently faces a dpni, the dpni–dpmac edge is severed first
+    // through the typed `SeveredProof` path, so no step strands the port driverless (ADR-0008 §8).
+    let uplink = edges.iter().find_map(|(ifx, far)| match far {
+        AttachPoint::Mac(dpmac) => Some((*ifx, *dpmac)),
+        AttachPoint::Object { .. } => None,
+    });
+    let member_ifx = edges.iter().find_map(|(ifx, far)| match far {
+        AttachPoint::Object { key, .. } if key.family == Family::Dpni => Some(*ifx),
+        _ => None,
+    });
+    if let (Some((uplink_ifx, dpmac)), Some(member_ifx)) = (uplink, member_ifx)
+        && let Some(facing) = dpni_facing_uplink(mc, dpmac)?
+    {
+        for step in &plan_interposition(facing, dpmac, uplink_ifx, member_ifx).steps {
+            if let InterposeStep::Sever(Transition::Disconnect { dpni }) = step {
+                mc.dprc_disconnect(CONNECT_ANCESTOR, *dpni)?;
+            }
+        }
+    }
+
+    let dpsw = mc.create_dpsw_in(None, cfg, obj.label())?;
+    for (ifx, endpoint) in &edges {
+        let peer = resolve_switch_peer(plan, mc, children, endpoint)?;
+        mc.connect_switch_port(CONNECT_ANCESTOR, dpsw, *ifx, peer)?;
+    }
+    // Plug LAST, on the dpsw object (`docs/baseline/dpsw.md` "Lifecycle ordering"; plan `PlugSwitch`).
+    mc.dprc_assign(DprcId::ROOT, dpsw, None, Some(true))?;
+    tracing::info!(label = %obj.label(), %dpsw, "created and plugged switched domain");
+    Ok(())
+}
+
+/// Converges every planned root dpsw after the link pass (dpsw-typestate task 6.4; design D6):
+/// resolve each by its construct label (the status.rs discovery seam's approach), judge the
+/// verdict by re-observation only (DPSW-I7; exit codes never judge), gate any create/recreate
+/// against `cfg.allow` before any dispatch, then create (or destroy-and-recreate on cfg drift)
+/// in the baseline recipe order. A present dpsw whose observable signature matches is converged
+/// and dispatches nothing (idempotence); a cfg drift is `unbind_current` → `destroy_dpsw` →
+/// re-observe-absent (the typed `destroy_dpsw` contract) → create (`plan_cfg_drift`; every dpsw
+/// cfg field is immutable). All create/recreate work is [`Class::Disruptive`].
+///
+/// # Errors
+/// Propagates a backend/kernel read/dispatch error; `create_dpsw_in` and `destroy_dpsw` carry
+/// the re-observation verdict, so a surviving object after a success-reported destroy surfaces as
+/// their [`Error::Backend`].
+pub fn converge_switches<M: McControl, K: KernelControl>(
+    plan: &CompiledPlan,
+    mc: &M,
+    kernel: &K,
+    cfg: ConvergeConfig,
+) -> Result<SwitchOutcome, Error> {
+    let dpsws = planned_root_dpsws(plan);
+    if dpsws.is_empty() {
+        return Ok(SwitchOutcome::Converged);
+    }
+
+    // Resolve each dpsw's desired cfg and verdict (reads only), so the gate is judged before any
+    // mutation (the converge_links shape). Presence is observed by label — a root dpsw pool row
+    // bearing the construct name (the status.rs `dpsw_details` seam's approach).
+    let observed = mc.observe_pool(None, Family::Dpsw)?;
+    let mut any_work = false;
+    let mut work = Vec::new();
+    for obj in dpsws {
+        let cfg = cfg_from_attributes(obj.attributes())?;
+        let verdict = match observed
+            .iter()
+            .find(|r| r.label.as_str() == obj.label().as_str())
+        {
+            None => SwitchVerdict::Create,
+            Some(row) => {
+                let face = observed_face_of(&mc.observe_dpsw(DprcId::ROOT, row.object)?);
+                match plan_cfg_drift(&cfg, row.object, &face) {
+                    DriftRepair::Converged => SwitchVerdict::Converged,
+                    DriftRepair::Recreate { destroy } => SwitchVerdict::Recreate { destroy },
+                }
+            }
+        };
+        if !matches!(verdict, SwitchVerdict::Converged) {
+            any_work = true;
+        }
+        work.push(SwitchWork { obj, cfg, verdict });
+    }
+
+    if !any_work {
+        return Ok(SwitchOutcome::Converged);
+    }
+    // Every create/recreate is disruptive — gate before any dispatch (ADR-0015 decision 12).
+    if Class::Disruptive > cfg.allow {
+        tracing::error!(allowed = %cfg.allow, "switched-domain convergence exceeds allowed disruption class");
+        return Ok(SwitchOutcome::DisruptionRefused {
+            headline: Class::Disruptive,
+            allowed: cfg.allow,
+        });
+    }
+
+    let children: BTreeMap<ConstructName, DprcId> = mc
+        .observe_containers()?
+        .iter()
+        .map(|(&id, c)| (c.label.clone(), id))
+        .collect();
+    for w in work {
+        match w.verdict {
+            SwitchVerdict::Converged => {}
+            SwitchVerdict::Create => {
+                dispatch_switch_create(plan, mc, &children, w.obj, &w.cfg)?;
+            }
+            SwitchVerdict::Recreate { destroy } => {
+                // Drift is a destroy-and-recreate: unbind the kernel face, destroy (the verb
+                // re-observes absence), then recreate (ADR-0008 §8; `docs/baseline/dpsw.md`).
+                kernel.unbind_current(&destroy)?;
+                mc.destroy_dpsw(None, &destroy)?;
+                dispatch_switch_create(plan, mc, &children, w.obj, &w.cfg)?;
+            }
+        }
+    }
+    Ok(SwitchOutcome::Converged)
+}
+
+/// The outcome of the undeclared root-dpsw prune pass (dpsw-typestate task 6.4), the dpsw analog
+/// of [`RootDpniPruneOutcome`]: a managed-labelled root dpsw not in the compiled plan is torn
+/// down under the `--prune` + allow-disruptive double gate.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SwitchPruneOutcome {
+    /// No undeclared managed-labelled root dpsw — nothing to prune or report.
+    Clean,
+    /// Candidates exist but nothing was dispatched: `--prune` was withheld.
+    ReportOnly {
+        /// The candidate dpsws, by ref.
+        candidates: Vec<ObjectRef>,
+    },
+    /// `--prune` was given but `cfg.allow` sits below the disruptive teardown headline.
+    DisruptionRefused {
+        /// The disruptive headline the teardowns would actuate.
+        headline: Class,
+        /// The maximum class the run allowed.
+        allowed: Class,
+        /// The candidate dpsws, by ref.
+        candidates: Vec<ObjectRef>,
+    },
+    /// Both gates held: every candidate was unbound and destroyed, its absence re-observed.
+    Pruned {
+        /// The pruned dpsws, by ref.
+        pruned: Vec<ObjectRef>,
+    },
+}
+
+/// Prunes undeclared managed-labelled root dpsws under the double gate (dpsw-typestate task 6.4),
+/// mirroring [`prune_root_dpnis`]' one-label discipline: a root dpsw row whose MC label is
+/// non-empty (managed-labelled) yet names no planned dpsw is a candidate; an empty label is the
+/// DPL/foreign sentinel, exempt ([`label_membership`]). Only when `cfg.prune` AND `cfg.allow`
+/// reaches the disruptive headline, each candidate is torn down `unbind_current` → `destroy_dpsw`
+/// — the kernel face before the destroy (ADR-0008 §8). No port disconnects (baseline: connected
+/// endpoints are no obstacle to destroy) and NO companion unplug/destroy: the dpsw's pool
+/// companions return to the free pool as grow-only typed residue (ADR-0020). The verdict comes
+/// from a re-observation — a pruned dpsw that survives is an error.
+///
+/// # Errors
+/// Propagates a backend/kernel read/dispatch error, and reports a survivor as an [`Error::Backend`].
+pub fn prune_switches<M: McControl, K: KernelControl>(
+    plan: &CompiledPlan,
+    mc: &M,
+    kernel: &K,
+    cfg: ConvergeConfig,
+) -> Result<SwitchPruneOutcome, Error> {
+    let declared: BTreeSet<ConstructName> = plan
+        .objects
+        .iter()
+        .filter(|o| matches!(o.attributes(), Attributes::Dpsw { .. }))
+        .map(|o| o.label().clone())
+        .collect();
+    let candidates: Vec<ObjectRef> = mc
+        .observe_pool(None, Family::Dpsw)?
+        .into_iter()
+        .filter(|r| label_membership(&r.label, &declared) == PoolMembership::Foreign)
+        .map(|r| r.object)
+        .collect();
+    if candidates.is_empty() {
+        return Ok(SwitchPruneOutcome::Clean);
+    }
+    if !cfg.prune {
+        return Ok(SwitchPruneOutcome::ReportOnly { candidates });
+    }
+    if Class::Disruptive > cfg.allow {
+        tracing::error!(allowed = %cfg.allow, "root dpsw prune exceeds allowed disruption class");
+        return Ok(SwitchPruneOutcome::DisruptionRefused {
+            headline: Class::Disruptive,
+            allowed: cfg.allow,
+            candidates,
+        });
+    }
+
+    for dpsw in &candidates {
+        kernel.unbind_current(dpsw)?;
+        mc.destroy_dpsw(None, dpsw)?;
+        tracing::info!(%dpsw, "pruned undeclared managed-labelled root dpsw");
+    }
+    let after = mc.observe_pool(None, Family::Dpsw)?;
+    if let Some(survivor) = candidates
+        .iter()
+        .find(|o| after.iter().any(|r| r.object == **o))
+    {
+        return Err(Error::Backend(format!(
+            "root dpsw {survivor} survived prune dispatch"
+        )));
+    }
+    Ok(SwitchPruneOutcome::Pruned { pruned: candidates })
 }
 
 /// Dispatches one prune-teardown step against the target container `id`. A [`Destroy`]
@@ -900,8 +1345,9 @@ pub fn converge_pools<M: McControl>(
 /// DPMAC deadline.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PopulationOutcome {
-    /// Every declared child is populated to its derived census, its dpnis connected, and
-    /// bound to VFIO (the idempotence witness reproduces it).
+    /// Every declared child is populated to its derived census and its dpnis connected; a
+    /// VFIO-consumer child is bound to VFIO, a kernel-driven child left for the kernel's own
+    /// `fsl_mc_dprc` driver to auto-bind (ADR-0013 §283-293). The idempotence witness reproduces it.
     Converged,
     /// A child population's headline exceeded the run's `--allow` gate (ADR-0015 decision
     /// 12); nothing was actuated. Creating a resident is [`Class::Disruptive`].
@@ -1026,8 +1472,11 @@ pub fn plan_population<M: McControl, K: KernelControl>(
 /// - Populates each unconverged child ([`dispatch_child_population`]) — per-port dpnis with
 ///   arity from the plan, their dpmac connect from the common ancestor, the trio deltas and
 ///   dpio seats — and judges convergence by the post-dispatch read-back census.
-/// - Hands each not-yet-bound child to VFIO ([`vfio_handoff`]), guarded by the plan's
-///   `bound_driver` read so a re-run over a bound child issues nothing.
+/// - Binds by the plan's regime ([`ChildPlan::regime`], ADR-0013 §283-293): a VFIO-consumer child
+///   is handed to VFIO ([`vfio_handoff`]), guarded by the `bound_driver` read so a re-run over a
+///   bound child issues nothing; a kernel-driven child is NEVER VFIO-grabbed — the kernel's own
+///   `fsl_mc_dprc` driver auto-binds it, so the engine judges by read-back only (bound to the
+///   kernel driver is converged, not yet bound is converging on the next pass).
 ///
 /// Idempotent and level-triggered: a converged, bound child yields an empty plan and is
 /// neither grown nor re-bound, and a second pass over it does too.
@@ -1035,6 +1484,7 @@ pub fn plan_population<M: McControl, K: KernelControl>(
 /// # Errors
 /// Propagates a backend/kernel read/dispatch error, and reports a child that failed to reach
 /// its derived census after dispatch as an [`Error::Backend`].
+#[allow(clippy::too_many_lines)] // one linear convergence pass: gate, dispatch, then bind by regime
 pub fn converge_population<M: McControl, K: KernelControl>(
     plan: &CompiledPlan,
     mc: &M,
@@ -1059,11 +1509,27 @@ pub fn converge_population<M: McControl, K: KernelControl>(
         return Ok(PopulationOutcome::ShrinkRefused { label, refusal });
     }
 
-    // ADR-0017 decision 3: a bound child's pending residents are MC-accepted but kernel-invisible
+    // ADR-0013 §283-293: a kernel-driven dprc the VFIO bus grabbed hides its dpni from the kernel
+    // scan; the engine never re-binds a kernel child, so it stands as typed drift, nothing healed.
+    if let Some(cp) = plans
+        .iter()
+        .find(|c| c.regime == BindingRegime::KernelDriven && c.vfio_bound())
+    {
+        tracing::error!(label = %cp.label, "a kernel-driven child is bound to vfio-fsl-mc; its dpni is hidden from the kernel scan (ADR-0013)");
+        return Ok(PopulationOutcome::DriftRefused {
+            label: cp.label.clone(),
+            residue: ChildDeferredVisibility::new(cp.label.clone(), cp.child),
+        });
+    }
+
+    // ADR-0017 decision 3: a VFIO-bound child's pending residents are MC-accepted but kernel-invisible
     // until a rebind; consent is the run's Disruptive allow, judged through the pure
     // `discharge_child` (never an inline class check). Declined consent surfaces the typed standing
     // residue and actuates nothing; a granted one is healed in the dispatch loop below.
-    for cp in plans.iter().filter(|c| c.bound && !c.is_converged()) {
+    for cp in plans
+        .iter()
+        .filter(|c| c.regime == BindingRegime::VfioConsumer && c.vfio_bound() && !c.is_converged())
+    {
         let obligation = ChildDeferredVisibility::new(cp.label.clone(), cp.child);
         if let Err(residue) = discharge_child(obligation, cfg.allow) {
             tracing::error!(label = %cp.label, "post-bind residents drift in a bound child; rebind consent declined (ADR-0017)");
@@ -1112,17 +1578,25 @@ pub fn converge_population<M: McControl, K: KernelControl>(
                     refusal,
                 });
             }
-            // A not-yet-bound child's post-dispatch read-back is its verdict; a bound child is
-            // judged only AFTER its rebind cycle below (ADR-0017 decision 2: never by create
-            // acceptance, always by post-rebind re-observation).
-            if !cp.bound && !pop.converged(cp.dpnis.len()) {
+            // A not-yet-VFIO-bound or kernel-driven child's post-dispatch read-back is its verdict;
+            // a VFIO-bound one is judged only AFTER its rebind cycle below (ADR-0017 decision 2).
+            let judge_now = cp.regime == BindingRegime::KernelDriven || !cp.vfio_bound();
+            if judge_now && !pop.converged(cp.dpnis.len()) {
                 return Err(Error::Backend(format!(
                     "child `{}` did not converge after population dispatch: {pop:?}",
                     cp.label
                 )));
             }
         }
-        if cp.bound {
+        // V-DPSW-5 rev 3 (bead dpaa2-controlplane-dbf.19): the bus never auto-binds a runtime-created
+        // child dprc, so an unbound kernel child gets one explicit bind; probe is async — converging-on-next-pass stands.
+        if cp.regime == BindingRegime::KernelDriven {
+            if !cp.kernel_bound() {
+                kernel.dprc_kernel_bind(cp.child)?;
+            }
+            continue;
+        }
+        if cp.vfio_bound() {
             // ADR-0017 decision 2: a consent-cleared bound child heals with ONE rebind cycle
             // (unbind → bind), then the post-rebind re-observation is the sole convergence verdict.
             if !cp.is_converged() {
@@ -1768,7 +2242,7 @@ pub fn link_obligations<M: McControl, K: KernelControl>(
 ) -> Result<Vec<ChildDeferredVisibility>, Error> {
     Ok(plan_population(plan, mc, kernel)?
         .iter()
-        .filter(|cp| cp.bound && !cp.is_converged())
+        .filter(|cp| cp.vfio_bound() && !cp.is_converged())
         .map(|cp| ChildDeferredVisibility::new(cp.label.clone(), cp.child))
         .collect())
 }
@@ -2760,6 +3234,369 @@ mod tests {
                 }
                 other => panic!("expected a typed ShrinkRefused, got {other:?}"),
             }
+        }
+    }
+
+    /// The switched-domain create/teardown pass and the ADR-0023 completeness guard, driven
+    /// through the in-memory fake (dpsw-typestate task 6.4): create order (create → connects →
+    /// plug), interposition sever-first, idempotence, the drift destroy-and-recreate's
+    /// unbind-before-destroy order, the allow gate, the undeclared-dpsw prune, and the guard refusal.
+    mod switched {
+        use std::collections::BTreeMap;
+
+        use dpaa2_api::contract::DpswDetail;
+        use dpaa2_api::contract::fake::FakeBackend;
+        use dpaa2_api::core::model::{DpmacId, MacMode, ObjectRef};
+        use dpaa2_api::families::dpsw::{
+            BroadcastCfg, ComponentType, FdbAgingTime, FloodingCfg, MaxFdbEntries, MaxFdbMcGroups,
+            MaxFdbs, MaxVlans, NumIfs, ObservedOpts,
+        };
+        use dpaa2_api::intent::refuse::{Compiled, compile};
+        use dpaa2_api::intent::{
+            Crypto, Dataplane, Fabric, Intent, Isolation, Member, Port, Switching, Tenant,
+            TenantRef,
+        };
+        use dpaa2_api::testkit::ref_inventory;
+
+        use super::*;
+
+        fn disruptive() -> ConvergeConfig {
+            ConvergeConfig {
+                allow: Class::Disruptive,
+                prune: true,
+                ..ConvergeConfig::default()
+            }
+        }
+
+        /// The V-DPSW-5 switched-domain operand built in Rust (mirrors
+        /// `models/board/V-DPSW-5/intent-a.toml`): the `edge` userspace-poll tenant joins a
+        /// kernel-forwarded dpsw whose uplink is the wired dpmac.7, member order `[uplink, edge]`.
+        fn compiled_switched() -> Compiled {
+            let edge = Tenant {
+                name: "edge".into(),
+                dataplane: Dataplane::UserspacePoll,
+                max_cores: 16,
+                isolation: Isolation::Isolated,
+                renamed: None,
+                priority: None,
+            };
+            let uplink = Port {
+                name: "uplink".into(),
+                dpmac: DpmacId::new(7),
+                rate: 10_000,
+                tenant: TenantRef::Kernel,
+                mac: None,
+                mac_mode: MacMode::Assert,
+                renamed: None,
+            };
+            let lan = Fabric {
+                name: "lan".into(),
+                switching: Switching::Hardware,
+                forwarded_by: "kernel".into(),
+                members: vec![Member::Port("uplink".into()), Member::Tenant("edge".into())],
+                mac_table_size: Some(256),
+                renamed: None,
+            };
+            let mut intent = Intent {
+                tenants: vec![edge],
+                ports: vec![uplink],
+                fabrics: vec![lan],
+                ..Intent::empty()
+            };
+            crate::complete_kernel(&mut intent, 16);
+            compile(&intent, &ref_inventory(16)).expect("the switched intent compiles")
+        }
+
+        /// Stands up the prerequisite board state a switched-domain create reads: the child
+        /// containers and the member dpnis the population pass creates.
+        fn with_populated_members(c: &Compiled) -> FakeBackend {
+            let mc = FakeBackend::new().with_inventory(ref_inventory(16));
+            converge_containers(&c.plan, &mc, disruptive()).expect("containers");
+            converge_population(&c.plan, &mc, &mc, disruptive()).expect("population");
+            mc
+        }
+
+        fn index_of(audit: &[String], prefix: &str) -> usize {
+            audit
+                .iter()
+                .position(|e| e.starts_with(prefix))
+                .unwrap_or_else(|| panic!("no audit entry `{prefix}` in {audit:?}"))
+        }
+
+        /// A clean observed detail with the given port count — all sig lines present, no escape.
+        fn detail_with_num_ifs(num_ifs: u16) -> DpswDetail {
+            DpswDetail {
+                num_ifs: NumIfs::new(num_ifs).ok(),
+                max_vlans: MaxVlans::new(16).ok(),
+                max_fdbs: MaxFdbs::new(num_ifs).ok(),
+                max_fdb_entries: MaxFdbEntries::new(512).ok(),
+                fdb_aging_time: FdbAgingTime::new(300).ok(),
+                max_fdb_mc_groups: MaxFdbMcGroups::new(32).ok(),
+                component_type: Some(ComponentType::CVlan),
+                flooding_cfg: Some(FloodingCfg::PerFdb),
+                broadcast_cfg: Some(BroadcastCfg::PerFdb),
+                mem_size: None,
+                options: Some(ObservedOpts::empty()),
+                ifaces: BTreeMap::new(),
+            }
+        }
+
+        #[test]
+        fn create_orders_create_then_connects_then_plug() {
+            let c = compiled_switched();
+            let mc = with_populated_members(&c);
+
+            assert_eq!(
+                converge_switches(&c.plan, &mc, &mc, disruptive()).unwrap(),
+                SwitchOutcome::Converged
+            );
+
+            let audit = mc.audit();
+            let create = index_of(&audit, "create_dpsw:");
+            let plug = index_of(&audit, "plug_dpsw:");
+            let connects: Vec<usize> = audit
+                .iter()
+                .enumerate()
+                .filter(|(_, e)| e.starts_with("connect_switch_port:"))
+                .map(|(i, _)| i)
+                .collect();
+            assert_eq!(connects.len(), 2, "both fabric edges connect: {audit:?}");
+            assert!(
+                create < connects[0],
+                "create precedes the connects: {audit:?}"
+            );
+            assert!(
+                *connects.iter().max().unwrap() < plug,
+                "the plug lands last, after every connect: {audit:?}"
+            );
+            // The uplink connect faces bare dpmac.7 (the ADR-0022 uplink edge row).
+            assert!(
+                audit.iter().any(|e| e.contains("->dpmac.7")),
+                "the uplink port faces dpmac.7: {audit:?}"
+            );
+            // The created dpsw reads back plugged.
+            let row = mc
+                .observe_pool(None, Family::Dpsw)
+                .unwrap()
+                .into_iter()
+                .find(|r| r.label.as_str() == "lan")
+                .expect("the lan dpsw is present");
+            assert!(row.plugged, "the dpsw is plugged after the create");
+        }
+
+        #[test]
+        fn second_run_is_idempotent_and_dispatches_nothing() {
+            let c = compiled_switched();
+            let mc = with_populated_members(&c);
+            converge_switches(&c.plan, &mc, &mc, disruptive()).unwrap();
+            let creates_before = mc
+                .audit()
+                .iter()
+                .filter(|e| e.starts_with("create_dpsw:"))
+                .count();
+
+            assert_eq!(
+                converge_switches(&c.plan, &mc, &mc, disruptive()).unwrap(),
+                SwitchOutcome::Converged
+            );
+            let creates_after = mc
+                .audit()
+                .iter()
+                .filter(|e| e.starts_with("create_dpsw:"))
+                .count();
+            assert_eq!(creates_before, 1, "one create on the first run");
+            assert_eq!(
+                creates_after, 1,
+                "the second run creates nothing (idempotence)"
+            );
+        }
+
+        #[test]
+        fn interposition_severs_before_the_switch_is_created() {
+            let c = compiled_switched();
+            // The uplink dpmac.7 already faces a dpni (the flat edge the switched convergence
+            // re-homes): the pass severs it before wiring (dpsw-typestate design D10).
+            let mc =
+                with_populated_members(&c).with_connected_dpni(DpniId::new(99), DpmacId::new(7));
+
+            converge_switches(&c.plan, &mc, &mc, disruptive()).unwrap();
+            let audit = mc.audit();
+            let sever = index_of(&audit, "disconnect:dpni.99");
+            let create = index_of(&audit, "create_dpsw:");
+            assert!(
+                sever < create,
+                "the dpni–dpmac sever precedes the switch create: {audit:?}"
+            );
+        }
+
+        #[test]
+        fn child_container_dpni_on_the_uplink_severs_before_create() {
+            // The V-DPSW-5 witness shape (dpsw-typestate design D10): the edge tenant's
+            // CHILD-container dpni stands flat on dpmac.7 first, so the detection must reach it
+            // through the child-container sweep, not just the root `connected_to` edge.
+            let c = compiled_switched();
+            let mc = with_populated_members(&c);
+            let edge_id = mc
+                .observe_containers()
+                .unwrap()
+                .iter()
+                .find(|(_, cont)| cont.label.as_str() == "edge")
+                .map(|(id, _)| *id)
+                .expect("the edge child container exists");
+            let member = mc
+                .observe_pool(Some(edge_id), Family::Dpni)
+                .unwrap()
+                .into_iter()
+                .next()
+                .expect("the edge member dpni exists");
+            let member_dpni = DpniId::new(member.object.ordinal());
+            mc.dprc_connect(
+                CONNECT_ANCESTOR,
+                member_dpni,
+                ObjectRef::new(Family::Dpmac, 7),
+            )
+            .expect("seed the flat child dpni↔dpmac.7 edge");
+
+            converge_switches(&c.plan, &mc, &mc, disruptive()).unwrap();
+            let audit = mc.audit();
+            let sever = index_of(&audit, &format!("disconnect:{member_dpni}"));
+            let create = index_of(&audit, "create_dpsw:");
+            assert!(
+                sever < create,
+                "the child dpni–dpmac sever precedes the switch create: {audit:?}"
+            );
+        }
+
+        #[test]
+        fn cfg_drift_recreates_with_unbind_before_destroy() {
+            let c = compiled_switched();
+            let mc = with_populated_members(&c);
+            // A standing dpsw labelled `lan` whose observed signature (4 ports) drifts from the
+            // compiled 2-port plan: the repair is destroy-and-recreate, never in-place.
+            let old = ObjectRef::new(Family::Dpsw, 77);
+            let mc = mc.with_dpsw_object(DprcId::ROOT, old, &"lan".into(), detail_with_num_ifs(4));
+
+            assert_eq!(
+                converge_switches(&c.plan, &mc, &mc, disruptive()).unwrap(),
+                SwitchOutcome::Converged
+            );
+            let audit = mc.audit();
+            let unbind = index_of(&audit, "unbind_current:dpsw.77");
+            let destroy = index_of(&audit, "destroy:dpsw.77");
+            let create = index_of(&audit, "create_dpsw:");
+            assert!(
+                unbind < destroy,
+                "the kernel unbind precedes the destroy (ADR-0008 §8): {audit:?}"
+            );
+            assert!(
+                destroy < create,
+                "the destroy precedes the recreate: {audit:?}"
+            );
+        }
+
+        #[test]
+        fn allow_gate_refuses_below_disruptive_and_changes_nothing() {
+            let c = compiled_switched();
+            let mc = with_populated_members(&c);
+            let hitless = ConvergeConfig {
+                allow: Class::Hitless,
+                ..ConvergeConfig::default()
+            };
+
+            match converge_switches(&c.plan, &mc, &mc, hitless).unwrap() {
+                SwitchOutcome::DisruptionRefused { headline, allowed } => {
+                    assert_eq!(headline, Class::Disruptive);
+                    assert_eq!(allowed, Class::Hitless);
+                }
+                SwitchOutcome::Converged => panic!("a disruptive create must refuse below allow"),
+            }
+            assert!(
+                !mc.audit().iter().any(|e| e.starts_with("create_dpsw:")),
+                "nothing is created under the refused gate"
+            );
+        }
+
+        #[test]
+        fn prune_tears_down_an_undeclared_dpsw_unbind_before_destroy() {
+            let c = compiled_switched();
+            let mc = FakeBackend::new().with_inventory(ref_inventory(16));
+            // A managed-labelled root dpsw the plan does not declare (`ghost`): a prune candidate.
+            let ghost = ObjectRef::new(Family::Dpsw, 42);
+            let mc =
+                mc.with_dpsw_object(DprcId::ROOT, ghost, &"ghost".into(), detail_with_num_ifs(2));
+
+            match prune_switches(&c.plan, &mc, &mc, disruptive()).unwrap() {
+                SwitchPruneOutcome::Pruned { pruned } => assert_eq!(pruned, vec![ghost]),
+                other => panic!("expected the ghost dpsw pruned, got {other:?}"),
+            }
+            let audit = mc.audit();
+            let unbind = index_of(&audit, "unbind_current:dpsw.42");
+            let destroy = index_of(&audit, "destroy:dpsw.42");
+            assert!(
+                unbind < destroy,
+                "the kernel unbind precedes the destroy (ADR-0008 §8): {audit:?}"
+            );
+            assert!(
+                mc.observe_pool(None, Family::Dpsw).unwrap().is_empty(),
+                "the ghost dpsw is gone after the prune"
+            );
+        }
+
+        #[test]
+        fn prune_without_the_prune_flag_reports_only() {
+            let c = compiled_switched();
+            let ghost = ObjectRef::new(Family::Dpsw, 42);
+            let mc = FakeBackend::new()
+                .with_inventory(ref_inventory(16))
+                .with_dpsw_object(DprcId::ROOT, ghost, &"ghost".into(), detail_with_num_ifs(2));
+            let no_prune = ConvergeConfig {
+                allow: Class::Disruptive,
+                prune: false,
+                ..ConvergeConfig::default()
+            };
+            match prune_switches(&c.plan, &mc, &mc, no_prune).unwrap() {
+                SwitchPruneOutcome::ReportOnly { candidates } => {
+                    assert_eq!(candidates, vec![ghost]);
+                }
+                other => panic!("expected report-only, got {other:?}"),
+            }
+            assert!(
+                !mc.audit().iter().any(|e| e.starts_with("destroy:")),
+                "nothing is destroyed without --prune"
+            );
+        }
+
+        #[test]
+        fn reify_guard_refuses_a_construct_with_no_executor() {
+            // A crypto block compiles to a dpseci, which no ensure pass reifies today: the guard
+            // refuses it typed rather than dropping it silently (ADR-0023 "no dead family").
+            let scratch = Tenant {
+                name: "scratch".into(),
+                dataplane: Dataplane::UserspacePoll,
+                max_cores: 16,
+                isolation: Isolation::Isolated,
+                renamed: None,
+                priority: None,
+            };
+            let intent = Intent {
+                tenants: vec![scratch],
+                crypto: vec![Crypto {
+                    tenant: "scratch".into(),
+                    flows: 4,
+                }],
+                ..Intent::empty()
+            };
+            let c = compile(&intent, &ref_inventory(16)).expect("the crypto intent compiles");
+            match reify_guard(&c.plan) {
+                Err(refusal) => {
+                    assert_eq!(refusal.family, Family::Dpseci);
+                    assert!(refusal.to_string().contains("cannot reify"));
+                }
+                Ok(()) => panic!("a dpseci construct has no executor and must be refused"),
+            }
+
+            // The switched plan names only reifiable constructs (dpni/dprc/dpsw/companions).
+            assert!(reify_guard(&compiled_switched().plan).is_ok());
         }
     }
 }

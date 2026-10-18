@@ -619,6 +619,28 @@ pub trait McControl {
     /// when the object is still present after a success-reported destroy.
     fn destroy_dpsw(&self, container: Option<DprcId>, dpsw: &ObjectRef) -> Result<(), Error>;
 
+    /// Connects one switch interface `dpsw.N.ifx` to `peer`, issued from their common
+    /// ancestor `ancestor`: `dprc connect <ancestor> --endpoint1=dpsw.N.M --endpoint2=<peer>`
+    /// (the ADR-0022 sub-indexed endpoint discipline, `*.N.M`). This is the dpsw sibling of the
+    /// dpni-anchored [`dprc_connect`](Self::dprc_connect): a switch endpoint is an interface of
+    /// the dpsw object, which that dpni-keyed verb cannot name. `peer` is an [`ObjectRef`] so
+    /// both dpsw edge rows render — the member `dpni ↔ dpsw.N.M` and the uplink `dpsw.N.M ↔
+    /// dpmac` (ADR-0022). The port index is bounded by the created `num_ifs` in planning
+    /// (DPSW-I10), so this verb renders whatever edge it is handed; it plugs nothing — the dpsw
+    /// plug is `dprc_assign(..., Some(true))` issued last (`docs/baseline/dpsw.md` "Lifecycle
+    /// ordering"; bead dpaa2-controlplane-dbf.22).
+    ///
+    /// # Errors
+    /// Returns [`Error::McStatus`]/[`Error::RestoolGuard`] on a refusal, or [`Error::Backend`]
+    /// on a dead spawn.
+    fn connect_switch_port(
+        &self,
+        ancestor: DprcId,
+        dpsw: ObjectRef,
+        ifx: u32,
+        peer: ObjectRef,
+    ) -> Result<(), Error>;
+
     /// Observes one pool family's objects in `container` through a single `dprc show`,
     /// filtered to `family`, each row reported verbatim as an [`ObservedPoolObject`] —
     /// read-back is the only observation, exit status never is (pool-objects task 3.1;

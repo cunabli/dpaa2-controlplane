@@ -11,7 +11,7 @@ use std::path::PathBuf;
 
 use dpaa2_api::contract::KernelControl;
 use dpaa2_api::core::error::Error;
-use dpaa2_api::core::model::{DpniId, DprcId};
+use dpaa2_api::core::model::{DpniId, DprcId, ObjectRef};
 use dpaa2_api::families::dpmac::CarrierSource;
 use dpaa2_api::families::dprc;
 use dpaa2_api::families::pool_lifecycle::RawDriver;
@@ -143,6 +143,20 @@ impl KernelControl for SysfsKernel {
             .map_err(Error::Io)
     }
 
+    /// Writes the container name to the `fsl_mc_dprc` driver's `bind` file — the board showed
+    /// the bus never auto-binds a runtime-created child dprc (V-DPSW-5 rev 3, bead
+    /// dpaa2-controlplane-dbf.19). The registered name carries the underscore in sysfs
+    /// (`dprc::FSL_MC_DPRC_DRIVER`; V-DPRTC-3 lore); it is the matching driver, so no override.
+    /// The bind write races the asynchronous bus scan that follows `restool dprc sync`, so a
+    /// freshly created child dprc reads `ENODEV` before it registers, which is deferral — the next
+    /// ensure pass re-observes and re-kicks — not failure (V-DPSW-5 rev 4, bead dpaa2-controlplane-dbf.19).
+    fn dprc_kernel_bind(&self, dprc: DprcId) -> Result<(), Error> {
+        tolerate_unscanned_dprc(
+            self.bus
+                .bind_driver(dprc::FSL_MC_DPRC_DRIVER, &dprc.to_string()),
+        )
+    }
+
     fn vfio_unbind(&self, dprc: DprcId) -> Result<(), Error> {
         // Unbind, then clear the override — the cleared override is what re-opens
         // fsl_mc_dprc eligibility (the unbind scenario's whole contract).
@@ -168,6 +182,36 @@ impl KernelControl for SysfsKernel {
 
     fn iommu_group(&self, dprc: DprcId) -> Result<Option<u32>, Error> {
         self.bus.iommu_group(&dprc.to_string()).map_err(Error::Io)
+    }
+
+    /// Reads the flat root device's bound driver first, then unbinds only while one holds it —
+    /// a dpsw the kernel left unbound carries no driver and is a no-op, so a teardown re-run
+    /// converges (level-triggered, mirroring [`unbind`](Self::unbind)). A lost release race
+    /// (`ENODEV`/`ENOENT`) is already-unbound success, not a failure (ADR-0008 §8).
+    fn unbind_current(&self, object: &ObjectRef) -> Result<(), Error> {
+        let name = object.to_string();
+        match self.bus.bound_driver(&name).map_err(Error::Io)? {
+            Some(driver) => match self.bus.unbind_driver(&driver, &name) {
+                Ok(()) => Ok(()),
+                Err(e)
+                    if e.kind() == std::io::ErrorKind::NotFound || e.raw_os_error() == Some(19) =>
+                {
+                    Ok(())
+                }
+                Err(e) => Err(Error::Io(e)),
+            },
+            None => Ok(()),
+        }
+    }
+}
+
+/// Maps a `fsl_mc_dprc` bind write's outcome: `ENODEV` (os error 19) is the lost race against the
+/// post-`sync` bus scan — deferral, the next ensure pass re-kicks — so it reads as success; every
+/// other error propagates (V-DPSW-5 rev 4, bead dpaa2-controlplane-dbf.19).
+fn tolerate_unscanned_dprc(result: std::io::Result<()>) -> Result<(), Error> {
+    match result {
+        Err(e) if e.raw_os_error() == Some(19) => Ok(()),
+        other => other.map_err(Error::Io),
     }
 }
 
@@ -388,6 +432,38 @@ mod tests {
     }
 
     #[test]
+    fn unbind_current_releases_the_bound_driver_and_is_a_noop_when_unbound() {
+        // The dpsw teardown verb (ADR-0008 §8): read the flat device's driver, unbind only
+        // while one holds it, and a re-run over an already-unbound device writes nothing.
+        use dpaa2_api::core::family::Family;
+
+        let fx = Fixture::new("unbind-current");
+        let dpsw = ObjectRef::new(Family::Dpsw, 7);
+        let driver = fx.drivers.join("fsl_dpaa2_switch");
+        std::fs::create_dir_all(&driver).unwrap();
+        let dev = fx.devices.join("dpsw.7");
+        std::fs::create_dir_all(&dev).unwrap();
+        std::os::unix::fs::symlink(&driver, dev.join("driver")).unwrap();
+
+        fx.kernel.unbind_current(&dpsw).expect("unbind current");
+        assert_eq!(
+            std::fs::read_to_string(driver.join("unbind")).unwrap(),
+            "dpsw.7"
+        );
+
+        // No driver link ⇒ nothing bound ⇒ a no-op that leaves the unbind attribute untouched.
+        std::fs::remove_file(dev.join("driver")).unwrap();
+        std::fs::write(driver.join("unbind"), b"sentinel").unwrap();
+        fx.kernel
+            .unbind_current(&dpsw)
+            .expect("idempotent unbind current");
+        assert_eq!(
+            std::fs::read_to_string(driver.join("unbind")).unwrap(),
+            "sentinel"
+        );
+    }
+
+    #[test]
     fn carrier_reads_the_source_device_over_one_sysfs_route() {
         // mc-backend spec "Carrier resolves per owner": the PeerDpni source reads dpni.N's
         // netdev carrier, the Dpmac source reads dpmac.N's macN carrier, and a driverless
@@ -442,5 +518,18 @@ mod tests {
                 .expect("inherited override"),
             Some(VFIO_FSL_MC_DRIVER.to_owned())
         );
+    }
+
+    /// The `fsl_mc_dprc` bind write that loses the race against the post-`sync` bus scan returns
+    /// `ENODEV` (os error 19); that is deferral, so the kick reads as success — any other errno
+    /// still fails (V-DPSW-5 rev 4, bead dpaa2-controlplane-dbf.19).
+    #[test]
+    fn dprc_kernel_bind_defers_on_the_unscanned_enodev_but_fails_other_errors() {
+        tolerate_unscanned_dprc(Err(std::io::Error::from_raw_os_error(19)))
+            .expect("ENODEV is deferral, not failure");
+        assert!(matches!(
+            tolerate_unscanned_dprc(Err(std::io::Error::from_raw_os_error(13))),
+            Err(Error::Io(_))
+        ));
     }
 }
