@@ -893,6 +893,19 @@
       "refusals": []
     }
   },
+  "V-DPSW-5": {
+    "V-DPSW-5-rev6": {
+      "pass": true,
+      "date": "2026-10-18",
+      "kind": "batch",
+      "revision": 6,
+      "steps": "8/8",
+      "source_hash": "fnv1a64:e7c050ec1bcee0a0",
+      "hook": null,
+      "archive": null,
+      "refusals": []
+    }
+  },
   "V-FIT-1": {
     "V-FIT-1-rev1": {
       "pass": false,

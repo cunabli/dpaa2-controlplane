@@ -111,10 +111,15 @@
       protocol), then the discovery sitting; feed divergences back to
       model/baseline before proceeding. Verify: suite verdicts
       recorded; model ladder green after any amendment.
-- [ ] 7.2 Witness sitting: the end-to-end switched-domain suite
-      (system-integration delta) with the capture tap banking the #10
-      fixture corpus. Verify: verdict PASS recorded; corpus committed
-      beside results and parse round-trip green.
+- [x] 7.2 Witness sitting: the switched-domain suite records the
+      STRUCTURAL end-to-end verdict (converge, interposition, kernel
+      bind, idempotence, typed teardown) with the capture tap banking
+      the #10 fixture corpus. The reachability-traffic leg is deferred
+      with a named revisit trigger (the change #15 driver-occupancy
+      ordering guard plus the kernel refresh; adjudication on bead
+      dpaa2-controlplane-dbf.19). Verify: structural verdict recorded in
+      the ledger; corpus committed beside results with parse round-trip
+      green.
 
 ## 8. Docs and gates
 

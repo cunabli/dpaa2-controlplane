@@ -68,10 +68,11 @@ fn capture_files() -> Vec<PathBuf> {
 fn committed_captures_parse_with_at_least_one_step() {
     use dpaa2_verify::board::capture::Corpus;
     let captures = capture_files();
-    // 1 hand-banked V-DPSW-2 fixture + the 11-file V-DPSW-2 discovery corpus;
+    // 1 hand-banked V-DPSW-2 fixture + the 11-file V-DPSW-2 discovery corpus
+    // + the 9-file V-DPSW-5 witness corpus (bead dpaa2-controlplane-dbf.19);
     // a count below that is an accidentally-empty walk passing vacuously.
     assert!(
-        captures.len() >= 12,
+        captures.len() >= 21,
         "expected the committed captures under models/board, found {captures:?}"
     );
     for path in captures {
