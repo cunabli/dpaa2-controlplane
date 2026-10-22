@@ -123,7 +123,7 @@
 
 ## 8. Docs and gates
 
-- [ ] 8.1 Amend `docs/baseline/dpsw.md` (unknowns answered by group 7;
+- [x] 8.1 Amend `docs/baseline/dpsw.md` (unknowns answered by group 7;
       DPSW-I9/I10 added to the invariant-candidate table),
       ADR-0013 (vocabulary), ADR-0022 (table rows), ADR-0019
       (P1-instance note), ROADMAP row #11 status. Verify: anchored-refs

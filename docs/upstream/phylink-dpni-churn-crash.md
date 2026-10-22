@@ -238,3 +238,37 @@ patch remains the real fix — the resolve worker and the armed timer
 must be cancelled or flushed before the PCS and the standalone driver
 are freed — and this doc is its seed. Evidence: suite V-DPSW-5 revs
 1–5, bead dpaa2-controlplane-dbf.19, captures under `results/V-DPSW-5/`.
+
+## Fifth signature: the sync-hold narrows the window but does not close it; device-links refcount underflow (2026-10-22, V-DPSW-5 revs 6–7)
+
+The disconnect sync-hold above narrows the trigger window; it does not
+close it. Rev 6 ran the full suite clean on the sync-hold tree — the
+first complete run — but rev 7 on the *same tree* fired the step-3
+phylink Oops again (`phylink_mac_pcs_get_state+0x5c` via
+`phylink_resolve`, byte-identical) at the dpmac.7 handover. A mutating
+verb's own sync still carries the transiently endpoint-free state into
+the window for a short interval, so the standalone `fsl_dpaa2_mac`
+driver can still attach, arm, and be freed under its own queued work.
+
+Rev 7 also produced a new signature: the `deferred_probe` kworker died
+with a refcount-underflow use-after-free Oops in
+`device_link_drop_managed`, after the child dprc was bound through the
+`driver_override` path and its `dpaa2-eth` probe failed qbman channel
+setup. A device-links refcount dropped below zero and the managed link
+was freed while still referenced.
+
+The candidate structural lever is a plan-order change so the wired
+uplink never passes through a standalone `fsl_dpaa2_mac` attach during
+the handover — the dpmac stays driver-occupied by the switch across the
+rewire rather than momentarily endpoint-free. This is deferred to the
+`resource-aware-orchestration` change (#15) driver-occupancy ordering
+guard (ADR-0023).
+
+Two notes from the same window. Finding 52's `kernel/time/timer.c:1738`
+`__run_timers` WARNING recurred across the rev-1–7 teardown windows, the
+same detached-timer sibling signature. And a suite-operational gotcha:
+suspending the suite with Ctrl+Z at the burst prompt kills it *without*
+running its `EXIT` teardown trap, leaving the board dirty — any future
+mid-run probe needs a teardown-safe pause instead. Evidence: suite
+V-DPSW-5 revs 6–7, bead dpaa2-controlplane-dbf.19, captures under
+`results/V-DPSW-5/`.

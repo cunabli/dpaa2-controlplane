@@ -501,17 +501,28 @@ cites the suite and the design record that carry the numbers.
 54. **The fsl-mc bus does not auto-bind a runtime-created child dprc.** A
     `dprc create` + sync leaves the child (`dprc.2`) present in
     `/sys/bus/fsl-mc/devices` with an empty driver link, zero probe
-    attempts in dmesg, and its residents never scanned; `fsl_mc_dprc`
-    matches obj_type "dprc" (`match_id_table`, `dprc-driver.c:882-885`) but
-    the post-sync scan attempts no probe for a child added after boot, so it
-    sits matched-but-unbound. An explicit write to
-    `/sys/bus/fsl-mc/drivers/fsl_mc_dprc/bind` does attach it, but races the
-    asynchronous post-sync scan and returns `-ENODEV` (`-119`) when it
-    loses. Consequence: a kernel-owned tenant's child container needs an
-    explicit bind write from the control plane, issued level-triggered —
-    re-kicked each pass, `ENODEV` read as deferral, not error. Bus code, so
-    upstream-relevant. The dedicated kernel-facing writeup is
-    `fsl-mc-no-autobind-child-dprc.md`. Evidence: V-DPSW-5 rev 3 banked
-    diagnostics (`results/V-DPSW-5/rev3/member-bind-sysfs.txt`,
-    `member-bind-dmesg.txt`) and rev 4 (the bind race), bead
+    attempts in dmesg, and its residents never scanned. The mechanism is
+    the plugged state: a runtime-created child dprc reads back `unplugged`
+    in its parent (`restool dprc show`), and the fsl-mc bus match skips
+    unplugged objects (the root dprc is the only exception), so a bare write
+    to `/sys/bus/fsl-mc/drivers/fsl_mc_dprc/bind` returns `-ENODEV` (`-119`)
+    with zero probe activity — the match refusing, not a scan race. restool
+    cannot clear it: it refuses to change a dprc's plugged state by design
+    ("Cannot change plugged state of dprc"). Writing
+    `driver_override = fsl_mc_dprc` on the device first bypasses the plugged
+    check and makes the subsequent bind attach the container and scan its
+    residents (`fsl_mc_dprc` matches obj_type "dprc", `match_id_table`,
+    `dprc-driver.c:882-885`; once bound it rescans and adds children). The
+    override is mandatory, not optional — it is the same mechanism
+    `vfio-fsl-mc` already uses on never-plugged child dprcs. Consequence: a
+    kernel-owned tenant's child container needs the control plane to write
+    the `driver_override` then the `bind` file, issued level-triggered —
+    re-kicked each pass, `ENOENT` on the override write or `ENODEV` on the
+    bind read as deferral (either raced the asynchronous post-sync scan),
+    not error. Bus code, so upstream-relevant. The dedicated kernel-facing
+    writeup is `fsl-mc-no-autobind-child-dprc.md`. Evidence: V-DPSW-5 rev 3
+    banked diagnostics (`results/V-DPSW-5/rev3/member-bind-sysfs.txt`,
+    `member-bind-dmesg.txt`), rev 4 (the bind race), and rev 7 operator
+    probe (`results/V-DPSW-5/rev7/manual-probe-54.txt`, the plugged-state
+    refusal and the override-then-bind working path), bead
     dpaa2-controlplane-dbf.19. — candidate
