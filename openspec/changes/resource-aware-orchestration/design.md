@@ -54,8 +54,11 @@ Non-Goals:
   (persistent census facts) and capacity counts (finite budgets). The
   counts are re-minted from observation each loop — Petri-net counting
   semantics without bookkeeping, so the no-persisted-state tenet is
-  untouched. Any proposed third guard kind is a design smell to resolve
-  in review, not extend silently.
+  untouched. Convergence predicates read from two observation sources —
+  the MC identity census and the fsl-mc bus read-back of driver
+  occupancy (which driver holds an object); the bus source adds a
+  predicate, not a third kind (ADR-0023). Any proposed third guard kind
+  is a design smell to resolve in review, not extend silently.
 - **D3 — completeness is a type law in Rust and an invariant in Quint.**
   The engine's executor registry matches exhaustively over the compiled
   construct families: adding a family without a pass fails compilation;
@@ -66,7 +69,12 @@ Non-Goals:
 - **D4 — order lives in guards, the sequence is an optimization.** The
   `main.rs` order remains as a scheduler choice, but every true
   dependency (companions ≺ object ≺ edges; reverse on teardown; sever ≺
-  rewire; unbind ≺ unplug, the V-LIFE-DPIO-1 law) is a modeled guard.
+  rewire; unbind ≺ unplug, the V-LIFE-DPIO-1 law; a switch port wired
+  only over a driver-free dpmac) is a modeled guard. The dpmac handover
+  window is the model's checked order-as-guards example: sever ≺ wire
+  ordered so the port never passes through a standalone-`fsl_dpaa2_mac`-
+  held state into the `fsl_dpaa2_switch` take-over, the vendor-kernel
+  use-after-free of docs/upstream/phylink-dpni-churn-crash.md (ADR-0023).
   Confluence — census independent of scheduler order where guards allow
   — is a named follow-on task: stated in the model now, bounded pairwise
   check lands inside this change, full treatment is a revisit trigger.

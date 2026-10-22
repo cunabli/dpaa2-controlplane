@@ -52,12 +52,23 @@ Petri-net tooling is rejected.
 
 Guards have exactly two kinds:
 
-1. **Convergence predicates** — persistent facts read from the identity
-   census (existence, signature, wiring).
+1. **Convergence predicates** — persistent facts read from observation,
+   drawn from two sources: the MC identity census (existence, signature,
+   wiring) and the fsl-mc **bus read-back** of driver occupancy — which
+   driver, if any, holds an object.
 2. **Capacity counts** — finite budgets read from a typed **capacity
    face** of the census, re-derived from observation on every loop and
    never ledgered between loops (ADR-0008's no-persisted-state law is
    unchanged; the board is the only database).
+
+Driver occupancy is a third predicate *source*, not a third guard kind:
+it reports whether a dpmac reads back driver-free, held by the
+standalone `fsl_dpaa2_mac` driver, or taken by `fsl_dpaa2_switch`. Its
+motivating hazard is the dpmac **handover window**: wiring a switch port
+over a dpmac still held by the standalone mac driver can fire a
+vendor-kernel use-after-free (docs/upstream/phylink-dpni-churn-crash.md),
+so a switch port is wired only while its target dpmac reads back
+driver-free, or after an explicit unbind settles.
 
 The modeled obligations are:
 
@@ -68,8 +79,15 @@ The modeled obligations are:
   an intent naming a construct the engine cannot reify is refused typed.
 - **Order as guards:** every true dependency is a guard (companions
   precede their object, an object precedes its edges, teardown exactly
-  reverses, sever precedes rewire, unbind precedes unplug). The shell's
-  pass sequence is a scheduler choice, never a correctness carrier.
+  reverses, sever precedes rewire, unbind precedes unplug, and a switch
+  port is wired only over a driver-free dpmac). The shell's pass
+  sequence is a scheduler choice, never a correctness carrier. The Quint
+  guarded-action model SHALL carry the driver-occupancy guard, and this
+  obligation SHALL check the dpmac handover example: sever and wire are
+  ordered so the port never passes through a standalone-mac-held state
+  into the `fsl_dpaa2_switch` take-over (the hazard of
+  docs/upstream/phylink-dpni-churn-crash.md and the dpsw-typestate
+  system-integration deferred reachability clause).
 - **Bounded convergence:** from any reachable board state the loop
   reaches its fixed point within the ladder's bounded-eventually
   discipline, and refusals are stable across iterations.
@@ -96,6 +114,11 @@ and pairwise, with full treatment deferred behind a revisit trigger.
   re-evaluates true concurrency semantics, including whether the
   Petri-net reading earns tooling; confluence checking cost forcing a
   weaker claim re-opens the obligation's scope.
+- The dpsw-typestate reachability-traffic witness is deferred to the
+  driver-occupancy ordering guard plus the kernel refresh from the
+  porting effort; its revisit trigger is both landing (the deferred
+  reachability clause in the dpsw-typestate system-integration delta;
+  bead `dpaa2-controlplane-dbf.19`).
 
 ## References
 
@@ -105,3 +128,5 @@ and pairwise, with full treatment deferred behind a revisit trigger.
 - ADR-0002 (Quint first), ADR-0008 (level-triggered, no persisted
   state), ADR-0018 (sans-io shell/plan split), ADR-0019 (family model
   patterns), ADR-0003 §7 (grow-only dpio seats)
+- docs/upstream/phylink-dpni-churn-crash.md (the dpmac handover-window
+  use-after-free the driver-occupancy guard refuses)
