@@ -128,7 +128,7 @@
       ADR-0013 (vocabulary), ADR-0022 (table rows), ADR-0019
       (P1-instance note), ROADMAP row #11 status. Verify: anchored-refs
       hook clean; docs cite suite verdicts.
-- [ ] 8.2 Quality floor green across the workspace
+- [x] 8.2 Quality floor green across the workspace
       (`scripts/checks/quality-floor.sh`) and spec deltas validated
       (`openspec validate --change dpsw-typestate`). Verify: both
       commands exit 0.
