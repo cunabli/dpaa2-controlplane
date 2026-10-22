@@ -172,8 +172,8 @@ pub enum Attributes {
 /// How a child DPRC's kernel bind is driven (ADR-0013 §283-293; bead dpaa2-controlplane-dbf.19).
 ///
 /// A userspace dataplane consumes its own DPRC handed to `vfio-fsl-mc`; a kernel-netlink tenant's
-/// DPRC is instead left for the kernel's own `fsl_mc_dprc` driver to auto-bind — the fsl-mc bus
-/// scan that gives the tenant's dpni its `dpaa2-eth` netdev. The convergence layer reads this to
+/// DPRC is instead bound to the kernel's own `fsl_mc_dprc` driver explicitly (no auto-bind; finding 54) — the
+/// fsl-mc bus scan that follows gives the tenant's dpni its `dpaa2-eth` netdev. The convergence layer reads this to
 /// decide whether to VFIO-grab a child or leave it for the kernel; a VFIO handoff on a
 /// kernel-netlink tenant would hide its dpni from the kernel (ADR-0013 §283-293). Derived purely
 /// from the owning tenant's [`Dataplane`] by [`BindingRegime::of`], carried per child container on
@@ -182,7 +182,7 @@ pub enum Attributes {
 pub enum BindingRegime {
     /// The DPRC is handed to `vfio-fsl-mc` for a userspace consumer (poll or event).
     VfioConsumer,
-    /// The DPRC is left for the kernel's `fsl_mc_dprc` driver to auto-bind (kernel-netlink).
+    /// The DPRC is bound to the kernel's `fsl_mc_dprc` driver explicitly (kernel-netlink; no auto-bind).
     KernelDriven,
 }
 

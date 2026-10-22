@@ -502,7 +502,7 @@ fn compiled_reference() -> Compiled {
 }
 
 /// A single isolated kernel-netlink tenant ("edge") terminating one 10G port: its dpni lands in
-/// the edge tenant's own child dprc, which the kernel's `fsl_mc_dprc` driver auto-binds — never
+/// the edge tenant's own child dprc, which the control plane binds to `fsl_mc_dprc` explicitly — never
 /// VFIO (ADR-0013 §283-293; bead dpaa2-controlplane-dbf.19 / V-DPSW-5 rev 2).
 fn compiled_kernel_edge() -> Compiled {
     let intent = Intent {
@@ -531,7 +531,7 @@ fn compiled_kernel_edge() -> Compiled {
 #[test]
 fn population_kernel_child_is_not_vfio_handed_and_judges_by_readback() {
     // bead dpaa2-controlplane-dbf.19 / ADR-0013 §283-293: the engine never VFIO-grabs a kernel
-    // tenant's child; seeded bound to the kernel driver (the auto-bind), the pass reads converged.
+    // tenant's child; seeded bound to the kernel driver (the explicit bind), the pass reads converged.
     let compiled = compiled_kernel_edge();
     let backend =
         FakeBackend::new().with_bound_dprc(DprcId::new(2), RawDriver::from("fsl_mc_dprc"));
@@ -593,7 +593,7 @@ fn population_unbound_kernel_child_is_converging_not_an_error() {
             .unwrap()
             .len(),
         1,
-        "the kernel tenant's dpni is created for the auto-bind to expose"
+        "the kernel tenant's dpni is created for the explicit bind to expose"
     );
 }
 

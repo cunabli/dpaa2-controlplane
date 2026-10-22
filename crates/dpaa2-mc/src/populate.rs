@@ -12,9 +12,9 @@
 //! yields empty deltas and no create, and a second pass over it does too.
 //!
 //! The handoff serves a userspace consumer only: a VFIO-regime child is handed its own
-//! VFIO-bound dprc, while a kernel-netlink tenant's child is left for the kernel's own
-//! `fsl_mc_dprc` driver to auto-bind (ADR-0013 §283-293; bead dpaa2-controlplane-dbf.19) — the
-//! bus scan that gives its dpni a `dpaa2-eth` netdev. The plan carries the regime
+//! VFIO-bound dprc, while a kernel-netlink tenant's child is bound to the kernel's own
+//! `fsl_mc_dprc` driver explicitly (no auto-bind; ADR-0013 §283-293; bead dpaa2-controlplane-dbf.19) — the
+//! bus scan that follows gives its dpni a `dpaa2-eth` netdev. The plan carries the regime
 //! ([`ChildPlan::regime`](dpaa2_api::plan::populate::ChildPlan)); the engine honors it and never
 //! VFIO-grabs a kernel-driven child.
 //!

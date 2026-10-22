@@ -1346,8 +1346,8 @@ pub fn converge_pools<M: McControl>(
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PopulationOutcome {
     /// Every declared child is populated to its derived census and its dpnis connected; a
-    /// VFIO-consumer child is bound to VFIO, a kernel-driven child left for the kernel's own
-    /// `fsl_mc_dprc` driver to auto-bind (ADR-0013 §283-293). The idempotence witness reproduces it.
+    /// VFIO-consumer child is bound to VFIO, a kernel-driven child bound to the kernel's own
+    /// `fsl_mc_dprc` driver explicitly (no auto-bind; ADR-0013 §283-293). The idempotence witness reproduces it.
     Converged,
     /// A child population's headline exceeded the run's `--allow` gate (ADR-0015 decision
     /// 12); nothing was actuated. Creating a resident is [`Class::Disruptive`].
@@ -1474,8 +1474,8 @@ pub fn plan_population<M: McControl, K: KernelControl>(
 ///   dpio seats — and judges convergence by the post-dispatch read-back census.
 /// - Binds by the plan's regime ([`ChildPlan::regime`], ADR-0013 §283-293): a VFIO-consumer child
 ///   is handed to VFIO ([`vfio_handoff`]), guarded by the `bound_driver` read so a re-run over a
-///   bound child issues nothing; a kernel-driven child is NEVER VFIO-grabbed — the kernel's own
-///   `fsl_mc_dprc` driver auto-binds it, so the engine judges by read-back only (bound to the
+///   bound child issues nothing; a kernel-driven child is NEVER VFIO-grabbed — the control plane binds it
+///   to the kernel's own `fsl_mc_dprc` driver explicitly (no auto-bind), so the engine judges by read-back only (bound to the
 ///   kernel driver is converged, not yet bound is converging on the next pass).
 ///
 /// Idempotent and level-triggered: a converged, bound child yields an empty plan and is

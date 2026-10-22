@@ -143,23 +143,36 @@ impl KernelControl for SysfsKernel {
             .map_err(Error::Io)
     }
 
-    /// Writes the container name to the `fsl_mc_dprc` driver's `bind` file — the board showed
-    /// the bus never auto-binds a runtime-created child dprc (V-DPSW-5 rev 3, bead
-    /// dpaa2-controlplane-dbf.19). The registered name carries the underscore in sysfs
-    /// (`dprc::FSL_MC_DPRC_DRIVER`; V-DPRTC-3 lore); it is the matching driver, so no override.
-    /// The bind write races the asynchronous bus scan that follows `restool dprc sync`, so a
-    /// freshly created child dprc reads `ENODEV` before it registers, which is deferral — the next
-    /// ensure pass re-observes and re-kicks — not failure (V-DPSW-5 rev 4, bead dpaa2-controlplane-dbf.19).
+    /// Writes `driver_override = fsl_mc_dprc` on the child dprc, then binds it to that driver —
+    /// the mandatory order the board proved (V-DPSW-5 rev 7, bead dpaa2-controlplane-dbf.19,
+    /// finding 54). A runtime-created child dprc reads back `unplugged` in its parent and restool
+    /// refuses to plug a dprc by design; the fsl-mc bus match skips unplugged objects (only the
+    /// root dprc is exempt), so a bare `bind` write returns `ENODEV` with zero probe activity — the
+    /// match refusing, not a probe failure. The override bypasses the plugged check (the same
+    /// mechanism `vfio-fsl-mc` uses on child dprcs, which are never plugged either), so it is
+    /// required, not optional — the rev-3 "matching driver, so no override" belief is refuted.
+    /// Both writes race the asynchronous bus scan that follows `restool dprc sync`, so a freshly
+    /// created child reads `ENOENT` (device node absent) or `ENODEV` before it registers; either is
+    /// deferral — return without binding, the next ensure pass re-observes and re-kicks — not
+    /// failure. The registered name carries the underscore in sysfs (`dprc::FSL_MC_DPRC_DRIVER`;
+    /// V-DPRTC-3 lore).
     fn dprc_kernel_bind(&self, dprc: DprcId) -> Result<(), Error> {
-        tolerate_unscanned_dprc(
-            self.bus
-                .bind_driver(dprc::FSL_MC_DPRC_DRIVER, &dprc.to_string()),
-        )
+        let dprc = dprc.to_string();
+        match self
+            .bus
+            .set_driver_override(&dprc, dprc::FSL_MC_DPRC_DRIVER)
+        {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound || e.raw_os_error() == Some(19) => {
+                return Ok(());
+            }
+            Err(e) => return Err(Error::Io(e)),
+        }
+        tolerate_unscanned_dprc(self.bus.bind_driver(dprc::FSL_MC_DPRC_DRIVER, &dprc))
     }
 
     fn vfio_unbind(&self, dprc: DprcId) -> Result<(), Error> {
-        // Unbind, then clear the override — the cleared override is what re-opens
-        // fsl_mc_dprc eligibility (the unbind scenario's whole contract).
+        // Unbind, then clear the override to driverless — an unplugged child never matches by id table, so a later fsl_mc_dprc handoff must re-write the override (V-DPSW-5 rev 7, finding 54).
         let dprc = dprc.to_string();
         self.bus
             .unbind_driver(dprc::VFIO_FSL_MC_DRIVER, &dprc)
@@ -517,6 +530,46 @@ mod tests {
                 .driver_override(child)
                 .expect("inherited override"),
             Some(VFIO_FSL_MC_DRIVER.to_owned())
+        );
+    }
+
+    /// `dprc_kernel_bind` writes `driver_override = fsl_mc_dprc` first, then the driver's `bind`
+    /// file — the mandatory override-then-bind order the board proved (V-DPSW-5 rev 7, finding 54).
+    #[test]
+    fn dprc_kernel_bind_sets_the_override_then_binds_a_present_device() {
+        let fx = Fixture::new("kernel-bind");
+        std::fs::create_dir_all(fx.drivers.join(dprc::FSL_MC_DPRC_DRIVER)).unwrap();
+        let dprc = DprcId::new(2);
+
+        fx.kernel.dprc_kernel_bind(dprc).expect("bind");
+
+        assert_eq!(
+            fx.kernel.driver_override(dprc).expect("override"),
+            Some(dprc::FSL_MC_DPRC_DRIVER.to_owned())
+        );
+        assert_eq!(
+            std::fs::read_to_string(fx.drivers.join(dprc::FSL_MC_DPRC_DRIVER).join("bind"))
+                .unwrap(),
+            "dprc.2"
+        );
+    }
+
+    /// An absent device node (`devices/dprc.9` missing, so no `driver_override` file to write) is
+    /// the unscanned race: the override write returns ENOENT, so the bind is deferred — Ok, and
+    /// nothing reaches the driver's `bind` file (V-DPSW-5 rev 7, finding 54).
+    #[test]
+    fn dprc_kernel_bind_defers_when_the_device_node_is_absent() {
+        let fx = Fixture::new("kernel-bind-absent");
+        std::fs::create_dir_all(fx.drivers.join(dprc::FSL_MC_DPRC_DRIVER)).unwrap();
+        let bind = fx.drivers.join(dprc::FSL_MC_DPRC_DRIVER).join("bind");
+
+        fx.kernel
+            .dprc_kernel_bind(DprcId::new(9))
+            .expect("absent device defers, not fails");
+
+        assert!(
+            !bind.exists(),
+            "no bind write when the device node is unscanned"
         );
     }
 

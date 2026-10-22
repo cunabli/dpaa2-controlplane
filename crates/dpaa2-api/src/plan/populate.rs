@@ -137,7 +137,7 @@ pub struct ChildPlan {
     pub dpseci: ChildDpseci,
     /// How this child's kernel bind is driven (ADR-0013 §283-293; bead dpaa2-controlplane-dbf.19),
     /// read off the compiled plan at planning time — a VFIO consumer is handed to `vfio-fsl-mc`, a
-    /// kernel-driven child left for the kernel's `fsl_mc_dprc` driver to auto-bind.
+    /// kernel-driven child the control plane binds to `fsl_mc_dprc` explicitly (no auto-bind; finding 54).
     pub regime: BindingRegime,
     /// The bus driver the child reads back bound to, or `None` when it has none (the generalized
     /// drift-gate observation): judged by [`vfio_bound`](Self::vfio_bound) against `vfio-fsl-mc`
@@ -159,7 +159,7 @@ impl ChildPlan {
     }
 
     /// Whether the child reads back bound to the kernel's `fsl_mc_dprc` driver (ADR-0013 §283-293):
-    /// the kernel-driven regime's converged bind — the auto-bind that gives the tenant's dpni its
+    /// the kernel-driven regime's converged bind — the explicit bind that gives the tenant's dpni its
     /// `dpaa2-eth` netdev.
     #[must_use]
     pub fn kernel_bound(&self) -> bool {

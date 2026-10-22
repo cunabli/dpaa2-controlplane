@@ -94,17 +94,19 @@ pub trait KernelControl {
     /// Returns an error if the bind write fails.
     fn vfio_bind(&self, dprc: DprcId) -> Result<(), Error>;
 
-    /// Binds a kernel-driven child DPRC to [`dprc::FSL_MC_DPRC_DRIVER`](crate::families::dprc::FSL_MC_DPRC_DRIVER)
-    /// (writes the container id to that driver's `bind` attribute). The board proved the
-    /// fsl-mc bus does NOT auto-bind a runtime-created child dprc: it sits on the bus with
-    /// an empty `driver` link and no probe attempt, so its resident dpnis are never scanned.
-    /// Convergence therefore binds the kernel driver explicitly; no `driver_override` is
-    /// needed because `fsl_mc_dprc` is the matching driver (V-DPSW-5 rev 3, bead
-    /// dpaa2-controlplane-dbf.19; the ADR-0013 §283 auto-bind mechanism is amended at the docs task).
-    /// The probe is async, so the caller keeps its converging-on-next-pass verdict.
+    /// Binds a kernel-driven child DPRC to [`dprc::FSL_MC_DPRC_DRIVER`](crate::families::dprc::FSL_MC_DPRC_DRIVER):
+    /// writes `driver_override = fsl_mc_dprc` on the child, then writes the container id to that
+    /// driver's `bind` attribute. A runtime-created child dprc reads back `unplugged` in its parent
+    /// and restool refuses to plug a dprc by design; the fsl-mc bus match skips unplugged objects,
+    /// so a bare bind returns `ENODEV` with no probe at all — the match refusing, not a probe
+    /// failure. The override is therefore mandatory, not optional: it bypasses the plugged check
+    /// (the path `vfio-fsl-mc` already uses on never-plugged child dprcs). Both writes race the
+    /// asynchronous post-`restool dprc sync` bus scan, so an unscanned device (`ENOENT`/`ENODEV`) is
+    /// deferral — the next ensure pass re-kicks — not failure (V-DPSW-5 rev 7, bead
+    /// dpaa2-controlplane-dbf.19, finding 54; ADR-0013 §283-293).
     ///
     /// # Errors
-    /// Returns an error if the bind write fails.
+    /// Returns an error if a sysfs write fails for any reason other than the unscanned-device race.
     fn dprc_kernel_bind(&self, dprc: DprcId) -> Result<(), Error>;
 
     /// Unbinds the child DPRC from `vfio-fsl-mc` and clears its `driver_override`,
