@@ -66,6 +66,18 @@ restool's help text lies about defaults (advertises 16/16/1024/300/32;
 the code sends 0 and MC applies its own defaults) [read]. Dead flib
 field: `adv.max_meters_per_if` — never settable, never printed [read].
 
+The option tokens are a doc trap: the abbreviations in the table above
+(`C_VLAN`, `PER_VLAN`, `PER_FDB`, `PER_OBJECT`) are shorthand — restool
+parses and prints the full `DPSW_*` tokens. The per-FDB broadcast option
+is worse: restool **prints** the typo'd `DPSW_BRODCAST_PER_FDB` on
+read-back (`dpsw_commands.c:544-545`), while its create parser accepts
+only the correctly spelled token, so the typo'd spelling is what every
+converged read-back shows [read]. Board suite V-DPSW-2 rev 2
+(2026-10-18) confirmed `dpsw info` read-back equals the model's rendered
+BINDABLE_CFG defaults: the MC-applied trio reads back 16 max-vlans / 300
+fdb-aging / 32 mc-groups with component `C_VLAN`, matching
+`cfg_from_attributes`' block [verified].
+
 **ls-addsw produces a kernel-unbindable switch by default**: the
 kernel driver hard-requires `flooding_cfg == PER_FDB` and
 `broadcast_cfg == PER_FDB` (plus ctrl-if enabled and
@@ -221,6 +233,11 @@ method/ownership matrix started in `dpdmux.md` [read].
 - Pinned-firmware bug: a linkdown silently discards that port's tx
   shaping config (fixed at MC 10.40) — a shaped port comes back up
   unshaped [read, MC changelog].
+- Operational (board, V-DPSW-2 rev 2, 2026-10-18): an eth0 carrier flap
+  paired with qbman `no response` lines brackets a second switch's probe
+  window, and teardown rescans re-add boot dpmcps with transient
+  `dprc_get_obj` −119s — observed with zero census casualties
+  [verified].
 
 ## Invariant candidates
 
@@ -228,12 +245,14 @@ method/ownership matrix started in `dpdmux.md` [read].
 |---|---|---|---|
 | DPSW-I1 | Kernel-bindability is a create-time predicate: `¬CTRL_IF_DIS ∧ flooding_cfg=PER_FDB ∧ broadcast_cfg=PER_FDB ∧ max_fdbs≥num_ifs`; violation is refused loudly at probe and, all four fields being immutable, repairable only by destroy+recreate | probe dmesg `-EOPNOTSUPP` lines vs `dpsw info` attrs | candidate |
 | DPSW-I2 | **Breaking:** the model must NOT treat the vendor recipe as an oracle (second family in a row): ls-addsw's default flooding/broadcast contradict the only in-corpus consumer, and its dpbp condition is inverted — a default `ls-addsw` object can never carry kernel traffic | ls-addsw output vs subsequent probe result | candidate |
-| DPSW-I3 | Resource law: a kernel-bound dpsw draws exactly 1 dpmcp + 1 dpbp (+1 IRQ) from its own container, 0 dpcon, 0 dpio (shared service); the dpbp must pre-exist plugged or probe defers silently | pool free-count deltas at bind; defer loop on missing dpbp | verified 2026-08-23 (V-DPSW-1): the bind drew exactly the created dpmcp and dpbp, no dpcon in the container; the defer-on-missing-dpbp face is unprobed |
-| DPSW-I4 | Bind-resets-object, strong form: probe resets the dpsw *and* dismantles MC-default state (VLAN 1, FDB 0) before rebuilding its own — no pre-bind MC-side switch config survives | VLAN/FDB tables before vs after bind | candidate |
-| DPSW-I5 | **Breaking:** the model must NOT equate bpid and object id — the in-tree switch datapath uses the object id as bpid and works only where the two coincide (extends DPBP-I5 with a live consumer) | `dpbp info` bpid vs id on the switch's dpbp; traffic outcome where they diverge | candidate |
+| DPSW-I3 | Resource law: a kernel-bound dpsw draws exactly 1 dpmcp + 1 dpbp (+1 IRQ) from its own container, 0 dpcon, 0 dpio (shared service); the dpbp must pre-exist plugged or probe defers silently | pool free-count deltas at bind; defer loop on missing dpbp | verified 2026-08-23 (V-DPSW-1): the bind drew exactly the created dpmcp and dpbp, no dpcon in the container; the defer-on-missing-dpbp face settled 2026-10-18 (V-DPSW-2 rev 2) — a create with no dpbp defers silently and completes only on an explicit `drivers_probe` kick, the automatic retry having failed −12 first (defer-not-fail, kick-required) |
+| DPSW-I4 | Bind-resets-object, strong form: probe resets the dpsw *and* dismantles MC-default state (VLAN 1, FDB 0) before rebuilding its own — no pre-bind MC-side switch config survives | VLAN/FDB tables before vs after bind | verified 2026-10-18 (V-DPSW-2 rev 2): ResetTotal confirmed with a measured bound — the create-visible attribute surface read back byte-identical pre/post bind, while the VLAN/FDB tables the reset dismantles stay unreachable through restool on this transport, so the table face stays unobserved |
+| DPSW-I5 | **Breaking:** the model must NOT equate bpid and object id — the in-tree switch datapath uses the object id as bpid and works only where the two coincide (extends DPBP-I5 with a live consumer) | `dpbp info` bpid vs id on the switch's dpbp; traffic outcome where they diverge | verified 2026-10-18 (V-DPSW-2 rev 2): the switch's dpbp.1 read back bpid 2 against object id 1 — bpid ≠ id, refuting the coincidence and bounding V-READBACK-1's bpid==id observation (and DPBP-I5) to non-law |
 | DPSW-I6 | Ownership asymmetry: dpsw is kernel-ownable only — DPDK scan discards it silently and its devargs are rejected; a sharing topology types the dpsw's steering owner as kernel, with foreign regimes as dpni endpoints only | fslmc scan logs; devargs errno | candidate |
 | DPSW-I7 | Exit-code truth gap (family instance): destroy-in-child exits 0 on failure, update exits 0 on open failure, ls-addsw discards every step's status — convergence only by read-back | object existence / taildrop state vs exit codes | candidate |
 | DPSW-I8 | Create ≠ manage (as DPDMUX-I2): restool reaches 4 of ~17 runtime function groups; converged switch state (VLANs, FDBs, ACLs, LAG) is unreachable through restool and owned by the kernel's switchdev surface | restool verb list vs flib census | candidate |
+| DPSW-I9 | The kernel probe is a pool consumer (1 dpmcp + 1 dpbp from its own container) that **defers, never fails**, on companion starvation, and completion needs an explicit probe kick — the automatic bus-add retry races and fails −12 (the V-TRAF-1 rev 1 census-competitor RCA class, made unrepeatable for this family) | pool free-count deltas at bind; silent defer + `drivers_probe` kick on a late dpbp | verified 2026-10-18 (V-DPSW-2 rev 2): a create with no dpbp deferred silently (the MC object usable) and bound only on the explicit kick, the automatic retry having failed −12 first |
+| DPSW-I10 | Switch-port membership is bounded by the immutable `num_ifs`: a connect beyond the created port count is unrepresentable and refused in planning before any verb is dispatched | planned-edge port index vs created `num_ifs` | candidate |
 
 ## Unknown / unverified register
 
@@ -246,16 +265,32 @@ method/ownership matrix started in `dpdmux.md` [read].
    "Flooding domain is not per FDB, cannot probe" (−95 EOPNOTSUPP) and
    an empty driver link. The MC-side semantics of per-VLAN flooding
    itself stay unobserved (no consumer drives it).
-2. What `dpsw_reset` preserves — dpsw has no `set_resetable`
-   analogue in the flib (unlike dpdmux): is reset always total?
+2. ~~What `dpsw_reset` preserves — dpsw has no `set_resetable`
+   analogue in the flib (unlike dpdmux): is reset always total?~~
+   **Answered** — board suite V-DPSW-2 rev 2, 2026-10-18: ResetTotal
+   confirmed with a bound. The create-visible attribute surface read
+   back byte-identical before and after the kernel bind (the reset
+   touches nothing restool can observe), while the VLAN/FDB tables the
+   reset dismantles stay unreachable through restool on this transport,
+   so the table face stays unobserved — ResetTotal-confirmed-with-bound.
 3. `mem_size` and `max_meters_per_if` semantics (dead/undocumented,
-   same class as dpdmux's `mem_size`).
+   same class as dpdmux's `mem_size`). Partially answered — board suite
+   V-DPSW-2 rev 2, 2026-10-18 (signature adjudicated at the discovery
+   sitting): `dpsw info` **does** print `mem_size` (the earlier read
+   grouping it with the never-printed `max_meters_per_if` was wrong);
+   its semantics stay unknown, and `max_meters_per_if` stays dead.
 4. `IF_SET_LAG_STATE` and the new lag `phase` byte's semantics
    (APPLY/CHECK) — no in-corpus caller; plus what MC does with a
    garbage phase from a pre-10.39-compiled caller.
 5. Writable counters (`if_set_counter`): who is meant to use them and
    whether MC clamps.
-6. Whether the kernel's per-port FDB split (`max_fdb_entries /
-   num_ifs`) is an MC-enforced budget or driver convention.
+6. ~~Whether the kernel's per-port FDB split (`max_fdb_entries /
+   num_ifs`) is an MC-enforced budget or driver convention.~~
+   **Answered** — board suite V-DPSW-2 rev 2, 2026-10-18: driver
+   convention, not an MC-enforced budget. The MC accepted a tight split
+   create-visible (max_fdbs 4 / entries 4 read back verbatim) and the
+   kernel bound a split-violating shape (entries 2 over 4 ifs, under one
+   entry per port), so neither the MC nor the probe enforces the split —
+   the control plane's typed overflow refusal is its own law.
 7. The control interface's frame-queue pair sizing (2 FQs, 16-slot
    stores) versus MC-side ctrl-if attributes — clamped or fixed?

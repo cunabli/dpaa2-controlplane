@@ -77,6 +77,14 @@ emptied. Wrong sequences become unrepresentable.
   `Container<S: Phase>` with one marker type per model state, capability
   traits (`Active`, `UnpluggedFace`, `LiveFace`, `UnlockedHolder`) as
   compile-time verb gates, `#[must_use]` consuming transitions.
+- **Instances:** `dprc` (the reference) and `dpsw`, the second P1
+  instance. dpsw's ordering hazard is its kernel bind/probe phase
+  lifecycle — companions stand plugged in its own container before
+  probe, the probe defers silently on a missing dpbp, and teardown
+  unbinds the kernel face before destroy — not dprc's verb-sequence
+  hazard; the create-time bindability predicate (DPSW-I1) gates whether
+  the driver binds at all, and the reset facet (DPSW-I4) marks what the
+  bind re-applies.
 - **Idioms:** phantom-type typestate; sealed capability traits; consuming
   moves; parse-don't-validate promotion on observed data (ADR-0002 §3).
   A phase never outlives re-observation: the observed snapshot is plain
@@ -193,7 +201,7 @@ cross-checking every row against `FamilyParams`).
 |---|---|---|---|
 | dprc   | P1 phase machine | `createTriggersRescan: true`; lock/assign verb surface | reference implementation |
 | dpni   | P2 configured object | `creatable`, rich cfg (`CreateCfg` in `dpni.qnt`) | reference implementation; reset facet; ordering facet procedural in adapter |
-| dpsw   | P2 configured object | `creatable`, cfg gates driver bind (V-DPSW-1) | reset facet (DPSW-I4, breaking); edge facet (ports) |
+| dpsw   | P1 phase machine | kernel bind/probe phase lifecycle (companions plugged before probe, probe defers on a missing dpbp, unbind before destroy); `creatable`, cfg gates driver bind (V-DPSW-1) | reset facet (DPSW-I4, breaking); edge facet (ports) |
 | dpdmux | P2 configured object | `creatable`, cfg + port shape | reset facet (DPDMUX-I3, breaking); edge facet (ADR-0009 uplink) |
 | dpseci | P2 configured object | `creatable`, sized cfg (queues, HAS_CG) | companion draw `dpmcp: 1` |
 | dpci   | P2 configured object (degenerate) | `creatable`, `endpointPorts: 1` | edge facet: dpci↔dpci, the only same-family-only edge |
