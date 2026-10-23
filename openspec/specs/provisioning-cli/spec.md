@@ -133,9 +133,9 @@ MERGED-2: "IngressByteCount" against the rx-all-frames row).
 - **THEN** the rendered row for each name shows that row's value, asserted by test at the pause position
 
 ### Requirement: Port-detail inference is a pure family judgment
-The port-detail view's derivations — the root-peer observation alphabet
-and the handling of an absent MAC — SHALL live as pure judgments in the
-dpmac family module, consumed by the shell, so no display consumer
+The port-detail view's derivations SHALL live as pure judgments in the
+dpmac family module — the root-peer observation alphabet and the
+handling of an absent MAC — consumed by the shell, so no display consumer
 re-derives them and no shell code manufactures an observation (the
 `MacAddr::ZERO` coercion) on the surface whose law is absence ≠ zero
 (review synthesis MERGED-5; display-only discipline of dpmac-typestate D7
@@ -239,3 +239,17 @@ down, or zero.
 - **THEN** `status --detail` renders it as an obligation row, display-only,
   that gates no convergence verdict
 
+
+### Requirement: The CLI exposes a read-only switch detail view
+
+`dpaa2ctl status --detail` SHALL render the dpsw row: attributes,
+decoded options (raw escapes rendered by value), and the
+per-interface table — endpoint, link state, taildrop, counters — with
+every honest-unknown face rendered as unknown, never blank or zero.
+Link and counters are display-only and SHALL never gate convergence.
+
+#### Scenario: The detail row renders a live switch
+
+- **WHEN** `status --detail` runs against a container holding a dpsw
+- **THEN** the row shows the created cfg and the per-port table, and an
+  `Unobservable` port face prints as unknown
