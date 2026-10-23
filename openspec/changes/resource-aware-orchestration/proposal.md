@@ -10,7 +10,14 @@ refused. That is not hypothetical — the dpsw-typestate epic shipped four
 sealed task groups, an offline operand pin, and a rendered board witness
 before the gap was caught (the planner produced the switched-domain plan;
 the executor never ran it; bead dpaa2-controlplane-dbf.19 records the
-discovery). The same review found capacity is folklore: container pool
+discovery). The class has a second occurrence already on the board:
+the intent compiler emits a complete, creatable dpseci (intent-compiler
+spec, crypto blocks) and no ensure pass consumes it — only the interim
+guard turns that from a silent drop into a typed refusal. The strongest
+prior art cannot prevent this class: Kubernetes is open-world, so a
+resource whose controller is not installed sits silently unreconciled
+forever; this control plane is closed-world, so prevention at compile
+time is cheap. The same review found capacity is folklore: container pool
 draws, the FDB budget, and dpio seats are counted ad hoc in scattered
 arithmetic, so an intent that cannot fit the hardware is discovered
 mid-convergence as an errno, never refused at admission.
@@ -58,13 +65,24 @@ the orchestration layer forcing that pass to exist.
   V-DPSW-2 bracket). Other budgets (bpid space, qbman seats, #10's
   counted portals) join as rows when their changes land, not here.
 - `dry-run`/`ensure` gain **typed admission**: an intent whose derived
-  draw exceeds observed headroom is refused before any verb is
+  **gross** draw exceeds observed headroom is refused before any verb is
   dispatched, with the refusal naming the budget and the shortfall in
-  operator terms (data-only, the established refusal voice).
+  operator terms (data-only, the established refusal voice). Admission
+  holds no reservation — the loop's re-observation stays the dispatch
+  truth, and the model checks the claim against an adversarial
+  environment action (design D7/D8).
+- Guards gain an **evaluation discipline derived from authority
+  alignment** (design D9): census-read by default (the executing
+  authority re-validates atomically at dispatch), live-read where the
+  observing authority differs from the executing one and the TOCTOU
+  window is unrecoverable — today exactly the dpmac driver-occupancy
+  guard ahead of switch-port wiring.
 - The engine's family dispatch is restructured as the model's Rust twin:
-  an exhaustive registry of executor passes checked against the model's
-  transition set by the usual `dpaa2-verify` twins and frozen-trace
-  replay.
+  a compile-checked **total dispatch** over the construct families whose
+  rows are `Execute` (the consuming pass) or `Unimplemented` (typed
+  whole-intent refusal naming its retirement trigger; dpseci is the
+  first), checked against the model's transition set by the usual
+  `dpaa2-verify` twins and frozen-trace replay.
 
 ## Capabilities
 
