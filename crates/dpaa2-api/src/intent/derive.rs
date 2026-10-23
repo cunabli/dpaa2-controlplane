@@ -59,6 +59,13 @@ const DPSECI_DRAW_DPMCP: i64 = 1;
 /// past it is unbuildable, refused by [`crate::intent::refuse`] `MacTableOverflow`.
 pub(crate) const MAX_FDB_ENTRIES: u32 = 65535;
 
+/// The `max_fdbs` field envelope (`dpsw.md` `--max-fdbs`: a u8-shaped field,
+/// 0..=255; `derive.qnt` `MAX_FDBS`): one FDB per interface (`max_fdbs == num_ifs`),
+/// so a member count past this drives `max_fdbs` out of its field and the switch is
+/// unbuildable, refused by [`crate::intent::refuse`] `FabricMemberOverflow`
+/// (dpsw-hardening design D2).
+pub(crate) const MAX_FDBS: u32 = 255;
+
 /// Workers a single port of the given rate class draws (design D3 (ADR-0002); `derive.qnt`
 /// `WORKER_TABLE`/`workersPerPort`): 10G ⇒ 2 (the seed, decomposed from the verified
 /// `T = 5 = 1 + 2·2` configuration), 25G ⇒ 5 (declared linear-in-rate, unmeasured,

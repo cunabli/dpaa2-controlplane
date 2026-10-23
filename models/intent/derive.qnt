@@ -544,6 +544,12 @@ module intent_derive {
   // unbuildable (intent/refuse.qnt macTableRefusals).
   pure val MAX_FDB_ENTRIES: int = 65535
 
+  // The max_fdbs field envelope (dpsw.md --max-fdbs: a u8-shaped field, 0..=255):
+  // one FDB per interface (maxFdbs == numIfs), so a member count past 255 drives
+  // max_fdbs out of its field and the switch is unbuildable — refused at compile
+  // (intent/refuse.qnt memberCountRefusals; dpsw-hardening design D2).
+  pure val MAX_FDBS: int = 255
+
   // The max_fdb_entries a Hardware fabric derives: the declared mac_table_size
   // times num_ifs — the kernel splits the total evenly into one FDB per port, so
   // the per-domain size is multiplied back up (dpsw.md) — or the family default

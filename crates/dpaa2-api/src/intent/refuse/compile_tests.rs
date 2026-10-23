@@ -1251,6 +1251,35 @@ fn dpsw_mac_table_on_software_fabric_is_refused() {
     );
 }
 
+/// A hardware fabric whose member count drives `max_fdbs` past its u8 field envelope
+/// (0..=255) is refused typed at compile with the operator's own count, rather than
+/// dying at dispatch as a construction error (`refuse.qnt` `memberCountRefusals`;
+/// dpsw-hardening design D2): 256 member interfaces exceed the 255 `max_fdbs` bound.
+#[test]
+fn dpsw_member_count_overflow_is_refused() {
+    let intent = Intent {
+        tenants: vec![kernel_tenant(16)],
+        ports: vec![port("p7", 7, 10_000, "kernel")],
+        fabrics: vec![Fabric {
+            name: "br".into(),
+            switching: Switching::Hardware,
+            forwarded_by: "kernel".into(),
+            members: (0..256).map(|_| Member::Port("p7".into())).collect(),
+            mac_table_size: None,
+            renamed: None,
+        }],
+        ..Intent::empty()
+    };
+    assert_eq!(
+        err(&intent, &ref_inv()),
+        BTreeSet::from([Refusal::FabricMemberOverflow {
+            fabric: "br".into(),
+            num_ifs: 256,
+            bound: 255,
+        }])
+    );
+}
+
 #[test]
 fn extras_only_raise_a_count() {
     let mut extras = BTreeSet::new();

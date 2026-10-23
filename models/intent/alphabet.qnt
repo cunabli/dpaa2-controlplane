@@ -312,6 +312,7 @@ module intent_alphabet {
   val wPortTenantMismatch = hasRefusal(r => match r { | PortTenantMismatch(_) => true | _ => false })
   val wUnsupportedEdge = hasRefusal(r => match r { | UnsupportedEdge(_) => true | _ => false })
   val wMacTableOverflow = hasRefusal(r => match r { | MacTableOverflow(_) => true | _ => false })
+  val wFabricMemberOverflow = hasRefusal(r => match r { | FabricMemberOverflow(_) => true | _ => false })
   val wMacTableOnSoftwareFabric = hasRefusal(r => match r { | MacTableOnSoftwareFabric(_) => true | _ => false })
   val wEmptyFabric = hasRefusal(r => match r { | EmptyFabric(_) => true | _ => false })
   val wUnknownRateClass = hasRefusal(r => match r { | UnknownRateClass(_) => true | _ => false })

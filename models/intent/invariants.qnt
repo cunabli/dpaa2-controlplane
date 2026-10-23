@@ -322,6 +322,8 @@ module intent_invariants {
   // bindability triplet (ctrlIf, perFdbFlooding, perFdbBroadcast all true,
   // models/families/dpsw.qnt), one FDB per interface (maxFdbs == numIfs), at least
   // one interface (numIfs >= 1 — the EmptyFabric refusal fences the 0-port switch),
+  // a member count within the max_fdbs u8 field envelope (maxFdbs <= MAX_FDBS — the
+  // FabricMemberOverflow refusal fences the 256th member, dpsw-hardening design D2),
   // and a max_fdb_entries in 1..MAX_FDB_ENTRIES (derive.qnt) — never the forbidden 0.
   // The companion per-forwarder count law is companionCountsByRegime (INTENT_I8), not
   // duplicated here. A refused intent has no plan to check.
@@ -334,6 +336,7 @@ module intent_invariants {
                   a.ctrlIf, a.perFdbFlooding, a.perFdbBroadcast,
                   a.maxFdbs == a.numIfs,
                   a.numIfs >= 1,
+                  a.maxFdbs <= MAX_FDBS,
                   a.maxFdbEntries >= 1 and a.maxFdbEntries <= MAX_FDB_ENTRIES,
                 }
               | _ => false

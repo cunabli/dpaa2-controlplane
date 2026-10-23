@@ -189,6 +189,19 @@ pub enum Refusal {
         /// The 16-bit ceiling the product overran (the `MAX_FDB_ENTRIES` 65535).
         bound: u32,
     },
+    /// A hardware fabric whose member count drives `max_fdbs` past its u8 field
+    /// envelope (0..=255) — one FDB per interface, so a 256th member is unbuildable
+    /// and is refused at compile rather than dying at dispatch as a construction
+    /// error (`dpsw.md`; `refuse.qnt` `memberCountRefusals`; dpsw-hardening design D2).
+    /// The `MacTableOverflow` shape; lands in the `fabric` submodule (ADR-0018).
+    FabricMemberOverflow {
+        /// The fabric.
+        fabric: ConstructName,
+        /// The fabric's derived interface count (its `max_fdbs`).
+        num_ifs: u32,
+        /// The u8 field envelope the count overran (the `MAX_FDBS` 255).
+        bound: u32,
+    },
     /// A software-switched fabric declaring `mac_table_size` — a hardware-switch knob
     /// misapplied; the software forwarder owns its own table (`dpsw.md`; `refuse.qnt`
     /// `macTableRefusals`). Lands in the `fabric` submodule (ADR-0018).
@@ -358,7 +371,7 @@ pub enum Refusal {
 /// §5 spelling, aliased to the model's anchor names in the lint). `Refusal` is
 /// payload-carrying, so it cannot be iterated like [`crate::core::family::ALL_FAMILIES`]; this
 /// list stands in, kept honest by the exhaustive `match` in [`Refusal::name`].
-pub const REFUSAL_VARIANTS: [&str; 29] = [
+pub const REFUSAL_VARIANTS: [&str; 30] = [
     "TenantAbsent",
     "MemberUnresolved",
     "SelfMember",
@@ -371,6 +384,7 @@ pub const REFUSAL_VARIANTS: [&str; 29] = [
     "PortTenantMismatch",
     "UnsupportedEdge",
     "MacTableOverflow",
+    "FabricMemberOverflow",
     "MacTableOnSoftwareFabric",
     "EmptyFabric",
     "UnknownRateClass",
@@ -411,6 +425,7 @@ impl Refusal {
             Self::PortTenantMismatch { .. } => "PortTenantMismatch",
             Self::UnsupportedEdge { .. } => "UnsupportedEdge",
             Self::MacTableOverflow { .. } => "MacTableOverflow",
+            Self::FabricMemberOverflow { .. } => "FabricMemberOverflow",
             Self::MacTableOnSoftwareFabric { .. } => "MacTableOnSoftwareFabric",
             Self::EmptyFabric { .. } => "EmptyFabric",
             Self::UnknownRateClass { .. } => "UnknownRateClass",
@@ -702,6 +717,7 @@ fn refusals(intent: &Intent, inv: &Inventory, counts: &BTreeMap<Family, i64>) ->
     fabric::fabric_rules_refusals(intent, &mut out);
     fabric::mac_table_refusals(intent, &mut out);
     fabric::empty_fabric_refusals(intent, &mut out);
+    fabric::member_count_refusals(intent, &mut out);
     tenant::sizing_refusals(intent, inv, &mut out);
     extra::extra_refusals(intent, &mut out);
     crypto::crypto_refusals(intent, &mut out);
