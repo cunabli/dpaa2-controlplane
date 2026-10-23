@@ -72,7 +72,7 @@ fabricAcceptedTrace.itf.json`, nothing else).
 
 ## 4. DPSW-I1 evidence trail sync (bead D — M6, regen-bearing)
 
-- [ ] 4.1 Replace the "read-not-verified" DPSW-I1 provenance anchor
+- [x] 4.1 Replace the "read-not-verified" DPSW-I1 provenance anchor
       with the board-anchored wording — positive face V-DPSW-1,
       flooding refusal face V-DPSW-4 rev 1, remaining refusal faces
       (ctrl-if, max_fdbs) kernel-source-read. Sites move in lockstep
@@ -83,7 +83,7 @@ fabricAcceptedTrace.itf.json`, nothing else).
       data; no ADR ids inside the string (design D3). Verify:
       `grep -rn "read-not-verified" crates models docs` empty outside
       openspec/changes/archive.
-- [ ] 4.2 Re-freeze `models/intent/traces/fabricAcceptedTrace.itf.json`
+- [x] 4.2 Re-freeze `models/intent/traces/fabricAcceptedTrace.itf.json`
       and re-accept `render__dry_run_switched_domain.snap`; flip
       docs/baseline/dpsw.md:246-247 DPSW-I1/I2 cells from bare
       "candidate" to the I3-style verified wording naming

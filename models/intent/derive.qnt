@@ -565,8 +565,8 @@ module intent_derive {
 
   // One dpsw per owned Hardware fabric, ordinal by fabric NAME among the
   // forwarder's Hardware fabrics (hwOwnedFabrics is name-sorted, task 3.3d); the
-  // kernel-bindable predicate (dpsw.md,
-  // read-not-verified): num_ifs = the fabric's interface count, max_fdbs =
+  // kernel-bindable predicate (dpsw.md; bind V-DPSW-1, flooding/broadcast refusal V-DPSW-4 rev 1, ctrl_if/max_fdbs kernel-source-read):
+  // num_ifs = the fabric's interface count, max_fdbs =
   // num_ifs, max_fdb_entries = mac_table_size × num_ifs (default 1024), PER_FDB
   // flooding and broadcast, control interface enabled. The dpsw node is keyed by
   // the fabric name (construct), so two fabrics of one forwarder do not collide.
@@ -745,7 +745,7 @@ module intent_derive {
   // One dpsw node per Hardware fabric, keyed by the fabric name (construct).
   pure def dpswNode(intent: Intent, f: Fabric): ProvenanceNode =
     val ni = hwFabricAttachPoints(intent, f).length()
-    { rule: "dpsw", anchor: "driver-required: ctrl_if=on flooding=PER_FDB broadcast=PER_FDB max_fdbs=num_ifs (dpsw.md, read-not-verified)", mark: Measured,
+    { rule: "dpsw", anchor: "driver-required: ctrl_if=on flooding=PER_FDB broadcast=PER_FDB max_fdbs=num_ifs (dpsw.md; bind verified V-DPSW-1, flooding/broadcast refusal verified V-DPSW-4 rev 1, ctrl_if/max_fdbs refusals kernel-source-read)", mark: Measured,
       request: ni, extra: None, value: ni, inputs: Set(), constructs: Set(f.name) }
 
   // One MAC-table sizing node per Hardware fabric, keyed like the dpsw node

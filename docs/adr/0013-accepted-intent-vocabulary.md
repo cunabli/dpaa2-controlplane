@@ -249,7 +249,9 @@ ADR-0012; this record prices by reference:
 - **dpseci**: one per `[[crypto]]` block, `num_queues` = that block's `flows`,
   `DPSECI_OPT_HAS_CG` set.
 - **dpsw**: one per hardware fabric under the kernel-bindable predicate
-  (dpsw.md, read-not-verified): `num_ifs` = interface count, `max_fdbs` =
+  (dpsw.md; bind verified V-DPSW-1, flooding/broadcast refusal verified
+  V-DPSW-4 rev 1, ctrl_if/max_fdbs refusals kernel-source-read): `num_ifs` =
+  interface count, `max_fdbs` =
   `num_ifs`, PER_FDB flooding and broadcast, control interface enabled.
 - **dprc**: one child DPRC in Root per non-kernel tenant that owns one (an
   isolated tenant or a public holder), restool-default options (Spawn, Alloc,
@@ -595,7 +597,7 @@ asserting the derived plan (design D8; restool-baseline); numbers are the model'
   hardware is not in it, and a fourth construct comes through a change with
   baseline backing, not a field added in passing.
 - Fabric and crypto are plan-only until their executors land (#11, #8); the
-  dpsw predicate is copied from `dpsw.md`'s read-not-verified rules with
+  dpsw predicate is copied from `dpsw.md`'s rules with
   kernel-source anchors, and the ledger keeps DPSW-I1/I2 board-pending.
 - ADR-0005 §§1–5 are elaborated here in place (see §11); its numbered section
   references resolve through this record.
