@@ -596,9 +596,10 @@ asserting the derived plan (design D8; restool-baseline); numbers are the model'
 - The vocabulary is a commitment: a construct that cannot be anchored in
   hardware is not in it, and a fourth construct comes through a change with
   baseline backing, not a field added in passing.
-- Fabric and crypto are plan-only until their executors land (#11, #8); the
-  dpsw predicate is copied from `dpsw.md`'s rules with
-  kernel-source anchors, and the ledger keeps DPSW-I1/I2 board-pending.
+- Fabric has an executor (#11, the dpsw ensure pass); crypto stays plan-only
+  until its executor lands (#8); the dpsw predicate is copied from
+  `dpsw.md`'s rules with kernel-source anchors, and the ledger records
+  DPSW-I1/I2 as modeled with board faces.
 - ADR-0005 §§1–5 are elaborated here in place (see §11); its numbered section
   references resolve through this record.
 - This record's enumerations — the refusal variants (§5), INTENT_I1–I10

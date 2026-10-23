@@ -85,14 +85,15 @@ pub enum DpswIfFace {
 
 /// One switch interface's full read-back from the `dpsw info` per-interface block
 /// (dpsw-typestate task 4.2; `docs/baseline/dpsw.md` "Command surface"). The [`face`](Self::face)
-/// is the only census-relevant member (projected by [`crate::plan::dpsw::port_unconnected`]); the
-/// link, taildrop, max-frame-length, and counter members are display-only observability, read
-/// never judged. Each is an honest optional — `None` when `info` omitted the line — except the
-/// counter readout, which is vocabulary-checked and carries its own per-row unread shape
-/// (DPSW-I7, absence never a defaulted value).
+/// is display plus the pinned twin of the `has_endpoint` law
+/// ([`crate::plan::dpsw::port_unconnected`]), not a census input — convergence is the cfg-signature
+/// census only (dpsw-typestate design D6); the link, taildrop, max-frame-length, and counter
+/// members are likewise display-only observability, read never judged. Each is an honest optional
+/// — `None` when `info` omitted the line — except the counter readout, which is vocabulary-checked
+/// and carries its own per-row unread shape (DPSW-I7, absence never a defaulted value).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DpswIfDetail {
-    /// The connection face — the census-relevant member.
+    /// The connection face — display plus the pinned `has_endpoint`-law twin, not a census input.
     pub face: DpswIfFace,
     /// `link state:` typed `up`/`down`/`n/a`, `None` when the line was absent (display-only).
     pub link: Option<IfLinkState>,
@@ -118,8 +119,9 @@ pub struct DpswIfDetail {
 /// options line carries the named MC flags plus any unnamed bit attributed as a display-only raw
 /// escape, the dpseci-hardening design D1/D2 precedent).
 ///
-/// The per-interface [`DpswIfDetail`] carries the census-relevant connection face plus the
-/// display-only link/taildrop/max-frame-length/counter block (dpsw-typestate task 4.2).
+/// The per-interface [`DpswIfDetail`] carries the connection face — display plus the pinned
+/// `has_endpoint`-law twin, not a census input — plus the display-only
+/// link/taildrop/max-frame-length/counter block (dpsw-typestate task 4.2).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DpswDetail {
     /// `num_ifs:` — the immutable port count, `None` when the line was absent.

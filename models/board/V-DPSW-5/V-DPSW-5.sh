@@ -26,6 +26,7 @@
 # burst across the switch, the member dpni's statistics page as the frame oracle; no
 # rate targets, nothing touches the peer's config. The operand derivation is pinned
 # offline by crates/dpaa2-tools/tests/vdpsw5_intents.rs.
+# The traffic leg is deferred (change #15 trigger, bead dpaa2-controlplane-dbf.19); verdict structural 8/8.
 #
 # SAFETY LAWS (non-negotiable, ADR-0003 §4; dpsw-typestate design D9):
 #   - The uplink is dpmac.7 ONLY — the flagged wired pair, permitted here under the

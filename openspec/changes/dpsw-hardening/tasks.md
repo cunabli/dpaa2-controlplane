@@ -121,7 +121,7 @@ fabricAcceptedTrace.itf.json`, nothing else).
 One sweep, one commit under the `Change: dpsw-typestate` trailer
 (design D4 — the deltas are live until archive):
 
-- [ ] 7.1 Code-comment and render wording (M5): compiled.rs:508-513 +
+- [x] 7.1 Code-comment and render wording (M5): compiled.rs:508-513 +
       render.rs:337-345 — "never actuated" / "families the reconciler
       does not execute" is false for dpsw since `converge_switches`;
       use the pass-3 wording ("no port-facet Transition; actuated by
@@ -129,7 +129,7 @@ One sweep, one commit under the `Change: dpsw-typestate` trailer
       regenerate the dry-run snapshot. mc.rs:88 (M14): the per-if
       face is display + the pinned has_endpoint-law twin, not a
       census input; `port_unconnected` stays the typed law twin.
-- [ ] 7.2 dpsw-typestate change-doc fixes: specs/mc-backend/
+- [x] 7.2 dpsw-typestate change-doc fixes: specs/mc-backend/
       spec.md:48-66 (M7) — bare bind always ENODEVs; name
       `driver_override`-then-bind as the shipped path (kernel.rs:
       146-180), keep ENODEV-as-deferral for the fresh-node race;
@@ -138,7 +138,7 @@ One sweep, one commit under the `Change: dpsw-typestate` trailer
       gate; proposal.md:102 (M10) — "four" → "three" dpsw verbs;
       design.md:176-179 (M11) — annotate the FDB-split open question
       "answered — dpsw.md unknown 6 (driver convention)".
-- [ ] 7.3 Record sweeps: docs/adr/0013:594-596 (M8) — fabric now has
+- [x] 7.3 Record sweeps: docs/adr/0013:594-596 (M8) — fabric now has
       an executor (only crypto/dpseci stays plan-only) and the ledger
       records DPSW-I1/I2 modeled with board faces; models/
       COVERAGE.md:153 (M13) — drop "(pending task 2.2)", point at

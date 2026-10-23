@@ -378,8 +378,9 @@ fn render_link_connection(c: &LinkConnection) -> String {
     }
 }
 
-/// Renders the plan-only report (design D10; restool-baseline): the families the reconciler does not
-/// execute, grouped and counted, presented as plan-only — never drift, never error.
+/// Renders the plan-only report (design D10; restool-baseline): the families carrying no port-facet
+/// `Transition` — the ensure engine passes actuate them — grouped and counted, presented as
+/// plan-only; never drift, never error.
 #[must_use]
 pub fn render_plan_only(summary: &BTreeMap<Family, usize>) -> String {
     let total: usize = summary.values().sum();

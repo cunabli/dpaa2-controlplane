@@ -47,23 +47,28 @@ family).
 
 ### Requirement: The shim binds a kernel-driven child container explicitly
 
-The fsl-mc bus does not bind a runtime-created child dprc on its own, so
-the shim SHALL NOT rely on it to do so. When a kernel-driven child
-container is observed present on the bus but unbound (empty driver link,
-residents unprobed), the shim SHALL bind it by writing the container name
-to the `fsl_mc_dprc` driver's bind file, level-triggered: an `ENODEV`
-return from the write racing the asynchronous post-sync scan SHALL be
-treated as a deferral re-kicked the next pass, never as a terminal error
-(finding 54, `docs/upstream/fsl-mc-no-autobind-child-dprc.md`; bead
-`dpaa2-controlplane-dbf.19`).
+The shim SHALL NOT rely on the fsl-mc bus to bind a runtime-created child
+dprc on its own, because it never does. A runtime-created child dprc reads
+back unplugged, and the bus match skips unplugged objects (only the root
+dprc is exempt), so a bare `bind` write ALWAYS returns `ENODEV` — the match
+refusing, not a probe racing. The shipped path therefore writes
+`driver_override = fsl_mc_dprc` on the container first, bypassing the
+plugged check, then writes the container name to that driver's bind file,
+level-triggered (finding 54, `docs/upstream/fsl-mc-no-autobind-child-dprc.md`;
+bead `dpaa2-controlplane-dbf.19`; `crates/dpaa2-mc/src/kernel.rs`
+`dprc_kernel_bind`). A freshly created child that has not yet registered
+reads `ENOENT` or `ENODEV` before the asynchronous post-sync scan reaches
+it; that race alone SHALL be treated as a deferral re-kicked the next pass,
+never as a terminal error.
 
 #### Scenario: A sync-added child container binds on a later pass
 
 - **WHEN** a pass observes a kernel-driven child dprc present on the bus
   but unbound
-- **THEN** the shim writes the container name to the `fsl_mc_dprc` bind
-  file, and an `ENODEV` from a write that races the post-sync scan is
-  reported as pending and re-kicked, not failed
+- **THEN** the shim writes `driver_override = fsl_mc_dprc`, then the
+  container name to the `fsl_mc_dprc` bind file, and an `ENODEV`/`ENOENT`
+  from a freshly created child that races the post-sync scan is reported as
+  pending and re-kicked, not failed
 
 ### Requirement: The disconnect verb issues no post-mutation bus sync
 

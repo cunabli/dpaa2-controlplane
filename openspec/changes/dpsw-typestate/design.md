@@ -173,9 +173,10 @@ are amended in-change; no existing intent file changes meaning.
 
 ## Open Questions
 
-- Whether the kernel's per-port FDB split is MC-enforced or driver
-  convention (`docs/baseline/dpsw.md` unknown #6) — answered by the
-  discovery sitting; either answer lands in the baseline without
-  changing specs.
+- **[ANSWERED — driver convention; `docs/baseline/dpsw.md` unknown #6]**
+  Whether the kernel's per-port FDB split is MC-enforced or driver
+  convention: it is driver convention (the FDB-per-interface layout is not
+  an MC-enforced budget); the answer lives in the baseline and changes no
+  specs.
 - Writable counters (`if_set_counter`) semantics — probed only if the
   discovery sitting has slack; otherwise stays a baseline unknown.

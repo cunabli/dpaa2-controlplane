@@ -70,9 +70,9 @@ created `num_ifs`.
 
 ### Requirement: Interposition sequences the sever before the switch wiring
 
-Converging a switched-domain over a port an existing dpni already faces
-(the baseline sharing topology: dpni↔dpmac becomes dpni↔dpsw↔dpmac)
-SHALL plan the dpni–dpmac sever through the typed severed-witness path
+Converging a switched-domain over an already-faced port SHALL plan the
+dpni–dpmac sever (the baseline sharing topology: dpni↔dpmac becomes
+dpni↔dpsw↔dpmac) through the typed severed-witness path
 first, then the two switch-edge connects — the dpmac-typestate edge law
 holds across the rewire, so no plan ordering can strand the port
 driverless.
