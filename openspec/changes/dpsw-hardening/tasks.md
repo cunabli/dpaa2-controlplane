@@ -94,7 +94,7 @@ fabricAcceptedTrace.itf.json`, nothing else).
 
 ## 5. Dry-run switch preview (bead E — M4; after group 1)
 
-- [ ] 5.1 Factor `converge_switches`' pre-dispatch mutation-free
+- [x] 5.1 Factor `converge_switches`' pre-dispatch mutation-free
       verdict loop (engine.rs:878-903) into a `plan_switches` /
       `render_switches` pair (the plan_links/render_links idiom); the
       DryRun arm (main.rs:208-252) composes it like every other pass.

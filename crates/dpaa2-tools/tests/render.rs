@@ -4,6 +4,7 @@
 
 use std::collections::BTreeMap;
 
+use dpaa2_api::contract::fake::FakeBackend;
 use dpaa2_api::core::family::Family;
 use dpaa2_api::core::inventory::{
     Availability, Ceiling, DpmacLinkType, DpmacOffer, EthInterface, Inventory,
@@ -15,7 +16,8 @@ use dpaa2_api::intent::{
     TenantRef, kernel_tenant,
 };
 use dpaa2_api::plan::reconcile::{ReconcileOptions, reconcile_with};
-use dpaa2_tools::render::{render_dry_run, render_refusals};
+use dpaa2_tools::engine;
+use dpaa2_tools::render::{render_dry_run, render_refusals, render_switches};
 
 const RESERVED_17: &str = "ADR-0003 §3: management plane (dpni.0)";
 
@@ -199,7 +201,13 @@ fn dry_run_switched_domain() {
         ReconcileOptions::default(),
         &std::collections::BTreeSet::new(),
     );
-    insta::assert_snapshot!(render_dry_run(&compiled.plan, &compiled.warnings, &plan));
+    let dry = render_dry_run(&compiled.plan, &compiled.warnings, &plan);
+    // A fresh board with no dpsw pool rows: plan_switches judges the lone root dpsw a Create, so
+    // the preview shows the Disruptive headline the switch pass would gate on (dpsw-hardening task 5.1).
+    let mc = FakeBackend::new();
+    let switches = engine::plan_switches(&compiled.plan, &mc).expect("switch plan must read");
+    let switches = render_switches(&compiled.plan, &switches);
+    insta::assert_snapshot!(format!("{dry}{switches}"));
 }
 
 /// A switched domain whose `mac_table_size` × port count overruns the 16-bit

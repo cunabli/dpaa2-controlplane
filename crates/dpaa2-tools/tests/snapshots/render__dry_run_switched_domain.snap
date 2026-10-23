@@ -1,6 +1,6 @@
 ---
 source: crates/dpaa2-tools/tests/render.rs
-expression: "render_dry_run(&compiled.plan, &compiled.warnings, &plan)"
+expression: "format!(\"{dry}{switches}\")"
 ---
 plan: 6 object(s), 2 edge(s)
   kernel/dprtc/1 label=kernel @ root
@@ -38,3 +38,7 @@ plan-only (6) [no port-facet executor; reported, not drift or error]:
 warnings (2):
   UnknownCeiling { family: Dpio, needed: 1 }
   UnknownCeiling { family: Dpsw, needed: 1 }
+switch transitions (1 dpsw(s)) [headline: disruptive] [exact plan ensure would execute]:
+  [disruptive] create dpsw lan
+    - mac-table construct=lan request=512 value=512 [measured] anchor: mac_table_size × num_ifs; kernel per-port FDB split (dpsw.md)
+      - dpsw construct=lan request=2 value=2 [measured] anchor: driver-required: ctrl_if=on flooding=PER_FDB broadcast=PER_FDB max_fdbs=num_ifs (dpsw.md; bind verified V-DPSW-1, flooding/broadcast refusal verified V-DPSW-4 rev 1, ctrl_if/max_fdbs refusals kernel-source-read)

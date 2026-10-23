@@ -36,7 +36,9 @@ use dpaa2_api::families::dpsw::{
 };
 use dpaa2_api::plan::connect::ChildDeferredVisibility;
 
-use crate::engine::{LinkConnection, LinkDryRun, LinkDryRunAction, LinkRow};
+use crate::engine::{
+    LinkConnection, LinkDryRun, LinkDryRunAction, LinkRow, SwitchVerdict, SwitchWork,
+};
 use crate::status::{DpseciRow, DpswRow, PortDetail};
 
 /// Renders the whole dry-run text: the compiled objects with their provenance trees
@@ -258,6 +260,48 @@ pub fn render_links(plan: &CompiledPlan, links: &[LinkDryRun]) -> String {
         }
         let mut path = BTreeSet::new();
         render_prov_tree(plan, &l.provenance, 2, &mut path, &mut out);
+    }
+    out
+}
+
+/// Renders the switched-domain create/recreate verdicts `dry-run` would execute (dpsw-hardening task 5.1):
+/// a header naming the dpsw count and the gate headline (the max class over the work),
+/// then one line per dpsw in the `[class] verb` style, each followed by the dpsw's provenance tree
+/// (rooted at its MAC-table sizing node, as `render_plan` does). The rendered verdicts are the
+/// exact set `ensure` judges — the planner ([`crate::engine::plan_switches`]) shares its verdict
+/// authority, so the preview never disagrees with the convergence (review finding M4).
+#[must_use]
+pub fn render_switches(plan: &CompiledPlan, work: &[SwitchWork<'_>]) -> String {
+    let mut out = String::new();
+    let headline = work.iter().map(|w| w.class).max().unwrap_or_default();
+    let _ = writeln!(
+        out,
+        "switch transitions ({} dpsw(s)) [headline: {headline}] [exact plan ensure would execute]:",
+        work.len()
+    );
+    if work.is_empty() {
+        let _ = writeln!(out, "  (none)");
+    }
+    for w in work {
+        match &w.verdict {
+            SwitchVerdict::Create => {
+                let _ = writeln!(out, "  [{}] create dpsw {}", w.class, w.obj.label());
+            }
+            SwitchVerdict::Recreate { destroy } => {
+                let _ = writeln!(
+                    out,
+                    "  [{}] recreate {} (destroy {destroy})",
+                    w.class,
+                    w.obj.label()
+                );
+            }
+            SwitchVerdict::Converged => {
+                let _ = writeln!(out, "  [{}] {} converged", w.class, w.obj.label());
+            }
+        }
+        let mut path = BTreeSet::new();
+        let root = dpsw_sizing_root(plan, w.obj).unwrap_or_else(|| w.obj.provenance().clone());
+        render_prov_tree(plan, &root, 2, &mut path, &mut out);
     }
     out
 }
