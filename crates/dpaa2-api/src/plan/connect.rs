@@ -828,6 +828,8 @@ mod tests {
         assert!(edge_demands_severed_witness(Family::Dpmac, Family::Dpni));
         assert!(!edge_demands_severed_witness(Family::Dpni, Family::Dpni));
         assert!(!edge_demands_severed_witness(Family::Dpdmux, Family::Dpmac));
+        assert!(!edge_demands_severed_witness(Family::Dpni, Family::Dpsw));
+        assert!(!edge_demands_severed_witness(Family::Dpsw, Family::Dpmac));
     }
 
     #[test]

@@ -54,7 +54,7 @@ fabricAcceptedTrace.itf.json`, nothing else).
 
 ## 3. ADR-0022 row truth + edge-kind negative witnesses (bead C — M3+M15)
 
-- [ ] 3.1 Fix docs/adr/0022-reification-policy-is-a-property-of-the-
+- [x] 3.1 Fix docs/adr/0022-reification-policy-is-a-property-of-the-
       edge-kind.md:100 — the dpsw.N.M↔dpmac row must NOT claim
       `edgeDemandsSeveredWitness` true for the kind: attribute the
       interposition witness to the displaced dpni↔dpmac edge (that
@@ -63,7 +63,7 @@ fabricAcceptedTrace.itf.json`, nothing else).
       R-rule lint as the mechanization anchor. Verify:
       `grep -n "edgeDemandsSeveredWitness true" docs/adr/0022-*.md`
       → empty.
-- [ ] 3.2 Extend `severed_witness_is_demanded_only_by_dpni_dpmac`
+- [x] 3.2 Extend `severed_witness_is_demanded_only_by_dpni_dpmac`
       (crates/dpaa2-api/src/plan/connect.rs:826-831) with the two
       missing negative assertions for `(Dpni, Dpsw)` and
       `(Dpsw, Dpmac)` — the exact assertions that would have exposed
