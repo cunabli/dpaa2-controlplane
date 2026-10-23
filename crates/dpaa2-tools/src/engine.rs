@@ -21,7 +21,6 @@ use dpaa2_api::core::model::{
 use dpaa2_api::core::types::{ConstructName, TenantName};
 use dpaa2_api::families::dpio::derived_seats;
 use dpaa2_api::families::dprc::Options;
-use dpaa2_api::families::dpsw::DpswCfg;
 use dpaa2_api::families::pool_lifecycle::{
     CustodyScope, ObservedPoolObject, PoolDeltas, PoolFamily, PoolMembership, RawLabel,
     ShrinkBelowDraw, census_of, derived_requirement, drift_disposition, label_membership,
@@ -41,8 +40,9 @@ use dpaa2_api::plan::dprc::{
     plan_prune, verdict,
 };
 use dpaa2_api::plan::dpsw::{
-    DriftRepair, InterposeStep, cfg_from_attributes, observed_face_of, plan_cfg_drift,
-    plan_interposition,
+    DriftRepair, InterposeStep, Interposition, SWITCH_CREATE_CLASS, SwitchPlan, SwitchStep,
+    cfg_from_attributes, observed_face_of, plan_cfg_drift, plan_interposition,
+    plan_switched_domain,
 };
 use dpaa2_api::plan::populate::ChildPlan;
 use dpaa2_api::plan::reconcile::{ReconcileOptions, reconcile_with};
@@ -698,11 +698,12 @@ enum SwitchVerdict {
     },
 }
 
-/// One planned dpsw beside its desired cfg and the pre-dispatch verdict.
+/// One planned dpsw beside its pre-dispatch verdict and that verdict's typed disruption class —
+/// the headline carrier the switch gate maxes over (dpsw-hardening design D1 fold).
 struct SwitchWork<'a> {
     obj: &'a PlannedObject,
-    cfg: DpswCfg,
     verdict: SwitchVerdict,
+    class: Class,
 }
 
 /// The root, kernel-owned dpsws a plan carries (DPSW-I6: a dpsw is kernel-ownable only, so a
@@ -805,19 +806,30 @@ fn dpni_facing_uplink<M: McControl>(mc: &M, dpmac: DpmacId) -> Result<Option<Dpn
     Ok(None)
 }
 
-/// Dispatches one dpsw create in the baseline recipe order (`docs/baseline/dpsw.md` "Lifecycle
-/// ordering"): the flat-to-switched sever FIRST when the uplink dpmac already faces a dpni (the
-/// typed severed-witness path, `plan_interposition`), then create → connect each planned edge →
-/// plug the dpsw last. The connects go through the interface-indexed `connect_switch_port`
-/// (ADR-0022); the plug is `dprc_assign(..., Some(true))` on the dpsw object (DPSW-I9's recipe tail).
+/// Dispatches one dpsw create by executing [`plan_switched_domain`]'s typed [`SwitchStep`]
+/// sequence (dpsw-hardening design D1 fold): resolve each planned edge to its MC peer (reads
+/// only), plan the create, then — the flat-to-switched sever FIRST when the uplink dpmac already
+/// faces a dpni (the typed severed-witness path, `plan_interposition`) — run the plan's create →
+/// connect-each-port → plug-last moves. The connects go through the interface-indexed
+/// `connect_switch_port` (ADR-0022); the plug is `dprc_assign(..., Some(true))` on the dpsw object
+/// (DPSW-I9's recipe tail). A member port beyond the created `num_ifs` is the plan's
+/// [`SwitchPlan::PortOverflow`] refusal, surfaced as [`Error::Config`] before any mutation
+/// (DPSW-I10).
 fn dispatch_switch_create<M: McControl>(
     plan: &CompiledPlan,
     mc: &M,
     children: &BTreeMap<ConstructName, DprcId>,
     obj: &PlannedObject,
-    cfg: &DpswCfg,
 ) -> Result<(), Error> {
     let edges = switch_edges(plan, obj.key());
+    let mut ports = Vec::with_capacity(edges.len());
+    for (ifx, endpoint) in &edges {
+        ports.push((*ifx, resolve_switch_peer(plan, mc, children, endpoint)?));
+    }
+    let steps = match plan_switched_domain(obj.label().clone(), obj.attributes(), &ports)? {
+        SwitchPlan::Create(steps) => steps,
+        SwitchPlan::PortOverflow(overflow) => return Err(Error::Config(overflow.to_string())),
+    };
 
     // Interposition (dpsw-typestate design D10): the planned uplink dpmac and the member ifx name
     // the rewire. When that dpmac currently faces a dpni, the dpni–dpmac edge is severed first
@@ -833,21 +845,44 @@ fn dispatch_switch_create<M: McControl>(
     if let (Some((uplink_ifx, dpmac)), Some(member_ifx)) = (uplink, member_ifx)
         && let Some(facing) = dpni_facing_uplink(mc, dpmac)?
     {
-        for step in &plan_interposition(facing, dpmac, uplink_ifx, member_ifx).steps {
-            if let InterposeStep::Sever(Transition::Disconnect { dpni }) = step {
-                mc.dprc_disconnect(CONNECT_ANCESTOR, *dpni)?;
+        let Interposition {
+            steps: interpose,
+            proof: _severed,
+        } = plan_interposition(facing, dpmac, uplink_ifx, member_ifx);
+        for step in &interpose {
+            match step {
+                InterposeStep::Sever(Transition::Disconnect { dpni }) => {
+                    mc.dprc_disconnect(CONNECT_ANCESTOR, *dpni)?;
+                }
+                // ConnectUplink/ConnectMember name the edges the plan's ConnectPort steps already carry in order — honored there, not re-dispatched (dpsw-hardening design D1 fold).
+                InterposeStep::Sever(_)
+                | InterposeStep::ConnectUplink { .. }
+                | InterposeStep::ConnectMember { .. } => {}
             }
         }
     }
 
-    let dpsw = mc.create_dpsw_in(None, cfg, obj.label())?;
-    for (ifx, endpoint) in &edges {
-        let peer = resolve_switch_peer(plan, mc, children, endpoint)?;
-        mc.connect_switch_port(CONNECT_ANCESTOR, dpsw, *ifx, peer)?;
+    let mut created: Option<ObjectRef> = None;
+    for step in steps {
+        match step {
+            SwitchStep::CreateSwitch { label, cfg } => {
+                created = Some(mc.create_dpsw_in(None, &cfg, &label)?);
+            }
+            SwitchStep::ConnectPort { ifx, endpoint } => {
+                let dpsw =
+                    created.expect("plan_switched_domain emits CreateSwitch before ConnectPort");
+                mc.connect_switch_port(CONNECT_ANCESTOR, dpsw, ifx, endpoint)?;
+            }
+            SwitchStep::PlugSwitch => {
+                let dpsw =
+                    created.expect("plan_switched_domain emits CreateSwitch before PlugSwitch");
+                mc.dprc_assign(DprcId::ROOT, dpsw, None, Some(true))?;
+            }
+        }
     }
-    // Plug LAST, on the dpsw object (`docs/baseline/dpsw.md` "Lifecycle ordering"; plan `PlugSwitch`).
-    mc.dprc_assign(DprcId::ROOT, dpsw, None, Some(true))?;
-    tracing::info!(label = %obj.label(), %dpsw, "created and plugged switched domain");
+    if let Some(dpsw) = created {
+        tracing::info!(label = %obj.label(), %dpsw, "created and plugged switched domain");
+    }
     Ok(())
 }
 
@@ -858,7 +893,9 @@ fn dispatch_switch_create<M: McControl>(
 /// in the baseline recipe order. A present dpsw whose observable signature matches is converged
 /// and dispatches nothing (idempotence); a cfg drift is `unbind_current` → `destroy_dpsw` →
 /// re-observe-absent (the typed `destroy_dpsw` contract) → create (`plan_cfg_drift`; every dpsw
-/// cfg field is immutable). All create/recreate work is [`Class::Disruptive`].
+/// cfg field is immutable). Each work item's class comes from its typed carrier
+/// ([`SWITCH_CREATE_CLASS`] for a create, [`DriftRepair::class`] for a drift repair), so the gate
+/// headline is their max and never a literal (dpsw-hardening design D1 fold).
 ///
 /// # Errors
 /// Propagates a backend/kernel read/dispatch error; `create_dpsw_in` and `destroy_dpsw` carry
@@ -879,37 +916,42 @@ pub fn converge_switches<M: McControl, K: KernelControl>(
     // mutation (the converge_links shape). Presence is observed by label — a root dpsw pool row
     // bearing the construct name (the status.rs `dpsw_details` seam's approach).
     let observed = mc.observe_pool(None, Family::Dpsw)?;
-    let mut any_work = false;
     let mut work = Vec::new();
     for obj in dpsws {
-        let cfg = cfg_from_attributes(obj.attributes())?;
-        let verdict = match observed
+        let desired = cfg_from_attributes(obj.attributes())?;
+        let (verdict, class) = match observed
             .iter()
             .find(|r| r.label.as_str() == obj.label().as_str())
         {
-            None => SwitchVerdict::Create,
+            None => (SwitchVerdict::Create, SWITCH_CREATE_CLASS),
             Some(row) => {
                 let face = observed_face_of(&mc.observe_dpsw(DprcId::ROOT, row.object)?);
-                match plan_cfg_drift(&cfg, row.object, &face) {
+                let repair = plan_cfg_drift(&desired, row.object, &face);
+                let verdict = match &repair {
                     DriftRepair::Converged => SwitchVerdict::Converged,
-                    DriftRepair::Recreate { destroy } => SwitchVerdict::Recreate { destroy },
-                }
+                    DriftRepair::Recreate { destroy } => {
+                        SwitchVerdict::Recreate { destroy: *destroy }
+                    }
+                };
+                (verdict, repair.class())
             }
         };
-        if !matches!(verdict, SwitchVerdict::Converged) {
-            any_work = true;
-        }
-        work.push(SwitchWork { obj, cfg, verdict });
+        work.push(SwitchWork {
+            obj,
+            verdict,
+            class,
+        });
     }
 
-    if !any_work {
+    // Headline = max over the work items' typed class carriers; gate before any dispatch, no literal (dpsw-hardening design D1 fold; ADR-0015 decision 12).
+    let headline = work.iter().map(|w| w.class).max().unwrap_or_default();
+    if headline == Class::Hitless {
         return Ok(SwitchOutcome::Converged);
     }
-    // Every create/recreate is disruptive — gate before any dispatch (ADR-0015 decision 12).
-    if Class::Disruptive > cfg.allow {
+    if headline > cfg.allow {
         tracing::error!(allowed = %cfg.allow, "switched-domain convergence exceeds allowed disruption class");
         return Ok(SwitchOutcome::DisruptionRefused {
-            headline: Class::Disruptive,
+            headline,
             allowed: cfg.allow,
         });
     }
@@ -923,14 +965,14 @@ pub fn converge_switches<M: McControl, K: KernelControl>(
         match w.verdict {
             SwitchVerdict::Converged => {}
             SwitchVerdict::Create => {
-                dispatch_switch_create(plan, mc, &children, w.obj, &w.cfg)?;
+                dispatch_switch_create(plan, mc, &children, w.obj)?;
             }
             SwitchVerdict::Recreate { destroy } => {
                 // Drift is a destroy-and-recreate: unbind the kernel face, destroy (the verb
                 // re-observes absence), then recreate (ADR-0008 §8; `docs/baseline/dpsw.md`).
                 kernel.unbind_current(&destroy)?;
                 mc.destroy_dpsw(None, &destroy)?;
-                dispatch_switch_create(plan, mc, &children, w.obj, &w.cfg)?;
+                dispatch_switch_create(plan, mc, &children, w.obj)?;
             }
         }
     }
@@ -3514,6 +3556,58 @@ mod tests {
                 !mc.audit().iter().any(|e| e.starts_with("create_dpsw:")),
                 "nothing is created under the refused gate"
             );
+        }
+
+        #[test]
+        fn port_beyond_num_ifs_refuses_typed_before_any_dispatch() {
+            // DPSW-I10 on the live path (dpsw-hardening design D1 fold): a fabric-edge beyond the
+            // created num_ifs (2 here) is SwitchPlan::PortOverflow; no intent compiles one, so inject it witness-built at ifx 5.
+            let mut c = compiled_switched();
+            let dpsw_key = c
+                .plan
+                .objects
+                .iter()
+                .find(|o| {
+                    matches!(o.attributes(), Attributes::Dpsw { .. })
+                        && o.container() == &Container::Root
+                })
+                .expect("the lan dpsw is planned")
+                .key()
+                .clone();
+            let mc = with_populated_members(&c);
+            let lan = Fabric {
+                name: "lan".into(),
+                switching: Switching::Hardware,
+                forwarded_by: "kernel".into(),
+                members: vec![],
+                mac_table_size: Some(256),
+                renamed: None,
+            };
+            c.plan
+                .edges
+                .insert(lan.edge(&dpsw_key, 5, AttachPoint::Mac(DpmacId::new(9))));
+
+            let err = converge_switches(&c.plan, &mc, &mc, disruptive())
+                .expect_err("a beyond-num_ifs edge must refuse typed");
+            match &err {
+                Error::Config(msg) => assert!(
+                    msg.contains("DPSW-I10") && msg.contains("num_ifs"),
+                    "the overflow carries the DPSW-I10 bound: {msg}"
+                ),
+                other => panic!("port overflow must surface as Error::Config, got {other:?}"),
+            }
+            let audit = mc.audit();
+            for verb in [
+                "create_dpsw:",
+                "connect_switch_port:",
+                "plug_dpsw:",
+                "disconnect:",
+            ] {
+                assert!(
+                    !audit.iter().any(|e| e.starts_with(verb)),
+                    "no `{verb}` mutation before the typed refusal: {audit:?}"
+                );
+            }
         }
 
         #[test]

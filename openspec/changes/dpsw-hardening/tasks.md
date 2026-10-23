@@ -14,7 +14,7 @@ fabricAcceptedTrace.itf.json`, nothing else).
 
 ## 1. The engine dispatches the typed switch plan (bead A — M1)
 
-- [ ] 1.1 `dispatch_switch_create` (engine.rs:813-852) builds its
+- [x] 1.1 `dispatch_switch_create` (engine.rs:813-852) builds its
       moves by matching `plan_switched_domain`'s `SwitchStep`s
       (plan/dpsw.rs:274-376) instead of re-stating
       create → connects → plug inline from `plan.edges`; the
@@ -26,7 +26,7 @@ fabricAcceptedTrace.itf.json`, nothing else).
       match over `InterposeStep`; existing engine tests
       (create→connect→plug order, plug-last, interposition
       sever-first) and `vdpsw5_intents.rs` green unchanged.
-- [ ] 1.2 Fold the hardcoded `Class::Disruptive` (engine.rs:908-909)
+- [x] 1.2 Fold the hardcoded `Class::Disruptive` (engine.rs:908-909)
       onto `DriftRepair::class()`; add one engine test proving a
       beyond-num_ifs edge refuses typed (`SwitchPlan::PortOverflow`)
       before any dispatch — DPSW-I10 joins the live path. Verify: the

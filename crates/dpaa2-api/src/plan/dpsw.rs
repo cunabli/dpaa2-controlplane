@@ -327,6 +327,13 @@ pub enum SwitchPlan {
     PortOverflow(PortOverflow),
 }
 
+/// The disruption class a switched-domain create actuates (ADR-0015 decision 12): standing up a
+/// new kernel-forwarding element changes the forwarding path, so a [`SwitchPlan::Create`] is
+/// [`Class::Disruptive`]. The create verdict carries no [`DriftRepair`], so the engine's switch
+/// gate reads its headline from this carrier instead of restating a literal
+/// (dpsw-hardening design D1 fold).
+pub const SWITCH_CREATE_CLASS: Class = Class::Disruptive;
+
 /// Plans the switched-domain create in the baseline working-recipe order
 /// (`docs/baseline/dpsw.md` "Lifecycle ordering"): create the dpsw, connect the
 /// member/uplink ports, then `assign --plugged=1` on the dpsw object last. The dpsw and its
