@@ -805,6 +805,11 @@ fn refusal(v: &Value) -> Result<Refusal, String> {
             },
             bound: num(field(p, "bound")?)?,
         },
+        "FabricMemberOverflow" => Refusal::FabricMemberOverflow {
+            fabric: cname(field(p, "fabric")?)?,
+            num_ifs: num(field(p, "numIfs")?)?,
+            bound: num(field(p, "bound")?)?,
+        },
         "MacTableOnSoftwareFabric" => Refusal::MacTableOnSoftwareFabric {
             fabric: cname(field(p, "fabric")?)?,
         },

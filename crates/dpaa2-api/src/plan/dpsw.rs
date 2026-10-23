@@ -222,8 +222,14 @@ const DEFAULT_MAX_FDB_MC_GROUPS: u16 = 32;
 /// refusal is an internal error path, not a new operator-facing refusal vocabulary.
 ///
 /// # Errors
-/// [`Error::Config`] when an attribute is out of a refined field's range, or when the
-/// derivation flags somehow fail the DPSW-I1 classification — a malformed attribute only.
+/// [`Error::Config`] on a malformed attribute only — an internal path never reached from
+/// a compiled intent. The field-range narrowing below cannot overflow its u16 target
+/// because the compile bounds fence every value first: `FabricMemberOverflow` caps
+/// `max_fdbs`/`num_ifs` at the u8 field envelope (dpsw-hardening design D2) and
+/// `MacTableOverflow` caps `max_fdb_entries` at the 16-bit field, and the bindability
+/// flags are derivation-true, so by dispatch every attribute already fits. (The engine
+/// likewise folds the plan's `PortOverflow` onto `Error::Config`, reachable only via
+/// injected edges, never from a compiled intent.)
 pub fn cfg_from_attributes(attrs: &Attributes) -> Result<DpswCfg, Error> {
     let Attributes::Dpsw {
         num_ifs,

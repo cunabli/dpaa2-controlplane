@@ -6,7 +6,7 @@ use std::collections::BTreeSet;
 
 use crate::core::types::ConstructName;
 use crate::intent::derive::{
-    MAX_FDB_ENTRIES, fabric_by_name, hw_fabric_attach_points, port_by_name,
+    MAX_FDB_ENTRIES, MAX_FDBS, fabric_by_name, hw_fabric_attach_points, port_by_name,
 };
 use crate::intent::{Fabric, Intent, Member, Switching};
 
@@ -137,6 +137,27 @@ pub(super) fn empty_fabric_refusals(intent: &Intent, out: &mut BTreeSet<Refusal>
             out.insert(Refusal::EmptyFabric {
                 fabric: f.name.clone(),
             });
+        }
+    }
+}
+
+/// The member-count bound (`refuse.qnt` `memberCountRefusals`; dpsw-hardening design D2).
+/// A Hardware fabric derives one FDB per interface (`max_fdbs == num_ifs`), and
+/// `max_fdbs` is a u8-shaped field (0..=255, `dpsw.md`), so a member count past
+/// [`MAX_FDBS`] drives `max_fdbs` out of its field and the switch is unbuildable —
+/// refused typed with the operator's own count, never reaching dispatch as a
+/// construction error. Mirrors [`mac_table_refusals`]' Hardware arm.
+pub(super) fn member_count_refusals(intent: &Intent, out: &mut BTreeSet<Refusal>) {
+    for f in &intent.fabrics {
+        if f.switching == Switching::Hardware {
+            let ni = u32::try_from(hw_fabric_attach_points(intent, f).len()).unwrap_or(0);
+            if ni > MAX_FDBS {
+                out.insert(Refusal::FabricMemberOverflow {
+                    fabric: f.name.clone(),
+                    num_ifs: ni,
+                    bound: MAX_FDBS,
+                });
+            }
         }
     }
 }

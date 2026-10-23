@@ -391,6 +391,9 @@ materialises for such a reference stays owned by the split materialisation trigg
 - `MacTableOverflow` — a hardware fabric whose `mac_table_size` × interface
   count overruns the 16-bit `max_fdb_entries` field → lower the size or split
   the domain.
+- `FabricMemberOverflow` — a hardware fabric whose member count drives
+  `max_fdbs` past its u8 field envelope (0..=255) → split the domain so each
+  switch carries at most 255 interfaces.
 - `MacTableOnSoftwareFabric` — a software-switched fabric declaring
   `mac_table_size`, a hardware-switch knob the software forwarder owns itself →
   remove it.

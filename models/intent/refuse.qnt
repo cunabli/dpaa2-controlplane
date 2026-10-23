@@ -70,6 +70,7 @@ module intent_refuse {
     | PortTenantMismatch({ fabric: str, port: str, tenant: str }) // member port whose tenant != the fabric's forwarding tenant (types.qnt Port comment)
     | UnsupportedEdge({ fabric: str, member: str })             // Hardware fabric listing a Hardware fabric (object-model.md §2; derive.qnt (d))
     | MacTableOverflow({ fabric: str, numIfs: int, macTableSize: int, bound: int }) // Hardware fabric whose mac_table_size × interface count exceeds the 16-bit max_fdb_entries bound (dpsw.md; DPAA2UM T101)
+    | FabricMemberOverflow({ fabric: str, numIfs: int, bound: int }) // Hardware fabric whose member count drives max_fdbs past its u8 field envelope 0..=255 (dpsw.md; dpsw-hardening design D2)
     | MacTableOnSoftwareFabric({ fabric: str })                 // a Software fabric declaring mac_table_size — hardware-switch sizing the software forwarder owns itself (dpsw.md)
     | EmptyFabric({ fabric: str })                              // a Hardware fabric deriving zero dpsw interfaces — MC num_ifs accepts 1..65535, so a 0-port switch is unrenderable (dpsw.md; DPAA2UM T101; DPSW-I1)
     | UnknownRateClass({ tenant: str, rates: List[int] })     // userspace-poll tenant terminating a rate class with no seeded worker row (design D3; ADR-0002; derive.qnt (b))
@@ -303,6 +304,21 @@ module intent_refuse {
         acc.union(Set(EmptyFabric({ fabric: f.name })))
       else acc)
 
+  // ---- rule 6d: the member-count bound (dpsw-hardening design D2; M2) ----
+  // A Hardware fabric derives one FDB per interface (maxFdbs == numIfs,
+  // derive.qnt dpswObjs); max_fdbs is a u8-shaped field (0..=255, dpsw.md), so a
+  // member count past MAX_FDBS drives it out of the field and the switch is
+  // unbuildable — refused at compile with the operator's own count, never reaching
+  // dispatch as a construction error. Mirrors macTableRefusals' Hardware arm.
+  pure def memberCountRefusals(intent: Intent, inv: Inventory): Set[Refusal] =
+    intent.fabrics.foldl(Set(), (acc, f) =>
+      if (f.switching == Hardware)
+        val ni = hwFabricAttachPoints(intent, f).length()
+        if (ni > MAX_FDBS)
+          acc.union(Set(FabricMemberOverflow({ fabric: f.name, numIfs: ni, bound: MAX_FDBS })))
+        else acc
+      else acc)
+
   // ---- rule 7: userspace-poll thread-count sizing (design D3; ADR-0012) ----
   // Under the online-CPU reading of open question 2 (KERNEL_BUDGET_IS_DPIO_COUNT =
   // false), maxCores is not a bound on the kernel dataplane, so no
@@ -496,6 +512,7 @@ module intent_refuse {
       .union(fabricRulesRefusals(intent, inv))
       .union(macTableRefusals(intent, inv))
       .union(emptyFabricRefusals(intent, inv))
+      .union(memberCountRefusals(intent, inv))
       .union(sizingRefusals(intent, inv))
       .union(extraRefusals(intent, inv))
       .union(cryptoRefusals(intent, inv))
@@ -552,6 +569,7 @@ module intent_refuse {
     PortTenantMismatch({ fabric: "f", port: "p", tenant: "o" }),
     UnsupportedEdge({ fabric: "f", member: "m" }),
     MacTableOverflow({ fabric: "f", numIfs: 0, macTableSize: 0, bound: 0 }),
+    FabricMemberOverflow({ fabric: "f", numIfs: 0, bound: 0 }),
     MacTableOnSoftwareFabric({ fabric: "f" }),
     EmptyFabric({ fabric: "f" }),
     UnknownRateClass({ tenant: "c", rates: [] }),

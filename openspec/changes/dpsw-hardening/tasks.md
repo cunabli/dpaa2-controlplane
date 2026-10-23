@@ -36,7 +36,7 @@ fabricAcceptedTrace.itf.json`, nothing else).
 
 ## 2. Member-count bound as compile law (bead B — M2)
 
-- [ ] 2.1 Add the typed fabric refusal (the `MacTableOverflow` shape)
+- [x] 2.1 Add the typed fabric refusal (the `MacTableOverflow` shape)
       bounding membership at the `max_fdbs` field envelope (0..=255):
       `models/intent/refuse.qnt` + `crates/dpaa2-api/src/intent/
       refuse/fabric.rs:104-142`; extend `dpswDerivationLawful`
@@ -46,7 +46,7 @@ fabricAcceptedTrace.itf.json`, nothing else).
       members yields the new typed refusal; `grep -n "255"
       crates/dpaa2-api/src/intent/refuse/fabric.rs` non-empty;
       `pnpm model:test` + ITF replay green.
-- [ ] 2.2 Re-word plan/dpsw.rs:219-227 — `cfg_from_attributes`'s
+- [x] 2.2 Re-word plan/dpsw.rs:219-227 — `cfg_from_attributes`'s
       `Error::Config` arm is now truly internal (unreachable from a
       compiled intent), so its "malformed attribute only" claim
       becomes true. Verify: the comment names the compile bound as

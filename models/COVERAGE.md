@@ -358,6 +358,12 @@ CryptoFlowsOverDevice fires (task 2.6e).
   the 0-port switch, so `wEmptyFabric` holds in 488 of 3000 traces; directed coverage
   lives in `intent/main.qnt` `emptyFabricTest` and the law `dpswDerivationLawful`
   (`intent/invariants.qnt`), which closes the only path to `max_fdb_entries = 0`.
+- **Member-count bound** (`dpsw-hardening` M2, design D2): a Hardware fabric whose
+  member count drives `max_fdbs` past its u8 field envelope (0..=255) is refused
+  `FabricMemberOverflow` — the alphabet's `MEMBER_LISTS` never reach 256, so
+  `wFabricMemberOverflow` is unhit in the random sweep; directed coverage lives in the
+  Rust `compile_tests` twin and the law `dpswDerivationLawful` (`intent/invariants.qnt`),
+  which fences the field envelope (`max_fdbs <= MAX_FDBS`).
 
 ## Raw surface laws (task 3.3e)
 

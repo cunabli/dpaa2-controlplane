@@ -676,6 +676,16 @@ pub fn render_refusals(refusals: &BTreeSet<Refusal>) -> String {
                     "  switch '{fabric}': mac_table_size {mac_table_size} × {num_ifs} ports = {product} exceeds max_fdb_entries (16-bit field, max 65535)"
                 );
             }
+            Refusal::FabricMemberOverflow {
+                fabric,
+                num_ifs,
+                bound,
+            } => {
+                let _ = writeln!(
+                    out,
+                    "  switch '{fabric}': {num_ifs} member interfaces exceeds max_fdbs (u8 field, max {bound})"
+                );
+            }
             Refusal::MacTableOnSoftwareFabric { fabric } => {
                 let _ = writeln!(
                     out,
