@@ -7,9 +7,11 @@
 `dpaa2-verify` SHALL carry MBT twins for the dpsw lifecycle and the two
 edge kinds: property twins over the pure operators (bindability
 predicate, census judgment, port-bound connects) and frozen-trace
-replay of the committed ITF traces through the Rust core. Every
-committed trace's `lastVerbs` SHALL resolve against the ioctl-policy
-module as the existing conformance gate requires.
+replay of the committed ITF traces through the Rust core. Each of the
+three dpsw shim verbs SHALL resolve to an accepted ioctl-policy whitelist
+row — the conformance gate that keeps the kernel from refusing a command
+the shim drives (`crates/dpaa2-verify/tests/ioctl_policy.rs`
+`dpsw_verbs_resolve_through_the_whitelist`).
 
 #### Scenario: Frozen traces replay green
 

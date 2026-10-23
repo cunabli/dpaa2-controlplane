@@ -99,7 +99,7 @@ None — the dpsw surface lands inside the existing capability surfaces.
   two edge kinds with their reification policy, companion placement,
   and the census judgment join the plan; disruption classing covers
   destroy-and-recreate as the only repair.
-- `mc-backend`: the restool shim drives and parses the four dpsw verbs
+- `mc-backend`: the restool shim drives and parses the three dpsw verbs
   with typed honest-unknown observation faces.
 - `provisioning-cli`: the read-only switch detail row.
 - `mbt-harness`: MBT conformance twins for the dpsw typestates and edge

@@ -505,12 +505,13 @@ pub struct CompiledPlan {
 }
 
 impl CompiledPlan {
-    /// Counts the objects no executor actuates, grouped by family (design D10; restool-baseline):
-    /// every planned object except the dpni end of a dpni↔dpmac port-edge (the port reconciler
-    /// actuates it) and the two dpni ends of a dpni↔dpni link (the child-population and the
-    /// root-reconcile link pass actuate them now — cross-dprc-links design D2). `reconcile` reports
-    /// this so an operator sees every derived object the plan carries; it is never actuated and
-    /// never drift. A port-and-link plan carries nothing but those dpnis, so its summary is empty.
+    /// Counts the objects the port-facet reconcile path does not actuate, grouped by family (design
+    /// D10; restool-baseline): every planned object except the dpni end of a dpni↔dpmac port-edge
+    /// (the port reconciler actuates it) and the two dpni ends of a dpni↔dpni link — the
+    /// child-population and the root-reconcile link pass actuate them (cross-dprc-links design D2).
+    /// These families carry no port-facet `Transition`; the ensure engine passes actuate them,
+    /// reported here so an operator sees every derived object the plan carries, and they never
+    /// drift or error. A port-and-link plan carries nothing but those dpnis, so its summary is empty.
     #[must_use]
     pub fn plan_only_by_family(&self) -> BTreeMap<Family, usize> {
         let mut actuated: BTreeSet<&ObjectKey> = self
