@@ -106,7 +106,7 @@ fabricAcceptedTrace.itf.json`, nothing else).
 
 ## 6. Capture-tap diagnostic attribution (bead F — M16)
 
-- [ ] 6.1 In crates/dpaa2-verify/src/board/capture.rs:423-426,
+- [x] 6.1 In crates/dpaa2-verify/src/board/capture.rs:423-426,
       surface the restool spawn error and the capture-file read error
       in the preamble refusal string (two `map_err`s) instead of
       `let _ =` + `unwrap_or_default()` folding every cause into
