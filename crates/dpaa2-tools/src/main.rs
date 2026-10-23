@@ -249,6 +249,11 @@ fn run(cli: &Cli) -> Result<ExitCode, Error> {
             // provenance — the exact transition `ensure` actuates, a dry-run dispatches nothing.
             let links = engine::plan_links(&compiled.plan, &mc)?;
             print!("{}", render::render_links(&compiled.plan, &links));
+            // The switch create/recreate verdicts the same run would judge, read-only off the
+            // board (dpsw-hardening task 5.1): each dpsw's verdict with its class and provenance —
+            // the exact set `ensure` judges, a dry-run dispatches nothing.
+            let switches = engine::plan_switches(&compiled.plan, &mc)?;
+            print!("{}", render::render_switches(&compiled.plan, &switches));
             Ok(ExitCode::SUCCESS)
         }
         Command::Ensure {

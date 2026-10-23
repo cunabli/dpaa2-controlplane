@@ -685,7 +685,7 @@ pub enum SwitchOutcome {
 
 /// What the switched-domain pass resolved for one planned dpsw (reads only), judged before the
 /// gate so no verdict re-reads the board during dispatch.
-enum SwitchVerdict {
+pub enum SwitchVerdict {
     /// Present with a matching observable signature — nothing to do (idempotence; DPSW-I7).
     Converged,
     /// Absent — create it (create → connect edges → plug last).
@@ -700,10 +700,13 @@ enum SwitchVerdict {
 
 /// One planned dpsw beside its pre-dispatch verdict and that verdict's typed disruption class —
 /// the headline carrier the switch gate maxes over (dpsw-hardening design D1 fold).
-struct SwitchWork<'a> {
-    obj: &'a PlannedObject,
-    verdict: SwitchVerdict,
-    class: Class,
+pub struct SwitchWork<'a> {
+    /// The planned root dpsw this verdict judges (borrowed from the compiled plan).
+    pub obj: &'a PlannedObject,
+    /// The read-only verdict the switch pass resolved for `obj`.
+    pub verdict: SwitchVerdict,
+    /// `verdict`'s typed disruption class — the gate headline maxes over these.
+    pub class: Class,
 }
 
 /// The root, kernel-owned dpsws a plan carries (DPSW-I6: a dpsw is kernel-ownable only, so a
@@ -886,30 +889,23 @@ fn dispatch_switch_create<M: McControl>(
     Ok(())
 }
 
-/// Converges every planned root dpsw after the link pass (dpsw-typestate task 6.4; design D6):
-/// resolve each by its construct label (the status.rs discovery seam's approach), judge the
-/// verdict by re-observation only (DPSW-I7; exit codes never judge), gate any create/recreate
-/// against `cfg.allow` before any dispatch, then create (or destroy-and-recreate on cfg drift)
-/// in the baseline recipe order. A present dpsw whose observable signature matches is converged
-/// and dispatches nothing (idempotence); a cfg drift is `unbind_current` → `destroy_dpsw` →
-/// re-observe-absent (the typed `destroy_dpsw` contract) → create (`plan_cfg_drift`; every dpsw
-/// cfg field is immutable). Each work item's class comes from its typed carrier
-/// ([`SWITCH_CREATE_CLASS`] for a create, [`DriftRepair::class`] for a drift repair), so the gate
-/// headline is their max and never a literal (dpsw-hardening design D1 fold).
+/// Plans every planned root dpsw read-only — the exact verdict set [`converge_switches`] judges,
+/// rendered by `dry-run` without dispatching (dpsw-hardening task 5.1). Presence is observed by
+/// label (a root dpsw pool row bearing the construct name — the status.rs `dpsw_details` seam's
+/// approach), each verdict's typed class carried alongside it. An empty plan reads no pool,
+/// preserving the convergence pass's early return. Shares this resolution and `plan_cfg_drift`
+/// authority with the convergence, so the predicted transition is the one `ensure` actuates
+/// (review finding M4).
 ///
 /// # Errors
-/// Propagates a backend/kernel read/dispatch error; `create_dpsw_in` and `destroy_dpsw` carry
-/// the re-observation verdict, so a surviving object after a success-reported destroy surfaces as
-/// their [`Error::Backend`].
-pub fn converge_switches<M: McControl, K: KernelControl>(
-    plan: &CompiledPlan,
+/// Propagates a backend read failure.
+pub fn plan_switches<'a, M: McControl>(
+    plan: &'a CompiledPlan,
     mc: &M,
-    kernel: &K,
-    cfg: ConvergeConfig,
-) -> Result<SwitchOutcome, Error> {
+) -> Result<Vec<SwitchWork<'a>>, Error> {
     let dpsws = planned_root_dpsws(plan);
     if dpsws.is_empty() {
-        return Ok(SwitchOutcome::Converged);
+        return Ok(Vec::new());
     }
 
     // Resolve each dpsw's desired cfg and verdict (reads only), so the gate is judged before any
@@ -941,6 +937,38 @@ pub fn converge_switches<M: McControl, K: KernelControl>(
             verdict,
             class,
         });
+    }
+    Ok(work)
+}
+
+/// Converges every planned root dpsw after the link pass (dpsw-typestate task 6.4; design D6):
+/// resolve each by its construct label (the status.rs discovery seam's approach), judge the
+/// verdict by re-observation only (DPSW-I7; exit codes never judge), gate any create/recreate
+/// against `cfg.allow` before any dispatch, then create (or destroy-and-recreate on cfg drift)
+/// in the baseline recipe order. A present dpsw whose observable signature matches is converged
+/// and dispatches nothing (idempotence); a cfg drift is `unbind_current` → `destroy_dpsw` →
+/// re-observe-absent (the typed `destroy_dpsw` contract) → create (`plan_cfg_drift`; every dpsw
+/// cfg field is immutable). Each work item's class comes from its typed carrier
+/// ([`SWITCH_CREATE_CLASS`] for a create, [`DriftRepair::class`] for a drift repair), so the gate
+/// headline is their max and never a literal (dpsw-hardening design D1 fold).
+///
+/// The verdict set comes from [`plan_switches`] — one authority, so `dry-run` previews exactly the
+/// verdicts this pass judges and the preview never disagrees with the convergence (review finding
+/// M4; dpsw-hardening task 5.1).
+///
+/// # Errors
+/// Propagates a backend/kernel read/dispatch error; `create_dpsw_in` and `destroy_dpsw` carry
+/// the re-observation verdict, so a surviving object after a success-reported destroy surfaces as
+/// their [`Error::Backend`].
+pub fn converge_switches<M: McControl, K: KernelControl>(
+    plan: &CompiledPlan,
+    mc: &M,
+    kernel: &K,
+    cfg: ConvergeConfig,
+) -> Result<SwitchOutcome, Error> {
+    let work = plan_switches(plan, mc)?;
+    if work.is_empty() {
+        return Ok(SwitchOutcome::Converged);
     }
 
     // Headline = max over the work items' typed class carriers; gate before any dispatch, no literal (dpsw-hardening design D1 fold; ADR-0015 decision 12).
