@@ -252,6 +252,14 @@ it for the raw-command probe that needs the `/dev/dprc.N` transport
 
 ## Regenerating
 
+Before the pre-run record commit, a sitting whose suite drives
+`dpaa2ctl` intents runs the offline pre-check: render the suite and
+converge its intents end to end against the fake backend; any typed
+refusal kills the sitting before it starts (dpsw-hardening, review
+synthesis rule R1 — the V-DPSW-5 missing-dispatch class, where the
+engine had no switch pass and only the offline pre-check caught it
+before a board slot was spent).
+
 Each module's header records its freeze command. Then:
 
 ```sh

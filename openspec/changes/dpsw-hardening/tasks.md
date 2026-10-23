@@ -149,7 +149,7 @@ One sweep, one commit under the `Change: dpsw-typestate` trailer
 
 ## 8. Rule outcomes (synthesis §5)
 
-- [ ] 8.1 R1 (accepted, reshaped): the board-suite protocol gains the
+- [x] 8.1 R1 (accepted, reshaped): the board-suite protocol gains the
       named offline pre-check step — render the suite and run its
       intents against the fake backend end to end in the pre-run
       record; any typed refusal kills the sitting before it starts.
