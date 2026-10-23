@@ -90,8 +90,121 @@ Non-Goals:
   atomic check/commit and `-EPROBE_DEFER`, and real-time admission tests
   are the precedents; the distinctive constraints here are statelessness
   (tokens re-minted, no etcd/state-file analog) and the checked
-  model-to-twin path. Not invention — synthesis; ADR-0023 carries the
-  comparison so the choice is auditable.
+  model-to-twin path. The precedent also bounds what it can teach:
+  Kubernetes is open-world (kinds register at runtime), so a resource
+  without a controller sits silently unreconciled and the ecosystem
+  mitigates by convention (readiness conditions, GitOps health
+  timeouts) — detection, late and optional. This control plane is
+  closed-world (one binary, the family vocabulary a compile-time sum
+  type), which is what makes prevention — compile-checked totality and
+  typed admission — nearly free. Not invention — synthesis; ADR-0023
+  carries the comparison so the choice is auditable.
+- **D7 — admission is check-without-reservation; the environment is a
+  modeled adversary.** No reservation exists between admission and
+  dispatch at any layer: MC verbs are individually atomic with no
+  multi-verb transaction, and the concurrent writers that matter are
+  the kernel's own drivers and the firmware, which no userspace
+  exclusion reaches. The correctness claim is therefore conditional —
+  an admitted plan converges when the environment holds still; when it
+  does not, the next loop re-observes and re-judges, and refusals are
+  stable across iterations. The model carries an **environment action**
+  that perturbs census facts and budgets between passes, so the claim
+  is checked against interference rather than assumed; bounded
+  convergence (ORCH-I4) is proven under an eventual-environment-
+  quiescence fairness assumption, stated in the model. The loop is the
+  validation phase of optimistic concurrency; scratch reservation state
+  in any host (userspace file, kernel map) is rejected — it is a ledger
+  with a scope problem, and ADR-0008 stands.
+- **D8 — admission judges the gross draw.** An intent's full derived
+  draw is compared against currently observed headroom; frees the plan
+  itself would produce do not count. The canonical consequence: a
+  rebuild (destroy + create of an immutable-drift object) against an
+  exhausted budget is refused, and resolves as two converge runs — the
+  teardown run frees, the next run admits — matching the engine's
+  same-run rebuild refusal (pool-objects design D12). Net admission
+  (counting planned frees, which forces free-before-draw scheduling
+  semantics) is a named revisit trigger, not a goal; the precedent is
+  Kubernetes, whose scheduler is gross-admission with net arriving only
+  as priority preemption — a deliberately scoped, complexity-dense
+  late addition — while the kubelet re-validates admission at bind.
+- **D9 — guard evaluation discipline derives from authority
+  alignment.** Guards keep their two kinds (D2); they differ in when
+  they are read, and the discipline is computed, never listed. A guard
+  is **census-read** (the default: answered from the loop's census
+  snapshot) when its observing authority is the verb's executing
+  authority — the executor re-validates the fact atomically at
+  dispatch, so a stale guard costs one refused verb, repaired by the
+  next loop. A guard is **live-read** (re-sampled immediately before
+  the dependent verb fires) when its observing authority differs from
+  the verb's executing authority, because then no atomic backstop
+  exists and the TOCTOU window is real damage, not a wasted verb. The
+  derivation maps onto D2's two observation sources: bus-sourced
+  predicates gating MC-executed verbs are cross-authority, hence
+  live-read. Exactly one guard qualifies today — dpmac driver
+  occupancy, where the MC wires a switch port without seeing kernel
+  driver bindings and a stale read fires the phylink use-after-free
+  (docs/upstream/phylink-dpni-churn-crash.md). All capacity counts are
+  census-read: the firmware enforces the real budget at dispatch.
+- **D10 — dispatch is compile-checked total; registry rows are
+  `Execute` or `Unimplemented`.** Every plan-entry family flows through
+  one total dispatch over the family vocabulary — a visitor-shaped
+  trait with no default implementations or an exhaustive match (the
+  shape is the first implementation parcel's call; a runtime map is
+  refused because a missing insertion compiles). A family's row is
+  either `Execute` (the pass that consumes it) or `Unimplemented` — a
+  typed whole-intent refusal, dispatched before any verb, that names
+  its **retirement trigger**: the roadmap item or bead that ships the
+  pass. Completeness forbids silence, never unimplementedness; dpseci
+  is the first `Unimplemented` row (its compiled create surface has no
+  consuming pass; crypto provisioning rides the sibling VPP scripts
+  until its own change). The #12 acceptance sharpens accordingly:
+  dpdmux lands as `Execute`, so `Unimplemented` cannot become a
+  loophole for landing a family without its executor.
+- **D11 — the model state is the census schema (interface
+  projection).** The orchestration model does not import the core
+  machine: its state is the seam the engine can actually read —
+  per-construct status (`Missing | Converged | Drifted | Orphan`), edge
+  status, dpmac driver occupancy (`Free | MacHeld | SwitchHeld`), the
+  budget counts, and the pending plan multisets — parametric over the
+  family table so a new family is a table row, never model rework.
+  Family internals are trusted as atomic verdicts: their own models and
+  twins carry them (assume-guarantee layering; the family models'
+  cfg-only precedent). Composition is validated where the layers meet:
+  the MBT twins replay frozen traces against the one Rust
+  implementation, which exercises both layers at once. The projection
+  law: a guard may only need what the census shows, so growing the
+  model means growing the census first — the model cannot drift from
+  the interface because it is the interface.
+
+## Named invariants
+
+The model's checked obligations, numbered in the family convention:
+
+- **ORCH-I1 — completeness (no dead family).** Every family with
+  pending plan entries has an enabled-or-converged executor transition
+  or the intent is refused typed; no reachable state drops a family
+  silently. Apalache-marked; the Rust half is the D10 totality.
+- **ORCH-I2 — order as guards.** Companions precede their object, the
+  object precedes its edges, teardown exactly reverses, sever precedes
+  rewire, unbind precedes unplug, and a switch port wires only over a
+  dpmac whose live-read occupancy is driver-free. The checked example:
+  the state "switch take-over fired while the standalone mac driver
+  holds the dpmac" is unreachable with the D9 live-read in place and
+  reachable with it removed.
+- **ORCH-I3 — admission soundness and stable refusal.** An admitted
+  plan converges without a capacity errno while the environment holds
+  still; a refused intent is refused identically on every subsequent
+  loop until the census or the intent changes — refusals never
+  oscillate.
+- **ORCH-I4 — bounded convergence.** From any reachable state, under
+  eventual environment quiescence, the loop reaches its fixed point
+  within the ladder's bounded-eventually discipline.
+- **ORCH-I5 — quiescence (no churn).** At the fixed point no pass is
+  enabled; an enabled pass implies observable drift. No verb ever fires
+  whose effect leaves the final census unchanged.
+- **ORCH-I6 — confluence (bounded).** The final census is independent
+  of scheduler order wherever guards force none; checked pairwise over
+  passes, simulator-first, full treatment behind the revisit trigger.
 
 ## Risks / Trade-offs
 
@@ -111,8 +224,9 @@ Non-Goals:
 ## Migration Plan
 
 Implementation starts only after dpsw-typestate archives. Order: model +
-invariants first (ladder green), registry twin second (absorbing the 6.4
-interim guard), capacity face + admission third, CLI rendering last.
+invariants first (ladder green), then the mask-a-family retro-oracle,
+total dispatch next (absorbing the 6.4 interim guard), capacity face +
+admission, CLI rendering, MBT twins + frozen traces, confluence last.
 Each step lands behind the existing quality floor; no flag days — the
 engine's observable behavior changes only by refusing earlier and typed.
 

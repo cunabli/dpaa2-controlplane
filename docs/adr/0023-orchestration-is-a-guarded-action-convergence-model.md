@@ -38,7 +38,18 @@ and `-EPROBE_DEFER` (level-triggered retry on missing dependencies), and
 real-time admission tests (schedulability refused before runtime). None
 carries a checked formal model into its implementation, and all persist
 scheduler state; this system refuses persisted state and already owns a
-model-to-twin pipeline.
+model-to-twin pipeline. The precedents also bound what they can teach.
+Kubernetes is open-world — resource kinds register at runtime, so a
+resource whose controller is absent sits silently unreconciled, and the
+ecosystem detects it late by convention (readiness conditions, GitOps
+health timeouts); this control plane is closed-world, with the family
+vocabulary a compile-time sum type, so the silent-drop class is
+preventable rather than detectable. On capacity, the Kubernetes
+scheduler judges gross draw (a pod needing capacity a terminating pod
+will free waits Pending until the free is observed); net admission
+exists only as priority preemption, a deliberately scoped late
+addition; and the kubelet re-validates admission at bind, catching
+stale scheduler views at the point of use.
 
 ## Decision
 
@@ -70,13 +81,60 @@ vendor-kernel use-after-free (docs/upstream/phylink-dpni-churn-crash.md),
 so a switch port is wired only while its target dpmac reads back
 driver-free, or after an explicit unbind settles.
 
+Guards additionally carry an **evaluation discipline, derived from
+authority alignment** rather than listed per hazard. A guard is
+**census-read** — answered from the loop's census snapshot — when its
+observing authority is also the verb's executing authority: the
+executor re-validates the fact atomically at dispatch (the MC refuses a
+verb against a vanished object or a drained pool), so a stale guard
+costs one refused verb, repaired by the next loop. A guard is
+**live-read** — re-sampled immediately before the dependent verb fires
+— when its observing authority differs from the executing authority,
+because no atomic backstop then exists and the time-of-check-to-time-
+of-use (TOCTOU) window is unrecoverable damage rather than a wasted
+verb. Bus-sourced predicates gating MC-executed verbs are
+cross-authority and hence live-read; driver occupancy is the one such
+guard. All capacity counts are census-read — the firmware enforces the
+real budget at dispatch.
+
+**Admission is check-without-reservation and judges the gross draw.**
+No reservation exists between admission and dispatch: MC verbs are
+individually atomic with no multi-verb transaction, and the concurrent
+writers that matter (kernel drivers, firmware) are beyond any userspace
+exclusion, so scratch reservation state in any host is rejected as a
+ledger with a scope problem. The correctness claim is conditional — an
+admitted plan converges while the environment holds still; otherwise
+the next loop re-judges — and the model carries an **environment
+action** that perturbs census and budgets between passes so the claim
+is checked against interference. The draw is gross: frees the plan
+itself would produce do not count, so a rebuild against an exhausted
+budget refuses and resolves as two converge runs. Net admission is a
+revisit trigger (the Kubernetes precedent: gross scheduling, net only
+as scoped preemption).
+
+**The model's state is the census schema** (interface projection):
+per-construct status, edge status, dpmac driver occupancy, budget
+counts, and pending plan multisets, parametric over the family table —
+a new family is a table row, never model rework. Family internals are
+trusted as atomic verdicts carried by their own models and twins
+(assume-guarantee layering); composition is validated by the MBT twins
+replaying frozen traces against the one Rust implementation. A guard
+may only need what the census shows: growing the model means growing
+the census first.
+
 The modeled obligations are:
 
 - **Completeness (no dead family):** every construct family the compiler
   can emit has an enabled-or-converged executor transition from every
-  reachable state. The Rust twin is an exhaustive executor registry over
-  the construct families: a family without a pass does not compile, and
-  an intent naming a construct the engine cannot reify is refused typed.
+  reachable state, or a typed refusal. The Rust twin is a
+  compile-checked **total dispatch** over the construct families (a
+  visitor-shaped trait without default implementations or an exhaustive
+  match; a runtime map is refused because a missing insertion
+  compiles). A family's row is `Execute` — the pass that consumes it —
+  or `Unimplemented` — a whole-intent typed refusal, dispatched before
+  any verb, that names its retirement trigger (the change that ships
+  the pass). Completeness forbids silence, never unimplementedness;
+  dpseci is the first `Unimplemented` row.
 - **Order as guards:** every true dependency is a guard (companions
   precede their object, an object precedes its edges, teardown exactly
   reverses, sever precedes rewire, unbind precedes unplug, and a switch
@@ -88,12 +146,16 @@ The modeled obligations are:
   into the `fsl_dpaa2_switch` take-over (the hazard of
   docs/upstream/phylink-dpni-churn-crash.md and the dpsw-typestate
   system-integration deferred reachability clause).
-- **Bounded convergence:** from any reachable board state the loop
-  reaches its fixed point within the ladder's bounded-eventually
-  discipline, and refusals are stable across iterations.
-- **Admission:** an intent whose derived draw exceeds observed headroom
-  is refused at planning time, named in operator data terms; admission
-  never substitutes for re-observation as the dispatch truth.
+- **Bounded convergence:** from any reachable board state, under
+  eventual environment quiescence, the loop reaches its fixed point
+  within the ladder's bounded-eventually discipline, and refusals are
+  stable across iterations.
+- **Quiescence (no churn):** at the fixed point no pass is enabled, and
+  an enabled pass implies observable drift — no verb fires whose effect
+  leaves the final census unchanged.
+- **Admission:** an intent whose derived gross draw exceeds observed
+  headroom is refused at planning time, named in operator data terms;
+  admission never substitutes for re-observation as the dispatch truth.
 
 Confluence — the final census is independent of scheduler order wherever
 guards do not force one — is stated in the model; its check is bounded
