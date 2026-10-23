@@ -868,7 +868,7 @@ fn dpsw_node(intent: &Intent, f: &Fabric) -> ProvenanceNode {
     let ni = i64::try_from(hw_fabric_attach_points(intent, f).len()).unwrap_or(0);
     ProvenanceNode {
         rule: "dpsw".into(),
-        anchor: "driver-required: ctrl_if=on flooding=PER_FDB broadcast=PER_FDB max_fdbs=num_ifs (dpsw.md, read-not-verified)".to_owned(),
+        anchor: "driver-required: ctrl_if=on flooding=PER_FDB broadcast=PER_FDB max_fdbs=num_ifs (dpsw.md; bind verified V-DPSW-1, flooding/broadcast refusal verified V-DPSW-4 rev 1, ctrl_if/max_fdbs refusals kernel-source-read)".to_owned(),
         mark: Measurement::Measured,
         request: ni,
         extra: None,

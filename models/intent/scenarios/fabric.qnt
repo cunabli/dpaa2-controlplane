@@ -12,7 +12,7 @@
 // reading of open question 2, so the poll-mode member is what makes the
 // refusal reachable (design D8; restool-baseline) — pinned by kernelBudgetNeverBindsTest.
 //
-// Anchors: dpsw.md kernel-bindability predicate (read-not-verified);
+// Anchors: dpsw.md kernel-bindability predicate (bind V-DPSW-1, flooding/broadcast refusal V-DPSW-4 rev 1, ctrl_if/max_fdbs kernel-source-read);
 // ADR-0012 companion draws; DPAA2 User Manual §2.2.2 fig. 6c.
 //
 // Named invariants: none new — the runs assert planInvariants /

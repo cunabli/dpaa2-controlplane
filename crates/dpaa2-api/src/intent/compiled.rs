@@ -142,7 +142,7 @@ pub enum Attributes {
         /// The derived, in-envelope create block.
         cfg: DpseciCfg,
     },
-    /// A dpsw's kernel-bindable configuration (`dpsw.md`, read-not-verified).
+    /// A dpsw's kernel-bindable configuration (`dpsw.md`; bind V-DPSW-1, flooding/broadcast refusal V-DPSW-4 rev 1, `ctrl_if/max_fdbs` kernel-source-read).
     Dpsw {
         /// Interface count.
         num_ifs: u32,
@@ -835,7 +835,7 @@ impl Fabric {
     }
 
     /// The fabric witness (design D6; ADR-0004): the dpsw for a hardware fabric (`dpsw.md`
-    /// kernel-bindable predicate, read-not-verified), sized by its interface count.
+    /// kernel-bindable predicate; bind V-DPSW-1, flooding/broadcast refusal V-DPSW-4 rev 1, `ctrl_if/max_fdbs` kernel-source-read), sized by its interface count.
     #[must_use]
     pub fn dpsw(&self, ordinal: u32, num_ifs: u32) -> PlannedObject {
         // max_fdb_entries exactly as `derive.qnt` `maxFdbEntriesOf`: the declared
