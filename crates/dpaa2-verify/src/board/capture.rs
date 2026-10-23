@@ -298,8 +298,9 @@ fn sanitize_tag(tag: &str) -> String {
 /// The live recorder: a system-wide bpftrace program on the ioctl tracepoints,
 /// filtered to restool's `SEND_MC_COMMAND`. One instance per sitting; it spawns
 /// a fresh bpftrace per step so each step's payload is a file of its own
-/// (`capture-<tag>.mc` under the results directory). The `bpftrace` path is a
-/// constructor seam so a dead tap is testable with no board.
+/// (`capture-<tag>.mc` under the results directory). Both the `bpftrace` and
+/// `restool` program paths are constructor seams so the preamble is testable
+/// with no board.
 ///
 /// The `<tag>` is routed through `sanitize_tag` into a filesystem-safe,
 /// bounded stem, and the driver index-prefixes the label (`{i:02}-<label>`),
@@ -308,16 +309,26 @@ fn sanitize_tag(tag: &str) -> String {
 pub struct BpftraceRecorder {
     bpftrace: PathBuf,
     results: PathBuf,
+    restool: PathBuf,
 }
 
 impl BpftraceRecorder {
     /// A recorder spawning `bpftrace` and writing per-step files under
-    /// `results`.
+    /// `results`. The self-test probe program defaults to `restool`.
     pub fn new(bpftrace: impl Into<PathBuf>, results: impl Into<PathBuf>) -> Self {
         Self {
             bpftrace: bpftrace.into(),
             results: results.into(),
+            restool: PathBuf::from("restool"),
         }
+    }
+
+    /// Overrides the self-test probe program (`restool` by default) so the
+    /// preamble's spawn path is testable with no board.
+    #[cfg(test)]
+    pub(crate) fn with_restool(mut self, restool: impl Into<PathBuf>) -> Self {
+        self.restool = restool.into();
+        self
     }
 
     /// The bpftrace program text (the recorder's grammar lives in the module
@@ -420,10 +431,26 @@ impl Recorder for BpftraceRecorder {
                 "capture recorder did not attach within the bound (dpsw-typestate D7)".to_owned(),
             );
         }
-        let _ = Command::new("restool").arg("dprc").arg("list").output();
+        let probe = Command::new(&self.restool)
+            .arg("dprc")
+            .arg("list")
+            .output()
+            .map_err(|e| {
+                format!(
+                    "capture self-test could not run restool ({}): {e} (dpsw-typestate D7)",
+                    self.restool.display()
+                )
+            });
+        // ponytail: fixed 1s flush sleep; poll the capture file for the CMD/RSP pair if preambles ever flake here
         std::thread::sleep(std::time::Duration::from_secs(1));
         Self::stop(&mut child);
-        let text = std::fs::read_to_string(&out_path).unwrap_or_default();
+        probe?;
+        let text = std::fs::read_to_string(&out_path).map_err(|e| {
+            format!(
+                "capture self-test could not read the capture file ({}): {e} (dpsw-typestate D7)",
+                out_path.display()
+            )
+        })?;
         self_test_verdict(&text)
     }
 
@@ -444,6 +471,11 @@ impl Recorder for BpftraceRecorder {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // Serializes the stub-exec tests: one test's Command spawn forks while
+    // another's stub .sh is still open for write, and the direct exec of that
+    // script returns ETXTBSY (Text file busy).
+    static STUB_EXEC: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
     /// A 64-byte MC frame: `prefix` then zeros (restool `mc_v10` layout).
     fn frame(prefix: &[u8]) -> [u8; FRAME_LEN] {
@@ -691,6 +723,9 @@ mod tests {
         use std::io::Write as _;
         use std::os::unix::fs::PermissionsExt as _;
 
+        let _guard = STUB_EXEC
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let dir = std::env::temp_dir().join(format!("capture-stub-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
 
@@ -720,9 +755,56 @@ mod tests {
         drop(f);
         std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
 
-        let mut rec = BpftraceRecorder::new(&script, &dir);
+        let mut rec = BpftraceRecorder::new(&script, &dir).with_restool("/bin/true");
         rec.preamble()
             .expect("banner on stdout only must attach and parse");
+    }
+
+    /// The refusal attributes the spawn cause instead of folding it into the
+    /// dead-tap verdict: an unspawnable restool names restool, its path, and
+    /// the dpsw-typestate D7 anchor.
+    #[test]
+    fn a_missing_restool_names_the_spawn_cause() {
+        use std::io::Write as _;
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let _guard = STUB_EXEC
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let dir = std::env::temp_dir().join(format!("capture-restool-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let esc = |f: &[u8; FRAME_LEN]| -> String { f.iter().map(|&b| escape_byte(b)).collect() };
+        let cmd = frame(&[0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x11, 0x83]);
+        let rsp = frame(&[0xd1, 0, 0, 0, 0, 0, 0x11, 0x83]);
+        let data = dir.join("capture.txt");
+        std::fs::write(
+            &data,
+            format!(
+                "Attaching 2 probes...\nCMD fd=3 {}\nRSP ret=0 {}\n",
+                esc(&cmd),
+                esc(&rsp)
+            ),
+        )
+        .unwrap();
+
+        let script = dir.join("bpftrace-stub.sh");
+        let mut f = File::create(&script).unwrap();
+        writeln!(
+            f,
+            "#!/bin/sh\ncase \"$1\" in --version) echo stub; exit 0;; esac\ncat {}\nsleep 30",
+            data.display()
+        )
+        .unwrap();
+        drop(f);
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+        let mut rec = BpftraceRecorder::new(&script, &dir).with_restool("/nonexistent/restool-xyz");
+        let err = rec.preamble().unwrap_err();
+        assert!(err.contains("restool"), "{err}");
+        assert!(err.contains("/nonexistent/restool-xyz"), "{err}");
+        assert!(err.contains("dpsw-typestate D7"), "{err}");
+        assert!(!err.contains("dead tap"), "{err}");
     }
 
     /// A backslash byte (0x5c → a single `\`) and a literal space (0x20) at the
@@ -818,6 +900,9 @@ mod tests {
         use std::io::Write as _;
         use std::os::unix::fs::PermissionsExt as _;
 
+        let _guard = STUB_EXEC
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let dir = std::env::temp_dir().join(format!("capture-slash-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
 
