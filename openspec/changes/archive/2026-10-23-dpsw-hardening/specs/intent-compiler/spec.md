@@ -3,8 +3,8 @@
 ## ADDED Requirements
 
 ### Requirement: Fabric membership is bounded at compile
-A hardware fabric whose member count drives `max_fdbs` beyond its field
-envelope (0..=255) SHALL refuse at compile with a typed fabric refusal
+A hardware fabric SHALL refuse at compile when its member count drives
+`max_fdbs` beyond its field envelope (0..=255), with a typed fabric refusal
 (the MacTableOverflow shape) — never reach dispatch as a construction
 error. The bound SHALL hold identically in the model
 (`dpswDerivationLawful`) and the Rust refusal surface (ADR-0002).
