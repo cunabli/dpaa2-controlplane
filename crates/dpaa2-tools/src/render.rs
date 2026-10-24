@@ -22,6 +22,8 @@ use dpaa2_api::intent::compiled::{
     ProvenanceKey,
 };
 use dpaa2_api::intent::refuse::{Refusal, Warning};
+use dpaa2_api::plan::admission::AdmissionRefusal;
+use dpaa2_api::plan::capacity::PoolHeadroom;
 use dpaa2_api::plan::dprc::{ConsumerConvergence, ContainerVerdict, FingerprintField, PruneItem};
 use dpaa2_api::plan::pool::PoolDrift;
 use dpaa2_api::plan::populate::ChildPlan;
@@ -37,7 +39,7 @@ use dpaa2_api::families::dpsw::{
 use dpaa2_api::plan::connect::ChildDeferredVisibility;
 
 use crate::engine::{
-    LinkConnection, LinkDryRun, LinkDryRunAction, LinkRow, SwitchVerdict, SwitchWork,
+    Admission, LinkConnection, LinkDryRun, LinkDryRunAction, LinkRow, SwitchVerdict, SwitchWork,
 };
 use crate::status::{DpseciRow, DpswRow, PortDetail};
 
@@ -302,6 +304,131 @@ pub fn render_switches(plan: &CompiledPlan, work: &[SwitchWork<'_>]) -> String {
         let mut path = BTreeSet::new();
         let root = dpsw_sizing_root(plan, w.obj).unwrap_or_else(|| w.obj.provenance().clone());
         render_prov_tree(plan, &root, 2, &mut path, &mut out);
+    }
+    out
+}
+
+/// Renders the admission verdict beside the dry-run plan (resource-aware-orchestration task 5.1;
+/// provisioning-cli delta req 1): a header carrying the drawn-budget count and the overall
+/// verdict, then one data-only row per budget the intent draws on — the family (or `fdb`), the
+/// gross draw, the observed headroom, and the per-row verdict. Headroom reads the face: a
+/// reclaimable pool prints its free count; the dpio seats print `spent` (ADR-0003 §7
+/// non-reclaimable); an unobserved family prints `unobserved`; an unknown FDB bracket prints
+/// `unknown` (ADR-0011 admit-and-warn). One line per row, operator terms, no law IDs (ADR-0023 design D5).
+#[must_use]
+pub fn render_admission(adm: &Admission) -> String {
+    let empty = Vec::new();
+    let refusals = adm.verdict.as_ref().err().unwrap_or(&empty);
+    let mut rows = Vec::new();
+    for (&family, &draw) in &adm.draw.pool {
+        if draw > 0 {
+            rows.push(admission_pool_row(adm, family, draw, refusals));
+        }
+    }
+    if adm.draw.fdb > 0 {
+        rows.push(admission_fdb_row(adm, refusals));
+    }
+    let verdict = if adm.verdict.is_ok() {
+        "admitted"
+    } else {
+        "refused"
+    };
+    let mut out = String::new();
+    let _ = writeln!(
+        out,
+        "admission ({} budget(s) drawn) [{verdict}]:",
+        rows.len()
+    );
+    if rows.is_empty() {
+        let _ = writeln!(out, "  (none)");
+    }
+    for r in rows {
+        let _ = writeln!(out, "  {r}");
+    }
+    out
+}
+
+/// One pool-budget row's text: family, draw, headroom, and the per-row verdict (refused when
+/// this family is in the refusal set).
+fn admission_pool_row(
+    adm: &Admission,
+    family: Family,
+    draw: i64,
+    refusals: &[AdmissionRefusal],
+) -> String {
+    let headroom = adm
+        .face
+        .pools
+        .iter()
+        .find(|p| p.family == family)
+        .map_or_else(
+            || "unobserved".to_owned(),
+            |p| match p.headroom {
+                PoolHeadroom::Free(n) => n.to_string(),
+                PoolHeadroom::Spent(_) => "spent".to_owned(),
+            },
+        );
+    let refused = refusals
+        .iter()
+        .any(|r| matches!(r, AdmissionRefusal::Pool { family: f, .. } if *f == family));
+    format!(
+        "{} draw={draw} headroom={headroom} [{}]",
+        family.as_str(),
+        admission_verdict(refused)
+    )
+}
+
+/// The dpsw FDB budget row's text: draw, headroom (`unknown` on an unobserved bracket), and the
+/// per-row verdict.
+fn admission_fdb_row(adm: &Admission, refusals: &[AdmissionRefusal]) -> String {
+    let headroom = adm
+        .face
+        .fdb
+        .free()
+        .map_or_else(|| "unknown".to_owned(), |n| n.to_string());
+    let refused = refusals
+        .iter()
+        .any(|r| matches!(r, AdmissionRefusal::Fdb { .. }));
+    format!(
+        "fdb draw={} headroom={headroom} [{}]",
+        adm.draw.fdb,
+        admission_verdict(refused)
+    )
+}
+
+/// The per-row verdict token.
+fn admission_verdict(refused: bool) -> &'static str {
+    if refused { "refused" } else { "admitted" }
+}
+
+/// Renders the `ensure` pre-dispatch admission refusals in the `refused:` voice
+/// (resource-aware-orchestration task 5.1; provisioning-cli delta req 1): one line per
+/// over-budget draw naming the budget, the draw, and the free headroom it exceeded — data only,
+/// operator terms, no law IDs (ADR-0023 design D5). Printed before any verb, so a refused run
+/// dispatched nothing (ADR-0023 design D7).
+#[must_use]
+pub fn render_admission_refusal(refusals: &[AdmissionRefusal]) -> String {
+    let mut out = String::new();
+    for r in refusals {
+        match r {
+            AdmissionRefusal::Pool {
+                family,
+                draw,
+                headroom,
+            } => {
+                let _ = writeln!(
+                    out,
+                    "refused: pool {} draw {draw} exceeds free headroom {headroom}",
+                    family.as_str()
+                );
+            }
+            AdmissionRefusal::Fdb { draw, headroom } => {
+                let _ = writeln!(
+                    out,
+                    "refused: dpsw fdb draw {draw} exceeds free headroom {headroom}"
+                );
+            }
+        }
     }
     out
 }
@@ -1107,5 +1234,134 @@ fn mark_str(m: Measurement) -> &'static str {
     match m {
         Measurement::Measured => "measured",
         Measurement::Unmeasured => "unmeasured",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    //! The admission render is the operator's data-only verdict (ADR-0023 design D5): an
+    //! over-budget face renders the refusal rows with exact budget/draw/headroom, an admitted
+    //! face renders the full table with the admitted verdict, and the `ensure` refusal voice
+    //! names the budget, draw, and free headroom it exceeded.
+
+    use super::*;
+    use crate::engine::Admission;
+    use dpaa2_api::core::inventory::Ceiling;
+    use dpaa2_api::plan::admission::GrossDraw;
+    use dpaa2_api::plan::capacity::{CapacityFace, FdbBudget, PoolBudget};
+
+    fn face(dpbp: PoolHeadroom, fdb_bracket: Ceiling, fdb_draw: i64) -> CapacityFace {
+        CapacityFace {
+            pools: vec![
+                PoolBudget {
+                    family: Family::Dpbp,
+                    headroom: dpbp,
+                },
+                PoolBudget {
+                    family: Family::Dpio,
+                    headroom: PoolHeadroom::Spent(16),
+                },
+            ],
+            fdb: FdbBudget {
+                bracket: fdb_bracket,
+                draw: fdb_draw,
+            },
+        }
+    }
+
+    fn observed(n: i64) -> Ceiling {
+        Ceiling::Observed {
+            n,
+            provenance: "V-DPSW-2".to_owned(),
+        }
+    }
+
+    fn draw(dpbp: i64, fdb: i64) -> GrossDraw {
+        GrossDraw {
+            pool: BTreeMap::from([(Family::Dpbp, dpbp)]),
+            fdb,
+        }
+    }
+
+    #[test]
+    fn an_over_budget_face_renders_the_refusal_row() {
+        let adm = Admission {
+            face: face(PoolHeadroom::Free(1), observed(2), 1),
+            draw: draw(2, 0),
+            verdict: Err(vec![AdmissionRefusal::Pool {
+                family: Family::Dpbp,
+                draw: 2,
+                headroom: 1,
+            }]),
+        };
+        let text = render_admission(&adm);
+        assert!(
+            text.contains("admission (1 budget(s) drawn) [refused]:"),
+            "{text}"
+        );
+        assert!(
+            text.contains("  dpbp draw=2 headroom=1 [refused]"),
+            "{text}"
+        );
+    }
+
+    #[test]
+    fn an_admitted_face_renders_the_table_and_verdict() {
+        let adm = Admission {
+            face: face(PoolHeadroom::Free(3), observed(4), 0),
+            draw: draw(2, 1),
+            verdict: Ok(()),
+        };
+        let text = render_admission(&adm);
+        assert!(
+            text.contains("admission (2 budget(s) drawn) [admitted]:"),
+            "{text}"
+        );
+        assert!(
+            text.contains("  dpbp draw=2 headroom=3 [admitted]"),
+            "{text}"
+        );
+        assert!(
+            text.contains("  fdb draw=1 headroom=4 [admitted]"),
+            "{text}"
+        );
+    }
+
+    #[test]
+    fn an_unknown_fdb_bracket_renders_unknown_headroom() {
+        // No banked bracket ⇒ free() is None, so the row reads `unknown`, never an invented number.
+        let adm = Admission {
+            face: face(PoolHeadroom::Free(3), Ceiling::Unknown, 0),
+            draw: draw(0, 2),
+            verdict: Ok(()),
+        };
+        let text = render_admission(&adm);
+        assert!(
+            text.contains("  fdb draw=2 headroom=unknown [admitted]"),
+            "{text}"
+        );
+    }
+
+    #[test]
+    fn the_ensure_refusal_voice_names_budget_draw_and_headroom() {
+        let text = render_admission_refusal(&[
+            AdmissionRefusal::Pool {
+                family: Family::Dpbp,
+                draw: 2,
+                headroom: 1,
+            },
+            AdmissionRefusal::Fdb {
+                draw: 3,
+                headroom: 1,
+            },
+        ]);
+        assert!(
+            text.contains("refused: pool dpbp draw 2 exceeds free headroom 1"),
+            "{text}"
+        );
+        assert!(
+            text.contains("refused: dpsw fdb draw 3 exceeds free headroom 1"),
+            "{text}"
+        );
     }
 }

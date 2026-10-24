@@ -73,7 +73,7 @@
 
 ## 5. CLI rendering (provisioning-cli delta)
 
-- [ ] 5.1 Render admission verdicts in `dry-run` (budget/draw/headroom/
+- [x] 5.1 Render admission verdicts in `dry-run` (budget/draw/headroom/
       verdict beside the plan) and the `ensure` pre-dispatch refusal;
       `Unimplemented` refusals name their retirement pointer. Verify:
       rendered-output tests in the established voice; `ensure` dispatch

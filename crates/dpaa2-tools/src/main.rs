@@ -221,6 +221,9 @@ fn run(cli: &Cli) -> Result<ExitCode, Error> {
                 "{}",
                 render::render_dry_run(&compiled.plan, &compiled.warnings, &plan)
             );
+            // The admission verdict beside the plan (resource-aware-orchestration task 5.1): the gross draw against each observed budget, judged read-only — a dry-run never dispatches.
+            let admission = engine::plan_admission(&compiled.plan, &mc)?;
+            print!("{}", render::render_admission(&admission));
             // The child-DPRC (consumer container) convergence the same run would drive,
             // re-observed off the board (design D2; ADR-0002; DPRC-I6): container-only steps and
             // per-object provenance, alongside the port families above.
@@ -289,6 +292,14 @@ fn ensure(
     // intent naming one is refused typed (the gap the dpsw-typestate change surfaced).
     if let Err(refusal) = engine::reify_guard(&compiled.plan) {
         println!("refused: {refusal}");
+        return Ok(ExitCode::FAILURE);
+    }
+    // Admission judges the intent's gross draw against the observed budgets BEFORE any verb
+    // (ADR-0023 design D5): an over-budget intent is refused pre-dispatch in the refusal voice,
+    // changing nothing. Advisory only — the firmware's dispatch-time budget stays the truth and a
+    // race resolves level-triggered on the next loop's census (ADR-0023 design D7).
+    if let Err(refusals) = engine::plan_admission(&compiled.plan, mc)?.verdict {
+        print!("{}", render::render_admission_refusal(&refusals));
         return Ok(ExitCode::FAILURE);
     }
     // Warnings are named on stderr so the executed plan on stdout stays clean; the

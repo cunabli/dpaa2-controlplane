@@ -22,7 +22,7 @@ use dpaa2_api::core::types::{ConstructName, TenantName};
 use dpaa2_api::families::dpio::derived_seats;
 use dpaa2_api::families::dprc::Options;
 use dpaa2_api::families::pool_lifecycle::{
-    CustodyScope, ObservedPoolObject, PoolDeltas, PoolFamily, PoolMembership, RawLabel,
+    CustodyScope, ObservedPoolObject, PoolCensus, PoolDeltas, PoolFamily, PoolMembership, RawLabel,
     ShrinkBelowDraw, census_of, derived_requirement, drift_disposition, label_membership,
 };
 use dpaa2_api::intent::KERNEL;
@@ -30,6 +30,8 @@ use dpaa2_api::intent::compiled::{
     AttachPoint, Attributes, BindingRegime, CompiledPlan, Container, ObjectKey, PlannedObject,
     ProvenanceKey,
 };
+use dpaa2_api::plan::admission::{AdmissionRefusal, GrossDraw, admit};
+use dpaa2_api::plan::capacity::{CapacityFace, capacity_face};
 use dpaa2_api::plan::connect::{
     CONNECT_ANCESTOR, ChildDeferredVisibility, LinkEndState, WireEnd, WireHeldRefusal, WirePlan,
     WireTransition, discharge_child, plan_wire,
@@ -1258,6 +1260,91 @@ pub fn plan_pools<M: McControl>(plan: &CompiledPlan, mc: &M) -> Result<PoolDrift
         families,
         dpio_required,
         dpio_observed,
+    })
+}
+
+/// The pre-dispatch admission judgment `dry-run` renders and `ensure` gates on (ADR-0023 design D5):
+/// the derived [`CapacityFace`], the plan's [`GrossDraw`], and the [`admit`] verdict over them,
+/// carried together so one read serves both the table and the refusal.
+pub struct Admission {
+    /// The census' capacity face this run observed.
+    pub face: CapacityFace,
+    /// The intent's gross draw against the two budgets.
+    pub draw: GrossDraw,
+    /// The verdict: `Ok` admitted, else the complete sorted refusal set.
+    pub verdict: Result<(), Vec<AdmissionRefusal>>,
+}
+
+/// Derives the capacity face from the same root observations [`plan_pools`] folds — the trio
+/// [`census_of`] rows and the dpio seat count — plus the one dpsw FDB budget the inventory
+/// carries (the `Dpsw` ceiling as the V-DPSW-2 bracket, one draw unit per observed dpsw label),
+/// then judges the plan's pending draw against it (ADR-0023 design D5/D8). The pending draw is
+/// the creates this run's passes would dispatch, read from the convergence judgments already in
+/// hand — never a second judgment: the trio grow/create count ([`PoolDeltas::create`] from
+/// [`plan_pools`]), the dpio seat deficit, and each create/recreate switch verdict
+/// ([`plan_switches`]). An already-converged object contributes nothing, so admission admits
+/// the fixpoint its own convergence produced. The FDB bracket is the inventory's lone
+/// dpsw-ceiling source, so admission sees the same unknown `compile`'s `Warning::UnknownCeiling`
+/// names (ADR-0011 admit-and-warn). Reads only and holds no reservation: a refused verdict
+/// changes nothing, the dispatch-time census stays the truth (ADR-0023 design D7).
+///
+/// # Errors
+/// Propagates a backend read failure.
+pub fn plan_admission<M: McControl>(plan: &CompiledPlan, mc: &M) -> Result<Admission, Error> {
+    let drift = plan_pools(plan, mc)?;
+    let inventory = mc.read_inventory()?;
+    let pools: Vec<(PoolFamily, PoolCensus)> = drift
+        .families
+        .iter()
+        .map(|f| (f.family, f.census))
+        .collect();
+    let fdb_bracket = inventory
+        .ceilings
+        .get(&Family::Dpsw)
+        .cloned()
+        .unwrap_or(Ceiling::Unknown);
+    let fdb_draw = i64::try_from(
+        inventory
+            .labels
+            .keys()
+            .filter(|(family, _)| *family == Family::Dpsw)
+            .count(),
+    )
+    .unwrap_or(i64::MAX);
+    let face = capacity_face(&pools, drift.dpio_observed, &fdb_bracket, fdb_draw);
+
+    // Pending creates only (ADR-0023 design D8): a converged object is not pending, so
+    // admission admits its own fixpoint.
+    let mut pending: BTreeMap<Family, i64> = BTreeMap::new();
+    for f in &drift.families {
+        if let Ok(deltas) = f.disposition
+            && deltas.create > 0
+        {
+            pending.insert(f.family.family(), deltas.create);
+        }
+    }
+    let seat_deficit = drift.seat_deficit();
+    if seat_deficit > 0 {
+        pending.insert(Family::Dpio, seat_deficit);
+    }
+    let fdb_pending = plan_switches(plan, mc)?
+        .iter()
+        .filter(|w| {
+            matches!(
+                w.verdict,
+                SwitchVerdict::Create | SwitchVerdict::Recreate { .. }
+            )
+        })
+        .count();
+    if fdb_pending > 0 {
+        pending.insert(Family::Dpsw, i64::try_from(fdb_pending).unwrap_or(i64::MAX));
+    }
+    let draw = GrossDraw::from_pending(&pending);
+    let verdict = admit(&face, &draw);
+    Ok(Admission {
+        face,
+        draw,
+        verdict,
     })
 }
 
@@ -3197,6 +3284,89 @@ mod tests {
             let text = crate::render::render_pool_drift(&compiled.plan, &drift);
             assert!(text.contains("root pool convergence"), "{text}");
             assert!(text.contains("dpio seats"), "{text}");
+        }
+
+        #[test]
+        fn admission_refuses_an_over_budget_intent_before_any_verb() {
+            // Every companion is pending, so the draw exceeds zero headroom and admission refuses
+            // (resource-aware-orchestration task 5.1). Reads only: `ensure` dispatches nothing (ADR-0023 design D7/D8).
+            let compiled = compiled_kernel();
+            let mc = FakeBackend::new().with_inventory(ref_inventory(16));
+
+            let admission = plan_admission(&compiled.plan, &mc).unwrap();
+            let refusals = admission
+                .verdict
+                .expect_err("the over-budget intent is refused");
+            assert!(
+                refusals
+                    .iter()
+                    .any(|r| matches!(r, AdmissionRefusal::Pool { .. })),
+                "a pool budget is named: {refusals:?}"
+            );
+            assert!(
+                mc.created_cfgs().is_empty(),
+                "no dpni was created before the refusal"
+            );
+            assert!(
+                mc.audit().is_empty(),
+                "no create/destroy verb reached the board: {:?}",
+                mc.audit()
+            );
+            let text = crate::render::render_admission_refusal(&refusals);
+            assert!(text.contains("refused: pool"), "{text}");
+        }
+
+        #[test]
+        fn admission_admits_a_converged_board_with_zero_free() {
+            // Spec scenario "A converged intent re-admits" (ADR-0023 design D8/D7): nothing pending, nothing dispatched.
+            let compiled = compiled_kernel();
+            let mut mc = FakeBackend::new().with_inventory(ref_inventory(16));
+            for family in POOL_TRIO {
+                let label = root_family_label(&compiled.plan, family.family());
+                let req = derived_requirement(&compiled.plan, &Container::Root, family);
+                for ord in 0..u32::try_from(req).unwrap() {
+                    mc = mc.with_pool_object(
+                        DprcId::ROOT,
+                        ObservedPoolObject {
+                            object: ObjectRef::new(family.family(), ord),
+                            label: RawLabel::from(label.as_str()),
+                            plugged: true,
+                            drawn: true,
+                        },
+                    );
+                }
+            }
+            let seats = derived_seats(&compiled.plan, &Container::Root);
+            for ord in 0..u32::try_from(seats).unwrap() {
+                mc = mc.with_pool_object(
+                    DprcId::ROOT,
+                    ObservedPoolObject {
+                        object: ObjectRef::new(Family::Dpio, ord),
+                        label: RawLabel::from(KERNEL),
+                        plugged: true,
+                        drawn: true,
+                    },
+                );
+            }
+
+            let before = mc.audit().len();
+            let admission = plan_admission(&compiled.plan, &mc).unwrap();
+            assert!(
+                admission.verdict.is_ok(),
+                "a converged board re-admits: {:?}",
+                admission.verdict
+            );
+            assert!(
+                admission.draw.pool.is_empty() && admission.draw.fdb == 0,
+                "the pending draw is empty: {:?}",
+                admission.draw
+            );
+            for row in &admission.face.pools {
+                if let dpaa2_api::plan::capacity::PoolHeadroom::Free(n) = row.headroom {
+                    assert_eq!(n, 0, "{:?} shows zero free headroom", row.family);
+                }
+            }
+            assert_eq!(mc.audit().len(), before, "admission dispatched nothing");
         }
     }
 
