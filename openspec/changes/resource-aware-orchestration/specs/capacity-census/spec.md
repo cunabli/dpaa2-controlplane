@@ -22,9 +22,11 @@ render as headroom already spent, never as reclaimable.
 ### Requirement: Admission judges the gross draw before dispatch
 
 The derived draw of an intent SHALL be computed as a pure function of
-the compiled plan — creates counted, planned frees not counted (design
-D8) — and compared against the capacity face before any verb is
-dispatched. An intent whose gross draw exceeds observed headroom in any
+the compiled plan and the observed census — the pending creates the
+run would dispatch counted, already-converged objects and planned
+frees not counted (design D8) — and compared against the capacity face
+before any verb is dispatched. Admission never refuses the fixpoint
+its own convergence produced. An intent whose gross draw exceeds observed headroom in any
 budget is refused whole, before dispatch, with the refusal naming the
 budget, the draw, and the headroom as data (the established refusal
 voice; ADR-0013 vocabulary). Admission holds no reservation; dispatch
@@ -43,6 +45,13 @@ truth stays re-observation (design D7).
   object and the object's budget has no free headroom
 - **THEN** the run is refused (gross draw does not count the planned
   free), the teardown run frees, and the next run admits
+
+#### Scenario: A converged intent re-admits
+
+- **WHEN** every object the intent compiles to is observed converged
+  and the drawn budgets show no remaining free headroom
+- **THEN** the run admits — the pending draw is zero, and the headroom
+  its own convergence consumed is never demanded twice
 
 #### Scenario: Refusals are stable
 

@@ -115,9 +115,12 @@ Non-Goals:
   validation phase of optimistic concurrency; scratch reservation state
   in any host (userspace file, kernel map) is rejected — it is a ledger
   with a scope problem, and ADR-0008 stands.
-- **D8 — admission judges the gross draw.** An intent's full derived
-  draw is compared against currently observed headroom; frees the plan
-  itself would produce do not count. The canonical consequence: a
+- **D8 — admission judges the gross draw of the pending creates.** An
+  intent's derived draw is the set of creates the run would dispatch —
+  the family passes' own convergence reads decide what is pending, so
+  an already-converged object draws nothing and admission admits the
+  fixpoint its own convergence produced — compared against currently
+  observed headroom; frees the plan itself would produce do not count. The canonical consequence: a
   rebuild (destroy + create of an immutable-drift object) against an
   exhausted budget is refused, and resolves as two converge runs — the
   teardown run frees, the next run admits — matching the engine's
