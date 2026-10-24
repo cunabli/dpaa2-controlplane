@@ -21,14 +21,14 @@
 
 ## 2. Retro-oracle (the origin pinned as a test)
 
-- [ ] 2.1 Script the mask-a-family check: for each family-table row,
+- [x] 2.1 Script the mask-a-family check: for each family-table row,
       force its pass guard false with plan entries pending and expect
       ORCH-I1 red within bound (the dpsw-typestate/dpseci gap class,
       mechanized). Wire into the ladder beside the existing model
       gates. Verify: the oracle fails on every masked family and passes
       unmasked; expect-red plumbing does not mask a genuinely red
       model.
-- [ ] 2.2 Check the handover-window pair (orchestration-model delta
+- [x] 2.2 Check the handover-window pair (orchestration-model delta
       scenario): live-read in place → violating state unreachable;
       live-read removed → reachable. Verify: both halves run in the
       ladder; the reachable half is an expect-red variant, not a

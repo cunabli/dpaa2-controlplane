@@ -494,8 +494,9 @@ The resource-aware-orchestration change's own ensure-pipeline obligations
 (`models/orchestration/pipeline.qnt` `orchestration`, ADR-0023). They are not
 baseline family-document candidates, so they carry their own section here rather
 than a row in the candidate table above (the convention the Pool/Intent/Raw law
-sections follow). ORCH-I1/I2/I3/I5 ride the `stateInvariants` conjunction
-(Apalache-marked, `pnpm model:verify` at `--max-steps=1`) and the simulate rung
+sections follow). ORCH-I1/I2/I3/I5/I7 ride the `stateInvariants` conjunction
+(Apalache-marked, `pnpm model:verify` at `--max-steps=1`, ~11 s for this model —
+no bound trim needed at the 5→9 family growth) and the simulate rung
 (`pnpm model:simulate`, 20 steps × 200 samples). ORCH-I4 is liveness — stated in
 the model header as the bounded-convergence claim under eventual-environment-
 quiescence fairness (ADR-0023 design D7) and witnessed by `convergeTest`, not a
@@ -509,7 +510,13 @@ resource-aware-orchestration task 3.2.
 The model is the census-schema projection (ADR-0023 design D11): per-construct
 status, the switch-port edge, dpmac driver occupancy, the two board-proven
 budgets (container pools, dpsw FDB) and the pending plan multisets, parametric
-over the family table shared with `core/types.qnt`. Guards carry the
+over the family table shared with `core/types.qnt`. The table carries the full
+derived vocabulary (`core/types.qnt` `DERIVED_FAMILIES`: dprc, dpni, dpbp, dpio,
+dpcon, dpmcp, dpseci, dpsw) plus the DPC-born dpmac, so no family the intent can
+derive surprises the resource-aware-orchestration task 3.2 twin (which keys the
+Rust dispatch table by exactly that vocabulary, dpmac the twin's only exemption);
+`init` derives every family-keyed map from `TABLE_FAMS`, and the init pool budget
+is 4 to cover the four pool companions' gross draw. Guards carry the
 census-read/live-read discipline (ADR-0023 design D9): exactly one guard is
 live-read — the dpmac occupancy gating the switch-port wire — read from the live
 `occ`, never the `censusOcc` snapshot; all budget counts are census-read with the
@@ -523,6 +530,9 @@ firmware backstop.
 | ORCH-I4 | bounded convergence (liveness) + `convergeTest` | simulate (directed) | ADR-0023 design D7 (eventual-environment-quiescence fairness); stated in the model header, not a `--max-steps=1` conjunct |
 | ORCH-I5 | `ORCH_I5` quiescence / no churn | simulate + apalache | ADR-0023 "Quiescence"; ADR-0008 level-triggered idempotence |
 | ORCH-I6 | confluence (bounded) — stated only | deferred | ADR-0023 (stated in the model header); bounded pairwise simulator check owned by resource-aware-orchestration task 7.1 |
+| ORCH-I7 | `ORCH_I7` containment order (a child-homed family dpni/dpbp/dpio/dpcon/dpmcp is converged-or-drifted only while its container dprc is converged) + `convergeTest`/`handoverSafeTest` (create order: dprc before its residents) | simulate + apalache | ADR-0023 design D4 (companions ≺ object ≺ edges; reverse on teardown); ADR-0004 containment (child-homed families home inside the child dprc) |
+| Mask-a-family retro-oracle | `orchestration/retro_oracle.qnt` `ORCH_I1_maskNone` (unmasked baseline, green) + `ORCH_I1_maskDprc/Dpni/Dpbp/Dpio/Dpcon/Dpmcp/Dpsw/Dpmac/Dpseci` (each masked table row red — the full derived vocabulary plus dpmac) driven by `models/helpers/orch-retro-oracle.py` (`pnpm model:retro-orch`) | simulate (expect-red) | ADR-0023 design D3/D10; the dpsw-typestate/dpseci gap class (bead dpaa2-controlplane-dbf.19); resource-aware-orchestration task 2.1 |
+| Handover live-read pair | `orchestration/retro_oracle.qnt` `handoverSafe` over the shipped `step` (switch-wire-over-MacHeld unreachable, green) vs `stepCensus` (live-read replaced by the `censusOcc` snapshot, reachable, red) via `pnpm model:retro-orch` | simulate (expect-red) | ADR-0023 design D9; docs/upstream/phylink-dpni-churn-crash.md; resource-aware-orchestration task 2.2 |
 
 Deliberately unmodeled in this projection, each a decision on record (ADR-0023):
 family internals (trusted atomic status transitions under assume-guarantee
