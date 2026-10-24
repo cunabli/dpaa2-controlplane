@@ -34,6 +34,7 @@ use dpaa2_api::plan::connect::{
     CONNECT_ANCESTOR, ChildDeferredVisibility, LinkEndState, WireEnd, WireHeldRefusal, WirePlan,
     WireTransition, discharge_child, plan_wire,
 };
+use dpaa2_api::plan::dispatch::{Disposition, disposition};
 use dpaa2_api::plan::dprc::{
     Attribution, ConsumerConvergence, ContainerPlan, ContainerStep, ContainerVerdict, PruneBucket,
     PruneItem, Verb, attribute_refusal, derive_consumer_containers, plan_consumer_convergence,
@@ -611,54 +612,48 @@ fn release_child_bindings<M: McControl, K: KernelControl>(
 
 /// A compiled construct this engine has no executor for (ADR-0023 "no dead family"): the plan
 /// names it but no pass reifies it, so it is refused in the operator's voice rather than
-/// silently dropped. Carries the offending construct's label and family for the one-line message.
+/// silently dropped. Carries the offending construct's label, family, and the retirement
+/// trigger its dispatch row names, for the one-line message.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ReifyRefusal {
     /// The construct's MC label (its construct name).
     pub label: ConstructName,
     /// The family the engine cannot reify.
     pub family: Family,
+    /// The change that retires the gap (the dispatch row's trigger; ADR-0023 design D10).
+    pub trigger: &'static str,
 }
 
 impl std::fmt::Display for ReifyRefusal {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "intent names a construct this engine cannot reify: `{}` ({})",
+            "intent names a construct this engine cannot reify: `{}` ({}); retires with {}",
             self.label,
-            self.family.as_str()
+            self.family.as_str(),
+            self.trigger
         )
     }
 }
 
-/// The ADR-0023 completeness obligation's Rust twin ("no dead family"): every construct family
-/// the compiler can emit maps to the pass that reifies it, or to a typed refusal — never a silent
-/// drop. The match over [`Attributes`] is exhaustive with NO wildcard arm, so a new construct
-/// family cannot be added to the plan vocabulary without stating its executor here (a compile
-/// error otherwise). Run over `plan.objects` before any dispatch, so an unreifiable construct is
-/// named at planning time, not as a mid-convergence errno.
+/// The ADR-0023 completeness obligation's Rust twin ("no dead family"), dispatched over the
+/// compiled construct vocabulary: a construct whose dispatch row is [`Disposition::Unimplemented`]
+/// is refused in the operator's voice rather than silently dropped. The row is read from the one
+/// total dispatch in `dpaa2-api` ([`disposition`]; ADR-0023 design D10), so the single place that
+/// knows which families lack an executor is that table — this guard only reacts to its verdict.
+/// Run over `plan.objects` before any dispatch, so an unreifiable construct is named at planning
+/// time, not as a mid-convergence errno.
 ///
 /// # Errors
-/// Returns the first construct the engine has no executor for ([`ReifyRefusal`]).
+/// Returns the first construct whose dispatch row has no executor ([`ReifyRefusal`]).
 pub fn reify_guard(plan: &CompiledPlan) -> Result<(), ReifyRefusal> {
     for obj in &plan.objects {
-        match obj.attributes() {
-            // Companions (dpio/dpbp/dpmcp/dpcon) ride the pool passes (`converge_pools`).
-            Attributes::Unsized
-            // The port loop, child population, and link passes.
-            | Attributes::Dpni { .. }
-            // The container-only convergence pass (`converge_containers`).
-            | Attributes::Dprc { .. }
-            // The switched-domain pass (`converge_switches`).
-            | Attributes::Dpsw { .. } => {}
-            // No executor today: the dpseci census verbs exist, but no ensure pass drives them —
-            // the gap the dpsw-typestate change surfaced (ADR-0023 seed). Refused typed.
-            Attributes::Dpseci { .. } => {
-                return Err(ReifyRefusal {
-                    label: obj.label().clone(),
-                    family: obj.key().family,
-                });
-            }
+        if let Disposition::Unimplemented { trigger } = disposition(obj.attributes()) {
+            return Err(ReifyRefusal {
+                label: obj.label().clone(),
+                family: obj.key().family,
+                trigger,
+            });
         }
     }
     Ok(())
@@ -3712,7 +3707,12 @@ mod tests {
             match reify_guard(&c.plan) {
                 Err(refusal) => {
                     assert_eq!(refusal.family, Family::Dpseci);
-                    assert!(refusal.to_string().contains("cannot reify"));
+                    // The refusal names the dpseci dispatch row's retirement trigger verbatim
+                    // (ADR-0023 design D10), the string the task 3.2 twin compares against the model.
+                    assert_eq!(refusal.trigger, "crypto-provisioning change (ADR-0023 D10)");
+                    let message = refusal.to_string();
+                    assert!(message.contains("cannot reify"));
+                    assert!(message.contains(refusal.trigger));
                 }
                 Ok(()) => panic!("a dpseci construct has no executor and must be refused"),
             }
