@@ -12,6 +12,7 @@
 //! object reference the observed [`DpniId`](crate::core::model::DpniId).
 
 pub mod connect;
+pub mod dispatch;
 pub mod dprc;
 pub mod dpseci;
 pub mod dpsw;
