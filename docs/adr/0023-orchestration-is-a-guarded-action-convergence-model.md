@@ -106,11 +106,41 @@ ledger with a scope problem. The correctness claim is conditional — an
 admitted plan converges while the environment holds still; otherwise
 the next loop re-judges — and the model carries an **environment
 action** that perturbs census and budgets between passes so the claim
-is checked against interference. The draw is gross: frees the plan
-itself would produce do not count, so a rebuild against an exhausted
-budget refuses and resolves as two converge runs. Net admission is a
-revisit trigger (the Kubernetes precedent: gross scheduling, net only
-as scoped preemption).
+is checked against interference. The draw basis is the **pending
+creates** — the create verbs the run would dispatch, as the family
+passes' own convergence reads judge them (the model's `pending`
+multiset): an already-converged object draws nothing, so admission
+admits the fixpoint its own convergence produced and a partially
+converged plan re-prices only its remainder. The draw stays gross over
+frees: frees the plan itself would produce do not count, so a rebuild
+against an exhausted budget refuses and resolves as two converge runs.
+Net admission is a revisit trigger (the Kubernetes precedent: gross
+scheduling, net only as scoped preemption).
+
+**Shortfall disposition is a planning-time choice; the default is
+rollback.** An admitted plan can still shortfall mid-run — the budgets
+have no lock, so the environment can drain them between admission and
+a verb — and the engine never knowingly leaves the board partial and
+defers to operator hand-cleanup. The run records every successful
+actuation's **observed** result (assigned name, container, bind state)
+in a run-scoped journal — in-memory, dying with the run, recorded
+through a decorator on the backend traits; it reserves nothing and
+outlives nothing, so ADR-0008's rejection of persisted ledgers and of
+reservation state is unchanged. On shortfall the run compensates by
+default: the journal is unwalked in reverse order through a
+compile-checked total reversal table over the actuation vocabulary
+(the total-dispatch idiom), honoring the same ordering guards in
+reverse (unbind precedes destroy). Rows are reversible or
+irreversible; an irreversible actuation (grow-only root population,
+ADR-0020; dpio seats, ADR-0003 §7) reports a typed reboot-named
+residue rather than pretending reversal. The operator selects
+keep-partial per run at planning time. Scope: shortfall compensation
+only — the same-run rebuild refusal (pool-objects design D12) is
+unaffected. The mechanism's naming pairs with the plan-execution
+vocabulary and is decided by the implementing change (bead
+`dpaa2-controlplane-axq`), which also carries the model's compensation
+action, the re-proof of stable refusal under compensation side
+effects, and the board witness for compensation under kernel probing.
 
 **The model's state is the census schema** (interface projection):
 per-construct status, edge status, dpmac driver occupancy, budget
@@ -176,6 +206,12 @@ and pairwise, with full treatment deferred behind a revisit trigger.
   re-evaluates true concurrency semantics, including whether the
   Petri-net reading earns tooling; confluence checking cost forcing a
   weaker claim re-opens the obligation's scope.
+- A shortfall after admission is compensated from the run journal by
+  default; what cannot be compensated is reported as reboot-named
+  residue, never discovered later. The journal seam, reversal table,
+  and unwalk executor land in their own change (bead
+  `dpaa2-controlplane-axq`); until it lands, a shortfall surfaces as
+  the pass's typed refusal and the next loop re-judges the remainder.
 - The dpsw-typestate reachability-traffic witness is deferred to the
   driver-occupancy ordering guard plus the kernel refresh from the
   porting effort; its revisit trigger is both landing (the deferred
