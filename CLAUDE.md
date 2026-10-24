@@ -10,6 +10,7 @@ The goal is to replace the restool CLI interface (all scripts and entry points s
 2. Code quality starts with architecture, the code MUST be structured at all times to ensure encapsulation will not require heavy rewrites.
 3. When using openspec, DO NOT DO all tasks in parallel and follow their dependency structure so learnings from one task can be reapplied.
 4. When using openspec with beads, ABSOLUTELY DO ONE TASK AT A TIME and through completion of acceptance criteria before moving to dependent tasks.
+5. When using openspec and writing tests for an implementation, those tests MUST match the spec. You can consider the spec a Gherkin behavioral test.
 
 ## Idioms and tenets
 
