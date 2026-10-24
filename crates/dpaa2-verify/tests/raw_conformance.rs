@@ -18,7 +18,7 @@ use dpaa2_verify::intent::raw_itf::{
     Kind, ModelVerdict, kinds, normalize, parse_raw_case, to_toml,
 };
 
-/// Every committed raw trace under `models/intent/traces/` (freeze names, sans suffix).
+/// Every committed raw trace under `models/traces/intent/` (freeze names, sans suffix).
 const TRACES: &[&str] = &[
     "rawAcceptedTrace",
     "rawReservedKernelTrace",
@@ -51,7 +51,7 @@ const REQUIRED_KINDS: &[Kind] = &[
 
 fn load(file: &str) -> String {
     let path = format!(
-        "{}/../../models/intent/traces/{file}.itf.json",
+        "{}/../../models/traces/intent/{file}.itf.json",
         env!("CARGO_MANIFEST_DIR")
     );
     std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {path}: {e}"))

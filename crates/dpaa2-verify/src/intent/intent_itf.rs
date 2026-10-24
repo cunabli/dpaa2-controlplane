@@ -1,5 +1,5 @@
 //! Reader and comparator for frozen intent-model ITF traces
-//! (`models/intent/traces/*.itf.json`, emitted by `models/intent/replay.qnt`).
+//! (`models/traces/intent/*.itf.json`, emitted by `models/intent/replay.qnt`).
 //!
 //! quint-connect evaluation (task 3.2, design D9; ADR-0006): Informal's `quint-connect`
 //! MBT crate was weighed against this hand-rolled reader and NOT adopted. It is

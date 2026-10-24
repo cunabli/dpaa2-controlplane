@@ -9,7 +9,7 @@
 
 use dpaa2_verify::intent::intent_itf::parse_case;
 
-/// Every committed trace under `models/intent/traces/`, with the arm it exercises.
+/// Every committed trace under `models/traces/intent/`, with the arm it exercises.
 const TRACES: &[(&str, Arm)] = &[
     ("fabricAcceptedTrace", Arm::Ok),
     ("fabricRefusedTrace", Arm::Refused),
@@ -31,7 +31,7 @@ enum Arm {
 
 fn load(file: &str) -> String {
     let path = format!(
-        "{}/../../models/intent/traces/{file}.itf.json",
+        "{}/../../models/traces/intent/{file}.itf.json",
         env!("CARGO_MANIFEST_DIR")
     );
     std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {path}: {e}"))

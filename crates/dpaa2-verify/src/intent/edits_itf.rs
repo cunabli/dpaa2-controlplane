@@ -1,4 +1,4 @@
-//! Reader for frozen edit-alphabet ITF traces (`models/intent/traces/editsSweep*.itf.json`,
+//! Reader for frozen edit-alphabet ITF traces (`models/traces/intent/editsSweep*.itf.json`,
 //! emitted by `models/intent/edits.qnt` under `--invariant=identityLaws`).
 //!
 //! The edit machine (`edits.qnt`) strictly alternates a *perturb* phase (a synced

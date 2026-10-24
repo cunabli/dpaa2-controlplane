@@ -33,7 +33,7 @@ fn scenarios_dir() -> String {
 /// The frozen accepted-trace path for a scenario stem.
 fn accepted_trace(stem: &str) -> String {
     format!(
-        "{}/../../models/intent/traces/{stem}AcceptedTrace.itf.json",
+        "{}/../../models/traces/intent/{stem}AcceptedTrace.itf.json",
         env!("CARGO_MANIFEST_DIR")
     )
 }

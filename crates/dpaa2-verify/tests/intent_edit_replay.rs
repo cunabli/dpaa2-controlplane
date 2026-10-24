@@ -39,12 +39,12 @@ use dpaa2_api::plan::matcher::{
 };
 use dpaa2_verify::intent::edits_itf::{EditState, Phase, parse_edits_trace};
 
-/// Every committed edit-alphabet trace under `models/intent/traces/`.
+/// Every committed edit-alphabet trace under `models/traces/intent/`.
 const TRACES: &[&str] = &["editsSweep1", "editsSweep2", "editsSweep3"];
 
 fn load(file: &str) -> String {
     let path = format!(
-        "{}/../../models/intent/traces/{file}.itf.json",
+        "{}/../../models/traces/intent/{file}.itf.json",
         env!("CARGO_MANIFEST_DIR")
     );
     std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {path}: {e}"))

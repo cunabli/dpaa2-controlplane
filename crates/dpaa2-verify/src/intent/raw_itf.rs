@@ -1,5 +1,5 @@
 //! Reader, TOML emitter, and verdict matcher for frozen raw-conformance ITF
-//! traces (`models/intent/traces/raw*Trace.itf.json`, emitted by
+//! traces (`models/traces/intent/raw*Trace.itf.json`, emitted by
 //! `models/intent/raw_replay.qnt`).
 //!
 //! MBT conformance (task 3.3e, bead gqf.48): the model is the oracle. Each trace's

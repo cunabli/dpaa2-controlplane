@@ -801,4 +801,4 @@ byte-identical.
 - **WHEN** the change completes
 - **THEN** `git diff` over `models/traces/families/dpsw/` and
   `models/traces/families/dpmac/` is empty and only
-  `fabricAcceptedTrace.itf.json` differs under `models/intent/traces/`
+  `fabricAcceptedTrace.itf.json` differs under `models/traces/intent/`
