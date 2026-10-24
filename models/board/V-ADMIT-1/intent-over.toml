@@ -1,0 +1,46 @@
+# The over-budget operand of suite V-ADMIT-1 (resource-aware-orchestration
+# task 6.1, bead dpaa2-controlplane-m7a.6): one terminated kernel port whose
+# derived pool draw is lifted decisively over the board's observed dpcon
+# headroom, so admission refuses it pre-dispatch (ADR-0023 design D5 —
+# planning-time refusal in operator terms; design D8 — the gross draw of the
+# pending creates).
+#
+# Why dpcon, not dpbp. The intent/TOML vocabulary carries no pool count directly
+# (ADR-0013): the base counts derive from the kernel regime, and `[extra.kernel]`
+# is the only raise channel (additive, raise-only). dpcon is the one trio family
+# whose ceiling is Unknown to `compile` (ref_inventory / ADR-0011), so the static
+# feasibility check cannot preempt admission: a ~200-unit raise on dpbp (ceiling
+# Counted(63)) would be refused by compile as Infeasible before admission ever
+# runs, but the same raise on dpcon compiles clean (with the expected
+# `UnknownCeiling` warning) and reaches the ADR-0023 design D5/D8 admission
+# judgment. The refusal this suite witnesses is therefore admission's, in the
+# `refused: pool` voice — not compile's feasibility voice.
+#
+# Decisive on any boot of the reference board. V-DPRC-10 (models/board/README.md
+# ledger) recorded the root dpcon pool locally dry at the reference boot — all 16
+# dpcons plugged and held — so a ~200-unit pending dpcon draw exceeds any
+# plausible observed free headroom on any boot, not just the hardware-free fake.
+#
+# Lives in the suite dir, not models/intent/scenarios/, for the V-POOL-6
+# intent-a.toml reason: a board-suite operand is an input to a dpaa2ctl sitting,
+# not a models/intent/scenarios pairing (no `.qnt`, no frozen trace); its
+# derivation and refusal are pinned offline by
+# crates/dpaa2-tools/tests/vadmit1_intents.rs.
+
+[intent]
+schema = 1
+
+# dpmac.4 is an unwired lifecycle-safe port (not the flagged wired pair 7/9, not
+# the total-deny trio 3/17 and the management interface, ADR-0003 §4). The kernel
+# terminates it, so its dpni + companions land in the root pool and their creates
+# are the gross draw admission judges.
+[port.kern0]
+dpmac = "dpmac.4"
+rate = 25000
+tenant = "kernel"
+
+# The raise-only surplus (ADR-0013): +200 dpcon over the derived base. dpcon's
+# Unknown ceiling is the point — compile cannot pre-check it, so the over-budget
+# draw is left for admission to refuse against the observed dpcon headroom.
+[extra.kernel]
+dpcon = 200
