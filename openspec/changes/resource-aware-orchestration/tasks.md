@@ -36,7 +36,7 @@
 
 ## 3. Total dispatch (reconciler delta; design D10)
 
-- [ ] 3.1 Restructure plan-entry consumption through one compile-checked
+- [x] 3.1 Restructure plan-entry consumption through one compile-checked
       total dispatch over the construct families (visitor-shaped trait
       without defaults or exhaustive match — first parcel decides
       against ADR-0018's trait seams; runtime maps refused). Rows:
@@ -47,7 +47,7 @@
       family-iteration unit test asserts every `Unimplemented` row
       names its trigger; dpseci intents refuse whole with unchanged
       voice.
-- [ ] 3.2 Land the `dpaa2-verify` registry twin: the dispatch's row set
+- [x] 3.2 Land the `dpaa2-verify` registry twin: the dispatch's row set
       checked against the model's transition set; frozen orchestration
       traces replay against the engine's pass schedule. Verify: twin
       red when a pass exists without a model action or the reverse;

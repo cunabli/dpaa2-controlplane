@@ -29,6 +29,11 @@ pub mod link_itf;
 /// restates the `models/intent/` model is a linted copy, cross-checked here so a
 /// drift fails in CI (ADR-0014).
 pub mod lint;
+/// Reader and registry twin for frozen orchestration ITF traces (resource-aware-orchestration task 3.2);
+/// the census-schema projection twin of [`dpsw_itf`], replayed by `tests/orchestration_replay.rs`,
+/// with [`orchestration_itf::row_set_findings`] reconciling the dispatch's row set against
+/// `pipeline.qnt`'s `TABLE`.
+pub mod orchestration_itf;
 /// Reader for frozen pool-lifecycle ITF traces (pool-objects task 4.1); the allocator-custody
 /// stepped-machine twin of [`dpni_itf`], replayed by `tests/pool_replay.rs`.
 pub mod pool_itf;
