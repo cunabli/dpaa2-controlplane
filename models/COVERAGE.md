@@ -487,3 +487,49 @@ face; its candidate row above now reads `modeled`.
 | Write-only field law | WriteOnlyDistKeySize | apalache | dpni.md "Attribute mutability" (DPNI-I12); dpni-typestate design D4; verified (V-DPNI-8, 2026-09-19) |
 | Cleared-bits observation | McClearedFlags | apalache | dpni.md "Option inventory" + register #6/#8 (answered and folded in at bead dpaa2-controlplane-guu.9); verified (V-DPNI-7/V-DPNI-9, 2026-09-19) |
 | Sizing-coupling observation | SizingCoupledToFlags | apalache | dpni.md "Option inventory" + register #3 (answered and folded in at bead dpaa2-controlplane-guu.9); verified (V-DPNI-5/V-DPNI-8, 2026-09-19) |
+
+## Orchestration invariants (resource-aware-orchestration task 1.2)
+
+The resource-aware-orchestration change's own ensure-pipeline obligations
+(`models/orchestration/pipeline.qnt` `orchestration`, ADR-0023). They are not
+baseline family-document candidates, so they carry their own section here rather
+than a row in the candidate table above (the convention the Pool/Intent/Raw law
+sections follow). ORCH-I1/I2/I3/I5 ride the `stateInvariants` conjunction
+(Apalache-marked, `pnpm model:verify` at `--max-steps=1`) and the simulate rung
+(`pnpm model:simulate`, 20 steps × 200 samples). ORCH-I4 is liveness — stated in
+the model header as the bounded-convergence claim under eventual-environment-
+quiescence fairness (ADR-0023 design D7) and witnessed by `convergeTest`, not a
+`--max-steps=1` safety conjunct. ORCH-I6 (confluence) is stated in the header;
+its bounded pairwise simulator check lands at resource-aware-orchestration task
+7.1. The six directed runs are frozen for ITF replay (`pnpm model:freeze-orch`,
+in `models/traces/orchestration/`); the dpaa2-verify registry
+twin replays them against the engine's pass schedule at
+resource-aware-orchestration task 3.2.
+
+The model is the census-schema projection (ADR-0023 design D11): per-construct
+status, the switch-port edge, dpmac driver occupancy, the two board-proven
+budgets (container pools, dpsw FDB) and the pending plan multisets, parametric
+over the family table shared with `core/types.qnt`. Guards carry the
+census-read/live-read discipline (ADR-0023 design D9): exactly one guard is
+live-read — the dpmac occupancy gating the switch-port wire — read from the live
+`occ`, never the `censusOcc` snapshot; all budget counts are census-read with the
+firmware backstop.
+
+| Invariant | Name | CI rung | Anchors / ties |
+|-----------|------|---------|----------------|
+| ORCH-I1 | `ORCH_I1` completeness / no dead family + `unimplementedRefusesTest` | simulate + apalache | ADR-0023 design D3/D10; the dpsw-typestate gap class (bead dpaa2-controlplane-dbf.19); masking retro-oracle at resource-aware-orchestration task 2.1 |
+| ORCH-I2 | `ORCH_I2` order as guards (live-read handover) + `handoverSafeTest` | simulate + apalache | ADR-0023 design D4/D9; docs/upstream/phylink-dpni-churn-crash.md; the reachable-without-live-read half at resource-aware-orchestration task 2.2 |
+| ORCH-I3 | `ORCH_I3` admission soundness + `admissionRefusesTest`/`stableRefusalTest` | simulate + apalache | ADR-0023 design D5/D8 (gross draw, stable refusal); ADR-0011 budgets; V-DPSW-2 (FDB ceiling) |
+| ORCH-I4 | bounded convergence (liveness) + `convergeTest` | simulate (directed) | ADR-0023 design D7 (eventual-environment-quiescence fairness); stated in the model header, not a `--max-steps=1` conjunct |
+| ORCH-I5 | `ORCH_I5` quiescence / no churn | simulate + apalache | ADR-0023 "Quiescence"; ADR-0008 level-triggered idempotence |
+| ORCH-I6 | confluence (bounded) — stated only | deferred | ADR-0023 (stated in the model header); bounded pairwise simulator check owned by resource-aware-orchestration task 7.1 |
+
+Deliberately unmodeled in this projection, each a decision on record (ADR-0023):
+family internals (trusted atomic status transitions under assume-guarantee
+layering — their own models and twins carry them, ADR-0019); concurrent portal
+scheduling (dispatch stays serialized, an ADR-0023 revisit trigger owned by
+`mc-portal-backend` (#10)); net admission counting planned frees (gross draw only
+per ADR-0023 design D8, a named revisit trigger); budgets beyond the two
+board-proven ones (bpid space, qbman seats, portal counts join with the change
+that proves each, ADR-0023 Consequences); and ORCH-I6's full confluence
+treatment (behind the ADR-0023 revisit trigger, bounded pairwise only here).

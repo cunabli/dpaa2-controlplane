@@ -2,7 +2,7 @@
 
 ## 1. Orchestration model (ADR-0002: Quint first)
 
-- [ ] 1.1 Create `models/orchestration/` on the census-schema projection
+- [x] 1.1 Create `models/orchestration/` on the census-schema projection
       (design D11): per-construct status, edge status, dpmac occupancy,
       the two budget counts, pending plan multisets; parametric over the
       family table shared with `core/types.qnt`. Actions: observe, one
@@ -11,7 +11,7 @@
       live-read discipline (design D9). Verify: ladder typecheck +
       simulate green; the family table imports `Family` from core, no
       fork.
-- [ ] 1.2 State and check ORCH-I1–I5 (design "Named invariants");
+- [x] 1.2 State and check ORCH-I1–I5 (design "Named invariants");
       Apalache-mark ORCH-I1–I3 and ORCH-I5 within ladder bounds;
       bounded convergence under the eventual-environment-quiescence
       fairness assumption stated in the model header. Freeze the ITF
