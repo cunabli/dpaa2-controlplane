@@ -55,13 +55,13 @@
 
 ## 4. Capacity face + admission (capacity-census delta)
 
-- [ ] 4.1 Add the typed capacity projection to the census in
+- [x] 4.1 Add the typed capacity projection to the census in
       `dpaa2-api`: per-container pool rows + the dpsw FDB budget,
       re-derived each observation from the parses the pool passes
       already own; dpio seats render as spent headroom (ADR-0003 §7).
       Verify: unit tests from banked census fixtures; no state carried
       across two derivations.
-- [ ] 4.2 Add the gross draw derivation (pure, over the compiled plan;
+- [x] 4.2 Add the gross draw derivation (pure, over the compiled plan;
       creates counted, planned frees not — design D8) and the admission
       verdict in the shared read → complete → compile pipeline, with
       ADR-0013 refusal rows (budget, draw, headroom, data-only).
