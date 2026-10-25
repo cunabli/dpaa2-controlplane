@@ -23,6 +23,7 @@ pub mod pool;
 pub mod populate;
 pub mod reconcile;
 pub mod rollback;
+pub mod rollback_exec;
 
 mod report;
 mod transition;

@@ -31,7 +31,7 @@ use crate::families::dpmac::{
     self, CarrierSource, CounterRead, CounterReadout, DpmacObservation, EthIf,
 };
 use crate::families::dpni::{DpniCfg, DpniObservation, LinkState, NumQueues};
-use crate::families::dprc::ContainerState;
+use crate::families::dprc::{ContainerState, ObservedResident};
 use crate::families::dpseci::DpseciCfg;
 use crate::families::dpsw::{
     DpswCfg, FdbAgingTime, MaxFdbEntries, MaxFdbMcGroups, MaxFdbs, MaxVlans, NumIfs, ObservedOpts,
@@ -556,6 +556,28 @@ impl Default for FakeBackend {
     }
 }
 
+/// Folds the container's homed pool rows into its observed residents: a real `dprc show`
+/// lists every homed object with its plugged column, so the observation face must surface
+/// what the eviction law unplugs — a `dprc_destroy` refusal over a plugged pool resident
+/// without the matching row is a fake-fidelity split (pool-objects design D11; ADR-0007
+/// §3). Origin is `None` — restool cannot observe who created the object — and a seeded
+/// resident entry wins over a merged one.
+fn merge_pool_residents(
+    container: DprcId,
+    pool_objects: &[(DprcId, ObservedPoolObject)],
+    observed: &mut ObservedContainer,
+) {
+    for (_, object) in pool_objects.iter().filter(|(c, _)| *c == container) {
+        observed
+            .residents
+            .entry(object.object)
+            .or_insert(ObservedResident {
+                origin: None,
+                plugged: object.plugged,
+            });
+    }
+}
+
 impl McControl for FakeBackend {
     fn observe(&self) -> Result<ObservedTopology, Error> {
         let mut st = self.state.borrow_mut();
@@ -830,12 +852,22 @@ impl McControl for FakeBackend {
     }
 
     fn observe_containers(&self) -> Result<BTreeMap<DprcId, ObservedContainer>, Error> {
-        Ok(self.state.borrow().containers.clone())
+        let st = self.state.borrow();
+        let mut containers = st.containers.clone();
+        for (id, observed) in &mut containers {
+            merge_pool_residents(*id, &st.pool_objects, observed);
+        }
+        Ok(containers)
     }
 
     // Per-candidate re-observation is a map lookup here; `None` is honest absence (dpni-typestate design D5).
     fn observe_container(&self, id: DprcId) -> Result<Option<ObservedContainer>, Error> {
-        Ok(self.state.borrow().containers.get(&id).cloned())
+        let st = self.state.borrow();
+        let Some(mut observed) = st.containers.get(&id).cloned() else {
+            return Ok(None);
+        };
+        merge_pool_residents(id, &st.pool_objects, &mut observed);
+        Ok(Some(observed))
     }
 
     // `dprc_create` mints a fresh, unplugged child container and records it so a
@@ -870,12 +902,19 @@ impl McControl for FakeBackend {
         Ok(id)
     }
 
-    // A plugged resident bounces destroy `-EBUSY` (MC `0x10`); the eviction law unplugs first (ADR-0007 §3).
+    // A plugged resident — seeded, or a pool object homed in the container — bounces destroy
+    // `-EBUSY` (MC `0x10`); the eviction law unplugs first (ADR-0007 §3; ADR-0020 §3).
     fn dprc_destroy(&self, container: DprcId) -> Result<(), Error> {
         let mut st = self.state.borrow_mut();
-        if let Some(observed) = st.containers.get(&container)
-            && observed.residents.values().any(|r| r.plugged)
-        {
+        let seeded_resident = st
+            .containers
+            .get(&container)
+            .is_some_and(|observed| observed.residents.values().any(|r| r.plugged));
+        let pool_resident = st
+            .pool_objects
+            .iter()
+            .any(|(c, o)| *c == container && o.plugged);
+        if seeded_resident || pool_resident {
             return Err(Error::McStatus { status: 0x10 });
         }
         st.audit.push(format!("dprc_destroy:{container}"));
@@ -1308,5 +1347,61 @@ mod tests {
             pool.iter().all(|o| o.object != b_ref),
             "the destroyed end leaves the root pool (V-LINK-6 rev 1)"
         );
+    }
+
+    // A homed pool row reads back as a plugged resident so the eviction law unplugs it before
+    // destroy; still plugged, destroy bounces `0x10` (pool-objects design D11; ADR-0007 §3).
+    #[test]
+    fn homed_pool_row_observes_as_resident_and_gates_destroy() {
+        let container = DprcId::new(5);
+        let object = ObjectRef::new(Family::Dpbp, 3);
+        let backend = FakeBackend::new()
+            .with_container(
+                container,
+                ObservedContainer {
+                    state: ContainerState::Populated,
+                    options: crate::families::dprc::Options::DEFAULT,
+                    label: ConstructName::from("orphan"),
+                    placement: Container::Root,
+                    residents: BTreeMap::new(),
+                },
+            )
+            .with_pool_object(
+                container,
+                ObservedPoolObject {
+                    object,
+                    label: RawLabel::from("kern0"),
+                    plugged: true,
+                    drawn: false,
+                },
+            );
+
+        let observed = backend
+            .observe_container(container)
+            .expect("observe")
+            .expect("container present");
+        assert_eq!(
+            observed.residents.get(&object),
+            Some(&ObservedResident {
+                origin: None,
+                plugged: true,
+            }),
+            "the homed pool row lists as a plugged resident"
+        );
+
+        assert!(
+            matches!(
+                backend.dprc_destroy(container),
+                Err(Error::McStatus { status: 0x10 })
+            ),
+            "destroy bounces while the pool row is plugged"
+        );
+
+        backend
+            .dprc_assign(container, object, None, Some(false))
+            .expect("unplug probe");
+        backend
+            .dprc_destroy(container)
+            .expect("destroy succeeds once unplugged");
     }
 }
