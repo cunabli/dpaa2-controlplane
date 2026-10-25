@@ -10,6 +10,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
 
+use dpaa2_api::core::error::Error;
 use dpaa2_api::core::family::Family;
 use dpaa2_api::core::model::DprcId;
 use dpaa2_api::families::dpio::SeatDisposition;
@@ -27,6 +28,8 @@ use dpaa2_api::plan::capacity::PoolHeadroom;
 use dpaa2_api::plan::dprc::{ConsumerConvergence, ContainerVerdict, FingerprintField, PruneItem};
 use dpaa2_api::plan::pool::PoolDrift;
 use dpaa2_api::plan::populate::ChildPlan;
+use dpaa2_api::plan::rollback::{ActuationRecord, FailurePolicy, Residue};
+use dpaa2_api::plan::rollback_exec::FailureDisposition;
 use dpaa2_api::plan::{Class, Plan, Transition};
 
 use dpaa2_api::contract::{DpseciPortalReadout, DpswIfFace};
@@ -1177,6 +1180,148 @@ fn render_counters(out: &mut String, counters: &CounterReadout) {
                 out,
                 "    counters: version-signal (expected {expected}, got {got})"
             );
+        }
+    }
+}
+
+/// Renders the one-line mid-run failure-policy preview the dry-run prints last.
+/// Anchor: plan-rollback design D5; spec "The dry-run output SHALL state the run's selected
+/// policy" — the operator sees the failure disposition the run would execute under beside the
+/// plan. Pure text, operator data terms, no type names.
+#[must_use]
+pub fn render_failure_policy(policy: FailurePolicy) -> String {
+    match policy {
+        FailurePolicy::Rollback => {
+            "on failure: rollback — a mid-run failure unwinds this run's recorded actuations in \
+             reverse order\n"
+                .to_owned()
+        }
+        FailurePolicy::Abort => {
+            "on failure: abort — a mid-run failure stops the run and leaves the executed prefix \
+             standing for the next run\n"
+                .to_owned()
+        }
+        // FailurePolicy is #[non_exhaustive]; the deferred `continue` variant lands by adding an
+        // arm here with its own preview wording (plan-rollback design D5).
+        _ => "on failure: a policy with no preview wording yet\n".to_owned(),
+    }
+}
+
+/// Renders a mid-run failure and how the run's failure policy disposed of it.
+/// Anchor: plan-rollback design D5; spec "Rollback outcomes are rendered in operator data terms".
+/// The failure class, then — under
+/// rollback — the reverse-order unwind (the actuations undone, each typed reboot residue, and any row
+/// the environment left unreversed), or — under abort — the executed prefix left standing for the next
+/// run. Every line is the operator's data vocabulary, never an internal type name or status code.
+///
+/// Overcommit (the firmware's no-resources status `0x8`) is rendered distinct from a planning-time
+/// headroom refusal: admission passed, but a concurrent writer drained the budget mid-run, and under
+/// rollback the report ends stating re-apply refuses until headroom returns (plan-rollback design D5).
+#[must_use]
+pub fn render_failure_disposition(failure: &Error, disposition: &FailureDisposition) -> String {
+    // 0x8 is the only status classified here; the fuller attribution matrix stays core-side.
+    let overcommit = matches!(failure, Error::McStatus { status: 0x8 });
+    let mut out = String::new();
+    if overcommit {
+        let _ = writeln!(
+            out,
+            "refused: overcommit — admission passed, but a concurrent writer drained the resource budget mid-run"
+        );
+    } else {
+        // Error's Display is already operator text.
+        let _ = writeln!(out, "refused: a verb failed mid-run: {failure}");
+    }
+    match disposition {
+        FailureDisposition::RolledBack(report) => {
+            for record in &report.unwound {
+                let _ = writeln!(out, "  unwound: {}", describe_actuation(record));
+            }
+            for residue in &report.residue {
+                let _ = writeln!(out, "  residue: {}", describe_residue(residue));
+            }
+            for record in &report.unreversed {
+                let _ = writeln!(
+                    out,
+                    "  not reversed, the next run re-judges: {}",
+                    describe_actuation(record)
+                );
+            }
+            if overcommit {
+                let _ = writeln!(out, "re-apply refuses until headroom returns.");
+            }
+        }
+        FailureDisposition::Aborted { prefix } => {
+            let _ = writeln!(
+                out,
+                "  aborted without unwinding: {} actuation(s) left standing for the next run",
+                prefix.len()
+            );
+            for record in prefix {
+                let _ = writeln!(out, "  standing: {}", describe_actuation(record));
+            }
+        }
+    }
+    out
+}
+
+/// Describes one journaled actuation in the operator's data vocabulary (plan-rollback design D5). A
+/// total match over the actuation record, full-word naming, never an internal type name.
+fn describe_actuation(record: &ActuationRecord) -> String {
+    match record {
+        ActuationRecord::DpniCreated { dpni, container } => {
+            format!("created dpni {dpni} in {}", describe_container(*container))
+        }
+        ActuationRecord::DprcCreated { dprc } => format!("created container {dprc}"),
+        ActuationRecord::PoolObjectCreated { object, container } => {
+            format!(
+                "created pool object {object} in {}",
+                describe_container(*container)
+            )
+        }
+        ActuationRecord::DpseciCreated { object, container } => {
+            format!(
+                "created dpseci {object} in {}",
+                describe_container(*container)
+            )
+        }
+        ActuationRecord::DpswCreated { object, container } => {
+            format!(
+                "created switch {object} in {}",
+                describe_container(*container)
+            )
+        }
+        ActuationRecord::Connected {
+            ancestor,
+            dpni,
+            peer,
+        } => format!("connected dpni {dpni} to {peer} at container {ancestor}"),
+        ActuationRecord::SwitchPortConnected {
+            ancestor,
+            dpsw,
+            ifx,
+            peer,
+        } => format!("connected switch {dpsw} interface {ifx} to {peer} at container {ancestor}"),
+        ActuationRecord::DpniBound { dpni } => format!("bound dpni {dpni} to its driver"),
+        ActuationRecord::DprcBound { dprc } => format!("bound container {dprc} to its driver"),
+    }
+}
+
+/// Names a home container in operator terms, or the shim root when none.
+fn describe_container(container: Option<DprcId>) -> String {
+    container.map_or_else(|| "the root container".to_owned(), |c| c.to_string())
+}
+
+/// Describes a typed reboot residue in plain words, naming the object and that a reboot reclaims it
+/// (plan-rollback design D5; spec "Residue names its remedy"). A total match over the residue.
+fn describe_residue(residue: &Residue) -> String {
+    match residue {
+        Residue::RootPopulation { object } => {
+            format!(
+                "root pool object {object}: the kernel claims it on plug and frees it only at reboot"
+            )
+        }
+        Residue::DpioSeat { object } => {
+            format!("dpio seat {object}: the kernel claims it on plug and frees it only at reboot")
         }
     }
 }

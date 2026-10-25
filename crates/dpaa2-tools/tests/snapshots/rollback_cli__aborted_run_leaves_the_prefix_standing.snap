@@ -1,0 +1,8 @@
+---
+source: crates/dpaa2-tools/tests/rollback_cli.rs
+expression: text
+---
+refused: a verb failed mid-run: backend failure: the dpni bind verb failed
+  aborted without unwinding: 2 actuation(s) left standing for the next run
+  standing: created dpni dpni.7 in the root container
+  standing: bound dpni dpni.7 to its driver

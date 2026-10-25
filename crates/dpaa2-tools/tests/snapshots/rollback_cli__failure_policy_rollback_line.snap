@@ -1,0 +1,5 @@
+---
+source: crates/dpaa2-tools/tests/rollback_cli.rs
+expression: "render_failure_policy(FailurePolicy::Rollback)"
+---
+on failure: rollback — a mid-run failure unwinds this run's recorded actuations in reverse order

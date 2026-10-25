@@ -1,0 +1,5 @@
+---
+source: crates/dpaa2-tools/tests/rollback_cli.rs
+expression: "render_failure_policy(FailurePolicy::Abort)"
+---
+on failure: abort — a mid-run failure stops the run and leaves the executed prefix standing for the next run

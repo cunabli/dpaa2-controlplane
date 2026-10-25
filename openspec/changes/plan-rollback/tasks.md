@@ -76,7 +76,7 @@
 
 ## 6. CLI surface
 
-- [ ] 6.1 Add the policy flag (one flag, values from the enum, default
+- [x] 6.1 Add the policy flag (one flag, values from the enum, default
   rollback), dry-run policy preview, and the rollback report rendering
   (overcommit distinct from headroom refusal, unwound actuations in
   observed terms, residue with reboot remedy). Verify: CLI integration
