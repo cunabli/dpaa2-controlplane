@@ -68,6 +68,10 @@ const TRACES: &[(&str, &str)] = &[
         "teardownPruneTest",
         "ORCH-I7 (orchestration-hardening design D3): the environment orphans a converged construct and the prune lane tears it down, dprc draining only once its resident is gone",
     ),
+    (
+        "overcommitRollbackTest",
+        "ORCH-I3 (plan-rollback design D6): admission passes, the environment drains the pool below the next create's draw — the overcommit — the run rolls back to Unjudged, and the next admission re-judges the still-drained budget and refuses, no apply/rollback oscillation (both verdicts re-derived by check_pair)",
+    ),
 ];
 
 fn load(file: &str) -> String {

@@ -55,7 +55,7 @@
 
 ## 5. Rollback executor and policy wiring
 
-- [ ] 5.1 Implement the rollback executor (reverse-order replay
+- [x] 5.1 Implement the rollback executor (reverse-order replay
   through the reversal table; irreversible rows report residue and
   continue; a failed undo verb reports unreversed and continues, no
   in-run retry) and wire the policy at the engine's execution entry
@@ -63,12 +63,12 @@
   tests for reverse order, residue continuation, failed-undo
   continuation, empty-journal identity (process rule 6 fixpoint);
   quality-floor green.
-- [ ] 5.2 Fake-MC budget simulation in `dpaa2-verify` intent/: drain a
+- [x] 5.2 Fake-MC budget simulation in `dpaa2-verify` intent/: drain a
   budget between admission and a create; assert full unwind to the
   pre-run snapshot up to residue under rollback, and no undo verbs
   plus prefix-naming refusal under abort. Verify: `cargo test` suite
   names the overcommit scenario.
-- [ ] 5.3 Twin replay of the re-frozen traces: the overcommit-rollback
+- [x] 5.3 Twin replay of the re-frozen traces: the overcommit-rollback
   trace replays against the engine with both verdicts re-derived
   through the Rust admission (never trusted from structure). Verify:
   orchestration replay suite green, and red when the re-derivation is

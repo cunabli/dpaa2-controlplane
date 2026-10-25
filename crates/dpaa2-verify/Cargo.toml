@@ -24,6 +24,9 @@ serde.workspace = true
 serde_json.workspace = true
 
 [dev-dependencies]
+# The overcommit-rollback simulation drives the shared `testkit` FakeBackend as both southbound
+# seam through the Recording layer (plan-rollback task 5.2).
+dpaa2-api = { workspace = true, features = ["testkit"] }
 dpaa2-config.workspace = true
 proptest.workspace = true
 
