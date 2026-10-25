@@ -30,14 +30,14 @@ independent of 1–2. Group 4 closes the change.
 
 ## 2. The model reaches what the engine does (bead: group-2, after 1)
 
-- [ ] 2.1 Make `Status::Orphan` reachable: a D7-shaped orphaning
+- [x] 2.1 Make `Status::Orphan` reachable: a D7-shaped orphaning
       environment action enables `doPrune`; freeze one teardown trace
       through the prune lane; ORCH-I7's teardown half and the PPrune
       confluence pairs stop being vacuous. Verify: the
       Orphan-unreachability probe (quint run with the forall-no-Orphan
       invariant) flips [ok] → [violation]; the teardown trace replays;
       confluence [ok] with the cost figure updated in COVERAGE.
-- [ ] 2.2 Make the Unimplemented refusal whole-intent: creates guarded
+- [x] 2.2 Make the Unimplemented refusal whole-intent: creates guarded
       on no unimplemented family pending; the directed converge run
       drops dpseci from its intent (the dedicated refusal trace keeps
       the lane); "whole-intent" reads true throughout the model.

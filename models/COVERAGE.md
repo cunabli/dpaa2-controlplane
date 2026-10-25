@@ -504,7 +504,7 @@ quiescence fairness (ADR-0023 design D7) and witnessed by `convergeTest`, not a
 only as `ORCH_I6_pairwise` (`pnpm model:confluence`, in `model:validation` after
 `model:retro-orch`), deliberately NOT in `stateInvariants` — the full treatment
 stays behind the ADR-0023 revisit trigger (resource-aware-orchestration task 7.1).
-The seven directed runs are frozen for ITF replay (`pnpm model:freeze-orch`,
+The eight directed runs are frozen for ITF replay (`pnpm model:freeze-orch`,
 in `models/traces/orchestration/`); the dpaa2-verify registry
 twin replays them against the engine's pass schedule at
 resource-aware-orchestration task 3.2, and on every verdict transition it
@@ -513,11 +513,15 @@ re-derives the verdict through the Rust `admit` from the prior census
 conformance, so a re-frozen trace that smuggles a budget-law change fails the
 replay. `fdbRefusesTest` closes the envEatFdb directed-run gap — the environment
 eats the dpsw FDB bracket and the next admission refuses the lone dpsw create,
-the lane that stands the re-derivation trip wire. The occupancy environment
-actions (envOccMac, envOccFree, envOccSwitch) and envDrift carry no directed run
-of their own; their recorded cost is the simulate rung above (20 steps times 200
-samples) and the handoverSafeTest/envInterferenceTest lanes that exercise them in
-passing.
+the lane that stands the re-derivation trip wire. `teardownPruneTest` closes the
+prune-lane gap (orchestration-hardening design D3) — the `envOrphan` environment
+action withdraws an intent's claim on a converged construct, so the prune fires
+and the container dprc drains only once its resident is gone (ORCH-I7's teardown
+half, no longer vacuous). The occupancy environment actions (envOccMac,
+envOccFree, envOccSwitch) and envDrift carry no directed run of their own
+(envOrphan's lane is teardownPruneTest); their recorded cost is the simulate rung
+above (20 steps times 200 samples) and the handoverSafeTest/envInterferenceTest
+lanes that exercise them in passing.
 
 The model is the census-schema projection (ADR-0023 design D11): per-construct
 status, the switch-port edge, dpmac driver occupancy, the two board-proven
@@ -543,8 +547,8 @@ firmware backstop.
 | ORCH-I3 | `ORCH_I3` admission soundness + `admissionRefusesTest`/`stableRefusalTest`/`fdbRefusesTest` (the FDB-side refusal lane) + the Rust `admit` verdict re-derivation on every frozen transition (orchestration-hardening design D2) | simulate + apalache + itf-replay | ADR-0023 design D5/D8 (gross draw, stable refusal); ADR-0011 budgets; V-DPSW-2 (the FDB bracket is dpsw-object-granular — a switch-port wire draws no unit); ADR-0003 §7 (dpio spent headroom, exempt from the pool fold) |
 | ORCH-I4 | bounded convergence (liveness) + `convergeTest` | simulate (directed) | ADR-0023 design D7 (eventual-environment-quiescence fairness); stated in the model header, not a `--max-steps=1` conjunct |
 | ORCH-I5 | `ORCH_I5` quiescence / no churn | simulate + apalache | ADR-0023 "Quiescence"; ADR-0008 level-triggered idempotence |
-| ORCH-I6 | `ORCH_I6_pairwise` confluence (bounded pairwise diamond over the engine-pass alphabet) | simulate (`pnpm model:confluence`, 20 steps × 200 samples; 37-pass alphabet → 666 distinct pass-pairs judged per state) | ADR-0023 design "ORCH-I6"; resource-aware-orchestration task 7.1; simulator-only (not `stateInvariants`); full treatment stays behind the ADR-0023 revisit trigger |
-| ORCH-I7 | `ORCH_I7` containment order (a child-homed family dpni/dpbp/dpio/dpcon/dpmcp is converged-or-drifted only while its container dprc is converged) + `convergeTest`/`handoverSafeTest` (create order: dprc before its residents) | simulate + apalache | ADR-0023 design D4 (companions ≺ object ≺ edges; reverse on teardown); ADR-0004 containment (child-homed families home inside the child dprc) |
+| ORCH-I6 | `ORCH_I6_pairwise` confluence (bounded pairwise diamond over the engine-pass alphabet) | simulate (`pnpm model:confluence`, 20 steps × 200 samples; 37-pass alphabet → 666 distinct pass-pairs judged per state, the PPrune pairs now non-vacuous since `envOrphan` makes Orphan reachable; the pass alphabet is unchanged — the orphaning action joins the env set, not the alphabet) | ADR-0023 design "ORCH-I6"; orchestration-hardening design D3; resource-aware-orchestration task 7.1; simulator-only (not `stateInvariants`); full treatment stays behind the ADR-0023 revisit trigger |
+| ORCH-I7 | `ORCH_I7` containment order (a child-homed family dpni/dpbp/dpio/dpcon/dpmcp is converged-or-drifted only while its container dprc is converged) + `convergeTest`/`handoverSafeTest` (create order: dprc before its residents) + `teardownPruneTest` (the teardown half: an orphaned construct pruned, the dprc draining only once its resident is gone — no longer vacuous) | simulate + apalache + itf-replay | ADR-0023 design D4 (companions ≺ object ≺ edges; reverse on teardown); orchestration-hardening design D3 (Orphan reachable via `envOrphan`); ADR-0004 containment (child-homed families home inside the child dprc) |
 | Mask-a-family retro-oracle | `orchestration/retro_oracle.qnt` `ORCH_I1_maskNone` (unmasked baseline, green) + `ORCH_I1_maskDprc/Dpni/Dpbp/Dpio/Dpcon/Dpmcp/Dpsw/Dpmac/Dpseci` (each masked table row red — the full derived vocabulary plus dpmac) driven by `models/helpers/orch-retro-oracle.py` (`pnpm model:retro-orch`) | simulate (expect-red) | ADR-0023 design D3/D10; the dpsw-typestate/dpseci gap class (bead dpaa2-controlplane-dbf.19); resource-aware-orchestration task 2.1 |
 | Handover live-read pair | `orchestration/retro_oracle.qnt` `handoverSafe` over the shipped `step` (switch-wire-over-MacHeld unreachable, green) vs `stepCensus` (live-read replaced by the `censusOcc` snapshot, reachable, red) via `pnpm model:retro-orch` | simulate (expect-red) | ADR-0023 design D9; docs/upstream/phylink-dpni-churn-crash.md; resource-aware-orchestration task 2.2 |
 

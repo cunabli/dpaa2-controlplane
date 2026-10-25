@@ -64,6 +64,10 @@ const TRACES: &[(&str, &str)] = &[
         "fdbRefusesTest",
         "ORCH-I3 (orchestration-hardening design D1): the eaten FDB bracket admits the lone-dpsw draw at one free (the wire draws none), then refuses it at zero",
     ),
+    (
+        "teardownPruneTest",
+        "ORCH-I7 (orchestration-hardening design D3): the environment orphans a converged construct and the prune lane tears it down, dprc draining only once its resident is gone",
+    ),
 ];
 
 fn load(file: &str) -> String {

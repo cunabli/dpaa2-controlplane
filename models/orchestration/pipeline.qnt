@@ -186,6 +186,11 @@ module orchestration {
   // Enablement is pure over `State` so the actions and the ORCH-I6 pairwise
   // diamond share one guard definition (resource-aware-orchestration task 7.1);
   // the var-reading names below delegate through `cur`.
+  // Whole-intent refusal (ADR-0023 design D10; the engine's `reify_guard`): no create
+  // fires while an Unimplemented family still has pending entries.
+  pure def noUnimplementedPendingOn(s: State): bool =
+    TABLE_FAMS.forall(g => isUnimplemented(g) implies s.pending.get(g) == 0)
+
   pure def createGuardsOn(s: State, f: Family): bool = and {
     s.verdict == Admitted,
     isCreate(f),
@@ -195,6 +200,7 @@ module orchestration {
     companionsReady(f, s.status),
     containmentReady(f, s.status),
     budgetOkOn(s, f),
+    noUnimplementedPendingOn(s),
   }
   def createGuards(f: Family): bool = createGuardsOn(cur, f)
   def execEnabled(f: Family): bool = createGuards(f)
@@ -316,10 +322,12 @@ module orchestration {
     status: s.status.set(f, Converged),
   }
 
-  // Prune an orphan (teardown reverses create; ADR-0023 design D4), returning its draw.
+  // Prune an orphan (teardown reverses create; ADR-0023 design D4), returning its
+  // draw. dpio is exempt from the pool reclaim, mirroring `grossPoolDraw`/`applyCreate`:
+  // its seats are spent headroom that never drew (ADR-0003 §7), so pruning returns none.
   pure def applyPrune(s: State, f: Family): State = { ...s,
     status: s.status.set(f, Missing),
-    poolFree: if (execKind(f) == Some(PoolDraw)) s.poolFree + 1 else s.poolFree,
+    poolFree: if (execKind(f) == Some(PoolDraw) and f != Dpio) s.poolFree + 1 else s.poolFree,
     fdbFree: if (execKind(f) == Some(FdbDraw)) s.fdbFree + 1 else s.fdbFree,
   }
 
@@ -399,6 +407,16 @@ module orchestration {
     poolFree' = poolFree, fdbFree' = fdbFree, verdict' = verdict, refused' = refused,
   }
 
+  // The environment withdraws an intent's claim on a converged construct, orphaning it
+  // (ADR-0023 design D7) so the prune lane fires; the dprc never orphans under a live resident.
+  action envOrphan(f: Family): bool = all {
+    isCreate(f), status.get(f) == Converged,
+    (f == Dprc) implies not(childLive(status)),
+    status' = status.set(f, Orphan),
+    pending' = pending, occ' = occ, censusOcc' = censusOcc, portWired' = portWired,
+    poolFree' = poolFree, fdbFree' = fdbFree, verdict' = verdict, refused' = refused,
+  }
+
   // A concurrent writer eats free budget headroom (never below zero — the board
   // is the only ledger; a post-admission squeeze resolves at the next loop,
   // ADR-0023 design D7).
@@ -422,6 +440,7 @@ module orchestration {
   action doEnv = any {
     envOccMac, envOccFree, envOccSwitch,
     nondet f = TABLE_FAMS.oneOf() envDrift(f),
+    nondet f = TABLE_FAMS.oneOf() envOrphan(f),
     envEatPool, envEatFdb,
   }
 
@@ -542,12 +561,13 @@ module orchestration {
 
   // ---- directed runs (frozen for ITF replay via `pnpm model:freeze-orch`) ----
 
-  // ORCH-I4 bounded convergence under env quiescence: admit, run every pass in a
-  // dependency-respecting order, refuse the Unimplemented family, wire the port,
-  // let the kernel complete the handover — and reach a fixed point where no
-  // engine pass is enabled and no work remains.
+  // ORCH-I4 bounded convergence under env quiescence: drop the Unimplemented family
+  // from the intent up front (whole-intent refusal), admit, run every pass in a
+  // dependency-respecting order, wire the port, let the kernel complete the handover
+  // — and reach a fixed point where no engine pass is enabled and no work remains.
   run convergeTest =
     init
+      .then(doRefuse(Dpseci))
       .then(admit)
       .then(doCreate(Dprc))
       .then(doCreate(Dpbp))
@@ -556,7 +576,6 @@ module orchestration {
       .then(doCreate(Dpmcp))
       .then(doCreate(Dpni))
       .then(doCreate(Dpsw))
-      .then(doRefuse(Dpseci))
       .then(doWire)
       .then(envOccSwitch)
       .expect(and { not(anyPassEnabled), not(hasWork), occ == SwitchHeld })
@@ -566,6 +585,7 @@ module orchestration {
   // fires and the kernel take-over completes — ORCH-I2 held throughout.
   run handoverSafeTest =
     init
+      .then(doRefuse(Dpseci))
       .then(admit)
       .then(doCreate(Dprc))
       .then(doCreate(Dpbp))
@@ -619,6 +639,7 @@ module orchestration {
   // (ADR-0023 design D7).
   run envInterferenceTest =
     init
+      .then(doRefuse(Dpseci))
       .then(admit)
       .then(doCreate(Dprc))
       .then(doCreate(Dpbp))
@@ -644,4 +665,23 @@ module orchestration {
       .then(envEatFdb)
       .then(admit)
       .expect(verdict == AdmissionRefused and refused.get(Dpsw) and fdbFree == 0)
+
+  // ORCH-I7 the teardown half (ADR-0023 design D4 reverse-on-teardown): the environment
+  // orphans a converged construct; the prune reclaims a reclaimable pool draw and the
+  // container dprc drains only once its resident is gone (the prune lane, no longer vacuous).
+  run teardownPruneTest =
+    init
+      .then(doRefuse(Dpseci))
+      .then(admit)
+      .then(doCreate(Dprc))
+      .then(doCreate(Dpbp))
+      .expect(status.get(Dpbp) == Converged and poolFree == 3)
+      .then(envOrphan(Dpbp))
+      .expect(status.get(Dpbp) == Orphan)
+      .then(doPrune(Dpbp))
+      .expect(status.get(Dpbp) == Missing and poolFree == 4)
+      .then(envOrphan(Dprc))
+      .expect(status.get(Dprc) == Orphan)
+      .then(doPrune(Dprc))
+      .expect(status.get(Dprc) == Missing)
 }
