@@ -231,6 +231,22 @@ and pairwise, with full treatment deferred behind a revisit trigger.
   `dpaa2-controlplane-axq`); absent that change, a mid-run overcommit
   surfaces as the pass's typed refusal and the next loop re-judges the
   remainder.
+- The overcommit bound is census-scoped: admission re-judges a drain
+  only where the capacity face can see it, and the face's pool rows read
+  the per-container object census, not the MC-global hardware pools
+  (`dprc show mc.global --resources`: bp, channels, portals) that create
+  verbs draw against. A drain of the hardware ledger alone — concurrent
+  creates in another container (suite V-ROLLBACK-1; the V-TRAF-1
+  unrepresented-consumer class) — is invisible to re-admission, so the
+  one-rollback-per-drain consequence of the restated ORCH-I3 is
+  unenforced for that vector and re-apply can oscillate. The resolution
+  lands in change `plan-rollback` (bead `dpaa2-controlplane-0rg` records
+  the finding): the MC-global pools join the capacity face as their own
+  budget rows under the monotonic-growth rule above — bp first, proven
+  by ADR-0011's observation that a dpbp create refuses exactly at the bp
+  free count and bp moves symmetrically to the object — with pending
+  creates judged against the global rows while the census rows keep
+  judging draws.
 - The dpsw-typestate reachability-traffic witness is deferred to the
   driver-occupancy ordering guard plus the kernel refresh from the
   porting effort; its revisit trigger is both landing (the deferred

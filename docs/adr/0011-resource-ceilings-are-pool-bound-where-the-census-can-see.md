@@ -142,4 +142,21 @@ dpni, with a cap of 64 per family.
   online-session container cycles until reboot — a drop of exactly three,
   the first multi-cycle-in-one-boot witness and consistent with one portal
   drawn and never returned per cycle.
+- **The census budget and the MC-global hardware ledger are two
+  ledgers, and admission reads only the first (V-ROLLBACK-1 rev 3,
+  2026-10-25).** The capacity face's pool rows read the per-container
+  free-object census (this ADR's law), while a create verb is refused by
+  the MC-global resource pools (`dprc show mc.global --resources`; the
+  V-CEIL-1 law: a dpbp create refuses exactly at the bp free count, and
+  bp moved symmetrically to the object at every instrumented step,
+  V-DPRC-7 rev 2). The two ledgers move independently — a create in any
+  container draws the global pool without moving the root census, and a
+  create in root raises the census while lowering the global pool — so a
+  hardware-side drain is invisible to admission and to re-admission
+  after a rollback. Resolution in change `plan-rollback`: the global
+  pools join the capacity face as budget rows, bp first on the V-CEIL-1
+  observation; a dpcon or dpmcp global row joins only with its own
+  proving observation (the mcp listing-lag question above stands in the
+  way of a naive mcp row), candidate disambiguation sittings in that
+  change.
 - Any firmware or DPC change re-anchors all three numbers.

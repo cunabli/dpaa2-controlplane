@@ -94,6 +94,13 @@
   anchors for the new suites. Verify: quality-floor green; ROADMAP row
   states delivery in the standing style.
 
+- [x] 7.3 Record the rev-3 finding — admission's census budget is blind
+  to the MC-global hardware ledger, so the one-rollback-per-drain bound
+  is unenforced for a hardware-side drain — in ADR-0023 Consequences,
+  ADR-0011 open questions, and the V-ROLLBACK-1 suite-ledger row
+  (revs 1–3 narrated). Recording only; the engine-side global budget
+  face lands in-change (the amended groups below).
+
 ## Workflow follow-up
 
 - Board sitting execution and verdict recording (operator-gated), then
