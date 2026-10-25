@@ -32,7 +32,10 @@ the compiled plan and the observed census — the pending creates the
 run would dispatch counted, already-converged objects and planned
 frees not counted (design D8) — and compared against the capacity face
 before any verb is dispatched. Admission never refuses the fixpoint
-its own convergence produced. An intent whose gross draw exceeds observed headroom in any
+its own convergence produced. One admission judgment SHALL derive its
+capacity face, its pending counts, and its switch work from one
+observation snapshot: two reads of one truth never split a verdict.
+An intent whose gross draw exceeds observed headroom in any
 budget is refused whole, before dispatch, with the refusal naming the
 budget, the draw, and the headroom as data (the established refusal
 voice; ADR-0013 vocabulary). Admission holds no reservation; dispatch
@@ -65,3 +68,12 @@ truth stays re-observation (design D7).
   the intent changes
 - **THEN** every subsequent run refuses identically — admission never
   oscillates
+
+#### Scenario: One snapshot feeds one judgment
+
+- **WHEN** the board changes between the moments a split judgment
+  would have read it twice
+- **THEN** the verdict is internally consistent — observed draw and
+  pending draw come from the same snapshot, so nothing is
+  double-charged against a departed object or admitted against an
+  arrival the face never saw
