@@ -1,10 +1,13 @@
 //! The offline admission oracle (resource-aware-orchestration task 4.2): the pure
 //! `dpaa2-api` gross draw and admission verdict exercised end to end against hand-built
-//! fixtures — board-free, no IO. The spec's "Admission judges the gross draw before dispatch"
-//! scenarios are the oracle: an over-budget pool or FDB intent refuses typed naming
-//! budget/draw/headroom, a rebuild against an exhausted budget resolves in two runs (the pending
-//! draw counts the recreate, never the planned free; ADR-0023 design D8), a converged intent
-//! re-admits (the pending draw is empty), and refusals are byte-stable (ADR-0023 design D5).
+//! fixtures — board-free, no IO. The oracle is the spec's four "Admission judges the gross
+//! draw before dispatch" scenarios plus one idempotence test (five tests): an over-budget pool
+//! intent and an over-budget FDB intent each refuse typed naming budget/draw/headroom, a rebuild
+//! against an exhausted budget resolves in two runs (the pending draw counts the recreate, never
+//! the planned free; ADR-0023 design D8), and a converged intent re-admits (the pending draw is
+//! empty); the idempotence test (`refusals_are_idempotent`,
+//! resource-aware-orchestration task 4.2) adds that repeated
+//! judgments are byte-stable (ADR-0023 design D5).
 
 use std::collections::BTreeMap;
 
