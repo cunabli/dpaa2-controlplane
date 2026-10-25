@@ -64,7 +64,7 @@ independent of 1–2. Group 4 closes the change.
 
 ## 4. Close-out (bead: group-4, after 1–3)
 
-- [ ] 4.1 Adopt the self-application rule as process: a process commit
+- [x] 4.1 Adopt the self-application rule as process: a process commit
       records "every rendered judgment ships with a fixpoint test and
       a replay verdict re-derivation" (design D6) where the repo keeps
       its process rules, citing both shipped instances; COVERAGE and

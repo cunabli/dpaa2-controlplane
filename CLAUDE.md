@@ -11,6 +11,7 @@ The goal is to replace the restool CLI interface (all scripts and entry points s
 3. When using openspec, DO NOT DO all tasks in parallel and follow their dependency structure so learnings from one task can be reapplied.
 4. When using openspec with beads, ABSOLUTELY DO ONE TASK AT A TIME and through completion of acceptance criteria before moving to dependent tasks.
 5. When using openspec and writing tests for an implementation, those tests MUST match the spec. You can consider the spec a Gherkin behavioral test.
+6. Every judgment the engine renders ships with its self-application checks: a fixpoint test (the judgment applied to its own converged output yields the identity verdict) and a twin-side verdict re-derivation in replay (the harness re-derives the verdict it replays, never trusts structure alone). Instances: the converged-intent re-admits fixpoint tests (`crates/dpaa2-verify/tests/admission_oracle.rs`) and the `check_pair` verdict re-derivation (`crates/dpaa2-verify/tests/orchestration_replay.rs`).
 
 ## Idioms and tenets
 
