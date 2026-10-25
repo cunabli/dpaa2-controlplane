@@ -13,18 +13,18 @@
 
 ## 2. Orchestration model: rollback action and re-proof
 
-- [ ] 2.1 Add the run-journal projection and the rollback action to
+- [x] 2.1 Add the run-journal projection and the rollback action to
   `models/orchestration/` (enabled on mid-run guard refusal under the
   rollback policy; effect folds the reverse journal onto census state,
   irreversible rows contributing residue). Verify: quint typecheck and
   the existing invariant suite stays green.
-- [ ] 2.2 Restate ORCH-I3 (net identity up to typed residue;
+- [x] 2.2 Restate ORCH-I3 (net identity up to typed residue;
   planning-time refusal while the drain holds; no apply/rollback
   oscillation reachable) and check it Apalache-marked within ladder
   bounds. Verify: the restated invariant is red when the rollback
   action is allowed to re-apply without re-admission (retro-oracle),
   green as modeled.
-- [ ] 2.3 Re-freeze the trace set including the overcommit-rollback
+- [x] 2.3 Re-freeze the trace set including the overcommit-rollback
   trace (admission passes, environment drains, run unwinds, next
   admission refuses). Verify: frozen ITF files updated and the model's
   trace-generation run documented in the change.

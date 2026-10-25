@@ -16,6 +16,10 @@
 //     `wireEnabled`/`doWire` with the one live-read of `occ`
 //     replaced by the dormant `censusOcc` snapshot — the seam pipeline's header
 //     calls out — and `stepCensus` swaps `doWire` for it.
+//   - the re-apply seam (plan-rollback design D6): `doRollbackReapply` mirrors pipeline
+//     `doRollback` over the shared `applyRollback` twin but leaves the verdict Admitted —
+//     re-applying the drained plan without re-admission — and `stepReapply` swaps
+//     `doRollback` for it, turning pipeline `ORCH_I3` (ORCH-I3 restated) red.
 //
 // The oracle driver is models/helpers/orch-retro-oracle.py: it runs every check
 // and asserts the baseline (unmasked / live-read-in-place) stays green while
@@ -107,6 +111,36 @@ module retro_oracle {
     nondet f = TABLE_FAMS.oneOf() doPrune(f),
     nondet f = TABLE_FAMS.oneOf() doRefuse(f),
     doWireCensus,
+    doEnv,
+    stutter,
+  }
+
+  // ---- plan-rollback: the re-apply-without-re-admission pair (plan-rollback design D6) ----
+
+  // Mirrors pipeline `doRollback` over the SHARED `applyRollback` twin, but relicenses the
+  // drained plan to re-dispatch by leaving the verdict Admitted instead of forcing
+  // re-admission (Unjudged) — the "re-apply without re-admission" mutation. The revert flag
+  // `applyRollback` raised still stands, so pipeline `ORCH_I3` (its reverted-implies-Unjudged
+  // conjunct, ORCH-I3 restated) is violated the instant this fires: a rolled-back run proceeds
+  // without re-judging the drained budget, the apply/rollback oscillation the restatement forbids.
+  action doRollbackReapply = all {
+    anyOvercommit,
+    policy == Rollback,
+    commitState({ ...applyRollback(cur), verdict: Admitted }),
+  }
+
+  // Mirrors pipeline `step` with `doRollback` swapped for `doRollbackReapply`.
+  action stepReapply = any {
+    observe,
+    admit,
+    nondet f = TABLE_FAMS.oneOf() doCreate(f),
+    nondet f = TABLE_FAMS.oneOf() doReconcile(f),
+    nondet f = TABLE_FAMS.oneOf() doPrune(f),
+    nondet f = TABLE_FAMS.oneOf() doRefuse(f),
+    doWire,
+    doRollbackReapply,
+    doAbort,
+    nondet p = Set(Rollback, Abort).oneOf() setPolicy(p),
     doEnv,
     stutter,
   }

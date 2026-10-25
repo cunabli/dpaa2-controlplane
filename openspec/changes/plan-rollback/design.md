@@ -113,6 +113,29 @@ is written. The board row (rollback under live kernel probing, the
 DPSW-I9 race class) follows the standing suite conventions and the
 commit-before-run rule.
 
+The overcommit-rollback ITF trace (`overcommitRollbackTest` in
+`models/orchestration/pipeline.qnt`) is generated-deferred: it lands in
+`models/traces/orchestration/` with group 5, NOT the model half (group
+2.3). The exact generation command, mirroring the `model:freeze-orch`
+rung, is:
+
+```
+pnpm exec quint test models/orchestration/pipeline.qnt --main=orchestration \
+  --match 'overcommitRollbackTest' \
+  --out-itf='models/traces/orchestration/{test}.itf.json'
+```
+
+It is held back now because the replay harness
+(`crates/dpaa2-verify/tests/orchestration_replay.rs`) pins the trace dir
+to its `TRACES` list exactly; the new ITF plus its `TRACES` row land
+together in group 5. The model half verified it generates by emitting to
+a scratch path.
+
+The existing eight-trace set is re-frozen from the updated model via the
+standing rung `pnpm model:freeze-orch` (8/8 passing). The regeneration is
+byte-stable against the committed ITFs and the twin replay suite
+(`orchestration_replay`) stays green over the re-frozen set.
+
 ## Risks / Trade-offs
 
 - [Journal infidelity — a recorder bug makes rollback unwind fiction]
