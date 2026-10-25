@@ -12,7 +12,7 @@
 // child dprc routerC. Each portless userspace-poll child draws 2 dpbps (ADR-0012),
 // so three of them need 6; the twin's inventory lowers the dpbp ceiling to
 // Counted(5) and the plan is refused Infeasible naming the family and the
-// shortfall (ADR-0011, decision 1). The same twin against the reference
+// headroom (ADR-0011, decision 1). The same twin against the reference
 // pool fits — the ceiling refuses, not the shape (design D8/D2; restool-baseline, ADR-0002).
 //
 // Anchors: ADR-0011 the Counted dpbp ceiling (decision 1); ADR-0012 dpbp =
@@ -104,7 +104,7 @@ module vfabric {
   }
 
   // The twin: three portless poll-mode children need 6 dpbps against the
-  // lowered pool of 5 — refused Infeasible, named to the family and shortfall,
+  // lowered pool of 5 — refused Infeasible, named to the family and the headroom,
   // and nothing else (ADR-0011).
   run twinInfeasibleTest =
     match compile(twin, twinInventory) {

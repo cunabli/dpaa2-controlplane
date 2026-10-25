@@ -88,7 +88,7 @@ delta for the pinned pair [read, mc-utils diff].
   list** fabricates a bogus non-NULL pointer (defeating every `-ENODEV`
   check — the real zero-DPIO failure mode is corruption, not an
   error), and the region table is indexed without a count check [read].
-- A DPIO shortfall at dpni probe degrades quietly: the only positive
+- A DPIO shortage at dpni probe degrades quietly: the only positive
   signal is a shorter core list in dmesg ("Cores %*pbl available for
   processing ingress traffic") [read].
 

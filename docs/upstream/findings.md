@@ -390,7 +390,7 @@ cites the suite and the design record that carry the numbers.
     userspace consumer in a child container needs a different shape —
     two dpios per consumer thread, a fixed pair of dpbps, and at least
     one transmit queue per thread — and nothing in the script or its
-    help text says the count assumes the kernel driver. Each shortfall
+    help text says the count assumes the kernel driver. Each shortage
     fails late and quietly (portal exhaustion mid-run, buffer setup
     failure, silent transmit drops with no MC error). Evidence:
     ADR-0012, dpio.md, dpbp.md, dpni.md. — candidate

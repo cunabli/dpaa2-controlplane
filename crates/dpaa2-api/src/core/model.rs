@@ -321,11 +321,11 @@ pub enum BindProbe {
     /// No driver link, and at least one companion family's kernel-poolable count is 0 — the
     /// probe cannot complete for want of companions. The C1 silent `-EPROBE_DEFER`
     /// exhaustion class (DPNI-I4) made observable through the census, the count-level twin
-    /// of the model's disabled `drawSatisfiable` (`core/pools.qnt`). `shortfall` names the
+    /// of the model's disabled `drawSatisfiable` (`core/pools.qnt`). `missing` names the
     /// dry families in the traversal order the caller supplied them.
     Deferred {
         /// The families whose kernel-poolable census cannot satisfy the draw, in order.
-        shortfall: Vec<Family>,
+        missing: Vec<Family>,
     },
     /// No driver link and no dry family — the bind is nudged or in flight. Indistinguishable
     /// from merely slow by design; the retry deadline is the engine's policy, not this
@@ -360,15 +360,15 @@ pub fn judge_bind_probe(
             None => BindProbe::BoundNoNetdev,
         };
     }
-    let shortfall: Vec<Family> = poolable
+    let missing: Vec<Family> = poolable
         .iter()
         .filter(|(_, count)| *count == 0)
         .map(|(family, _)| *family)
         .collect();
-    if shortfall.is_empty() {
+    if missing.is_empty() {
         BindProbe::Pending
     } else {
-        BindProbe::Deferred { shortfall }
+        BindProbe::Deferred { missing }
     }
 }
 
@@ -701,7 +701,7 @@ mod tests {
 
     #[test]
     fn judge_bind_probe_deferred_names_the_dry_families_in_traversal_order() {
-        // Two dry families among the four; the shortfall keeps the caller's order.
+        // Two dry families among the four; the missing list keeps the caller's order.
         let poolable = [
             (Family::Dpmcp, 0),
             (Family::Dpbp, 1),
@@ -712,7 +712,7 @@ mod tests {
         assert_eq!(
             probe,
             BindProbe::Deferred {
-                shortfall: vec![Family::Dpmcp, Family::Dpcon]
+                missing: vec![Family::Dpmcp, Family::Dpcon]
             }
         );
     }

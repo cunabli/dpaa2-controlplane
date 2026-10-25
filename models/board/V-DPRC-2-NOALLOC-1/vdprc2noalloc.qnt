@@ -12,7 +12,7 @@
 // Rev 1 finding (2026-08-29): the board REFUSED the dpbp create with "No
 // resources" (0x8) — a container without ALLOC cannot draw the object id
 // from its parent's pool, so the option-bit refusal surfaces as a resource
-// shortfall, not a privilege one. The step is regenerated with
+// shortage, not a privilege one. The step is regenerated with
 // `--expect-refusal 1="No resources"`, which drops its model read-back and
 // judges it by the nonzero exit and the captured MC status.
 //

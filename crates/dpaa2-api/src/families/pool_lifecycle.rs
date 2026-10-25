@@ -674,7 +674,7 @@ impl PoolDeltas {
 ///
 /// # Errors
 /// At [`CustodyScope::ChildScope`], returns [`ShrinkBelowDraw`] when `requirement` falls below
-/// the census drawn count — a free-only shrink cannot reach a live consumer, so the shortfall
+/// the census drawn count — a free-only shrink cannot reach a live consumer, so the shortage
 /// surfaces to the operator rather than tearing one down. No deltas accompany the refusal.
 /// [`CustodyScope::RootScope`] never returns it.
 pub fn drift_disposition(

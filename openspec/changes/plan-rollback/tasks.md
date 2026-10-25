@@ -2,7 +2,7 @@
 
 ## 1. Vocabulary and ADR amendment
 
-- [ ] 1.1 Amend ADR-0023 in place (atemporal style): the overcommit
+- [x] 1.1 Amend ADR-0023 in place (atemporal style): the overcommit
   rename clause — mid-run concept is overcommit, admission-time stays
   headroom refusal, the borrowed-word rollback caveat (this run's
   observed actuations, never a prior config generation), and the

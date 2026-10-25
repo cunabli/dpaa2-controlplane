@@ -390,7 +390,7 @@ object-lifecycle-only scenarios except where noted):
      empty.
    - `ALLOC_ALLOWED` absent → a dpbp create in the child is refused **No
      resources (0x8)**: the child cannot draw ids from its parent's pool,
-     so the failure surfaces as a resource shortfall.
+     so the failure surfaces as a resource shortage.
    - `OBJ_CREATE_ALLOWED` absent → a dpbp create in the child **succeeds**
      when restool issues it. restool sends every create through the root
      portal with the child's open token; the bit gates creates issued on

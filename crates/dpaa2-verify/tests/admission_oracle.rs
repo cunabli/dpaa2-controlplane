@@ -55,7 +55,7 @@ fn face(dpbp_free: i64, fdb_bracket: Ceiling, fdb_draw: i64) -> CapacityFace {
 }
 
 /// An over-budget pool intent refuses whole, naming the budget, the draw, and the headroom
-/// (the spec scenario "An over-budget intent is refused naming the shortfall").
+/// (the spec scenario "An over-budget intent is refused naming the headroom").
 #[test]
 fn over_budget_pool_refuses_typed() {
     let draw = draw(3, 0);

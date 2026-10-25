@@ -4,7 +4,7 @@
 //! either a complete plan with its [`Warning`]s or the *complete* set of
 //! [`Refusal`]s — every rule runs unconditionally and their union is returned,
 //! never the first violation, so the operator fixes a file in one pass. One variant
-//! per rule; the payload names the offending construct and the shortfall.
+//! per rule; the payload names the offending construct and the missing families.
 //!
 //! Naming: the model spells the two anchor refusals `ReservedAnchor` /
 //! `ForeignAnchor` only because Quint constructor names collide with the

@@ -196,7 +196,7 @@ swallow.
 - **WHEN** a root dpni is bound while a companion family's free pool
   cannot satisfy the draw
 - **THEN** the adapter observes and reports the deferred probe with
-  the shortfall family, and no object is destroyed or created in
+  the missing family, and no object is destroyed or created in
   response
 
 ### Requirement: Child-container population serves the VFIO handoff

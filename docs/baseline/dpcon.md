@@ -108,7 +108,7 @@ opaque vendor default until a consumer needs them [read/verified].
 
 | Id | Proposition | Observables | Status |
 |---|---|---|---|
-| DPCON-I1 | Companion cardinality: a kernel-bound dpni consumes exactly `min(affine-dpio CPUs, num_queues)` dpcons; consumer probe outcome is monotone in pool free-count with threshold 1 (defer below, degrade between 1 and full, complete at full) | pool free-count vs probe result vs channel count | verified (C1 + shortfall path [read]) |
+| DPCON-I1 | Companion cardinality: a kernel-bound dpni consumes exactly `min(affine-dpio CPUs, num_queues)` dpcons; consumer probe outcome is monotone in pool free-count with threshold 1 (defer below, degrade between 1 and full, complete at full) | pool free-count vs probe result vs channel count | verified (C1 + shortage path [read]) |
 | DPCON-I2 | Two id spaces: dequeue/notification addressing uses `qbman_ch_id`, never the object id; the model must carry both per dpcon | `dpcon info` channel id vs object id | candidate |
 | DPCON-I3 | **Breaking:** the model must NOT assume created priority capacity is used — every in-corpus consumer drives priority 0 only; priorities are create-immutable dead weight until proven otherwise | CDAN configs; consumer source | candidate; a consumer driving priority > 0 is a traffic-bearing concern for `cross-dprc-links` (#9) |
 | DPCON-I4 | Notification retargeting is the one mutable edge: dpcon→dpio binding can change at runtime (set_notification), and disabling is expressed as dpio id −1, not a separate state | `set_notification` sequences + dequeue behavior | candidate; the runtime `set_notification` retarget dynamics ride the traffic-bearing `cross-dprc-links` (#9) phase |

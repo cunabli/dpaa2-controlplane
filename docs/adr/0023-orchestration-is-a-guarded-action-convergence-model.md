@@ -117,30 +117,43 @@ against an exhausted budget refuses and resolves as two converge runs.
 Net admission is a revisit trigger (the Kubernetes precedent: gross
 scheduling, net only as scoped preemption).
 
-**Shortfall disposition is a planning-time choice; the default is
-rollback.** An admitted plan can still shortfall mid-run — the budgets
-have no lock, so the environment can drain them between admission and
-a verb — and the engine never knowingly leaves the board partial and
-defers to operator hand-cleanup. The run records every successful
-actuation's **observed** result (assigned name, container, bind state)
-in a run-scoped journal — in-memory, dying with the run, recorded
-through a decorator on the backend traits; it reserves nothing and
-outlives nothing, so ADR-0008's rejection of persisted ledgers and of
-reservation state is unchanged. On shortfall the run compensates by
-default: the journal is unwalked in reverse order through a
-compile-checked total reversal table over the actuation vocabulary
-(the total-dispatch idiom), honoring the same ordering guards in
-reverse (unbind precedes destroy). Rows are reversible or
+**Mid-run overcommit disposition is a planning-time choice; the default
+is rollback.** An admitted plan can still **overcommit** a budget
+mid-run: lockless admission (check-without-reservation) and the
+concurrent writers that matter (kernel drivers, firmware) jointly exceed
+a budget between admission and a verb, discovered at dispatch. The
+admission-time concept stays **headroom refusal**; overcommit is its
+mid-run counterpart, and other mid-run verb failures (MC error, bind
+failure) leave the same partial board. The engine never knowingly leaves
+the board partial and defers to operator hand-cleanup. The run records
+every successful actuation's **observed** result (assigned name,
+container, bind state) in a run-scoped journal — in-memory, dying with
+the run, recorded through a decorator on the backend traits; it reserves
+nothing and outlives nothing, so ADR-0008's rejection of persisted
+ledgers and of reservation state is unchanged. On a mid-run failure the
+run compensates by default: the journal is unwalked in reverse order
+through a compile-checked total reversal table over the actuation
+vocabulary (the total-dispatch idiom), honoring the same ordering guards
+in reverse (unbind precedes destroy). Rows are reversible or
 irreversible; an irreversible actuation (grow-only root population,
-ADR-0020; dpio seats, ADR-0003 §7) reports a typed reboot-named
-residue rather than pretending reversal. The operator selects
-keep-partial per run at planning time. Scope: shortfall compensation
-only — the same-run rebuild refusal (pool-objects design D12) is
-unaffected. The mechanism's naming pairs with the plan-execution
-vocabulary and is decided by the implementing change (bead
-`dpaa2-controlplane-axq`), which also carries the model's compensation
-action, the re-proof of stable refusal under compensation side
-effects, and the board witness for compensation under kernel probing.
+ADR-0020; dpio seats, ADR-0003 §7) reports a typed reboot-named residue
+rather than pretending reversal.
+
+The disposition is a `#[non_exhaustive]` mid-run failure-policy enum at
+the `dpaa2-api` execution seam — `Rollback` (the default) or `Abort`
+(stop, keep the executed prefix, the next loop re-judges); `Continue`
+(skip the failed verb and its guard-dependents, converge the rest
+through the loop) is the named deferred variant. The policy is uniform
+over the mid-run verb failure classes: no per-class branching, no in-run
+retry. The borrowed word carries a caveat (stated wherever rollback is
+documented): rollback unwinds **this run's observed actuations**, never a
+prior configuration generation — the JunOS `rollback <n>` reading does
+not apply. Scope: mid-run compensation only — the same-run rebuild
+refusal (pool-objects design D12) is unaffected. The implementing change
+carries the journal seam, the reversal table, the unwalk executor, the
+model's compensation action, the re-proof of stable refusal under
+compensation side effects, and the board witness for compensation under
+kernel probing (change `plan-rollback`, bead `dpaa2-controlplane-axq`).
 
 **The model's state is the census schema** (interface projection):
 per-construct status, edge status, dpmac driver occupancy, budget
@@ -210,12 +223,14 @@ and pairwise, with full treatment deferred behind a revisit trigger.
   re-evaluates true concurrency semantics, including whether the
   Petri-net reading earns tooling; confluence checking cost forcing a
   weaker claim re-opens the obligation's scope.
-- A shortfall after admission is compensated from the run journal by
-  default; what cannot be compensated is reported as reboot-named
-  residue, never discovered later. The journal seam, reversal table,
-  and unwalk executor land in their own change (bead
-  `dpaa2-controlplane-axq`); until it lands, a shortfall surfaces as
-  the pass's typed refusal and the next loop re-judges the remainder.
+- A mid-run overcommit after admission is compensated from the run
+  journal by default; what cannot be compensated is reported as
+  reboot-named residue, never discovered later. The journal seam,
+  reversal table, unwalk executor, and the `#[non_exhaustive]` mid-run
+  failure-policy enum land in change `plan-rollback` (bead
+  `dpaa2-controlplane-axq`); absent that change, a mid-run overcommit
+  surfaces as the pass's typed refusal and the next loop re-judges the
+  remainder.
 - The dpsw-typestate reachability-traffic witness is deferred to the
   driver-occupancy ordering guard plus the kernel refresh from the
   porting effort; its revisit trigger is both landing (the deferred

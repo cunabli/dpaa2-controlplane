@@ -86,7 +86,7 @@ never states a dpio, dpbp or transmit-queue number directly.
   each secondary).
 
 When the container's pools cannot back the derived set, the reconciler
-refuses the intent and names the shortfall. It does not ration a
+refuses the intent and names the missing families. It does not ration a
 count down to fit: every one of the three numbers above fails late and
 quietly when short, so a "best effort" plan is a plan to fail on the
 data path.

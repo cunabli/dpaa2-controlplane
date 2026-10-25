@@ -20,7 +20,7 @@ use dpaa2_api::core::model::{BindProbe, DpniId, DprcId, judge_bind_probe};
 use dpaa2_api::families::pool_lifecycle::{RawDriver, poolable};
 
 /// The four families a root dpni's `dpaa2-eth` probe draws, in the fixed traversal order the
-/// [`BindProbe::Deferred`] shortfall is reported in: dpmcp→dpbp→dpcon→dpio. The dpni needs
+/// [`BindProbe::Deferred`] missing list is reported in: dpmcp→dpbp→dpcon→dpio. The dpni needs
 /// ≥1 dpbp, ≥1 dpmcp, ≥1 dpcon with an affine dpio (DPNI-I4), and the dpio probe itself
 /// draws a dpmcp (DPIO-I1), so the portal leads the order.
 const PROBE_FAMILIES: [Family; 4] = [Family::Dpmcp, Family::Dpbp, Family::Dpcon, Family::Dpio];
@@ -34,7 +34,7 @@ const PROBE_FAMILIES: [Family; 4] = [Family::Dpmcp, Family::Dpbp, Family::Dpcon,
 ///
 /// The bind write is not consulted: probe success is judged from the driver link and the
 /// netdev, never inferred from the write's exit (`docs/baseline/dpio.md` DPIO-I5). The
-/// families are observed in the fixed dpmcp→dpbp→dpcon→dpio order, so the reported shortfall
+/// families are observed in the fixed dpmcp→dpbp→dpcon→dpio order, so the reported missing list
 /// keeps that traversal.
 ///
 /// # Errors
@@ -152,7 +152,7 @@ mod tests {
         assert_eq!(
             probe,
             BindProbe::Deferred {
-                shortfall: vec![Family::Dpcon]
+                missing: vec![Family::Dpcon]
             }
         );
 

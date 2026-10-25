@@ -469,11 +469,11 @@ restool and scripts:
 kernel driver — the ones that matter for a reconciler's observation
 model:
 
-- **Quiet channel shortfall.** A DPCON shortage after the first lets
+- **Quiet channel shortage.** A DPCON shortage after the first lets
   probe succeed with `num_channels < num_queues`; rx/tx flowids ≥
   `num_channels` are then **never bound to any DPCON** — MC queues with
   no destination, invisible from Linux (ethtool reports the reduced
-  count; nothing reports the shortfall as an error)
+  count; nothing reports the shortage as an error)
   (`dpaa2-eth.c:3158-3352`) [read].
 - **Half-committed MAC.** `ndo_set_mac_address` mutates the netdev
   address before the MC call; on MC failure the two permanently diverge

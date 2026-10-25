@@ -475,7 +475,7 @@ module intent_main {
     }
 
   // Three portless poll-mode tenants draw 6 dpbps against a listed pool of
-  // 5: cross-plan infeasibility named to the family and shortfall (ADR-0011).
+  // 5: cross-plan infeasibility named to the family and the headroom (ADR-0011).
   run infeasibleTest =
     refusalSet(compile(infeasibleIntent, invWithCeiling(Dpbp, Counted(5)))) ==
       Set(Infeasible({ family: Dpbp, needed: 6, available: 5 }))

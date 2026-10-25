@@ -128,7 +128,7 @@ the kernel's global DPIO service, not drawn per object.
 `num_pairs = min(num_rx_queues, num_tx_queues, online CPUs)`; a clamp is
 a warning only, and queues beyond `num_pairs` are **never given a
 destination** — parked, silent capacity loss (same dark-queue shape as
-the dpni's DPCON shortfall). Each of the first `num_pairs` CPUs gets an
+the dpni's DPCON shortage). Each of the first `num_pairs` CPUs gets an
 rx queue steered `DEST_DPIO` at priority 0 (pull-mode comment: WQ
 priority is irrelevant to volatile dequeues); every CPU may enqueue to
 the tx FQIDs [read].
