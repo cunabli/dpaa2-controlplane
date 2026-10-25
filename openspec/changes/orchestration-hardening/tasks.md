@@ -46,7 +46,7 @@ independent of 1–2. Group 4 closes the change.
 
 ## 3. One snapshot per admission judgment (bead: group-3, independent)
 
-- [ ] 3.1 Fold `plan_admission` onto one snapshot: one
+- [x] 3.1 Fold `plan_admission` onto one snapshot: one
       `read_inventory` feeds face, pending, and switch work; the
       function returns the wide carrier (`Admission`, pool drift,
       switch work) and the dry-run arm renders its pool and switch
@@ -55,7 +55,7 @@ independent of 1–2. Group 4 closes the change.
       `plan_admission`; dry-run arm calls `plan_pools`/`plan_switches`
       at most once each; `cargo test -p dpaa2-tools` green; quality
       floor green.
-- [ ] 3.2 Pin the dry-run table to the board suite's contract:
+- [x] 3.2 Pin the dry-run table to the board suite's contract:
       `vadmit1_intents.rs` asserts `render_admission(&admission)`
       carries the `[refused]:` header and the `dpcon draw=… [refused]`
       row — the exact strings the V-ADMIT-1 step-1 greps demand.

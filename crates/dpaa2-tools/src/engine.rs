@@ -1231,8 +1231,17 @@ fn ceiling_of(inventory: &Inventory, family: PoolFamily) -> Ceiling {
 /// # Errors
 /// Propagates a backend read failure.
 pub fn plan_pools<M: McControl>(plan: &CompiledPlan, mc: &M) -> Result<PoolDrift, Error> {
-    let declared = root_declared(plan);
     let inventory = mc.read_inventory()?;
+    plan_pools_with_inventory(plan, mc, &inventory)
+}
+
+/// The [`plan_pools`] fold over an inventory the caller already read, split out so [`plan_admission`] judges one snapshot (ADR-0023 design D5).
+fn plan_pools_with_inventory<M: McControl>(
+    plan: &CompiledPlan,
+    mc: &M,
+    inventory: &Inventory,
+) -> Result<PoolDrift, Error> {
+    let declared = root_declared(plan);
     let mut families = Vec::with_capacity(POOL_TRIO.len());
     for family in POOL_TRIO {
         let rows = mc.observe_pool(None, family.family())?;
@@ -1243,7 +1252,7 @@ pub fn plan_pools<M: McControl>(plan: &CompiledPlan, mc: &M) -> Result<PoolDrift
             family,
             census,
             required,
-            &ceiling_of(&inventory, family),
+            &ceiling_of(inventory, family),
             CustodyScope::RootScope,
         );
         families.push(PoolFamilyDrift {
@@ -1288,11 +1297,18 @@ pub struct Admission {
 /// names (ADR-0011 admit-and-warn). Reads only and holds no reservation: a refused verdict
 /// changes nothing, the dispatch-time census stays the truth (ADR-0023 design D7).
 ///
+/// One snapshot, one judgment: a single inventory read feeds the face, the pending draw, and the
+/// switch work, and the returned wide carrier lets `dry-run` render those sections re-read-free.
+///
 /// # Errors
 /// Propagates a backend read failure.
-pub fn plan_admission<M: McControl>(plan: &CompiledPlan, mc: &M) -> Result<Admission, Error> {
-    let drift = plan_pools(plan, mc)?;
+pub fn plan_admission<'a, M: McControl>(
+    plan: &'a CompiledPlan,
+    mc: &M,
+) -> Result<(Admission, PoolDrift, Vec<SwitchWork<'a>>), Error> {
     let inventory = mc.read_inventory()?;
+    let drift = plan_pools_with_inventory(plan, mc, &inventory)?;
+    let switches = plan_switches(plan, mc)?;
     let pools: Vec<(PoolFamily, PoolCensus)> = drift
         .families
         .iter()
@@ -1327,7 +1343,7 @@ pub fn plan_admission<M: McControl>(plan: &CompiledPlan, mc: &M) -> Result<Admis
     if seat_deficit > 0 {
         pending.insert(Family::Dpio, seat_deficit);
     }
-    let fdb_pending = plan_switches(plan, mc)?
+    let fdb_pending = switches
         .iter()
         .filter(|w| {
             matches!(
@@ -1341,11 +1357,15 @@ pub fn plan_admission<M: McControl>(plan: &CompiledPlan, mc: &M) -> Result<Admis
     }
     let draw = GrossDraw::from_pending(&pending);
     let verdict = admit(&face, &draw);
-    Ok(Admission {
-        face,
-        draw,
-        verdict,
-    })
+    Ok((
+        Admission {
+            face,
+            draw,
+            verdict,
+        },
+        drift,
+        switches,
+    ))
 }
 
 /// Converges the root's pool families toward the compiled plan's derived counts (pool-objects
@@ -3293,7 +3313,7 @@ mod tests {
             let compiled = compiled_kernel();
             let mc = FakeBackend::new().with_inventory(ref_inventory(16));
 
-            let admission = plan_admission(&compiled.plan, &mc).unwrap();
+            let (admission, _drift, _switches) = plan_admission(&compiled.plan, &mc).unwrap();
             let refusals = admission
                 .verdict
                 .expect_err("the over-budget intent is refused");
@@ -3350,7 +3370,7 @@ mod tests {
             }
 
             let before = mc.audit().len();
-            let admission = plan_admission(&compiled.plan, &mc).unwrap();
+            let (admission, _drift, _switches) = plan_admission(&compiled.plan, &mc).unwrap();
             assert!(
                 admission.verdict.is_ok(),
                 "a converged board re-admits: {:?}",

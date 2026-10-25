@@ -69,12 +69,14 @@ fn intent_over_is_refused_naming_the_dpcon_budget() {
 
     // Fresh board: all companions pending, so the dpcon draw exceeds observed free headroom (ADR-0023 design D5/D8).
     let mc = FakeBackend::new().with_inventory(ref_inventory(CPUS));
-    let admission = dpaa2_tools::engine::plan_admission(&compiled.plan, &mc)
+    let (admission, _drift, _switches) = dpaa2_tools::engine::plan_admission(&compiled.plan, &mc)
         .expect("admission judges the operand");
 
     let refusals = admission
         .verdict
-        .expect_err("the over-budget operand is refused");
+        .as_ref()
+        .expect_err("the over-budget operand is refused")
+        .clone();
     assert!(
         refusals.iter().any(|r| matches!(
             r,
@@ -92,4 +94,21 @@ fn intent_over_is_refused_naming_the_dpcon_budget() {
 
     let text = dpaa2_tools::render::render_admission_refusal(&refusals);
     assert!(text.contains("refused: pool"), "{text}");
+
+    // Pin the exact table shapes the V-ADMIT-1.sh step-1 greps key on, so a render drift fails offline instead of mid-sitting.
+    let table = dpaa2_tools::render::render_admission(&admission);
+    assert!(
+        table
+            .lines()
+            .any(|l| l.starts_with("admission (") && l.ends_with(") [refused]:")),
+        "the refused-verdict header the suite greps for is present:\n{table}"
+    );
+    let dpcon_row = table
+        .lines()
+        .find(|l| l.trim_start().starts_with("dpcon draw="))
+        .unwrap_or_else(|| panic!("a dpcon budget row is rendered:\n{table}"));
+    assert!(
+        dpcon_row.contains(" headroom=") && dpcon_row.trim_end().ends_with("[refused]"),
+        "the dpcon budget row carries headroom and the [refused] marker: {dpcon_row:?}"
+    );
 }

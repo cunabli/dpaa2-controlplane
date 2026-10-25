@@ -222,7 +222,7 @@ fn run(cli: &Cli) -> Result<ExitCode, Error> {
                 render::render_dry_run(&compiled.plan, &compiled.warnings, &plan)
             );
             // The admission verdict beside the plan (resource-aware-orchestration task 5.1): the gross draw against each observed budget, judged read-only — a dry-run never dispatches.
-            let admission = engine::plan_admission(&compiled.plan, &mc)?;
+            let (admission, pool_drift, switch_work) = engine::plan_admission(&compiled.plan, &mc)?;
             print!("{}", render::render_admission(&admission));
             // The child-DPRC (consumer container) convergence the same run would drive,
             // re-observed off the board (design D2; ADR-0002; DPRC-I6): container-only steps and
@@ -239,8 +239,7 @@ fn run(cli: &Cli) -> Result<ExitCode, Error> {
             // The root-scope pool convergence the same run would drive, censused read-only off
             // the board (pool-objects task 3.4): per-family observed-vs-derived counts, the
             // class-gated disposition, and each family's provenance — a dry-run dispatches nothing.
-            let pools = engine::plan_pools(&compiled.plan, &mc)?;
-            print!("{}", render::render_pool_drift(&compiled.plan, &pools));
+            print!("{}", render::render_pool_drift(&compiled.plan, &pool_drift));
             // The child-population census the same run would drive, read-only off the board
             // (pool-objects design D11): per-child dpni arity, its trio/dpio counts and the VFIO
             // bind — a dry-run dispatches nothing, so every child a converged board holds renders
@@ -255,8 +254,7 @@ fn run(cli: &Cli) -> Result<ExitCode, Error> {
             // The switch create/recreate verdicts the same run would judge, read-only off the
             // board (dpsw-hardening task 5.1): each dpsw's verdict with its class and provenance —
             // the exact set `ensure` judges, a dry-run dispatches nothing.
-            let switches = engine::plan_switches(&compiled.plan, &mc)?;
-            print!("{}", render::render_switches(&compiled.plan, &switches));
+            print!("{}", render::render_switches(&compiled.plan, &switch_work));
             Ok(ExitCode::SUCCESS)
         }
         Command::Ensure {
@@ -298,7 +296,8 @@ fn ensure(
     // (ADR-0023 design D5): an over-budget intent is refused pre-dispatch in the refusal voice,
     // changing nothing. Advisory only — the firmware's dispatch-time budget stays the truth and a
     // race resolves level-triggered on the next loop's census (ADR-0023 design D7).
-    if let Err(refusals) = engine::plan_admission(&compiled.plan, mc)?.verdict {
+    let (admission, _drift, _switches) = engine::plan_admission(&compiled.plan, mc)?;
+    if let Err(refusals) = admission.verdict {
         print!("{}", render::render_admission_refusal(&refusals));
         return Ok(ExitCode::FAILURE);
     }
