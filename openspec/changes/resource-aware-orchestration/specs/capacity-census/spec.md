@@ -7,8 +7,9 @@
 The census SHALL expose a typed projection of remaining budgets,
 re-derived from the same observations the pool passes already parse on
 every loop and never ledgered between loops (ADR-0008). The initial
-rows are the two board-proven budgets only: per-container free pools
-(dpmcp/dpbp/dpio/dpcon) and the dpsw FDB budget (the V-DPSW-2 bracket).
+rows are the two board-proven budgets only: dpmcp/dpbp/dpcon free pools
+and the dpsw FDB budget (the V-DPSW-2 bracket), with dpio seats as spent
+headroom.
 A budget row joins only with the change that proves its observation on
 the board. Known non-reclaimable budgets (dpio seats, ADR-0003 §7)
 render as headroom already spent, never as reclaimable.
@@ -32,7 +33,7 @@ budget, the draw, and the headroom as data (the established refusal
 voice; ADR-0013 vocabulary). Admission holds no reservation; dispatch
 truth stays re-observation (design D7).
 
-#### Scenario: An over-budget intent is refused naming the shortfall
+#### Scenario: An over-budget intent is refused naming the headroom
 
 - **WHEN** an intent's derived draw on a container pool exceeds that
   pool's observed free count

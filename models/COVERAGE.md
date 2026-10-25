@@ -543,5 +543,9 @@ scheduling (dispatch stays serialized, an ADR-0023 revisit trigger owned by
 `mc-portal-backend` (#10)); net admission counting planned frees (gross draw only
 per ADR-0023 design D8, a named revisit trigger); budgets beyond the two
 board-proven ones (bpid space, qbman seats, portal counts join with the change
-that proves each, ADR-0023 Consequences); and ORCH-I6's full confluence
-treatment (behind the ADR-0023 revisit trigger, bounded pairwise only here).
+that proves each, ADR-0023 Consequences); the engine's edge passes outside the
+pass alphabet (`converge_links`, the dpni↔dpni cross-dprc wire — and #12
+dpdmux's edge passes once they land — consume edges, not plan-entry families,
+and draw no budget, so the ORCH-I6 pairwise diamond over the pass alphabet
+deliberately excludes them); and ORCH-I6's full confluence treatment (behind the
+ADR-0023 revisit trigger, bounded pairwise only here).

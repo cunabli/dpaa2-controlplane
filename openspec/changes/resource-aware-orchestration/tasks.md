@@ -59,15 +59,20 @@
       `dpaa2-api`: per-container pool rows + the dpsw FDB budget,
       re-derived each observation from the parses the pool passes
       already own; dpio seats render as spent headroom (ADR-0003 §7).
-      Verify: unit tests from banked census fixtures; no state carried
-      across two derivations.
+      Verify: unit tests from census fixtures hand-built in banked
+      shape; no state carried across two derivations.
 - [x] 4.2 Add the gross draw derivation (pure, over the compiled plan;
       creates counted, planned frees not — design D8) and the admission
       verdict in the shared read → complete → compile pipeline, with
       ADR-0013 refusal rows (budget, draw, headroom, data-only).
+      [AMENDED — the gross draw basis is the pending creates the run
+      would dispatch, read via the passes' convergence
+      (`GrossDraw::from_pending`), not the full compiled plan; ADR-0023
+      design D8.]
       Verify: the admission oracle offline — committed over-budget
-      intents (pool draw and FDB cases) refuse typed against banked
-      fixtures; the rebuild-on-full-pool fixture refuses, then admits
+      intents (pool draw and FDB cases) refuse typed against fixtures
+      hand-built in banked shape; the rebuild-on-full-pool fixture
+      refuses, then admits
       on the post-teardown census; refusal idempotent across repeated
       runs.
 

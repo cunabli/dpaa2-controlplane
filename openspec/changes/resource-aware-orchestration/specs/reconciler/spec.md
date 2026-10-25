@@ -34,14 +34,20 @@ trigger.
 Every true dependency between passes SHALL be a guard over the observed
 census (design D4/D9): companions precede their object, the object
 precedes its edges, teardown exactly reverses, sever precedes rewire,
-unbind precedes unplug, and a switch port wires only over a dpmac whose
-occupancy is re-sampled driver-free at fire time (live-read). The
-`main.rs` pass order remains a scheduler optimization; removing it may
-cost loops, never correctness.
+and unbind precedes unplug. The model additionally carries the
+switch-port live-read guard — a port wires only over a dpmac whose
+occupancy is re-sampled driver-free at fire time (design D9; ORCH-I2) —
+and its engine landing is named, not yet shipped: ROADMAP #11 plus the
+kernel refresh (the dpsw-typestate deferred reachability clause, bead
+`dpaa2-controlplane-dbf.19` / witness V-DPSW-5). The `main.rs` pass
+order remains a scheduler optimization; removing it may cost loops,
+never correctness.
 
-#### Scenario: A stale census never wires the handover window
+#### Scenario: The model's live-read never wires the handover window
 
 - **WHEN** the census snapshot reads a dpmac driver-free but the kernel
   has since bound it
-- **THEN** the live-read ahead of the wire verb refuses the pass this
-  loop, and the next observation re-judges
+- **THEN** the model's live-read ahead of the wire verb refuses the
+  pass this loop and the next observation re-judges — checked in the
+  Quint model (ORCH-I2); the engine implementation lands with ROADMAP
+  #11 and the kernel refresh

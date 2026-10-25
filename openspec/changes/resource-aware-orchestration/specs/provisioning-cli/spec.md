@@ -8,8 +8,9 @@
 intent draws on — budget, derived draw, observed headroom, verdict — in
 the established data-only voice, and `ensure` SHALL refuse an
 over-budget intent with the same vocabulary before any verb is
-dispatched. An intent naming an `Unimplemented` family renders that
-refusal with its retirement pointer.
+dispatched. `ensure` SHALL refuse an intent naming an `Unimplemented`
+family at dispatch, naming its retirement pointer; `dry-run` renders the
+admission face only.
 
 #### Scenario: Dry-run names the draw against headroom
 
@@ -21,5 +22,5 @@ refusal with its retirement pointer.
 
 - **WHEN** `ensure` is invoked with an intent whose gross draw exceeds
   any observed budget
-- **THEN** the run exits refused with the budget, draw, and shortfall
+- **THEN** the run exits refused with the budget, draw, and headroom
   named, and no verb reaches the board

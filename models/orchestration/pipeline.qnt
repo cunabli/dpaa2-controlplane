@@ -167,7 +167,7 @@ module orchestration {
   pure def childLive(st: Family -> Status): bool =
     CHILD_HOMED.exists(c => st.get(c) == Converged or st.get(c) == Drifted)
 
-  // Gross draw (ADR-0023 design D8): the plan's full derived draw, planned frees
+  // Gross draw (ADR-0023 design D8): the pending creates' draw, planned frees
   // uncounted.
   pure def grossPoolDraw(pend: Family -> int): int =
     TABLE_FAMS.filter(f => execKind(f) == Some(PoolDraw)).fold(0, (a, f) => a + pend.get(f))

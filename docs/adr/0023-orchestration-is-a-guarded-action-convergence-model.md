@@ -201,6 +201,10 @@ and pairwise, with full treatment deferred behind a revisit trigger.
   initial rows are the per-container pools and the dpsw FDB budget.
 - The existing pool grow/shrink passes are not re-derived onto the
   capacity face by this decision; any such migration is its own change.
+- An `Execute` row with a budgeted `DrawKind` obliges a pending source
+  in `plan_admission`, and a draw-bearing trace is frozen with it — so a
+  budget family whose pending count the engine never inserts cannot draw
+  zero and admit silently.
 - Dispatch stays serialized. Revisit triggers: concurrent MC-portal
   scheduling becoming real (mc-portal backend work and beyond)
   re-evaluates true concurrency semantics, including whether the

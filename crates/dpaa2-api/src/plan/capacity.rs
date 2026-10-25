@@ -44,7 +44,10 @@ pub struct PoolBudget {
 /// the bracket, [`Ceiling::Unknown`] when none is banked — nothing here invents a number.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FdbBudget {
-    /// The banked FDB ceiling — `Observed { n, provenance: "V-DPSW-2" }` or `Unknown`.
+    /// The banked FDB ceiling — `Observed { n, provenance: "V-DPSW-2" }`, `Unknown`
+    /// when none is banked, or `Counted` should an inventory source supply one;
+    /// [`FdbBudget::free`] subtracts the draw from `Observed`/`Counted` alike and
+    /// yields `None` on `Unknown`.
     pub bracket: Ceiling,
     /// The observed dpsw FDB draw (one unit per dpsw create; `pipeline.qnt` `grossFdbDraw`),
     /// derived by the caller from the census.

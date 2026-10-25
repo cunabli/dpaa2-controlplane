@@ -60,13 +60,13 @@ the orchestration layer forcing that pass to exist.
   passes).
 - The census gains a **capacity face**: a typed projection of remaining
   budgets, re-derived from the same observations the pool passes already
-  parse. First budgets are the two board-proven ones only — per-container
-  free pools (dpmcp/dpbp/dpio/dpcon) and the dpsw FDB budget (the
-  V-DPSW-2 bracket). Other budgets (bpid space, qbman seats, #10's
+  parse. First budgets are the two board-proven ones only — the
+  dpmcp/dpbp/dpcon free pools and the dpsw FDB budget (the V-DPSW-2
+  bracket), with dpio seats as spent headroom. Other budgets (bpid space, qbman seats, #10's
   counted portals) join as rows when their changes land, not here.
 - `dry-run`/`ensure` gain **typed admission**: an intent whose derived
   **gross** draw exceeds observed headroom is refused before any verb is
-  dispatched, with the refusal naming the budget and the shortfall in
+  dispatched, with the refusal naming the budget and the headroom in
   operator terms (data-only, the established refusal voice). Admission
   holds no reservation — the loop's re-observation stays the dispatch
   truth, and the model checks the claim against an adversarial
@@ -109,9 +109,10 @@ The change is done when its own origin story cannot recur, witnessed by:
    fails to compile — the dpsw-typestate gap class, pinned as a test
    forever.
 2. **The admission oracle**: a committed over-budget intent (pool draw
-   and FDB cases) is refused typed at dry-run against banked fixtures
-   offline; one board suite row confirms it live on the next sitting
-   that runs anyway.
+   and FDB cases) is refused typed at dry-run against fixtures
+   hand-built in banked shape offline; one board suite row confirms it
+   live on the next sitting that runs anyway (witnessed: V-ADMIT-1
+   rev 1, 6/6, 2026-10-25).
 3. **MBT continuity**: orchestration-model frozen traces replay against
    the engine's pass schedule green, the standard `dpaa2-verify` pattern.
 4. **The forward proof (DoD)**: roadmap #12 (dpdmux) incorporates by

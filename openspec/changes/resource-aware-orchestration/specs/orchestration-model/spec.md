@@ -35,10 +35,12 @@ with pending plan entries has an enabled-or-converged transition or the
 intent is refused typed), ORCH-I2 (order as guards, including the
 live-read dpmac occupancy law), ORCH-I3 (admission soundness and stable
 refusal), ORCH-I4 (bounded convergence under eventual environment
-quiescence), and ORCH-I5 (quiescence: no enabled pass without
-observable drift); ORCH-I1–I3 and ORCH-I5 SHALL be Apalache-marked
-within ladder bounds. ORCH-I6 (confluence) SHALL be stated, with a
-bounded pairwise simulator check.
+quiescence), ORCH-I5 (quiescence: no enabled pass without observable
+drift), and ORCH-I7 (containment order: a child-homed family is
+converged-or-drifted only while its container dprc is converged);
+ORCH-I1–I3, ORCH-I5, and ORCH-I7 SHALL be Apalache-marked within ladder
+bounds. ORCH-I6 (confluence) SHALL be stated, with a bounded pairwise
+simulator check.
 
 #### Scenario: Masking a family turns completeness red
 

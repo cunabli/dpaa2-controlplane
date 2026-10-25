@@ -208,6 +208,11 @@ The model's checked obligations, numbered in the family convention:
 - **ORCH-I6 — confluence (bounded).** The final census is independent
   of scheduler order wherever guards force none; checked pairwise over
   passes, simulator-first, full treatment behind the revisit trigger.
+- **ORCH-I7 — containment order.** A child-homed family
+  (dpni/dpbp/dpio/dpcon/dpmcp) is converged-or-drifted only while its
+  container dprc is converged — companions ≺ object ≺ edges on create,
+  the exact reverse on teardown (D4; ADR-0004 containment).
+  Apalache-marked.
 
 ## Risks / Trade-offs
 
@@ -236,8 +241,11 @@ engine's observable behavior changes only by refusing earlier and typed.
 ## Open Questions
 
 - Whether the registry is hand-written exhaustive match or macro-derived
-  from the family list — decided by the first implementation parcel
-  against ADR-0018's trait seams.
+  from the family list — **resolved**: a hand-written exhaustive match;
+  `crates/dpaa2-api/src/plan/dispatch.rs`'s module doc records why a
+  visitor with one implementor is an abstraction this seam does not earn.
 - Where the FDB budget's observed ceiling comes from on boards without a
-  banked bracket (V-DPSW-2 is one board's answer) — characterize vs
-  conservative constant, resolved when the admission oracle lands.
+  banked bracket (V-DPSW-2 is one board's answer) — **resolved** at the
+  admission oracle: characterize, not a conservative constant — an
+  `Unknown` ceiling admits with the UnknownCeiling warning and never
+  refuses (ADR-0011 admit-and-warn; `crates/dpaa2-api/src/plan/capacity.rs`).

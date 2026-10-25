@@ -5,9 +5,12 @@
 //! Every plan entry an intent compiles to flows through [`disposition`], a `match`
 //! over the plan vocabulary [`Attributes`] with no wildcard arm: a new construct
 //! family cannot reach a plan without stating its row here, or the workspace fails
-//! to build (the reconciler spec's "a new family without a pass does not compile"
-//! scenario). A runtime registry map is refused — a missing insertion compiles, a
-//! missing `match` arm does not (ADR-0023 design D10).
+//! the build or the row-set tests (the reconciler spec's "a new family without a
+//! pass does not compile" scenario). A new [`Attributes`] variant breaks the build;
+//! a pool-companion-shaped family riding the shared [`Attributes::Unsized`] row is
+//! caught instead by the [`TABLE`]↔`DERIVED_FAMILIES` row-set test. A runtime
+//! registry map is refused — a missing insertion compiles, a missing `match` arm
+//! does not (ADR-0023 design D10).
 //!
 //! Shape (ADR-0023 design D10 leaves it to this parcel): a plain exhaustive `match`, not a
 //! visitor trait. A visitor with one implementor is an abstraction this seam does
