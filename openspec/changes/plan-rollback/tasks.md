@@ -46,7 +46,7 @@
 
 ## 4. Recording layer
 
-- [ ] 4.1 Implement `Recording<B>` wrappers over `McControl` and
+- [x] 4.1 Implement `Recording<B>` wrappers over `McControl` and
   `KernelControl`: transparent forwarding, append-on-success, shared
   single-threaded journal handle, placed inside retry. Verify: unit
   tests with the fake backend — observed ids recorded, failed verb

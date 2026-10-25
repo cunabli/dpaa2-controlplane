@@ -24,7 +24,9 @@ pub mod fake;
 mod config;
 mod kernel;
 mod mc;
+mod recording;
 
 pub use config::ConfigSource;
 pub use kernel::KernelControl;
 pub use mc::{DpseciDetail, DpseciPortalReadout, DpswDetail, DpswIfDetail, DpswIfFace, McControl};
+pub use recording::{JournalHandle, Recording};
