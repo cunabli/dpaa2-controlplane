@@ -1,0 +1,55 @@
+# The operand of suite V-ROLLBACK-1 (plan-rollback task 7.1): ONE intent that
+# converges a reserved-kernel interface AND an isolated userspace tenant, so a
+# single `dpaa2ctl ensure` grows the root pool, binds the kernel dpni (the live
+# kernel probe — DPSW-I9 race class), then populates the userspace child
+# container's dpni and its dpbp companion LAST (ensure phase order
+# crates/dpaa2-tools/src/main.rs: grow pool -> port loop -> child population).
+# That trailing child-population dpbp create is the verb the suite drains out
+# from under, so it refuses MC status 0x8 (No resources) WHILE the kernel dpni
+# is bound and probing — the mid-run overcommit the rollback policy unwinds
+# (plan-rollback design D1/D6/D7; the twin stages the same drain offline in
+# crates/dpaa2-verify/tests/rollback_overcommit.rs).
+#
+# Lives in the suite dir, not models/intent/scenarios/, for the V-MVP-1 /
+# V-ADMIT-1 reason: a board-suite operand is an input to a dpaa2ctl sitting,
+# not a models/intent/scenarios pairing (no `.qnt`, no frozen trace).
+#
+# dpmac choice (ADR-0003 §4). This suite asserts NO link-up and NO traffic, so
+# it names only unwired lifecycle-safe ports — never the total-deny trio
+# (dpmac.3, dpmac.17, dpni.0) and never the cabled traffic pair (dpmac.7,
+# dpmac.9). The kernel port takes dpmac.4 (the V-ADMIT-1 precedent, unwired):
+# the kernel dpni binds to dpaa2-eth and so dpmac.4's standalone fsl_dpaa2_mac
+# driver is evicted for the run (the suite declares dpmac.4 expected-unbound;
+# the closing reboot restores it). The userspace child's port takes the unwired
+# 25G dpmac.5: its dpni lands in a VFIO child (RemoteOwned), so dpmac.5 keeps
+# its standalone driver across the boundary and is never evicted (the
+# V-DPMAC-3 / V-MVP-1 RemoteOwned precedent).
+
+[intent]
+schema = 1
+
+# The reserved kernel terminates the unwired dpmac.4, so its dpni + pool
+# companions compile into the ROOT container (Tenant::container => Root,
+# pool-objects design D5). The `kernel` tenant is never a `[tenant.kernel]`
+# table (ADR-0013: declaring it is refused); the tools shell injects it
+# (crates/dpaa2-tools/src/main.rs `complete_kernel`). The kernel dpni binds to
+# dpaa2-eth — the live kernel side the overcommit races against.
+[port.kern0]
+dpmac = "dpmac.4"
+rate = 25000
+tenant = "kernel"
+
+# The isolated userspace tenant: a poll-mode dataplane the child DPRC hands off
+# to VFIO. max_cores is the board's online-CPU count (T sits well under it).
+[tenant.remote]
+dataplane = "userspace-poll"
+max_cores = 16
+
+# One remote port terminates the unwired 25G dpmac.5 (lifecycle-safe: link-up
+# is never asserted, ADR-0003 §4). Its dpni + companions — the dpbp whose
+# create the suite drains out from under — land in the remote tenant's own
+# child container during the population pass, after the kernel dpni is bound.
+[port.rmt0]
+dpmac = "dpmac.5"
+rate = 25000
+tenant = "remote"
