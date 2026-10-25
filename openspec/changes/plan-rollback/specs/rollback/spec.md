@@ -149,12 +149,12 @@ named deferred variant, recorded but not implemented here.
 ### Requirement: Overcommit is named and bounded
 
 A mid-run budget failure after a passed admission SHALL be reported as
-**overcommit** (the lockless admission plus concurrent writers jointly
-exceeded the budget), distinct from the planning-time headroom
-refusal. After an overcommit rollback, the next admission SHALL
-re-judge the drained budget and refuse at planning time while the
-drain holds — one rollback per drain event, never an apply/rollback
-oscillation.
+**overcommit**, distinct from the planning-time **headroom refusal**.
+After an overcommit rollback, the next admission SHALL refuse at
+planning time while the drain holds — one rollback per drain event, no
+apply/rollback oscillation — for both ledgers the face reads: the
+per-container census and the MC-global pools create verbs draw against
+(ADR-0011).
 
 #### Scenario: Overcommit and headroom refusal are distinct verdicts
 
@@ -167,3 +167,13 @@ oscillation.
 - **WHEN** a run rolled back on overcommit and the environment still
   holds the drained budget
 - **THEN** the next run refuses at admission and dispatches no verb
+
+#### Scenario: A hardware-side drain is bounded too
+
+- **WHEN** an overcommit rollback followed a drain of the MC-global bp
+  pool (`dprc show mc.global --resources`) by concurrent creates in
+  another container, and the drain still holds
+- **THEN** the next admission re-judges the MC-global bp row (bp now,
+  proven by V-CEIL-1 and V-DPRC-7 rev 2; dpcon and dpmcp only with their
+  own proving observations), refuses at planning time, and dispatches no
+  verb — the drain is no longer invisible to re-admission

@@ -77,8 +77,10 @@ intent is refused typed), ORCH-I2 (order as guards, including the
 live-read dpmac occupancy law), ORCH-I3 (admission soundness and stable
 refusal, restated under rollback: a mid-run-refused run's net effect is
 identity up to typed residue, and while the drained budget holds, the
-next admission refuses at planning time — one rollback per drain
-event), ORCH-I4 (bounded convergence under eventual environment
+next admission refuses at planning time — one rollback per drain event,
+across both the per-container census ledger and the MC-global pool
+ledger, a hardware-side drain judged against the global row of its
+family), ORCH-I4 (bounded convergence under eventual environment
 quiescence), ORCH-I5 (quiescence: no enabled pass without observable
 drift), and ORCH-I7 (containment order: a child-homed family is
 converged-or-drifted only while its container dprc is converged);
@@ -107,9 +109,18 @@ unwind order is the reverse journal, deterministic.
 #### Scenario: Stable refusal survives rollback side effects
 
 - **WHEN** a run rolls back on overcommit and the environment still
-  holds the drained budget
+  holds the drained budget — whether the drain hit the census ledger or
+  the MC-global pool ledger
 - **THEN** every subsequent admission refuses at planning time and no
   apply/rollback oscillation is reachable within the checked bound
+
+#### Scenario: Masking the global row re-opens the oscillation
+
+- **WHEN** the MC-global pool ledger is masked so admission re-judges
+  the census ledger alone, and the drain held the global ledger
+- **THEN** the apply/rollback oscillation is reachable within the
+  checked bound — the retro-oracle that the rev-3 blindness was real,
+  closed when the global row is present
 
 ### Requirement: Orchestration traces replay against the engine
 
@@ -124,7 +135,8 @@ agreement alone is not conformance. The frozen set SHALL include an
 FDB-side admission refusal (the environment eats the FDB bracket, the
 next admission refuses), a teardown trace through the prune lane, and
 an overcommit-rollback trace (admission passes, the environment drains
-the budget, the run unwinds, the next admission refuses).
+the MC-global pool ledger, the run unwinds, the next admission refuses
+on the global row).
 
 #### Scenario: A pass added without a model row fails the twin
 
@@ -143,4 +155,36 @@ the budget, the run unwinds, the next admission refuses).
 - **WHEN** the overcommit-rollback trace replays
 - **THEN** the mid-run overcommit verdict and the follow-on
   planning-time refusal are each re-derived through the Rust admission
-  from the prior state's counts, never trusted from trace structure
+  from the prior state's census and MC-global counts, never trusted
+  from trace structure
+
+## ADDED Requirements
+
+### Requirement: The model carries the MC-global pool ledger beside the census
+
+`models/orchestration/` SHALL carry a second budget ledger — an MC-global
+pool counter — beside the per-container census budget (ADR-0011). The
+environment-adversary action and
+any container's creates SHALL draw the global counter, and a create's
+mid-run guard SHALL refuse on the global row of its family even when the
+census row shows headroom — the hardware-side drain the census cannot
+see. The ledger SHALL add no scheduler choice — the rollback unwind
+order stays the reverse journal.
+
+#### Scenario: A hardware-side drain refuses on the global row
+
+- **WHEN** a create in another container draws the global bp counter to
+  exhaustion while the drawing container's census row still shows
+  headroom
+- **THEN** a pending bp create's mid-run guard refuses on the global
+  row, and after the rollback the next admission refuses at planning
+  time on that same global row while the drain holds — bp now (V-CEIL-1,
+  V-DPRC-7 rev 2); dpcon and dpmcp join only with their own proving
+  observations
+
+#### Scenario: The census ledger keeps judging its own draws
+
+- **WHEN** a draw or claim moves the per-container census without
+  touching the global pool
+- **THEN** the census row judges it as before — the global ledger adds
+  the create-refusal vector, it does not replace census judgment

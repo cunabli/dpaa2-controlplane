@@ -53,6 +53,21 @@ journal by default, under a caller-chosen policy.
 - A **fake-MC budget simulation** drives the overcommit path offline,
   and a new **board row** witnesses rollback under live kernel probing
   (the DPSW-I9 race-class lesson).
+- **In-change detour — the two-ledger capacity face**: V-ROLLBACK-1
+  rev 3 exposed that admission's capacity face reads the per-container
+  free-object census while create verbs are refused by the MC-global
+  hardware pools (`dprc show mc.global --resources`), two independently
+  moving ledgers; a hardware-side drain (concurrent creates in another
+  container) is invisible to admission and to re-admission, so the
+  restated ORCH-I3 one-rollback-per-drain bound is unenforced for that
+  vector and re-apply can oscillate. The fix is in-change because it is
+  the enforcement ORCH-I3 now claims: the MC-global pools join the
+  capacity face as a second ledger of budget rows (bp first under the
+  monotonic-growth rule, proven by V-CEIL-1 + V-DPRC-7 rev 2), with the
+  model, CLI render, offline twins, and the V-ROLLBACK-1 rev-4 witness
+  closing the blindness end to end. dpcon joins only after a scoped
+  disambiguation sitting; mcp stays behind the ADR-0011 listing-lag
+  question.
 
 ## Invariant ledger
 
