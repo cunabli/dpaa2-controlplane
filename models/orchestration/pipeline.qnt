@@ -168,12 +168,14 @@ module orchestration {
     CHILD_HOMED.exists(c => st.get(c) == Converged or st.get(c) == Drifted)
 
   // Gross draw (ADR-0023 design D8): the pending creates' draw, planned frees
-  // uncounted.
+  // uncounted. dpio is exempt from the pool fold — its seats are spent headroom
+  // that never refuses (ADR-0003 §7), the Rust `Spent` row's twin. The FDB fold
+  // prices dpsw creates only — a switch-port wire draws no FDB unit (V-DPSW-2, the
+  // bracket is dpsw-object-granular).
   pure def grossPoolDraw(pend: Family -> int): int =
-    TABLE_FAMS.filter(f => execKind(f) == Some(PoolDraw)).fold(0, (a, f) => a + pend.get(f))
+    TABLE_FAMS.filter(f => execKind(f) == Some(PoolDraw) and f != Dpio).fold(0, (a, f) => a + pend.get(f))
   pure def grossFdbDraw(pend: Family -> int): int =
     TABLE_FAMS.filter(f => execKind(f) == Some(FdbDraw)).fold(0, (a, f) => a + pend.get(f))
-      + (if (WANT_PORT) 1 else 0)
 
   // ---- pass enablement ----
 
@@ -225,7 +227,6 @@ module orchestration {
     not(s.portWired),
     s.status.get(Dpsw) == Converged,
     s.occ == Free,
-    s.fdbFree > 0,
   }
   def wireEnabled: bool = wireEnabledOn(cur)
 
@@ -256,8 +257,9 @@ module orchestration {
     occ' = Free,
     censusOcc' = Free,
     portWired' = false,
-    // The four pool companions (dpbp/dpio/dpcon/dpmcp) each draw 1, so the gross
-    // pool draw is 4 — the headroom an admitted intent needs (ADR-0023 design D8).
+    // The three reclaimable pool companions (dpbp/dpcon/dpmcp) each draw 1 — the
+    // gross pool draw is 3, dpio exempt (spent headroom, ADR-0003 §7). Four free
+    // leaves one slot of headroom an eaten-pool squeeze consumes (ADR-0023 design D8).
     poolFree' = 4,
     fdbFree' = 2,
     verdict' = Unjudged,
@@ -305,7 +307,7 @@ module orchestration {
   pure def applyCreate(s: State, f: Family): State = { ...s,
     status: s.status.set(f, Converged),
     pending: s.pending.set(f, s.pending.get(f) - 1),
-    poolFree: if (execKind(f) == Some(PoolDraw)) s.poolFree - 1 else s.poolFree,
+    poolFree: if (execKind(f) == Some(PoolDraw) and f != Dpio) s.poolFree - 1 else s.poolFree,
     fdbFree: if (execKind(f) == Some(FdbDraw)) s.fdbFree - 1 else s.fdbFree,
   }
 
@@ -332,7 +334,6 @@ module orchestration {
   // kernel's, so `occ` is untouched here — the env effects it.
   pure def applyWire(s: State): State = { ...s,
     portWired: true,
-    fdbFree: s.fdbFree - 1,
   }
 
   // Commit a twin's resulting `State` onto the model vars (ADR-0023 design D11).
@@ -626,4 +627,21 @@ module orchestration {
       .expect(status.get(Dpni) == Drifted)
       .then(doReconcile(Dpni))
       .expect(status.get(Dpni) == Converged)
+
+  // ORCH-I3 the FDB-side refusal lane (V-DPSW-2 board-proven law): the
+  // environment eats the dpsw FDB bracket. The first eat drops it to one — the
+  // dpsw create still admits, because the wire draws no FDB unit and the create
+  // alone costs one (the amended law; the prior over-pricing refused here, so this
+  // admit is the standing re-derivation trip wire). The second eat exhausts the
+  // bracket, and the next admission refuses the dpsw create whole and typed
+  // (ADR-0023 design D5/D8 gross draw vs re-observation).
+  run fdbRefusesTest =
+    init
+      .then(envEatFdb)
+      .then(admit)
+      .expect(verdict == Admitted and fdbFree == 1)
+      .then(observe)
+      .then(envEatFdb)
+      .then(admit)
+      .expect(verdict == AdmissionRefused and refused.get(Dpsw) and fdbFree == 0)
 }

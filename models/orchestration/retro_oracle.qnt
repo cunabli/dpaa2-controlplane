@@ -90,13 +90,12 @@ module retro_oracle {
     fdbFree > 0,
   }
 
-  // Mirrors pipeline `doWire` over the census-read guard.
+  // Mirrors pipeline `doWire` over the census-read guard: the census guard swapped
+  // in, but the wire effect itself is pipeline's own `applyWire` committed through
+  // `commitState`, so no hand-copied effect can drift from the shipped twin.
   action doWireCensus = all {
     wireEnabledCensus,
-    portWired' = true,
-    fdbFree' = fdbFree - 1,
-    status' = status, pending' = pending, poolFree' = poolFree,
-    occ' = occ, censusOcc' = censusOcc, verdict' = verdict, refused' = refused,
+    commitState(applyWire(cur)),
   }
 
   // Mirrors pipeline `step` with `doWire` swapped for `doWireCensus`.

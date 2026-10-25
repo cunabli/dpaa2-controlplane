@@ -504,10 +504,20 @@ quiescence fairness (ADR-0023 design D7) and witnessed by `convergeTest`, not a
 only as `ORCH_I6_pairwise` (`pnpm model:confluence`, in `model:validation` after
 `model:retro-orch`), deliberately NOT in `stateInvariants` — the full treatment
 stays behind the ADR-0023 revisit trigger (resource-aware-orchestration task 7.1).
-The six directed runs are frozen for ITF replay (`pnpm model:freeze-orch`,
+The seven directed runs are frozen for ITF replay (`pnpm model:freeze-orch`,
 in `models/traces/orchestration/`); the dpaa2-verify registry
 twin replays them against the engine's pass schedule at
-resource-aware-orchestration task 3.2.
+resource-aware-orchestration task 3.2, and on every verdict transition it
+re-derives the verdict through the Rust `admit` from the prior census
+(orchestration-hardening design D2) — structural row agreement alone is not
+conformance, so a re-frozen trace that smuggles a budget-law change fails the
+replay. `fdbRefusesTest` closes the envEatFdb directed-run gap — the environment
+eats the dpsw FDB bracket and the next admission refuses the lone dpsw create,
+the lane that stands the re-derivation trip wire. The occupancy environment
+actions (envOccMac, envOccFree, envOccSwitch) and envDrift carry no directed run
+of their own; their recorded cost is the simulate rung above (20 steps times 200
+samples) and the handoverSafeTest/envInterferenceTest lanes that exercise them in
+passing.
 
 The model is the census-schema projection (ADR-0023 design D11): per-construct
 status, the switch-port edge, dpmac driver occupancy, the two board-proven
@@ -518,7 +528,9 @@ dpcon, dpmcp, dpseci, dpsw) plus the DPC-born dpmac, so no family the intent can
 derive surprises the resource-aware-orchestration task 3.2 twin (which keys the
 Rust dispatch table by exactly that vocabulary, dpmac the twin's only exemption);
 `init` derives every family-keyed map from `TABLE_FAMS`, and the init pool budget
-is 4 to cover the four pool companions' gross draw. Guards carry the
+is 4, one over the three reclaimable pool companions' gross draw of 3 (dpbp, dpcon
+and dpmcp — dpio is exempt as spent headroom that never refuses, ADR-0003 §7), so
+an eaten-pool squeeze consumes the slack before admission refuses. Guards carry the
 census-read/live-read discipline (ADR-0023 design D9): exactly one guard is
 live-read — the dpmac occupancy gating the switch-port wire — read from the live
 `occ`, never the `censusOcc` snapshot; all budget counts are census-read with the
@@ -528,7 +540,7 @@ firmware backstop.
 |-----------|------|---------|----------------|
 | ORCH-I1 | `ORCH_I1` completeness / no dead family + `unimplementedRefusesTest` | simulate + apalache | ADR-0023 design D3/D10; the dpsw-typestate gap class (bead dpaa2-controlplane-dbf.19); masking retro-oracle at resource-aware-orchestration task 2.1 |
 | ORCH-I2 | `ORCH_I2` order as guards (live-read handover) + `handoverSafeTest` | simulate + apalache | ADR-0023 design D4/D9; docs/upstream/phylink-dpni-churn-crash.md; the reachable-without-live-read half at resource-aware-orchestration task 2.2 |
-| ORCH-I3 | `ORCH_I3` admission soundness + `admissionRefusesTest`/`stableRefusalTest` | simulate + apalache | ADR-0023 design D5/D8 (gross draw, stable refusal); ADR-0011 budgets; V-DPSW-2 (FDB ceiling) |
+| ORCH-I3 | `ORCH_I3` admission soundness + `admissionRefusesTest`/`stableRefusalTest`/`fdbRefusesTest` (the FDB-side refusal lane) + the Rust `admit` verdict re-derivation on every frozen transition (orchestration-hardening design D2) | simulate + apalache + itf-replay | ADR-0023 design D5/D8 (gross draw, stable refusal); ADR-0011 budgets; V-DPSW-2 (the FDB bracket is dpsw-object-granular — a switch-port wire draws no unit); ADR-0003 §7 (dpio spent headroom, exempt from the pool fold) |
 | ORCH-I4 | bounded convergence (liveness) + `convergeTest` | simulate (directed) | ADR-0023 design D7 (eventual-environment-quiescence fairness); stated in the model header, not a `--max-steps=1` conjunct |
 | ORCH-I5 | `ORCH_I5` quiescence / no churn | simulate + apalache | ADR-0023 "Quiescence"; ADR-0008 level-triggered idempotence |
 | ORCH-I6 | `ORCH_I6_pairwise` confluence (bounded pairwise diamond over the engine-pass alphabet) | simulate (`pnpm model:confluence`, 20 steps × 200 samples; 37-pass alphabet → 666 distinct pass-pairs judged per state) | ADR-0023 design "ORCH-I6"; resource-aware-orchestration task 7.1; simulator-only (not `stateInvariants`); full treatment stays behind the ADR-0023 revisit trigger |

@@ -1,4 +1,4 @@
-//! The orchestration ITF-replay CI rung (resource-aware-orchestration task 3.2): the six frozen
+//! The orchestration ITF-replay CI rung (resource-aware-orchestration task 3.2): the frozen
 //! orchestration traces replay green against the plan-entry family dispatch, and the dispatch's
 //! row set reconciles with the model's `TABLE` — board-free. The model is the oracle; a
 //! regenerated trace or a drifted dispatch fails here loudly (regenerate with
@@ -23,9 +23,12 @@
 //! real dispatch table here; its negative (mutated-input) cases live beside the comparator in
 //! `src/intent/orchestration_itf.rs`.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use dpaa2_api::core::family::Family;
+use dpaa2_api::core::inventory::Ceiling;
+use dpaa2_api::plan::admission::{GrossDraw, admit};
+use dpaa2_api::plan::capacity::{CapacityFace, FdbBudget, PoolBudget, PoolHeadroom};
 use dpaa2_api::plan::dispatch::{self, Disposition};
 use dpaa2_verify::intent::orchestration_itf::{
     OrchState, Status, Verdict, parse_orchestration_trace, row_set_findings,
@@ -57,6 +60,10 @@ const TRACES: &[(&str, &str)] = &[
         "envInterferenceTest",
         "D7: a converged dpni drifts under the environment and the next pass re-converges it",
     ),
+    (
+        "fdbRefusesTest",
+        "ORCH-I3 (orchestration-hardening design D1): the eaten FDB bracket admits the lone-dpsw draw at one free (the wire draws none), then refuses it at zero",
+    ),
 ];
 
 fn load(file: &str) -> String {
@@ -73,6 +80,48 @@ fn row_for(f: Family) -> Option<&'static Disposition> {
         .iter()
         .find(|(x, _)| *x == f)
         .map(|(_, d)| d)
+}
+
+/// Re-derives the admission verdict from a prior census through the shipped Rust admission
+/// ([`GrossDraw::from_pending`] + [`admit`]) — the twin-side re-derivation of orchestration-hardening design D2.
+/// Structural row agreement is necessary but not sufficient, so the verdict itself is rebuilt
+/// from the prior state and re-judged. The model carries two scalar budgets (`poolFree`/`fdbFree`),
+/// so the reclaimable pool draws fold onto one `Free(poolFree)` row while dpio keeps its `Spent`
+/// row — its draw never refuses (ADR-0003 §7), the exemption this group proves — and the FDB
+/// bracket is `Observed(fdbFree)` against a zero observed draw. Returns true iff the plan admits.
+fn rust_admits(prev: &OrchState) -> bool {
+    let base = GrossDraw::from_pending(&prev.pending);
+    let reclaimable: i64 = base
+        .pool
+        .iter()
+        .filter(|(f, _)| **f != Family::Dpio)
+        .map(|(_, n)| *n)
+        .sum();
+    let dpio = base.pool.get(&Family::Dpio).copied().unwrap_or(0);
+    let draw = GrossDraw {
+        pool: BTreeMap::from([(Family::Dpbp, reclaimable), (Family::Dpio, dpio)]),
+        fdb: base.fdb,
+    };
+    let face = CapacityFace {
+        pools: vec![
+            PoolBudget {
+                family: Family::Dpbp,
+                headroom: PoolHeadroom::Free(prev.pool_free),
+            },
+            PoolBudget {
+                family: Family::Dpio,
+                headroom: PoolHeadroom::Spent(dpio),
+            },
+        ],
+        fdb: FdbBudget {
+            bracket: Ceiling::Observed {
+                n: prev.fdb_free,
+                provenance: "V-DPSW-2".to_owned(),
+            },
+            draw: 0,
+        },
+    };
+    admit(&face, &draw).is_ok()
 }
 
 /// The per-pair obligations: the dispatch agrees step by step with what the trace shows.
@@ -97,6 +146,29 @@ fn check_pair(file: &str, i: usize, prev: &OrchState, cur: &OrchState) {
                 "{file} step {i}: {name} is refused with its plan drained but its dispatch row is {disp:?}, not Unimplemented"
             );
         }
+    }
+
+    // Re-derivation (orchestration-hardening design D2): on every verdict transition into a judged
+    // verdict, rebuild the capacity face and gross draw from the prior census and assert the Rust
+    // admission returns the frozen verdict — a re-frozen trace that smuggles a budget-law change
+    // fails here, not only the structural obligations below.
+    if cur.verdict != prev.verdict && cur.verdict != Verdict::Unjudged {
+        let admitted = rust_admits(prev);
+        assert_eq!(
+            admitted,
+            cur.verdict == Verdict::Admitted,
+            "{file} step {i}: the Rust admission re-derived {} from the prior census \
+             (pending={:?} poolFree={} fdbFree={}) but the frozen verdict is {:?}",
+            if admitted {
+                "Admitted"
+            } else {
+                "AdmissionRefused"
+            },
+            prev.pending,
+            prev.pool_free,
+            prev.fdb_free,
+            cur.verdict
+        );
     }
 
     // An admission refusal (the verdict turning AdmissionRefused): the refusal set is exactly the

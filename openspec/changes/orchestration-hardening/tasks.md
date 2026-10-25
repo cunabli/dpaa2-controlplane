@@ -7,7 +7,7 @@ independent of 1–2. Group 4 closes the change.
 
 ## 1. The model's budget law aligns to the board (bead: group-1)
 
-- [ ] 1.1 Amend the model's budget arithmetic to the board-proven law:
+- [x] 1.1 Amend the model's budget arithmetic to the board-proven law:
       remove the wire-FDB pricing from `grossFdbDraw`, `wireEnabled`,
       and `applyWire` (the WANT_PORT constant may stay for intent
       shape); exempt dpio from the refusing pool fold (spent headroom,
@@ -16,7 +16,7 @@ independent of 1–2. Group 4 closes the change.
       typecheck green; retro-orch 13/13; `grep WANT_PORT` shows no
       draw-pricing use; `grep "fdbFree' = fdbFree - 1"` empty in the
       retro oracle.
-- [ ] 1.2 Add the replay verdict re-derivation and the FDB trip trace:
+- [x] 1.2 Add the replay verdict re-derivation and the FDB trip trace:
       `check_pair` rebuilds the capacity face and gross draw from the
       prior state's pending/poolFree/fdbFree and asserts the Rust
       `admit` equals the frozen verdict on every verdict transition;
