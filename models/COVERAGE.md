@@ -504,7 +504,7 @@ quiescence fairness (ADR-0023 design D7) and witnessed by `convergeTest`, not a
 only as `ORCH_I6_pairwise` (`pnpm model:confluence`, in `model:validation` after
 `model:retro-orch`), deliberately NOT in `stateInvariants` — the full treatment
 stays behind the ADR-0023 revisit trigger (resource-aware-orchestration task 7.1).
-The eight directed runs are frozen for ITF replay (`pnpm model:freeze-orch`,
+The nine directed runs are frozen for ITF replay (`pnpm model:freeze-orch`,
 in `models/traces/orchestration/`); the dpaa2-verify registry
 twin replays them against the engine's pass schedule at
 resource-aware-orchestration task 3.2, and on every verdict transition it
@@ -525,11 +525,14 @@ fixed reverse order, netting the reversible rows and the wire to identity (portW
 back to false) and leaving the irreversible dpio seat as typed `residue`
 (ADR-0003 §7); `doAbort` stops and leaves the executed prefix (the wire stays wired). Both fire only on an
 `anyOvercommit` state (every create guard but the budget draw) under their policy.
-`overcommitRollbackTest`/`overcommitAbortTest` witness the two lanes end-to-end but
-are NOT frozen here — the overcommit-rollback ITF lands with plan-rollback group 5
-(generated-deferred; see plan-rollback design D7), kept out of
-`models/traces/orchestration/` so the replay's exact-dir pin
-(`orchestration_replay.rs`) stays at the eight below. The occupancy environment actions (envOccMac,
+`overcommitRollbackTest`/`overcommitAbortTest` witness the two lanes end-to-end; the
+overcommit-rollback run is now frozen in `models/traces/orchestration/`
+(plan-rollback design D6/D7) and the dpaa2-verify twin replays it through
+`check_pair`, re-deriving both the admitted verdict and the next-admission refusal
+through the Rust `admit` (`orchestration_replay.rs`), so the replay's exact-dir pin
+now stands at the nine below. The abort lane stays a simulator witness; its offline
+evidence is the fake-MC drain simulation (`crates/dpaa2-verify/tests/rollback_overcommit.rs`,
+which drives both dispositions). The occupancy environment actions (envOccMac,
 envOccFree, envOccSwitch) and envDrift carry no directed run of their own
 (envOrphan's lane is teardownPruneTest); their recorded cost is the simulate rung
 above (20 steps times 200 samples) and the handoverSafeTest/envInterferenceTest
@@ -556,7 +559,7 @@ firmware backstop.
 |-----------|------|---------|----------------|
 | ORCH-I1 | `ORCH_I1` completeness / no dead family + `unimplementedRefusesTest` | simulate + apalache | ADR-0023 design D3/D10; the dpsw-typestate gap class (bead dpaa2-controlplane-dbf.19); masking retro-oracle at resource-aware-orchestration task 2.1 |
 | ORCH-I2 | `ORCH_I2` order as guards (live-read handover) + `handoverSafeTest` | simulate + apalache | ADR-0023 design D4/D9; docs/upstream/phylink-dpni-churn-crash.md; the reachable-without-live-read half at resource-aware-orchestration task 2.2 |
-| ORCH-I3 | `ORCH_I3` admission soundness, restated under rollback (budget never negative AND `reverted implies verdict == Unjudged`, so a rolled-back run cannot re-dispatch before re-admission — no apply/rollback oscillation) + `admissionRefusesTest`/`stableRefusalTest`/`fdbRefusesTest` (the FDB-side refusal lane) + `overcommitRollbackTest`/`overcommitAbortTest` (the two mid-run dispositions end-to-end, net identity up to the typed dpio-seat residue, next admission refuses at planning time) + the Rust `admit` verdict re-derivation on every frozen transition (orchestration-hardening design D2) | simulate + apalache + itf-replay | ADR-0023 design D5/D8 (gross draw, stable refusal); plan-rollback design D6 (rollback action, ORCH-I3 restated); ADR-0011 budgets; V-DPSW-2 (the FDB bracket is dpsw-object-granular — a switch-port wire draws no unit); ADR-0003 §7 (dpio spent headroom, exempt from the pool fold; the irreversible rollback residue) |
+| ORCH-I3 | `ORCH_I3` admission soundness, restated under rollback (budget never negative AND `reverted implies verdict == Unjudged`, so a rolled-back run cannot re-dispatch before re-admission — no apply/rollback oscillation) + `admissionRefusesTest`/`stableRefusalTest`/`fdbRefusesTest` (the FDB-side refusal lane) + `overcommitRollbackTest`/`overcommitAbortTest` (the two mid-run dispositions end-to-end, net identity up to the typed dpio-seat residue, next admission refuses at planning time) + the Rust `admit` verdict re-derivation on every frozen transition (orchestration-hardening design D2) | simulate + apalache + itf-replay | ADR-0023 design D5/D8 (gross draw, stable refusal); plan-rollback design D6 (rollback action, ORCH-I3 restated); ADR-0011 budgets; V-DPSW-2 (the FDB bracket is dpsw-object-granular — a switch-port wire draws no unit); ADR-0003 §7 (dpio spent headroom, exempt from the pool fold; the irreversible rollback residue); the offline rollback suites `crates/dpaa2-verify/tests/rollback_overcommit.rs` (the fake-MC drain simulation, both the rollback and the abort disposition), `crates/dpaa2-tools/tests/rollback_cli.rs` (the operator-report wording pins) and `crates/dpaa2-tools/tests/vrollback1_intents.rs` (the V-ROLLBACK-1 operand, staging and grep-string pin); the board suite V-ROLLBACK-1 authored-pending — its sitting operator-gated, not yet board-witnessed, with the `models/board/README.md` ledger row the authority |
 | ORCH-I4 | bounded convergence (liveness) + `convergeTest` | simulate (directed) | ADR-0023 design D7 (eventual-environment-quiescence fairness); stated in the model header, not a `--max-steps=1` conjunct |
 | ORCH-I5 | `ORCH_I5` quiescence / no churn | simulate + apalache | ADR-0023 "Quiescence"; ADR-0008 level-triggered idempotence |
 | ORCH-I6 | `ORCH_I6_pairwise` confluence (bounded pairwise diamond over the engine-pass alphabet) | simulate (`pnpm model:confluence`, 20 steps × 200 samples; 37-pass alphabet → 666 distinct pass-pairs judged per state, the PPrune pairs now non-vacuous since `envOrphan` makes Orphan reachable; the pass alphabet is unchanged — the orphaning action joins the env set, not the alphabet) | ADR-0023 design "ORCH-I6"; orchestration-hardening design D3; resource-aware-orchestration task 7.1; simulator-only (not `stateInvariants`); full treatment stays behind the ADR-0023 revisit trigger |

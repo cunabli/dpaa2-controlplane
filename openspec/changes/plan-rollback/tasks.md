@@ -85,12 +85,12 @@
 
 ## 7. Board witness and docs
 
-- [ ] 7.1 Write the board row — rollback under live kernel probing
+- [x] 7.1 Write the board row — rollback under live kernel probing
   (DPSW-I9 race class) inside the safety envelope, suite conventions,
   expectations inline; offline gates all green first and the pre-run
   record committed per the commit-before-run rule. Verify: the row
   renders and dry-runs offline; sitting execution is operator-launched.
-- [ ] 7.2 Update docs/ROADMAP.md (the axq row) and the COVERAGE
+- [x] 7.2 Update docs/ROADMAP.md (the axq row) and the COVERAGE
   anchors for the new suites. Verify: quality-floor green; ROADMAP row
   states delivery in the standing style.
 
