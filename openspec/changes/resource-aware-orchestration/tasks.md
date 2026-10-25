@@ -81,7 +81,7 @@
 
 ## 6. Board witness
 
-- [ ] 6.1 Add one board suite row confirming the admission refusal live
+- [x] 6.1 Add one board suite row confirming the admission refusal live
       (an over-budget intent against the reference board's observed
       pools), riding the next sitting that runs anyway — no dedicated
       sitting. Verify: suite row banked with the sitting's record.

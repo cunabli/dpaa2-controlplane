@@ -1,4 +1,17 @@
 {
+  "V-ADMIT-1": {
+    "V-ADMIT-1-rev1": {
+      "pass": true,
+      "date": "2026-10-25",
+      "kind": "batch",
+      "revision": 1,
+      "steps": "6/6",
+      "source_hash": "fnv1a64:e85741a8c231c200",
+      "hook": null,
+      "archive": null,
+      "refusals": []
+    }
+  },
   "V-CEIL-1": {
     "V-CEIL-1-rev1": {
       "pass": false,
