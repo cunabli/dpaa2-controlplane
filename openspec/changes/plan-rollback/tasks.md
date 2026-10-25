@@ -31,12 +31,12 @@
 
 ## 3. Core vocabulary in dpaa2-api
 
-- [ ] 3.1 Add `ActuationRecord` (observed values only), the run-scoped
+- [x] 3.1 Add `ActuationRecord` (observed values only), the run-scoped
   append-only journal, and the `#[non_exhaustive]` failure-policy enum
   (`Rollback` default | `Abort`) at the execution seam. Verify: unit
   tests cover observed-not-intended values and default policy;
   quality-floor green.
-- [ ] 3.2 Add the reversal table as a compile-checked total match
+- [x] 3.2 Add the reversal table as a compile-checked total match
   returning `Reversible { undo, preconditions }` |
   `Irreversible { residue }`, preconditions encoding the reversed
   ordering guards, residue typed reboot-named (ADR-0020, ADR-0003 §7).

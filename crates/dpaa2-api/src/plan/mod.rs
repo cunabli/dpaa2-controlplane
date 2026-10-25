@@ -22,6 +22,7 @@ pub mod matcher;
 pub mod pool;
 pub mod populate;
 pub mod reconcile;
+pub mod rollback;
 
 mod report;
 mod transition;
