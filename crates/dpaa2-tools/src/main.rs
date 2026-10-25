@@ -4,12 +4,14 @@
 //! backend into the four operator surfaces: `scan`, `ensure`, `status`, and
 //! `dry-run` (proposal). A single `ensure` invocation runs to completion.
 
+use std::cell::RefCell;
 use std::path::PathBuf;
 use std::process::ExitCode;
+use std::rc::Rc;
 use std::time::Duration;
 
 use clap::{Parser, Subcommand, ValueEnum};
-use dpaa2_api::contract::McControl;
+use dpaa2_api::contract::{JournalHandle, KernelControl, McControl, Recording};
 use dpaa2_api::core::error::Error;
 use dpaa2_api::core::model::DprcId;
 use dpaa2_api::families::dpio::SeatDisposition;
@@ -18,6 +20,8 @@ use dpaa2_api::intent::Intent;
 use dpaa2_api::intent::refuse::{Compiled, compile};
 use dpaa2_api::plan::Class;
 use dpaa2_api::plan::reconcile::{ReconcileOptions, reconcile_with};
+use dpaa2_api::plan::rollback::{FailurePolicy, RunJournal};
+use dpaa2_api::plan::rollback_exec::{FailureDisposition, apply_failure_policy};
 use dpaa2_mc::{RestoolMc, SysfsKernel};
 use dpaa2_tools::engine::{
     self, ContainerOutcome, ConvergeConfig, LinkOutcome, Outcome, PoolOutcome, PoolPass,
@@ -263,17 +267,78 @@ fn run(cli: &Cli) -> Result<ExitCode, Error> {
             allow,
             no_link,
             link_dir,
-        } => ensure(
-            &mc, &kernel, cli, *deadline, *prune, *allow, *no_link, link_dir,
-        ),
+        } => Ok(run_ensure(
+            mc, kernel, cli, *deadline, *prune, *allow, *no_link, link_dir,
+        )),
+    }
+}
+
+/// Runs one `ensure` under the recording layer and the run's mid-run failure policy
+/// (plan-rollback design D2/D5). It wraps both composed backends in one [`Recording`] so the
+/// run journals its actuations, then runs `ensure`; a mid-run verb error — the one seam every
+/// converge phase's `?` bubbles to — applies the planning-time policy over the journal here,
+/// not per phase. The policy is the default until the group-6 CLI flag lands.
+#[allow(clippy::too_many_arguments)]
+fn run_ensure(
+    mc: RestoolMc<dpaa2_mc::RestoolRunner>,
+    kernel: SysfsKernel,
+    cli: &Cli,
+    deadline: u64,
+    prune: bool,
+    allow: AllowArg,
+    no_link: bool,
+    link_dir: &std::path::Path,
+) -> ExitCode {
+    let journal: JournalHandle = Rc::new(RefCell::new(RunJournal::new()));
+    let policy = FailurePolicy::default();
+    let mc = Recording::new(mc, Rc::clone(&journal));
+    let kernel = Recording::new(kernel, Rc::clone(&journal));
+    match ensure(&mc, &kernel, cli, deadline, prune, allow, no_link, link_dir) {
+        Ok(code) => code,
+        // The next level-triggered loop re-observes and re-judges (plan-rollback design D5).
+        Err(failure) => {
+            // Snapshot the journal so the executor's undo dispatch never aliases the live handle.
+            let recorded = journal.borrow().clone();
+            let disposition = apply_failure_policy(policy, &recorded, &mc, &kernel);
+            print_failure_disposition(&failure, &disposition);
+            ExitCode::FAILURE
+        }
+    }
+}
+
+/// Renders a mid-run failure and how the run's [`FailurePolicy`] disposed of it (plan-rollback design D5;
+/// spec "Rollback unwinds the journal in reverse order"): the failure class, then the
+/// reverse-order unwind (unwound rows, typed reboot residue, and any row the environment left
+/// unreversed) or, under abort, the executed prefix left standing for the next loop.
+fn print_failure_disposition(failure: &Error, disposition: &FailureDisposition) {
+    println!("refused: a verb failed mid-run: {failure}");
+    match disposition {
+        FailureDisposition::RolledBack(report) => {
+            println!(
+                "  rolled back {} actuation(s) in reverse order",
+                report.unwound.len()
+            );
+            for residue in &report.residue {
+                println!("  residue (reboot to reclaim): {residue:?}");
+            }
+            for row in &report.unreversed {
+                println!("  UNREVERSED (next loop re-judges): {row:?}");
+            }
+        }
+        FailureDisposition::Aborted { prefix } => {
+            println!(
+                "  aborted: {} actuation(s) of the executed prefix left standing for the next loop",
+                prefix.len()
+            );
+        }
     }
 }
 
 #[allow(clippy::too_many_arguments)]
 #[allow(clippy::too_many_lines)] // one linear stage per convergence phase, by design
-fn ensure(
-    mc: &RestoolMc<dpaa2_mc::RestoolRunner>,
-    kernel: &SysfsKernel,
+fn ensure<M: McControl, K: KernelControl>(
+    mc: &M,
+    kernel: &K,
     cli: &Cli,
     deadline: u64,
     prune: bool,
@@ -525,9 +590,9 @@ fn print_rebuild_refusals(refusals: &[dpaa2_api::plan::RebuildRefusal]) {
 ///
 /// # Errors
 /// Propagates a backend/kernel read/dispatch error.
-fn run_population(
-    mc: &RestoolMc<dpaa2_mc::RestoolRunner>,
-    kernel: &SysfsKernel,
+fn run_population<M: McControl, K: KernelControl>(
+    mc: &M,
+    kernel: &K,
     plan: &dpaa2_api::intent::compiled::CompiledPlan,
     cfg: ConvergeConfig,
 ) -> Result<Option<ExitCode>, Error> {
@@ -559,8 +624,8 @@ fn run_population(
 ///
 /// # Errors
 /// Propagates a backend read/dispatch error.
-fn run_links(
-    mc: &RestoolMc<dpaa2_mc::RestoolRunner>,
+fn run_links<M: McControl>(
+    mc: &M,
     plan: &dpaa2_api::intent::compiled::CompiledPlan,
     cfg: ConvergeConfig,
 ) -> Result<Option<ExitCode>, Error> {
@@ -588,9 +653,9 @@ fn run_links(
 ///
 /// # Errors
 /// Propagates a backend/kernel read/dispatch error.
-fn run_switches(
-    mc: &RestoolMc<dpaa2_mc::RestoolRunner>,
-    kernel: &SysfsKernel,
+fn run_switches<M: McControl, K: KernelControl>(
+    mc: &M,
+    kernel: &K,
     plan: &dpaa2_api::intent::compiled::CompiledPlan,
     cfg: ConvergeConfig,
 ) -> Result<Option<ExitCode>, Error> {
@@ -712,8 +777,8 @@ fn report_root_dpni_prune(outcome: &RootDpniPruneOutcome) -> Option<ExitCode> {
 ///
 /// Returns an [`Error`] only when the config is unreadable or the board cannot be
 /// queried; a *refused* compile is not an error but the printed `Ok(None)` verdict.
-fn compile_intent(
-    mc: &RestoolMc<dpaa2_mc::RestoolRunner>,
+fn compile_intent<M: McControl>(
+    mc: &M,
     path: &std::path::Path,
 ) -> Result<Option<(Intent, Compiled)>, Error> {
     let mut intent = dpaa2_config::load(path)?;
