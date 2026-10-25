@@ -37,8 +37,10 @@
 //   ADR-0023 design D4 "companions ≺ object ≺ edges; reverse on teardown").
 //   ORCH-I4 (bounded convergence) is liveness — stated above, witnessed by
 //   `convergeTest`, not a max-steps=1 safety conjunct. ORCH-I6 (confluence) is
-//   stated here and checked by resource-aware-orchestration task 7.1 (bounded
-//   pairwise, simulator-first).
+//   stated here and checked by `ORCH_I6_pairwise` — a bounded pairwise diamond
+//   over the engine-pass alphabet (`pnpm model:confluence`), simulator-only
+//   outside `stateInvariants`; full treatment stays behind the ADR-0023 revisit
+//   trigger (resource-aware-orchestration task 7.1).
 module orchestration {
   import types.* from "../core/types"
 
@@ -108,6 +110,21 @@ module orchestration {
   var verdict: Verdict                // admission verdict for the compiled plan
   var refused: Family -> bool         // typed whole-intent refusal recorded (ADR-0023 design D5/D10)
 
+  // The nine vars bundled as one record (ADR-0023 design D11): the pure pass
+  // twins and the ORCH-I6 pairwise diamond read and transform `State`, and `cur`
+  // lifts the live vars into it, so the actions and the confluence check share
+  // one transition definition (resource-aware-orchestration task 7.1).
+  type State = {
+    status: Family -> Status, pending: Family -> int,
+    occ: Occupancy, censusOcc: Occupancy, portWired: bool,
+    poolFree: int, fdbFree: int, verdict: Verdict, refused: Family -> bool,
+  }
+  val cur: State = {
+    status: status, pending: pending, occ: occ, censusOcc: censusOcc,
+    portWired: portWired, poolFree: poolFree, fdbFree: fdbFree,
+    verdict: verdict, refused: refused,
+  }
+
   // ---- family-table helpers (ADR-0023 design D10/D11) ----
 
   pure def execKind(f: Family): Option[ResKind] =
@@ -122,16 +139,17 @@ module orchestration {
 
   // The firmware enforces the real budget at dispatch, so this guard is
   // census-read (ADR-0023 design D9): a stale read costs one refused verb.
-  def budgetOk(f: Family): bool =
+  pure def budgetOkOn(s: State, f: Family): bool =
     match execKind(f) {
       | None => true
       | Some(k) => match k {
-        | PoolDraw => poolFree > 0
-        | FdbDraw => fdbFree > 0
+        | PoolDraw => s.poolFree > 0
+        | FdbDraw => s.fdbFree > 0
         | PlainCreate => true
         | NoCreate => true
       }
     }
+  def budgetOk(f: Family): bool = budgetOkOn(cur, f)
 
   // Companions precede their object (ADR-0023 design D4 ordering-as-guards): the
   // dpni object waits on its dpbp pool companion.
@@ -163,44 +181,53 @@ module orchestration {
   // these hold — masking (ADR-0023 resource-aware-orchestration task 2.1) adds
   // `and not masked.contains(f)` to `execEnabled` alone, so a masked family
   // satisfies the guards yet is dead.
-  def createGuards(f: Family): bool = and {
-    verdict == Admitted,
+  // Enablement is pure over `State` so the actions and the ORCH-I6 pairwise
+  // diamond share one guard definition (resource-aware-orchestration task 7.1);
+  // the var-reading names below delegate through `cur`.
+  pure def createGuardsOn(s: State, f: Family): bool = and {
+    s.verdict == Admitted,
     isCreate(f),
-    status.get(f) == Missing,
-    pending.get(f) > 0,
-    not(refused.get(f)),
-    companionsReady(f, status),
-    containmentReady(f, status),
-    budgetOk(f),
+    s.status.get(f) == Missing,
+    s.pending.get(f) > 0,
+    not(s.refused.get(f)),
+    companionsReady(f, s.status),
+    containmentReady(f, s.status),
+    budgetOkOn(s, f),
   }
+  def createGuards(f: Family): bool = createGuardsOn(cur, f)
   def execEnabled(f: Family): bool = createGuards(f)
 
-  def reconcileEnabled(f: Family): bool = status.get(f) == Drifted
+  pure def reconcileEnabledOn(s: State, f: Family): bool = s.status.get(f) == Drifted
+  def reconcileEnabled(f: Family): bool = reconcileEnabledOn(cur, f)
+
   // Teardown reverses create (ADR-0023 design D4; ORCH-I7): the container dprc
   // drains only once every child-homed family is gone.
-  def pruneEnabled(f: Family): bool = and {
-    status.get(f) == Orphan,
-    (f == Dprc) implies CHILD_HOMED.forall(c => status.get(c) == Missing),
+  pure def pruneEnabledOn(s: State, f: Family): bool = and {
+    s.status.get(f) == Orphan,
+    (f == Dprc) implies CHILD_HOMED.forall(c => s.status.get(c) == Missing),
   }
+  def pruneEnabled(f: Family): bool = pruneEnabledOn(cur, f)
 
   // The Unimplemented refusal pass (ADR-0023 design D10): refusable while entries pend.
-  def refuseEnabled(f: Family): bool = and {
+  pure def refuseEnabledOn(s: State, f: Family): bool = and {
     isUnimplemented(f),
-    pending.get(f) > 0,
-    not(refused.get(f)),
+    s.pending.get(f) > 0,
+    not(s.refused.get(f)),
   }
+  def refuseEnabled(f: Family): bool = refuseEnabledOn(cur, f)
 
   // The switch-port wire — the one live-read guard (ADR-0023 design D9): it reads
   // the live `occ`, never `censusOcc`, so the port is wired only while the dpmac
   // reads back driver-free (ORCH-I2; the phylink handover window).
-  def wireEnabled: bool = and {
-    verdict == Admitted,
+  pure def wireEnabledOn(s: State): bool = and {
+    s.verdict == Admitted,
     WANT_PORT,
-    not(portWired),
-    status.get(Dpsw) == Converged,
-    occ == Free,
-    fdbFree > 0,
+    not(s.portWired),
+    s.status.get(Dpsw) == Converged,
+    s.occ == Free,
+    s.fdbFree > 0,
   }
+  def wireEnabled: bool = wireEnabledOn(cur)
 
   def anyPassEnabled: bool =
     TABLE_FAMS.exists(f => or {
@@ -268,55 +295,64 @@ module orchestration {
 
   // ---- engine passes ----
 
+  // Each engine pass's state update as a pure `State -> State` twin, an
+  // ADR-0023 design D11 census transform. The actions below commit the twin's
+  // result and the ORCH-I6 pairwise diamond applies the same twins to states,
+  // so there is one transition definition and no hand-copy that can drift
+  // (resource-aware-orchestration task 7.1).
+
   // Create/converge a construct, draining one plan entry and its budget draw.
-  action doCreate(f: Family): bool = all {
-    execEnabled(f),
-    status' = status.set(f, Converged),
-    pending' = pending.set(f, pending.get(f) - 1),
-    poolFree' = if (execKind(f) == Some(PoolDraw)) poolFree - 1 else poolFree,
-    fdbFree' = if (execKind(f) == Some(FdbDraw)) fdbFree - 1 else fdbFree,
-    occ' = occ, censusOcc' = censusOcc, portWired' = portWired,
-    verdict' = verdict, refused' = refused,
+  pure def applyCreate(s: State, f: Family): State = { ...s,
+    status: s.status.set(f, Converged),
+    pending: s.pending.set(f, s.pending.get(f) - 1),
+    poolFree: if (execKind(f) == Some(PoolDraw)) s.poolFree - 1 else s.poolFree,
+    fdbFree: if (execKind(f) == Some(FdbDraw)) s.fdbFree - 1 else s.fdbFree,
   }
 
   // Reconcile a drifted construct back to converged (no draw — it exists).
-  action doReconcile(f: Family): bool = all {
-    reconcileEnabled(f),
-    status' = status.set(f, Converged),
-    pending' = pending, poolFree' = poolFree, fdbFree' = fdbFree,
-    occ' = occ, censusOcc' = censusOcc, portWired' = portWired,
-    verdict' = verdict, refused' = refused,
+  pure def applyReconcile(s: State, f: Family): State = { ...s,
+    status: s.status.set(f, Converged),
   }
 
   // Prune an orphan (teardown reverses create; ADR-0023 design D4), returning its draw.
-  action doPrune(f: Family): bool = all {
-    pruneEnabled(f),
-    status' = status.set(f, Missing),
-    poolFree' = if (execKind(f) == Some(PoolDraw)) poolFree + 1 else poolFree,
-    fdbFree' = if (execKind(f) == Some(FdbDraw)) fdbFree + 1 else fdbFree,
-    pending' = pending, occ' = occ, censusOcc' = censusOcc, portWired' = portWired,
-    verdict' = verdict, refused' = refused,
+  pure def applyPrune(s: State, f: Family): State = { ...s,
+    status: s.status.set(f, Missing),
+    poolFree: if (execKind(f) == Some(PoolDraw)) s.poolFree + 1 else s.poolFree,
+    fdbFree: if (execKind(f) == Some(FdbDraw)) s.fdbFree + 1 else s.fdbFree,
   }
 
-  // The typed Unimplemented refusal (ADR-0023 design D10): dispatched before any
-  // verb, draining the plan entries as refused — never left silently pending.
-  action doRefuse(f: Family): bool = all {
-    refuseEnabled(f),
-    refused' = refused.set(f, true),
-    pending' = pending.set(f, 0),
-    status' = status, poolFree' = poolFree, fdbFree' = fdbFree,
-    occ' = occ, censusOcc' = censusOcc, portWired' = portWired, verdict' = verdict,
+  // The typed Unimplemented refusal (ADR-0023 design D10): draining the plan
+  // entries as refused — never left silently pending.
+  pure def applyRefuse(s: State, f: Family): State = { ...s,
+    refused: s.refused.set(f, true),
+    pending: s.pending.set(f, 0),
   }
 
-  // Wire the switch port over the live-read driver-free dpmac (ADR-0023 D9 the
-  // one live-read guard). The SwitchHeld move is the kernel's — the env effects it.
-  action doWire = all {
-    wireEnabled,
-    portWired' = true,
-    fdbFree' = fdbFree - 1,
-    status' = status, pending' = pending, poolFree' = poolFree,
-    occ' = occ, censusOcc' = censusOcc, verdict' = verdict, refused' = refused,
+  // Wire the switch port (ADR-0023 design D9); the SwitchHeld move is the
+  // kernel's, so `occ` is untouched here — the env effects it.
+  pure def applyWire(s: State): State = { ...s,
+    portWired: true,
+    fdbFree: s.fdbFree - 1,
   }
+
+  // Commit a twin's resulting `State` onto the model vars (ADR-0023 design D11).
+  action commitState(ns: State): bool = all {
+    status' = ns.status,
+    pending' = ns.pending,
+    occ' = ns.occ,
+    censusOcc' = ns.censusOcc,
+    portWired' = ns.portWired,
+    poolFree' = ns.poolFree,
+    fdbFree' = ns.fdbFree,
+    verdict' = ns.verdict,
+    refused' = ns.refused,
+  }
+
+  action doCreate(f: Family): bool = all { execEnabled(f), commitState(applyCreate(cur, f)) }
+  action doReconcile(f: Family): bool = all { reconcileEnabled(f), commitState(applyReconcile(cur, f)) }
+  action doPrune(f: Family): bool = all { pruneEnabled(f), commitState(applyPrune(cur, f)) }
+  action doRefuse(f: Family): bool = all { refuseEnabled(f), commitState(applyRefuse(cur, f)) }
+  action doWire = all { wireEnabled, commitState(applyWire(cur)) }
 
   // ---- environment adversary (ADR-0023 design D7) ----
 
@@ -441,8 +477,67 @@ module orchestration {
 
   // Apalache-marked subset (ladder bounds): I1, I2, I3, I5, I7. ORCH-I4 (bounded
   // convergence) is liveness, witnessed by `convergeTest`; ORCH-I6 (confluence)
-  // is stated here, checked by resource-aware-orchestration task 7.1.
+  // is `ORCH_I6_pairwise` below — simulator-only, deliberately NOT a conjunct here.
   val stateInvariants: bool = and { ORCH_I1, ORCH_I2, ORCH_I3, ORCH_I5, ORCH_I7 }
+
+  // ---- ORCH-I6 confluence (bounded pairwise, simulator-first) ----
+  // ADR-0023 design "ORCH-I6" / resource-aware-orchestration task 7.1. The
+  // engine-pass alphabet: a create/reconcile/prune/refuse per family-table row
+  // plus the single switch-port wire. The adversary (`doEnv`), the loop boundary
+  // (`observe`/`admit`) and `stutter` are not scheduler-ordered engine passes, so
+  // they are out of the alphabet.
+  type Pass = PCreate(Family) | PReconcile(Family) | PPrune(Family) | PRefuse(Family) | PWire
+
+  pure val PASS_ALPHABET: Set[Pass] =
+    TABLE_FAMS.map(f => PCreate(f))
+      .union(TABLE_FAMS.map(f => PReconcile(f)))
+      .union(TABLE_FAMS.map(f => PPrune(f)))
+      .union(TABLE_FAMS.map(f => PRefuse(f)))
+      .union(Set(PWire))
+
+  pure def passEnabled(s: State, p: Pass): bool =
+    match p {
+      | PCreate(f) => createGuardsOn(s, f)
+      | PReconcile(f) => reconcileEnabledOn(s, f)
+      | PPrune(f) => pruneEnabledOn(s, f)
+      | PRefuse(f) => refuseEnabledOn(s, f)
+      | PWire => wireEnabledOn(s)
+    }
+
+  pure def passApply(s: State, p: Pass): State =
+    match p {
+      | PCreate(f) => applyCreate(s, f)
+      | PReconcile(f) => applyReconcile(s, f)
+      | PPrune(f) => applyPrune(s, f)
+      | PRefuse(f) => applyRefuse(s, f)
+      | PWire => applyWire(s)
+    }
+
+  // The board-observable census (ADR-0023 design D11): per-construct status, the
+  // pending multisets, the switch-port edge, the two budgets and the dpmac
+  // occupancy. The ADR-0023 design D9 census-read snapshot (`censusOcc`) and the admission
+  // scratch (`verdict`) are not board-observable and no engine pass writes them,
+  // so they are out of the confluence projection.
+  pure def census(s: State): (Family -> Status, Family -> int, bool, int, int, Occupancy, Family -> bool) =
+    (s.status, s.pending, s.portWired, s.poolFree, s.fdbFree, s.occ, s.refused)
+
+  // ORCH-I6 confluence (bounded, pairwise): for the CURRENT reachable state, any
+  // two distinct engine passes both enabled AND each still enabled after the
+  // other (so guards force no order between them) reach the same census in either
+  // order. A pass that disables the other is order-forced by guards and exempt —
+  // exactly "wherever guards force none". Simulator-only (`pnpm model:confluence`,
+  // resource-aware-orchestration task 7.1): NOT in `stateInvariants`; the full
+  // treatment stays behind the ADR-0023 revisit trigger.
+  val ORCH_I6_pairwise: bool =
+    tuples(PASS_ALPHABET, PASS_ALPHABET).forall(((p, q)) =>
+      (and {
+        p != q,
+        passEnabled(cur, p),
+        passEnabled(cur, q),
+        passEnabled(passApply(cur, p), q),
+        passEnabled(passApply(cur, q), p),
+      }) implies
+        census(passApply(passApply(cur, p), q)) == census(passApply(passApply(cur, q), p)))
 
   // ---- directed runs (frozen for ITF replay via `pnpm model:freeze-orch`) ----
 

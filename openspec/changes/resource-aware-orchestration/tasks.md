@@ -88,7 +88,7 @@
 
 ## 7. Confluence follow-on (ORCH-I6)
 
-- [ ] 7.1 Bounded pairwise confluence check over passes,
+- [x] 7.1 Bounded pairwise confluence check over passes,
       simulator-first: where guards force no order, either pass order
       reaches the same final census. Full treatment stays behind the
       ADR-0023 revisit trigger. Verify: pairwise check green in the

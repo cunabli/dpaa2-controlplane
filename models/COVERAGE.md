@@ -500,9 +500,11 @@ no bound trim needed at the 5→9 family growth) and the simulate rung
 (`pnpm model:simulate`, 20 steps × 200 samples). ORCH-I4 is liveness — stated in
 the model header as the bounded-convergence claim under eventual-environment-
 quiescence fairness (ADR-0023 design D7) and witnessed by `convergeTest`, not a
-`--max-steps=1` safety conjunct. ORCH-I6 (confluence) is stated in the header;
-its bounded pairwise simulator check lands at resource-aware-orchestration task
-7.1. The six directed runs are frozen for ITF replay (`pnpm model:freeze-orch`,
+`--max-steps=1` safety conjunct. ORCH-I6 (confluence) rides the simulator rung
+only as `ORCH_I6_pairwise` (`pnpm model:confluence`, in `model:validation` after
+`model:retro-orch`), deliberately NOT in `stateInvariants` — the full treatment
+stays behind the ADR-0023 revisit trigger (resource-aware-orchestration task 7.1).
+The six directed runs are frozen for ITF replay (`pnpm model:freeze-orch`,
 in `models/traces/orchestration/`); the dpaa2-verify registry
 twin replays them against the engine's pass schedule at
 resource-aware-orchestration task 3.2.
@@ -529,7 +531,7 @@ firmware backstop.
 | ORCH-I3 | `ORCH_I3` admission soundness + `admissionRefusesTest`/`stableRefusalTest` | simulate + apalache | ADR-0023 design D5/D8 (gross draw, stable refusal); ADR-0011 budgets; V-DPSW-2 (FDB ceiling) |
 | ORCH-I4 | bounded convergence (liveness) + `convergeTest` | simulate (directed) | ADR-0023 design D7 (eventual-environment-quiescence fairness); stated in the model header, not a `--max-steps=1` conjunct |
 | ORCH-I5 | `ORCH_I5` quiescence / no churn | simulate + apalache | ADR-0023 "Quiescence"; ADR-0008 level-triggered idempotence |
-| ORCH-I6 | confluence (bounded) — stated only | deferred | ADR-0023 (stated in the model header); bounded pairwise simulator check owned by resource-aware-orchestration task 7.1 |
+| ORCH-I6 | `ORCH_I6_pairwise` confluence (bounded pairwise diamond over the engine-pass alphabet) | simulate (`pnpm model:confluence`, 20 steps × 200 samples; 37-pass alphabet → 666 distinct pass-pairs judged per state) | ADR-0023 design "ORCH-I6"; resource-aware-orchestration task 7.1; simulator-only (not `stateInvariants`); full treatment stays behind the ADR-0023 revisit trigger |
 | ORCH-I7 | `ORCH_I7` containment order (a child-homed family dpni/dpbp/dpio/dpcon/dpmcp is converged-or-drifted only while its container dprc is converged) + `convergeTest`/`handoverSafeTest` (create order: dprc before its residents) | simulate + apalache | ADR-0023 design D4 (companions ≺ object ≺ edges; reverse on teardown); ADR-0004 containment (child-homed families home inside the child dprc) |
 | Mask-a-family retro-oracle | `orchestration/retro_oracle.qnt` `ORCH_I1_maskNone` (unmasked baseline, green) + `ORCH_I1_maskDprc/Dpni/Dpbp/Dpio/Dpcon/Dpmcp/Dpsw/Dpmac/Dpseci` (each masked table row red — the full derived vocabulary plus dpmac) driven by `models/helpers/orch-retro-oracle.py` (`pnpm model:retro-orch`) | simulate (expect-red) | ADR-0023 design D3/D10; the dpsw-typestate/dpseci gap class (bead dpaa2-controlplane-dbf.19); resource-aware-orchestration task 2.1 |
 | Handover live-read pair | `orchestration/retro_oracle.qnt` `handoverSafe` over the shipped `step` (switch-wire-over-MacHeld unreachable, green) vs `stepCensus` (live-read replaced by the `censusOcc` snapshot, reachable, red) via `pnpm model:retro-orch` | simulate (expect-red) | ADR-0023 design D9; docs/upstream/phylink-dpni-churn-crash.md; resource-aware-orchestration task 2.2 |

@@ -13,7 +13,7 @@
 //     completeness (pipeline `ORCH_I1`, ADR-0023 design D3/D10) with one
 //     family's servicing transition forced dead; the shipped `step` drives it.
 //   - the census seam: `wireEnabledCensus`/`doWireCensus` mirror pipeline
-//     `wireEnabled`/`doWire` (lines ~161/274) with the one live-read of `occ`
+//     `wireEnabled`/`doWire` with the one live-read of `occ`
 //     replaced by the dormant `censusOcc` snapshot — the seam pipeline's header
 //     calls out — and `stepCensus` swaps `doWire` for it.
 //
@@ -79,7 +79,7 @@ module retro_oracle {
   // `step` (live-read in place), reachable on `stepCensus` (live-read removed).
   val handoverSafe: bool = not(portWired and occ == MacHeld)
 
-  // Mirrors pipeline `wireEnabled` (line ~161) with the ONE live-read of `occ`
+  // Mirrors pipeline `wireEnabled` with the ONE live-read of `occ`
   // replaced by the dormant `censusOcc` snapshot — the removed-live-read variant.
   val wireEnabledCensus: bool = and {
     verdict == Admitted,
@@ -90,7 +90,7 @@ module retro_oracle {
     fdbFree > 0,
   }
 
-  // Mirrors pipeline `doWire` (line ~274) over the census-read guard.
+  // Mirrors pipeline `doWire` over the census-read guard.
   action doWireCensus = all {
     wireEnabledCensus,
     portWired' = true,
@@ -99,7 +99,7 @@ module retro_oracle {
     occ' = occ, censusOcc' = censusOcc, verdict' = verdict, refused' = refused,
   }
 
-  // Mirrors pipeline `step` (line ~349) with `doWire` swapped for `doWireCensus`.
+  // Mirrors pipeline `step` with `doWire` swapped for `doWireCensus`.
   action stepCensus = any {
     observe,
     admit,
