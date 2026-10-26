@@ -181,7 +181,7 @@
 
 ## 11. Suite re-stage and sittings
 
-- [ ] 11.1 Re-stage V-ROLLBACK-1 to rev 4: the step-1 precondition gate
+- [x] 11.1 Re-stage V-ROLLBACK-1 to rev 4: the step-1 precondition gate
   reads the global bp row too (counts derived at runtime from the
   dry-run global row, never hardcoded, so the writer needs only a
   handful of drains inside the ~5s kernel-bind-to-child-create window),
