@@ -46,6 +46,17 @@ pub enum AdmissionRefusal {
         /// The observed free headroom it exceeded.
         headroom: i64,
     },
+    /// A pool family's draw exceeds the observed MC-global free row — the second ledger a
+    /// hardware-side drain empties though the census shows headroom (plan-rollback design D2;
+    /// V-ROLLBACK-1 rev 3; bp only now).
+    GlobalPool {
+        /// The pool family whose MC-global row the draw overran.
+        family: Family,
+        /// The gross draw on that family.
+        draw: i64,
+        /// The observed MC-global free headroom it exceeded.
+        headroom: i64,
+    },
     /// The dpsw FDB draw exceeds the observed V-DPSW-2 bracket free headroom.
     Fdb {
         /// The gross FDB draw.
@@ -85,13 +96,18 @@ impl GrossDraw {
 }
 
 /// The admission verdict (ADR-0023 design D5/D8): the complete set of budgets the gross draw
-/// overdraws, else admit. A reclaimable pool row ([`PoolHeadroom::Free`]) refuses when the
-/// draw exceeds it; dpio's spent row ([`PoolHeadroom::Spent`], ADR-0003 §7 non-reclaimable)
-/// and an unobserved family carry no free count, so their draws take the refusal-free path
-/// (the spec's "a budget row joins only with the change that proves its observation"). An
-/// Unknown FDB bracket (`free() == None`) admits, never refuses (ADR-0011 warn-on-unknown; the
-/// warn rides `compile`'s `Warning::UnknownCeiling` for dpsw). Deterministic: the per-family
-/// pool rows iterate in sorted order, the FDB row last, so repeated calls are byte-identical.
+/// overdraws, else admit. A per-family draw is judged against two independent ledgers
+/// (plan-rollback design D2; V-ROLLBACK-1 rev 3): the per-container census pool row and the
+/// MC-global free row (bp only now). A reclaimable census row ([`PoolHeadroom::Free`]) refuses
+/// when the draw exceeds it; dpio's spent row ([`PoolHeadroom::Spent`], ADR-0003 §7
+/// non-reclaimable) and an unobserved family carry no free count, so their draws take the
+/// refusal-free path (the spec's "a budget row joins only with the change that proves its
+/// observation"). The global ledger is the same: a family with a `globals` row refuses when the
+/// draw exceeds its free count, a family with none takes the refusal-free path. Both ledgers can
+/// refuse one family — the verdict is the complete set. An Unknown FDB bracket (`free() == None`)
+/// admits, never refuses (ADR-0011 warn-on-unknown; the warn rides `compile`'s
+/// `Warning::UnknownCeiling` for dpsw). Deterministic: the refusal set is sorted before return,
+/// so repeated calls are byte-identical.
 ///
 /// # Errors
 ///
@@ -113,6 +129,24 @@ pub fn admit(face: &CapacityFace, draw: &GrossDraw) -> Result<(), Vec<AdmissionR
                 family,
                 draw: d,
                 headroom: n,
+            });
+        }
+    }
+    for (&family, &d) in &draw.pool {
+        if d <= 0 {
+            continue;
+        }
+        if let Some(free) = face
+            .globals
+            .iter()
+            .find(|g| g.family == family)
+            .map(|g| g.free)
+            && d > free
+        {
+            refusals.push(AdmissionRefusal::GlobalPool {
+                family,
+                draw: d,
+                headroom: free,
             });
         }
     }
@@ -142,7 +176,7 @@ mod tests {
 
     use super::*;
     use crate::core::inventory::Ceiling;
-    use crate::plan::capacity::{FdbBudget, PoolBudget};
+    use crate::plan::capacity::{FdbBudget, GlobalBudget, PoolBudget};
 
     fn draw(dpbp: i64, dpsw: i64) -> GrossDraw {
         let mut pending = BTreeMap::new();
@@ -180,6 +214,17 @@ mod tests {
             n,
             provenance: "V-DPSW-2".to_owned(),
         }
+    }
+
+    // A face carrying a census dpbp free count and an MC-global bp free row (the second
+    // ledger, plan-rollback design D2).
+    fn face_g(dpbp_free: i64, global_bp_free: i64) -> CapacityFace {
+        let mut f = face(dpbp_free, Ceiling::Unknown, 0);
+        f.globals = vec![GlobalBudget {
+            family: Family::Dpbp,
+            free: global_bp_free,
+        }];
+        f
     }
 
     #[test]
@@ -240,6 +285,56 @@ mod tests {
         let draw = GrossDraw::from_pending(&BTreeMap::from([(Family::Dpio, 1)]));
         assert_eq!(draw.pool.get(&Family::Dpio), Some(&1));
         assert!(admit(&face(0, Ceiling::Unknown, 0), &draw).is_ok());
+    }
+
+    #[test]
+    fn exhausted_global_row_refuses_though_census_has_headroom() {
+        // 9.3 verify: census bp free 4 admits, the MC-global bp row at 0 refuses the same draw
+        // (the second ledger a hardware-side drain emptied; V-ROLLBACK-1 rev 3).
+        let err = admit(&face_g(4, 0), &draw(2, 0)).unwrap_err();
+        assert_eq!(
+            err,
+            vec![AdmissionRefusal::GlobalPool {
+                family: Family::Dpbp,
+                draw: 2,
+                headroom: 0,
+            }]
+        );
+    }
+
+    #[test]
+    fn both_ledgers_exhausted_refuse_in_one_sorted_verdict() {
+        // Both the census row and the global row overdrawn ⇒ both refusals, Pool before
+        // GlobalPool by the derive sort (plan-rollback design D2).
+        let err = admit(&face_g(1, 0), &draw(2, 0)).unwrap_err();
+        assert_eq!(
+            err,
+            vec![
+                AdmissionRefusal::Pool {
+                    family: Family::Dpbp,
+                    draw: 2,
+                    headroom: 1,
+                },
+                AdmissionRefusal::GlobalPool {
+                    family: Family::Dpbp,
+                    draw: 2,
+                    headroom: 0,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn a_family_with_no_global_row_never_yields_global_pool() {
+        // dpio draws against a face with no global row for it: the global ledger takes the
+        // refusal-free path (a budget row joins only with its proving observation).
+        let draw = GrossDraw::from_pending(&BTreeMap::from([(Family::Dpio, 1)]));
+        assert!(admit(&face(0, Ceiling::Unknown, 0), &draw).is_ok());
+    }
+
+    #[test]
+    fn a_fitting_draw_within_both_ledgers_admits() {
+        assert!(admit(&face_g(2, 2), &draw(1, 0)).is_ok());
     }
 
     #[test]

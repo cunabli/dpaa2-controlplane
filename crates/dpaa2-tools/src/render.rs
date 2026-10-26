@@ -425,6 +425,17 @@ pub fn render_admission_refusal(refusals: &[AdmissionRefusal]) -> String {
                     family.as_str()
                 );
             }
+            AdmissionRefusal::GlobalPool {
+                family,
+                draw,
+                headroom,
+            } => {
+                let _ = writeln!(
+                    out,
+                    "refused: mc-global pool {} draw {draw} exceeds global free headroom {headroom}",
+                    family.as_str()
+                );
+            }
             AdmissionRefusal::Fdb { draw, headroom } => {
                 let _ = writeln!(
                     out,

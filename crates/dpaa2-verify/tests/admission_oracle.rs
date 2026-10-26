@@ -8,13 +8,19 @@
 //! empty); the idempotence test (`refusals_are_idempotent`,
 //! resource-aware-orchestration task 4.2) adds that repeated
 //! judgments are byte-stable (ADR-0023 design D5).
+//!
+//! The global-row extension (plan-rollback task 9.3, process rule 6 instance A) adds the
+//! second ledger to the fixpoint: a converged intent re-admits even against a zero MC-global
+//! bp row, and a pending bp create with census headroom but an exhausted global bp row refuses
+//! typed `GlobalPool` and repeats byte-identical (V-ROLLBACK-1 rev 3; no apply/rollback
+//! oscillation, ORCH-I3).
 
 use std::collections::BTreeMap;
 
 use dpaa2_api::core::family::Family;
 use dpaa2_api::core::inventory::Ceiling;
 use dpaa2_api::plan::admission::{AdmissionRefusal, GrossDraw, admit};
-use dpaa2_api::plan::capacity::{CapacityFace, FdbBudget, PoolBudget, PoolHeadroom};
+use dpaa2_api::plan::capacity::{CapacityFace, FdbBudget, GlobalBudget, PoolBudget, PoolHeadroom};
 
 fn draw(dpbp: i64, dpsw: i64) -> GrossDraw {
     let mut pending = BTreeMap::new();
@@ -53,6 +59,17 @@ fn face(dpbp_free: i64, fdb_bracket: Ceiling, fdb_draw: i64) -> CapacityFace {
             draw: fdb_draw,
         },
     }
+}
+
+// A face carrying a census dpbp free count and an MC-global bp free row (the second ledger,
+// plan-rollback design D2; V-ROLLBACK-1 rev 3).
+fn face_g(dpbp_free: i64, global_bp_free: i64) -> CapacityFace {
+    let mut f = face(dpbp_free, Ceiling::Unknown, 0);
+    f.globals = vec![GlobalBudget {
+        family: Family::Dpbp,
+        free: global_bp_free,
+    }];
+    f
 }
 
 /// An over-budget pool intent refuses whole, naming the budget, the draw, and the headroom
@@ -115,6 +132,37 @@ fn converged_intent_re_admits_against_zero_free() {
     let draw = GrossDraw::from_pending(&BTreeMap::new());
     assert!(draw.pool.is_empty() && draw.fdb == 0);
     assert!(admit(&face(0, bracket(4), 4), &draw).is_ok());
+}
+
+/// A converged intent re-admits against the global rows too (plan-rollback task 9.3, process
+/// rule 6 instance A): the pending draw is empty, so admission admits even when the MC-global bp
+/// row reads zero free — the judgment applied to its own converged output yields the identity
+/// verdict for the second ledger (V-ROLLBACK-1 rev 3).
+#[test]
+fn converged_intent_re_admits_against_zero_global_free() {
+    let draw = GrossDraw::from_pending(&BTreeMap::new());
+    assert!(draw.pool.is_empty() && draw.fdb == 0);
+    assert!(admit(&face_g(0, 0), &draw).is_ok());
+}
+
+/// The spec scenario "A hardware-side drain is bounded too": a pending bp create with census
+/// headroom but an exhausted MC-global bp row refuses typed `GlobalPool`, and the verdict repeats
+/// byte-identical — a stable refusal, no apply/rollback oscillation (plan-rollback design D2;
+/// V-ROLLBACK-1 rev 3; ORCH-I3).
+#[test]
+fn pending_bp_create_refuses_on_exhausted_global_row() {
+    let draw = draw(2, 0);
+    let f = face_g(4, 0);
+    let first = admit(&f, &draw).unwrap_err();
+    assert_eq!(
+        first,
+        vec![AdmissionRefusal::GlobalPool {
+            family: Family::Dpbp,
+            draw: 2,
+            headroom: 0,
+        }]
+    );
+    assert_eq!(admit(&f, &draw).unwrap_err(), first);
 }
 
 /// Judging the same face and plan twice yields byte-identical refusals (the spec scenario

@@ -144,7 +144,7 @@
   the global bp row present and the census rows unchanged; the
   monotonic-growth doc names bp as the only family added now;
   quality-floor green.
-- [ ] 9.3 Judge pending CREATES against the global row of their family
+- [x] 9.3 Judge pending CREATES against the global row of their family
   where one is proven (bp); census rows keep judging draws and claims.
   Verify: admission refuses a pending bp create when the global bp row
   is exhausted though the census row shows headroom; the converged-intent
