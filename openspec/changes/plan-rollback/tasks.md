@@ -162,7 +162,7 @@
   Verify: CLI integration tests assert the global bp row renders
   distinguishably and the refusal voice names the global budget;
   quality-floor green.
-- [ ] 10.2 Give the fake backend a second counter in `dpaa2-verify`
+- [x] 10.2 Give the fake backend a second counter in `dpaa2-verify`
   intent/: create-refusal driven by the global counter, the census
   counter independent, so the offline sim stages exactly the rev-3
   blindness (admission passes on the census while the global counter is

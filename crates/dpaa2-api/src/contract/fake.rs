@@ -175,6 +175,12 @@ struct FakeState {
     /// the detail carries its own optional sig lines and options, so a test scripts the observed
     /// and honest-unknown faces alike.
     dpsw_details: HashMap<ObjectRef, DpswDetail>,
+    /// The MC-global pool budget — the second counter beside the census (plan-rollback design
+    /// D11; ADR-0011): the per-family free count a pool-family create debits and `pool_destroy`
+    /// credits back. EMPTY by default, so a family with no entry carries no global budget and
+    /// creates unlimited as today; a drained entry refuses the MC no-space status (0x8). It
+    /// never touches `pool_objects` or any observation, so the census stays independent.
+    global_free: BTreeMap<Family, i64>,
 }
 
 /// In-memory fake implementing both southbound ports over a shared state.
@@ -210,6 +216,7 @@ impl FakeBackend {
                 counters: HashMap::new(),
                 dpseci_details: HashMap::new(),
                 dpsw_details: HashMap::new(),
+                global_free: BTreeMap::new(),
             }),
         }
     }
@@ -237,6 +244,22 @@ impl FakeBackend {
             },
         ));
         object
+    }
+
+    /// Debits the MC-global pool budget for one pool-family create (plan-rollback design D11):
+    /// when a counter exists for `family`, a drained balance refuses the MC no-space status
+    /// (0x8) the overcommit sim drives, else it decrements on the create. A family with no
+    /// counter is unbudgeted and always creates, so every pre-existing test is untouched. The
+    /// debit never touches `pool_objects`, so the census moves independently (ADR-0011).
+    fn debit_global(&self, family: Family) -> Result<(), Error> {
+        let mut st = self.state.borrow_mut();
+        if let Some(free) = st.global_free.get_mut(&family) {
+            if *free <= 0 {
+                return Err(Error::McStatus { status: 0x8 });
+            }
+            *free -= 1;
+        }
+        Ok(())
     }
 
     /// Seeds a pool object into `container` as if a prior run or bare restool had left it,
@@ -296,6 +319,25 @@ impl FakeBackend {
     pub fn with_dprc_create_refusal(self, error: Error) -> Self {
         self.state.borrow_mut().refuse_dprc_create = Some(error);
         self
+    }
+
+    /// Seeds the MC-global free counter for `family` (plan-rollback design D11): the second
+    /// ledger a pool-family create debits, beside the census. EMPTY by default, so an unseeded
+    /// family models no global budget and creates unlimited as today; a seeded `free` refuses
+    /// the MC no-space status (0x8) once drained, and `pool_destroy` credits it back (bp moves
+    /// symmetrically to the object, V-CEIL-1/V-DPRC-7; ADR-0011).
+    #[must_use]
+    pub fn with_global_pool(self, family: Family, free: i64) -> Self {
+        self.state.borrow_mut().global_free.insert(family, free);
+        self
+    }
+
+    /// The MC-global free count for `family`, or `None` when the family carries no counter
+    /// (plan-rollback design D11). A test derives the capacity face's global row from this at
+    /// runtime, never hardcoding the count (V-ROLLBACK-1 rev 3).
+    #[must_use]
+    pub fn global_free(&self, family: Family) -> Option<i64> {
+        self.state.borrow().global_free.get(&family).copied()
     }
 
     /// Seeds the hardware offer [`McControl::read_inventory`] returns, so the
@@ -982,6 +1024,7 @@ impl McControl for FakeBackend {
         container: Option<DprcId>,
         label: &ConstructName,
     ) -> Result<ObjectRef, Error> {
+        self.debit_global(Family::Dpbp)?;
         Ok(self.push_pool_object(container, Family::Dpbp, label))
     }
 
@@ -990,6 +1033,7 @@ impl McControl for FakeBackend {
         container: Option<DprcId>,
         label: &ConstructName,
     ) -> Result<ObjectRef, Error> {
+        self.debit_global(Family::Dpmcp)?;
         Ok(self.push_pool_object(container, Family::Dpmcp, label))
     }
 
@@ -999,6 +1043,7 @@ impl McControl for FakeBackend {
         _priorities: Priorities,
         label: &ConstructName,
     ) -> Result<ObjectRef, Error> {
+        self.debit_global(Family::Dpcon)?;
         Ok(self.push_pool_object(container, Family::Dpcon, label))
     }
 
@@ -1008,14 +1053,18 @@ impl McControl for FakeBackend {
         _cfg: DpioCfg,
         label: &ConstructName,
     ) -> Result<ObjectRef, Error> {
+        self.debit_global(Family::Dpio)?;
         Ok(self.push_pool_object(container, Family::Dpio, label))
     }
 
+    // Removing the row credits the MC-global counter back when the family carries one, the
+    // symmetric move bp proves (plan-rollback design D11; V-CEIL-1/V-DPRC-7).
     fn pool_destroy(&self, object: &ObjectRef) -> Result<(), Error> {
-        self.state
-            .borrow_mut()
-            .pool_objects
-            .retain(|(_, o)| &o.object != object);
+        let mut st = self.state.borrow_mut();
+        st.pool_objects.retain(|(_, o)| &o.object != object);
+        if let Some(free) = st.global_free.get_mut(&object.family()) {
+            *free += 1;
+        }
         Ok(())
     }
 

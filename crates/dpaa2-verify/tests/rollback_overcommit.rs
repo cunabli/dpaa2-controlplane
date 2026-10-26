@@ -26,8 +26,8 @@ use dpaa2_api::families::dpio::{ChannelMode, DpioCfg, Priorities};
 use dpaa2_api::families::dpni::DpniCfg;
 use dpaa2_api::families::dprc::Options;
 use dpaa2_api::families::pool_lifecycle::{ObservedPoolObject, RawLabel};
-use dpaa2_api::plan::admission::{GrossDraw, admit};
-use dpaa2_api::plan::capacity::{CapacityFace, FdbBudget, PoolBudget, PoolHeadroom};
+use dpaa2_api::plan::admission::{AdmissionRefusal, GrossDraw, admit};
+use dpaa2_api::plan::capacity::{CapacityFace, FdbBudget, GlobalBudget, PoolBudget, PoolHeadroom};
 use dpaa2_api::plan::rollback::{ActuationRecord, FailurePolicy, Residue, RunJournal};
 use dpaa2_api::plan::rollback_exec::{FailureDisposition, apply_failure_policy};
 
@@ -316,5 +316,101 @@ fn rollback_leaves_orphaned_container_unreversed_and_continues_past_it() {
             .map(|o| o.object)
             .collect::<Vec<_>>(),
         vec![orphan],
+    );
+}
+
+/// Spec "The rev-3 blindness is staged and asserted closed" (plan-rollback design D11): the fake
+/// carries a second counter — the MC-global bp pool — drained to 0 while the census-side face
+/// still shows headroom. A face WITHOUT the global row admits though the fake's next bp create
+/// refuses 0x8: that is rev 3, the hardware-side drain invisible to planning. Joining the global
+/// row — derived from the fake at runtime, never hardcoded — makes admission refuse `GlobalPool`
+/// at planning time, the blindness CLOSED. `pool_destroy` then credits the counter back.
+#[test]
+fn the_rev_3_blindness_is_staged_and_asserted_closed() {
+    let backend = FakeBackend::new().with_global_pool(Family::Dpbp, 2);
+    let lbl = ConstructName::from("bp");
+
+    // Drain the MC-global bp counter to 0 through real creates; the census-side face is untouched.
+    let drained = backend.dpbp_create(None, &lbl).unwrap();
+    backend.dpbp_create(None, &lbl).unwrap();
+
+    let draw = GrossDraw::from_pending(&BTreeMap::from([(Family::Dpbp, 1)]));
+
+    // Rev 3 staged: a face with no global row admits while the fake's next bp create refuses 0x8.
+    assert!(
+        admit(&admitting_face(), &draw).is_ok(),
+        "the census face still shows headroom"
+    );
+    assert!(
+        matches!(
+            backend.dpbp_create(None, &lbl),
+            Err(Error::McStatus { status: 0x8 })
+        ),
+        "the hardware-side drain refuses the next bp create — the rev-3 blindness"
+    );
+
+    // Blindness CLOSED: join the global row derived from the fake, and admission refuses on it.
+    let free = backend
+        .global_free(Family::Dpbp)
+        .expect("the fake carries a bp global counter");
+    assert_eq!(free, 0, "the two creates drained the global bp counter");
+    let mut face = admitting_face();
+    face.globals = vec![GlobalBudget {
+        family: Family::Dpbp,
+        free,
+    }];
+    let refusals = admit(&face, &draw).expect_err("the joined global row refuses at planning time");
+    assert!(
+        refusals.iter().any(|r| matches!(
+            r,
+            AdmissionRefusal::GlobalPool {
+                family: Family::Dpbp,
+                ..
+            }
+        )),
+        "admission refuses on the global row — {refusals:?}"
+    );
+
+    // pool_destroy credits the drained counter back (bp moves symmetrically to the object).
+    backend.pool_destroy(&drained).unwrap();
+    assert_eq!(backend.global_free(Family::Dpbp), Some(1));
+}
+
+/// Spec "The census-visible lane is unchanged" (plan-rollback design D11): a fake with NO global
+/// counter leaves the census lane exactly as before — a dpbp create is unbudgeted and succeeds,
+/// and an exhausted census bp row refuses with `AdmissionRefusal::Pool`, never a `GlobalPool`.
+/// The second counter adds a lane, it does not alter the census one.
+#[test]
+fn the_census_visible_lane_is_unchanged() {
+    let backend = FakeBackend::new();
+    assert_eq!(backend.global_free(Family::Dpbp), None);
+    assert!(
+        backend
+            .dpbp_create(None, &ConstructName::from("bp"))
+            .is_ok(),
+        "no global counter leaves the create unbudgeted"
+    );
+
+    // The census bp row is exhausted; admission refuses on the census row, never the global one.
+    let mut face = admitting_face();
+    face.pools = vec![PoolBudget {
+        family: Family::Dpbp,
+        headroom: PoolHeadroom::Free(0),
+    }];
+    let draw = GrossDraw::from_pending(&BTreeMap::from([(Family::Dpbp, 1)]));
+    let refusals = admit(&face, &draw).expect_err("the exhausted census bp row refuses");
+    assert_eq!(
+        refusals,
+        vec![AdmissionRefusal::Pool {
+            family: Family::Dpbp,
+            draw: 1,
+            headroom: 0,
+        }]
+    );
+    assert!(
+        !refusals
+            .iter()
+            .any(|r| matches!(r, AdmissionRefusal::GlobalPool { .. })),
+        "no global-row refusal appears on the census lane"
     );
 }
