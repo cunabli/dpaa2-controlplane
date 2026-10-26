@@ -1,6 +1,12 @@
 #!/bin/sh
 # suite: V-ROLLBACK-1
 # class: mutating
+# rev: 4 (plan-rollback design D12). The step-1 precondition now also gates on the
+# MC-global bp row (G > D) with every count runtime-derived from the dry-run global
+# row; the drain writer drains the runtime-derived post-grow remainder (NEEDED =
+# G - D) to zero within the ~5s kernel-bind window, so the run's next (child-
+# population) dpbp create refuses at the empty pool (closing the rev-3 to-exhaustion
+# race); and step 4 greps the global-budget planning-time refusal voice.
 # HAND-AUTHORED — not emitted by dpaa2-verify. The suite drives `dpaa2ctl`
 # intents (read -> compile -> admit -> dispatch), not a model-trace of restool
 # verbs, and it owns a background drain writer the trace vocabulary cannot
@@ -27,7 +33,7 @@
 #       run's first actuation, and
 #   (b) the kernel probe itself as the concurrent consumer (DPSW-I9's draw).
 # This suite takes (a) for the DRAIN because it is decisive — the writer drains
-# the root dpbp pool to exhaustion on a deterministic signal, so the run's next
+# a runtime-derived handful of the root dpbp pool on a deterministic signal, so the run's next
 # dpbp create provably refuses — where the kernel probe's draw is asynchronous
 # (DPSW-I9: defer-not-fail, automatic retry races, explicit kick needed;
 # docs/baseline/dpsw.md DPSW-I9) and so not decisively orderable. Shape (b) is
@@ -55,10 +61,11 @@
 # boot (V-DPRC-10), and any dry drawn family refuses the whole intent at
 # planning time, the V-ADMIT-1 verdict, never an overcommit — and (ii) the ROOT
 # container's free dpbp headroom sits at least one above the intent's gross dpbp
-# draw D, so the writer has a unit to drain after the grow pass. Step 1 reads
-# the overall admission verdict plus D and the observed free F from the dry-run
-# and REFUSES TO PROCEED (a PRECONDITION skip, exit 2, distinct from a witness
-# FAIL) unless admission admits and F > D. Nothing in this script frees a dpbp
+# draw D, so the writer has a handful to drain after the grow pass. Step 1 reads
+# the overall admission verdict, D, the observed census free F, and the MC-global
+# bp free G from the dry-run and REFUSES TO PROCEED (a PRECONDITION skip, exit 2,
+# distinct from a witness FAIL) unless admission admits and both F > D and G > D.
+# Nothing in this script frees a dpbp
 # itself — that would mean tearing down a boot resident (ADR-0003 §4,
 # ADR-0008 §7), forbidden.
 #
@@ -68,7 +75,7 @@
 # (its dpni + dpbp companion) -> links -> switches -> prune. The grow pass
 # pre-creates the kernel interface's dpbp (the admitted draw D). The port loop
 # then binds the kernel dpni on dpmac.4 — the kernel is now probing. The writer,
-# having waited for that bind, drains the remaining root free dpbp to zero, so
+# having waited for that bind, drains the runtime-derived handful (NEEDED) of root dpbp, so
 # the LATER child-population dpbp create (not counted in D) refuses 0x8 while the
 # kernel dpni is live. This mirrors the offline twin, whose overcommit also fires
 # on a create that follows a bound dpni prefix.
@@ -189,26 +196,32 @@ run() { n="$1"; shift; echo "+ $*"; "$@" >"$RESULTS/step-$n-out.txt" 2>"$RESULTS
 probe() { f="$1"; shift; echo "+ (probe) $*"; "$@" > "$RESULTS/$f" 2>/dev/null || true; }
 # pool_capture FILE: snapshot MC-global resource pools (ADR-0011), best-effort.
 pool_capture() { restool dprc show mc.global --resources > "$RESULTS/$1" 2>/dev/null || true; }
-# eth_count: how many dpni objects are bound to dpaa2-eth right now (the kernel
-# interfaces). The baseline is captured at step 0; the drain writer fires when
-# this rises, i.e. when the run's kernel dpni has bound and is probing.
+# eth_count: how many dpni objects are bound to the kernel eth driver right now
+# (the kernel interfaces). The baseline is captured at step 0; the drain writer
+# fires when this rises, i.e. when the run's kernel dpni has bound and is
+# probing. The driver's sysfs symlink basename is fsl_dpaa2_eth on the board
+# (dmesg: "fsl_dpaa2_eth dpni.1: Probed interface eth1"); the old dpaa2-eth
+# spelling is kept as tolerance. The underscore basename is the real cause of
+# the rev4e TIMEOUT drain (results/V-ROLLBACK-1/rev4e/writer.log).
 eth_count() {
   c=0
   for d in /sys/bus/fsl-mc/devices/dpni.*; do
     [ -e "$d" ] || continue
     drv="$(readlink "$d/driver" 2>/dev/null)"
-    case "${drv##*/}" in dpaa2-eth) c=$((c + 1)) ;; esac
+    case "${drv##*/}" in fsl_dpaa2_eth|dpaa2-eth) c=$((c + 1)) ;; esac
   done
   echo "$c"
 }
 
 # --- the drain writer (the suite's concurrent consumer) ---
-# Fires on the kernel-bind signal, then drains the ROOT dpbp pool to exhaustion
-# into its own scratch child so the run's next dpbp create refuses 0x8. Every
-# object it makes is reclaimed by the EXIT trap. The scratch child's dpbp are
-# off the fsl-mc bus (DPRC-I6), so no allocator unbind is needed before the
-# cascade destroy. CAP bounds the loop at the dpbp ceiling (63, V-CEIL-1) so a
-# mis-staged over-wide pool cannot spin forever.
+# Fires on the kernel-bind signal, then drains exactly NEEDED dpbp (the step-1
+# runtime-derived handful) from the ROOT pool into its own scratch child so the
+# run's next dpbp create refuses 0x8 on the MC-global ledger. NEEDED is a handful
+# that fits the ~5s kernel-bind window (rev 4, closing the rev-3 to-exhaustion
+# race). Every object it makes is reclaimed by the EXIT trap. The scratch child's
+# dpbp are off the fsl-mc bus (DPRC-I6), so no allocator unbind is needed before
+# the cascade destroy. The loop is still hard-capped at the dpbp ceiling (63,
+# V-CEIL-1) so a mis-staged NEEDED cannot spin forever.
 drain_writer() {
   child="$(restool dprc create dprc.1 2>>"$RESULTS/writer.log" | grep -oE 'dprc\.[0-9]+' | head -1)"
   if [ -z "$child" ]; then
@@ -229,10 +242,16 @@ drain_writer() {
     waited=$((waited + 1))
   done
   [ "$waited" -lt 120 ] || echo "writer: TIMEOUT waiting for kernel bind; draining anyway" >> "$RESULTS/writer.log"
-  # Drain root dpbp to exhaustion into the scratch child.
-  drained=0
+  # Drain exactly NEEDED dpbp into the scratch child — the post-grow remainder that
+  # drains the MC-global bp free to zero inside the kernel-bind window, so the run's
+  # next (child-population) dpbp create refuses 0x8 at the empty pool.
+  # Still hard-capped at the dpbp ceiling (63, V-CEIL-1) so a mis-staged NEEDED
+  # cannot spin forever.
   cap=63
-  while [ "$drained" -lt "$cap" ]; do
+  target="$NEEDED"
+  [ "$target" -le "$cap" ] || target="$cap"
+  drained=0
+  while [ "$drained" -lt "$target" ]; do
     if restool dpbp create --container="$child" >>"$RESULTS/writer.log" 2>&1; then
       drained=$((drained + 1))
     else
@@ -252,24 +271,44 @@ ETH_BASE="$(eth_count)"
 echo "$ETH_BASE" > "$RESULTS/eth-baseline.txt"
 if residents_pre; then log "PASS step 0: residents baseline on their reference drivers"; else log "FAIL step 0: a boot resident is off its reference driver"; fi
 
-# step 1: dry-run reads the admission verdict and the dpbp budget row, and
-# previews the default (rollback) failure policy. The row is `dpbp draw=D
-# headroom=F [admitted|refused]`. The PRECONDITION gate: proceed only if
-# admission admits (D <= F) AND the writer has drain room (F > D). Otherwise this
-# is an operator-prerequisite skip, NOT a witness FAIL.
+# step 1: dry-run reads the admission verdict, the dpbp census budget row, the
+# MC-global bp row, and previews the default (rollback) failure policy. The rows are
+# `dpbp draw=D headroom=F [...]` (census) and `mc-global dpbp draw=D headroom=G [...]`
+# (the MC-global ledger, plan-rollback design D7). The PRECONDITION gate: proceed
+# only if admission admits AND the census free F > D AND the MC-global free G > D
+# (drain room on both ledgers). Every count is runtime-derived from the dry-run,
+# never hardcoded. NEEDED = G - D is the writer's drain count — the post-grow
+# remainder it drains to zero, so the run's next (child-population) dpbp create
+# refuses at the empty pool. A missing mc-global row, or an
+# unmet gate, is an operator-prerequisite skip (exit 2), NOT a witness FAIL.
 run 1 "$DPAA2CTL" --config "$OPERAND" dry-run
 rc1="$(cat "$RESULTS/step-1-exit.txt")"
+# The census row renders before the mc-global row (render_admission emits the pool
+# row then the global row), so head -1 on the bare `dpbp draw=` pattern keys on the
+# census row; G is read from the mc-global row explicitly.
 D="$(sed -n 's/.*dpbp draw=\([0-9]*\) headroom=\([0-9]*\).*/\1/p' "$RESULTS/step-1-out.txt" | head -1)"
 F="$(sed -n 's/.*dpbp draw=\([0-9]*\) headroom=\([0-9]*\).*/\2/p' "$RESULTS/step-1-out.txt" | head -1)"
+G="$(sed -n 's/.*mc-global dpbp draw=[0-9]* headroom=\([0-9]*\).*/\1/p' "$RESULTS/step-1-out.txt" | head -1)"
+# A missing MC-global bp row cannot stage the global-ledger witness: the engine proves
+# that row from the live `dprc show mc.global --resources` listing, so its absence is an
+# operator prerequisite, not a witness FAIL.
+if [ -z "$G" ]; then
+  echo "PRECONDITION NOT MET: the dry-run rendered no mc-global dpbp row; the engine proves the global"
+  echo "bp ledger from 'dprc show mc.global --resources' — stage a board whose MC-global bp pool is proven before this sitting (see the script header)."
+  echo "suite V-ROLLBACK-1 not run: operator prerequisite unmet"
+  exit 2
+fi
+NEEDED=$(( G - ${D:-0} ))
+[ "$NEEDED" -ge 1 ] || NEEDED=1
 if [ "$rc1" = 0 ] && grep -q 'on failure: rollback' "$RESULTS/step-1-out.txt" && [ -n "$D" ] && [ -n "$F" ]; then
-  log "PASS step 1: dry-run exits 0, previews the rollback policy, dpbp draw=$D headroom=$F"
+  log "PASS step 1: dry-run exits 0, previews the rollback policy, dpbp draw=$D headroom=$F, mc-global headroom=$G (writer drains NEEDED=$NEEDED)"
 else
-  log "FAIL step 1: dry-run did not render the rollback preview and the dpbp budget row (exit $rc1)"
+  log "FAIL step 1: dry-run did not render the rollback preview and the dpbp census+global budget rows (exit $rc1)"
 fi
 ADMITTED=0
 grep -q 'admission (.*) \[admitted\]:' "$RESULTS/step-1-out.txt" && ADMITTED=1
-if [ "$ADMITTED" != 1 ] || [ -z "$D" ] || [ -z "$F" ] || [ "$F" -le "$D" ]; then
-  echo "PRECONDITION NOT MET: admission must admit every drawn budget (admitted=$ADMITTED) and root free dpbp (F=${F:-?}) must sit strictly above the gross dpbp draw (D=${D:-?})."
+if [ "$ADMITTED" != 1 ] || [ -z "$D" ] || [ -z "$F" ] || [ "$F" -le "$D" ] || [ "$G" -le "$D" ]; then
+  echo "PRECONDITION NOT MET: admission must admit every drawn budget (admitted=$ADMITTED); root free dpbp (F=${F:-?}) and MC-global bp free (G=${G:-?}) must both sit strictly above the gross dpbp draw (D=${D:-?})."
   echo "The reference board is pool-tight (dpbp near-dry, dpcon recorded dry at the reference boot); stage free headroom for every drawn family before this sitting (see the script header)."
   echo "suite V-ROLLBACK-1 not run: operator prerequisite unmet"
   exit 2
@@ -296,13 +335,14 @@ if [ "$rc2" != 0 ] \
 else
   log "FAIL step 2: ensure did not report the mid-run overcommit rollback (exit $rc2)"
 fi
-# The writer's drain is what starved the run; record its strength. A zero drain
-# means the pool was already dry when the writer fired — the overcommit then did
-# not come from the concurrent writer, so the witness is weaker, not a pass.
-if [ "$DRAINED" -ge 1 ]; then
-  log "PASS step 2: the concurrent writer drained $DRAINED dpbp (the genuine mid-run drain)"
+# The writer's drain is what starved the run; record its strength. Fewer than NEEDED
+# means the writer lost the kernel-bind window (or the pool shifted under it) — the
+# overcommit then did not come decisively from the concurrent writer, so the witness
+# is weaker, not a pass.
+if [ "$DRAINED" -ge "$NEEDED" ]; then
+  log "PASS step 2: the concurrent writer drained $DRAINED dpbp (>= NEEDED=$NEEDED, the genuine mid-run drain)"
 else
-  log "FAIL step 2: the writer drained 0 dpbp — no concurrent drain staged (precondition/timing)"
+  log "FAIL step 2: the writer drained $DRAINED dpbp, short of NEEDED=$NEEDED — no decisive mid-run drain staged (precondition/timing)"
 fi
 # Residue is reachable here (a plugged grow-pass dpbp is grow-only residue); grade it.
 if grep -q '^  residue: ' "$RESULTS/step-2-out.txt"; then
@@ -334,16 +374,17 @@ else
 fi
 
 # step 4: the follow-on refusal while the drain still holds (plan-rollback spec
-# "Overcommit is named and bounded" — one rollback per drain, no oscillation).
-# The writer's drained dpbp are still held, so a re-run refuses at ADMISSION in
-# the headroom voice and dispatches nothing (the V-ADMIT-1 step-2 proof that an
-# admission refusal returns before any verb).
+# "The re-run refuses in the global-budget voice" — one rollback per drain, no
+# oscillation). The writer's drained dpbp are still held OFF the MC-global bp
+# ledger, so a re-run refuses at ADMISSION on the MC-global row and dispatches
+# nothing (the V-ADMIT-1 step-2 proof that an admission refusal returns before any
+# verb).
 run 4 "$DPAA2CTL" --config "$OPERAND" ensure --allow disruptive
 rc4="$(cat "$RESULTS/step-4-exit.txt")"
-if [ "$rc4" != 0 ] && grep -qE 'refused: pool dpbp draw [0-9]+ exceeds free headroom [0-9]+' "$RESULTS/step-4-out.txt"; then
-  log "PASS step 4: the re-run refuses at admission naming dpbp headroom, dispatching nothing"
+if [ "$rc4" != 0 ] && grep -qE 'refused: mc-global pool dpbp draw [0-9]+ exceeds global free headroom [0-9]+' "$RESULTS/step-4-out.txt"; then
+  log "PASS step 4: the re-run refuses at admission on the MC-global dpbp row, dispatching nothing"
 else
-  log "FAIL step 4: the re-run did not refuse at admission in the dpbp headroom voice (exit $rc4)"
+  log "FAIL step 4: the re-run did not refuse at admission in the MC-global dpbp voice (exit $rc4)"
 fi
 
 # step 5: teardown + post-teardown census. Reclaim the writer's scratch child

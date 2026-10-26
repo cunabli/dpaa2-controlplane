@@ -25,17 +25,19 @@
 //! crates/dpaa2-verify/tests/rollback_overcommit.rs stages the same 0x8 drain over the
 //! executor; this file pins the operand and the operator-facing text around it.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use dpaa2_api::contract::fake::FakeBackend;
 use dpaa2_api::core::error::Error;
 use dpaa2_api::core::family::Family;
+use dpaa2_api::core::inventory::Ceiling;
 use dpaa2_api::core::model::{DpniId, DprcId, ObjectRef};
 use dpaa2_api::families::pool_lifecycle::{ObservedPoolObject, RawLabel};
 use dpaa2_api::intent::Intent;
 use dpaa2_api::intent::compiled::Container;
 use dpaa2_api::intent::refuse::Warning;
-use dpaa2_api::plan::admission::AdmissionRefusal;
+use dpaa2_api::plan::admission::{AdmissionRefusal, GrossDraw};
+use dpaa2_api::plan::capacity::{CapacityFace, FdbBudget, GlobalBudget, PoolBudget, PoolHeadroom};
 use dpaa2_api::plan::rollback::{ActuationRecord, FailurePolicy, Residue};
 use dpaa2_api::plan::rollback_exec::{FailureDisposition, RollbackReport};
 use dpaa2_api::testkit::ref_inventory;
@@ -249,6 +251,11 @@ fn the_suite_grep_strings_re_derive_from_the_shipped_renderers() {
     const UNWOUND_PREFIX: &str = "  unwound: ";
     const RESIDUE_PREFIX: &str = "  residue: ";
     const REAPPLY_CLOSE: &str = "re-apply refuses until headroom returns.";
+    // Step 1 (rev 4) also parses the MC-global bp row; its sed keys on this shape.
+    const GLOBAL_ROW_SHAPE: &str = "mc-global dpbp draw=";
+    // Step 4 (rev 4) greps the global-budget planning-time refusal in this voice.
+    const STEP4_GLOBAL_REFUSAL: &str =
+        "refused: mc-global pool dpbp draw 2 exceeds global free headroom 0";
 
     // Step 1 previews the default (rollback) policy; the dry-run greps this line.
     let policy = dpaa2_tools::render::render_failure_policy(FailurePolicy::Rollback);
@@ -286,4 +293,49 @@ fn the_suite_grep_strings_re_derive_from_the_shipped_renderers() {
             "the overcommit rollback report carries the suite grep string {needle:?}:\n{text}"
         );
     }
+
+    // A proven GlobalBudget bp row renders beside the census row (plan-rollback design D7).
+    let global_adm = Admission {
+        face: CapacityFace {
+            pools: vec![PoolBudget {
+                family: Family::Dpbp,
+                headroom: PoolHeadroom::Free(5),
+            }],
+            globals: vec![GlobalBudget {
+                family: Family::Dpbp,
+                free: 1,
+            }],
+            fdb: FdbBudget {
+                bracket: Ceiling::Unknown,
+                draw: 0,
+            },
+        },
+        draw: GrossDraw {
+            pool: BTreeMap::from([(Family::Dpbp, 2)]),
+            fdb: 0,
+        },
+        verdict: Err(vec![AdmissionRefusal::GlobalPool {
+            family: Family::Dpbp,
+            draw: 2,
+            headroom: 1,
+        }]),
+    };
+    let table = dpaa2_tools::render::render_admission(&global_adm);
+    assert!(
+        table
+            .lines()
+            .any(|l| l.trim_start().starts_with(GLOBAL_ROW_SHAPE) && l.contains(" headroom=")),
+        "the mc-global dpbp row shape the suite's step-1 sed keys on is rendered:\n{table}"
+    );
+
+    // The step-4 line re-derives from render_admission_refusal on a dpbp GlobalPool refusal.
+    let refusal = dpaa2_tools::render::render_admission_refusal(&[AdmissionRefusal::GlobalPool {
+        family: Family::Dpbp,
+        draw: 2,
+        headroom: 0,
+    }]);
+    assert!(
+        refusal.contains(STEP4_GLOBAL_REFUSAL),
+        "the global-budget refusal voice carries the suite's step-4 grep string {STEP4_GLOBAL_REFUSAL:?}:\n{refusal}"
+    );
 }
