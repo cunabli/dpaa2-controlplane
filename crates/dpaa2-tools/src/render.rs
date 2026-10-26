@@ -24,7 +24,7 @@ use dpaa2_api::intent::compiled::{
 };
 use dpaa2_api::intent::refuse::{Refusal, Warning};
 use dpaa2_api::plan::admission::AdmissionRefusal;
-use dpaa2_api::plan::capacity::PoolHeadroom;
+use dpaa2_api::plan::capacity::{GlobalBudget, PoolHeadroom};
 use dpaa2_api::plan::dprc::{ConsumerConvergence, ContainerVerdict, FingerprintField, PruneItem};
 use dpaa2_api::plan::pool::PoolDrift;
 use dpaa2_api::plan::populate::ChildPlan;
@@ -318,6 +318,8 @@ pub fn render_switches(plan: &CompiledPlan, work: &[SwitchWork<'_>]) -> String {
 /// reclaimable pool prints its free count; the dpio seats print `spent` (ADR-0003 §7
 /// non-reclaimable); an unobserved family prints `unobserved`; an unknown FDB bracket prints
 /// `unknown` (ADR-0011 admit-and-warn). One line per row, operator terms, no law IDs (ADR-0023 design D5).
+/// A family with a proven MC-global budget renders that row in the `mc-global` voice beside its
+/// census row (plan-rollback design D7), so a hardware-side drain the census cannot see still shows a refused budget.
 #[must_use]
 pub fn render_admission(adm: &Admission) -> String {
     let empty = Vec::new();
@@ -326,6 +328,9 @@ pub fn render_admission(adm: &Admission) -> String {
     for (&family, &draw) in &adm.draw.pool {
         if draw > 0 {
             rows.push(admission_pool_row(adm, family, draw, refusals));
+            if let Some(g) = adm.face.globals.iter().find(|g| g.family == family) {
+                rows.push(admission_global_row(g, draw, refusals));
+            }
         }
     }
     if adm.draw.fdb > 0 {
@@ -377,6 +382,21 @@ fn admission_pool_row(
     format!(
         "{} draw={draw} headroom={headroom} [{}]",
         family.as_str(),
+        admission_verdict(refused)
+    )
+}
+
+/// One MC-global budget row's text in the distinguishable `mc-global` voice (plan-rollback design D7):
+/// family, draw, the observed global free headroom, and the per-row verdict (refused when a
+/// `GlobalPool` refusal names this family).
+fn admission_global_row(g: &GlobalBudget, draw: i64, refusals: &[AdmissionRefusal]) -> String {
+    let refused = refusals
+        .iter()
+        .any(|r| matches!(r, AdmissionRefusal::GlobalPool { family: f, .. } if *f == g.family));
+    format!(
+        "mc-global {} draw={draw} headroom={} [{}]",
+        g.family.as_str(),
+        g.free,
         admission_verdict(refused)
     )
 }
@@ -1404,7 +1424,7 @@ mod tests {
     use crate::engine::Admission;
     use dpaa2_api::core::inventory::Ceiling;
     use dpaa2_api::plan::admission::GrossDraw;
-    use dpaa2_api::plan::capacity::{CapacityFace, FdbBudget, PoolBudget};
+    use dpaa2_api::plan::capacity::{CapacityFace, FdbBudget, GlobalBudget, PoolBudget};
 
     fn face(dpbp: PoolHeadroom, fdb_bracket: Ceiling, fdb_draw: i64) -> CapacityFace {
         CapacityFace {
@@ -1424,6 +1444,15 @@ mod tests {
                 draw: fdb_draw,
             },
         }
+    }
+
+    fn face_with_global(dpbp: PoolHeadroom, free: i64) -> CapacityFace {
+        let mut f = face(dpbp, Ceiling::Unknown, 0);
+        f.globals = vec![GlobalBudget {
+            family: Family::Dpbp,
+            free,
+        }];
+        f
     }
 
     fn observed(n: i64) -> Ceiling {
@@ -1482,6 +1511,35 @@ mod tests {
             text.contains("  fdb draw=1 headroom=4 [admitted]"),
             "{text}"
         );
+        assert!(!text.contains("mc-global"), "{text}");
+    }
+
+    #[test]
+    fn a_proven_global_row_renders_beside_the_census_row() {
+        // plan-rollback design D7: a hardware-side drain the census cannot see refuses against
+        // the global row though the census row admits — both render, and the global row counts.
+        let adm = Admission {
+            face: face_with_global(PoolHeadroom::Free(5), 1),
+            draw: draw(2, 0),
+            verdict: Err(vec![AdmissionRefusal::GlobalPool {
+                family: Family::Dpbp,
+                draw: 2,
+                headroom: 1,
+            }]),
+        };
+        let text = render_admission(&adm);
+        assert!(
+            text.contains("admission (2 budget(s) drawn) [refused]:"),
+            "{text}"
+        );
+        assert!(
+            text.contains("  dpbp draw=2 headroom=5 [admitted]"),
+            "{text}"
+        );
+        assert!(
+            text.contains("  mc-global dpbp draw=2 headroom=1 [refused]"),
+            "{text}"
+        );
     }
 
     #[test]
@@ -1507,6 +1565,11 @@ mod tests {
                 draw: 2,
                 headroom: 1,
             },
+            AdmissionRefusal::GlobalPool {
+                family: Family::Dpbp,
+                draw: 2,
+                headroom: 0,
+            },
             AdmissionRefusal::Fdb {
                 draw: 3,
                 headroom: 1,
@@ -1514,6 +1577,10 @@ mod tests {
         ]);
         assert!(
             text.contains("refused: pool dpbp draw 2 exceeds free headroom 1"),
+            "{text}"
+        );
+        assert!(
+            text.contains("refused: mc-global pool dpbp draw 2 exceeds global free headroom 0"),
             "{text}"
         );
         assert!(

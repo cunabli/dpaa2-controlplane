@@ -155,7 +155,7 @@
 
 ## 10. CLI render, report, and twins
 
-- [ ] 10.1 Render the MC-global budget rows beside the census rows in
+- [x] 10.1 Render the MC-global budget rows beside the census rows in
   the admission table (same draw/headroom/verdict shape, a
   distinguishable family-row voice the suite can grep), and name the
   global budget in the ensure refusal voice when that row refuses.
