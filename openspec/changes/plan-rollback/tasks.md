@@ -170,7 +170,7 @@
   existing single-counter sim stays as the census-visible lane. Verify:
   `cargo test` names the rev-3-blindness-closed scenario and the
   census-visible lane both; quality-floor green.
-- [ ] 10.3 Replay the re-framed overcommit-rollback trace: the mid-run
+- [x] 10.3 Replay the re-framed overcommit-rollback trace: the mid-run
   overcommit verdict (now on the global bp row) and the follow-on
   planning-time refusal are each re-derived through the Rust admission
   from the prior state's census and global counts

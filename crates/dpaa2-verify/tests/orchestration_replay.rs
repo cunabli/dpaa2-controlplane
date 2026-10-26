@@ -28,7 +28,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use dpaa2_api::core::family::Family;
 use dpaa2_api::core::inventory::Ceiling;
 use dpaa2_api::plan::admission::{GrossDraw, admit};
-use dpaa2_api::plan::capacity::{CapacityFace, FdbBudget, PoolBudget, PoolHeadroom};
+use dpaa2_api::plan::capacity::{CapacityFace, FdbBudget, GlobalBudget, PoolBudget, PoolHeadroom};
 use dpaa2_api::plan::dispatch::{self, Disposition};
 use dpaa2_verify::intent::orchestration_itf::{
     OrchState, Status, Verdict, parse_orchestration_trace, row_set_findings,
@@ -96,7 +96,9 @@ fn row_for(f: Family) -> Option<&'static Disposition> {
 /// from the prior state and re-judged. The model carries two scalar budgets (`poolFree`/`fdbFree`),
 /// so the reclaimable pool draws fold onto one `Free(poolFree)` row while dpio keeps its `Spent`
 /// row — its draw never refuses (ADR-0003 §7), the exemption this group proves — and the FDB
-/// bracket is `Observed(fdbFree)` against a zero observed draw. Returns true iff the plan admits.
+/// bracket is `Observed(fdbFree)` against a zero observed draw. The MC-global bp row
+/// (`globalPoolFree`) is judged beside the census row, so a global-drained verdict is derivable
+/// (plan-rollback design D9). Returns true iff the plan admits.
 fn rust_admits(prev: &OrchState) -> bool {
     let base = GrossDraw::from_pending(&prev.pending);
     let reclaimable: i64 = base
@@ -121,8 +123,10 @@ fn rust_admits(prev: &OrchState) -> bool {
                 headroom: PoolHeadroom::Spent(dpio),
             },
         ],
-        // The replay re-derivation gains the global bp row in group 10.3; the overcommit trace step stays red until then (EXPECTED).
-        globals: vec![],
+        globals: vec![GlobalBudget {
+            family: Family::Dpbp,
+            free: prev.global_free,
+        }],
         fdb: FdbBudget {
             bracket: Ceiling::Observed {
                 n: prev.fdb_free,
@@ -168,7 +172,7 @@ fn check_pair(file: &str, i: usize, prev: &OrchState, cur: &OrchState) {
             admitted,
             cur.verdict == Verdict::Admitted,
             "{file} step {i}: the Rust admission re-derived {} from the prior census \
-             (pending={:?} poolFree={} fdbFree={}) but the frozen verdict is {:?}",
+             (pending={:?} poolFree={} fdbFree={} globalFree={}) but the frozen verdict is {:?}",
             if admitted {
                 "Admitted"
             } else {
@@ -177,6 +181,7 @@ fn check_pair(file: &str, i: usize, prev: &OrchState, cur: &OrchState) {
             prev.pending,
             prev.pool_free,
             prev.fdb_free,
+            prev.global_free,
             cur.verdict
         );
     }

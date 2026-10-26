@@ -84,6 +84,9 @@ pub struct OrchState {
     pub pool_free: i64,
     /// dpsw FDB budget, free count (`fdbFree`; V-DPSW-2).
     pub fdb_free: i64,
+    /// MC-global bp ledger, free count (`globalPoolFree`; plan-rollback design D2/D9) — the
+    /// hardware pool listing that drains independently of any one container's census.
+    pub global_free: i64,
 }
 
 fn status_of(v: &Value) -> Result<Status, String> {
@@ -147,6 +150,7 @@ fn orch_state(s: &Value) -> Result<OrchState, String> {
         port_wired: bool_of(field(s, "portWired")?)?,
         pool_free: int64(field(s, "poolFree")?)?,
         fdb_free: int64(field(s, "fdbFree")?)?,
+        global_free: int64(field(s, "globalPoolFree")?)?,
     })
 }
 
