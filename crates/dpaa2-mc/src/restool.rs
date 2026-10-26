@@ -2569,7 +2569,7 @@ mod tests {
         s
     }
 
-    const RESOURCES: &str = "bp 63\nmcp 203\nswp 49\nfq 1981\n";
+    const RESOURCES: &str = "bp: 63\nmcp: 203\nswp: 49\nfq: 1981\n";
 
     #[test]
     fn read_inventory_assembles_offers_availability_and_ceilings() {

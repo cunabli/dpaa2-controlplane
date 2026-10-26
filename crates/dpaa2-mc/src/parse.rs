@@ -690,9 +690,11 @@ pub fn parse_dpmac_observation(stdout: &str) -> RawDpmacObservation {
 /// (task 3.5, ADR-0011; anchor `dprc.md` mc.global section: the listing carries the
 /// MC-level pools `bp 63, mcp 203, swp 49, …`).
 ///
-/// No raw `--resources` capture is committed in-repo, so the exact column shape
-/// (colon vs. space separator) is not pinned; this reads the last integer token on
-/// each line keyed by the first token, tolerating either `bp: 63` or `bp 63`.
+/// The column shape is pinned by the committed fixture
+/// `tests/fixtures/mc_global_resources.txt` (V-ROLLBACK-1 rev 1 board capture, 2026-10;
+/// one `name: count` per line, colon separator, dotted pool names). The parser reads the
+/// last integer token on each line keyed by the first token, still tolerating the space
+/// form `bp 63` alongside the board-true `bp: 63`.
 #[must_use]
 pub fn parse_resources(stdout: &str) -> BTreeMap<String, i64> {
     let mut pools = BTreeMap::new();
@@ -999,6 +1001,19 @@ dpni.7          wan0            plugged
         let colon = parse_resources("bp: 63\nswpch.2wq: 112\n");
         assert_eq!(colon.get("bp"), Some(&63));
         assert_eq!(colon.get("swpch.2wq"), Some(&112));
+    }
+
+    #[test]
+    fn resources_parses_the_board_fixture() {
+        // V-ROLLBACK-1 rev 1 board capture: every non-empty line is one pool row.
+        let fixture = include_str!("../tests/fixtures/mc_global_resources.txt");
+        let pools = parse_resources(fixture);
+        assert_eq!(pools.get("bp"), Some(&63));
+        assert_eq!(pools.get("mcp"), Some(&203));
+        assert_eq!(pools.get("swp"), Some(&49));
+        assert_eq!(pools.get("swpch.2wq"), Some(&112));
+        let rows = fixture.lines().filter(|l| !l.trim().is_empty()).count();
+        assert_eq!(pools.len(), rows);
     }
 
     /// The `mac address:` line, built from the domain type so no MAC literal appears in

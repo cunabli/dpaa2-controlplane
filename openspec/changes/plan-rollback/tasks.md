@@ -129,7 +129,7 @@
 
 ## 9. Observation, capacity face, and admission
 
-- [ ] 9.1 Parse `dprc show mc.global --resources` in the southbound
+- [x] 9.1 Parse `dprc show mc.global --resources` in the southbound
   adapter (dpaa2-mc) into backend-neutral per-family global pool counts;
   the face stays pure data (sans-io, ADR-0018). Verify: adapter unit
   tests parse the bp global row from a captured fixture; quality-floor
