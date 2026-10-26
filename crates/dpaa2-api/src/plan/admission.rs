@@ -167,6 +167,7 @@ mod tests {
                     headroom: PoolHeadroom::Spent(16),
                 },
             ],
+            globals: vec![],
             fdb: FdbBudget {
                 bracket: fdb_bracket,
                 draw: fdb_draw,

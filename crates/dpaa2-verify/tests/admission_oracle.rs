@@ -47,6 +47,7 @@ fn face(dpbp_free: i64, fdb_bracket: Ceiling, fdb_draw: i64) -> CapacityFace {
                 headroom: PoolHeadroom::Spent(16),
             },
         ],
+        globals: vec![],
         fdb: FdbBudget {
             bracket: fdb_bracket,
             draw: fdb_draw,

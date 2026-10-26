@@ -1297,6 +1297,12 @@ pub struct Admission {
 /// names (ADR-0011 admit-and-warn). Reads only and holds no reservation: a refused verdict
 /// changes nothing, the dispatch-time census stays the truth (ADR-0023 design D7).
 ///
+/// The capacity face's second ledger — the MC-global pool rows (plan-rollback design D2) —
+/// is derived from the same snapshot: a [`Ceiling::Counted`] on the `Dpbp` family is the
+/// live MC-global bp free count the listing reports (V-CEIL-1), so it maps to a lone
+/// `(Dpbp, n)` global row; any other variant (absent/`Unknown`/`Observed`) yields no row.
+/// Bp only now under the monotonic-growth rule — no number is invented from `Observed`.
+///
 /// One snapshot, one judgment: a single inventory read feeds the face, the pending draw, and the
 /// switch work, and the returned wide carrier lets `dry-run` render those sections re-read-free.
 ///
@@ -1327,7 +1333,17 @@ pub fn plan_admission<'a, M: McControl>(
             .count(),
     )
     .unwrap_or(i64::MAX);
-    let face = capacity_face(&pools, drift.dpio_observed, &fdb_bracket, fdb_draw);
+    let globals: Vec<(Family, i64)> = match inventory.ceilings.get(&Family::Dpbp) {
+        Some(Ceiling::Counted(n)) => vec![(Family::Dpbp, *n)],
+        _ => vec![],
+    };
+    let face = capacity_face(
+        &pools,
+        drift.dpio_observed,
+        &globals,
+        &fdb_bracket,
+        fdb_draw,
+    );
 
     // Pending creates only (ADR-0023 design D8): a converged object is not pending, so
     // admission admits its own fixpoint.

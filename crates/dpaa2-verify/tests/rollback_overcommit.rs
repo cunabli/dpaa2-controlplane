@@ -54,6 +54,7 @@ fn admitting_face() -> CapacityFace {
                 headroom: PoolHeadroom::Spent(16),
             },
         ],
+        globals: vec![],
         fdb: FdbBudget {
             bracket: Ceiling::Observed {
                 n: 4,

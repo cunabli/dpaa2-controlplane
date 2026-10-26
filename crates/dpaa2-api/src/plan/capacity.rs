@@ -3,11 +3,17 @@
 //! read (ADR-0023 design D2/D8/D11; ADR-0011). The Rust twin of the `pipeline.qnt`
 //! budget vars `poolFree` (ADR-0011) and `fdbFree` (V-DPSW-2).
 //!
+//! Admission reads two independently-moving ledgers (plan-rollback design D2;
+//! V-ROLLBACK-1 rev 3): the per-container census pool rows ([`CapacityFace::pools`]) and
+//! the MC-global hardware pool budget rows ([`CapacityFace::globals`], bp only now). A
+//! create verb a container cannot seat is refused by the global pools too, so a
+//! hardware-side drain the census cannot see still refuses against the global row.
+//!
 //! Pure and stateless: [`capacity_face`] derives the face from the loop's observations
-//! alone — the per-family [`PoolCensus`] the pool passes already parse plus the banked
-//! FDB bracket — and nothing is carried between two derivations (ADR-0008; the spec
-//! scenario "Budgets are re-minted from observation"). The adapter observes; this
-//! module only projects.
+//! alone — the per-family [`PoolCensus`] the pool passes already parse, the observed
+//! MC-global free counts, plus the banked FDB bracket — and nothing is carried between
+//! two derivations (ADR-0008; the spec scenario "Budgets are re-minted from
+//! observation"). The adapter observes; this module only projects.
 
 use crate::core::family::Family;
 use crate::core::inventory::Ceiling;
@@ -35,6 +41,19 @@ pub struct PoolBudget {
     pub family: Family,
     /// The row's headroom: reclaimable free, or spent dpio seats.
     pub headroom: PoolHeadroom,
+}
+
+/// One MC-global pool budget row — the second ledger admission reads beside the census
+/// rows (plan-rollback design D2; ADR-0011). The free count comes from the MC-global
+/// hardware pool listing (`dprc show mc.global --resources`), so it moves independently
+/// of any one container's census and still refuses a create a hardware-side drain emptied
+/// (V-ROLLBACK-1 rev 3).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct GlobalBudget {
+    /// The MC-global pool family this row budgets (bp only now; ADR-0011).
+    pub family: Family,
+    /// The observed MC-global free count for the family.
+    pub free: i64,
 }
 
 /// The dpsw FDB budget row — the `pipeline.qnt` `fdbFree` (V-DPSW-2). The FDB table is
@@ -75,6 +94,12 @@ impl FdbBudget {
 pub struct CapacityFace {
     /// The four container-pool rows (dpbp/dpmcp/dpcon free, dpio spent).
     pub pools: Vec<PoolBudget>,
+    /// The MC-global pool budget rows — the second ledger (plan-rollback design D2). Bp
+    /// only now under the monotonic-growth rule: a dpbp create refuses exactly at the bp
+    /// free count and bp moves symmetrically to the object (V-CEIL-1 + V-DPRC-7 rev 2).
+    /// dpcon and dpmcp rows join only with their own proving observations, and no mcp row
+    /// is scoped behind the ADR-0011 listing-lag question.
+    pub globals: Vec<GlobalBudget>,
     /// The dpsw FDB budget row.
     pub fdb: FdbBudget,
 }
@@ -82,13 +107,16 @@ pub struct CapacityFace {
 /// Derives the capacity face from the loop's observations (ADR-0023 design D2: counts
 /// re-minted from observation each loop, never ledgered). Pure and total: the pooled trio
 /// rows read [`PoolCensus::free`] as reclaimable headroom; the dpio row is the observed
-/// seat count rendered [`PoolHeadroom::Spent`] (ADR-0003 §7 non-reclaimable); the FDB row
-/// is the banked bracket and the caller-derived draw. Takes only borrowed observation data,
-/// so two derivations from the same input yield equal faces with no carried state.
+/// seat count rendered [`PoolHeadroom::Spent`] (ADR-0003 §7 non-reclaimable); the
+/// `globals` rows are the observed MC-global free counts mapped in the given order (the
+/// second ledger, plan-rollback design D2); the FDB row is the banked bracket and the
+/// caller-derived draw. Takes only borrowed observation data, so two derivations from the
+/// same input yield equal faces with no carried state.
 #[must_use]
 pub fn capacity_face(
     pools: &[(PoolFamily, PoolCensus)],
     dpio_seats: i64,
+    globals: &[(Family, i64)],
     fdb_bracket: &Ceiling,
     fdb_draw: i64,
 ) -> CapacityFace {
@@ -103,8 +131,13 @@ pub fn capacity_face(
         family: Family::Dpio,
         headroom: PoolHeadroom::Spent(dpio_seats),
     });
+    let global_rows: Vec<GlobalBudget> = globals
+        .iter()
+        .map(|&(family, free)| GlobalBudget { family, free })
+        .collect();
     CapacityFace {
         pools: rows,
+        globals: global_rows,
         fdb: FdbBudget {
             bracket: fdb_bracket.clone(),
             draw: fdb_draw,
@@ -167,15 +200,16 @@ mod tests {
             n: 2,
             provenance: "V-DPSW-2".to_owned(),
         };
-        let first = capacity_face(&trio, 16, &bracket, 1);
-        let second = capacity_face(&trio, 16, &bracket, 1);
+        let globals = [(Family::Dpbp, 63)];
+        let first = capacity_face(&trio, 16, &globals, &bracket, 1);
+        let second = capacity_face(&trio, 16, &globals, &bracket, 1);
         assert_eq!(first, second);
     }
 
     #[test]
     fn pool_rows_show_free_per_family() {
         let trio = trio_censuses();
-        let face = capacity_face(&trio, 16, &Ceiling::Unknown, 0);
+        let face = capacity_face(&trio, 16, &[], &Ceiling::Unknown, 0);
         assert_eq!(
             face.pools[0],
             PoolBudget {
@@ -202,7 +236,7 @@ mod tests {
     #[test]
     fn dpio_reads_as_spent_not_reclaimable() {
         // dpio seats are non-reclaimable (ADR-0003 §7): the row renders Spent, never Free.
-        let face = capacity_face(&trio_censuses(), 16, &Ceiling::Unknown, 0);
+        let face = capacity_face(&trio_censuses(), 16, &[], &Ceiling::Unknown, 0);
         let dpio = face
             .pools
             .iter()
@@ -222,7 +256,7 @@ mod tests {
             n: 2,
             provenance: "V-DPSW-2".to_owned(),
         };
-        let face = capacity_face(&trio_censuses(), 16, &bracket, 1);
+        let face = capacity_face(&trio_censuses(), 16, &[], &bracket, 1);
         assert_eq!(face.fdb.free(), Some(1));
         assert_eq!(face.fdb.bracket, bracket);
         assert_eq!(face.fdb.draw, 1);
@@ -232,8 +266,32 @@ mod tests {
     fn unknown_bracket_yields_an_unknown_budget_row() {
         // No banked bracket ⇒ an Unknown row with no free number (never an invented one);
         // admission (task 4.2) warns on Unknown, never refuses (ADR-0011).
-        let face = capacity_face(&trio_censuses(), 16, &Ceiling::Unknown, 3);
+        let face = capacity_face(&trio_censuses(), 16, &[], &Ceiling::Unknown, 3);
         assert_eq!(face.fdb.bracket, Ceiling::Unknown);
         assert_eq!(face.fdb.free(), None);
+    }
+
+    #[test]
+    fn global_bp_row_is_present_and_leaves_census_rows_unchanged() {
+        // The second ledger (plan-rollback design D2): a passed bp free count is the lone
+        // globals row and the census pool rows are untouched by its presence.
+        let trio = trio_censuses();
+        let without = capacity_face(&trio, 16, &[], &Ceiling::Unknown, 0);
+        let with = capacity_face(&trio, 16, &[(Family::Dpbp, 63)], &Ceiling::Unknown, 0);
+        assert_eq!(
+            with.globals,
+            vec![GlobalBudget {
+                family: Family::Dpbp,
+                free: 63,
+            }]
+        );
+        assert_eq!(with.pools, without.pools);
+    }
+
+    #[test]
+    fn empty_globals_yields_no_global_rows() {
+        // A budget row joins only with the change that proves its observation (plan-rollback design D2).
+        let face = capacity_face(&trio_censuses(), 16, &[], &Ceiling::Unknown, 0);
+        assert_eq!(face.globals, Vec::<GlobalBudget>::new());
     }
 }

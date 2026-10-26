@@ -134,7 +134,7 @@
   the face stays pure data (sans-io, ADR-0018). Verify: adapter unit
   tests parse the bp global row from a captured fixture; quality-floor
   green.
-- [ ] 9.2 Add the MC-global budget rows to the capacity face
+- [x] 9.2 Add the MC-global budget rows to the capacity face
   (`crates/dpaa2-api/src/plan/capacity.rs`) as a second ledger beside
   the census pool rows — bp only now, under the monotonic-growth rule
   (proven by V-CEIL-1 + V-DPRC-7 rev 2: a dpbp create refuses exactly at

@@ -121,6 +121,8 @@ fn rust_admits(prev: &OrchState) -> bool {
                 headroom: PoolHeadroom::Spent(dpio),
             },
         ],
+        // The replay re-derivation gains the global bp row in group 10.3; the overcommit trace step stays red until then (EXPECTED).
+        globals: vec![],
         fdb: FdbBudget {
             bracket: Ceiling::Observed {
                 n: prev.fdb_free,
