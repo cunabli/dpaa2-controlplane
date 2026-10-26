@@ -120,7 +120,8 @@ module orchestration {
   var occ: Occupancy                  // live dpmac occupancy (ADR-0023 design D9 live-read)
   var censusOcc: Occupancy            // last-observed occupancy (the census-read snapshot)
   var portWired: bool                 // the switch-port edge status
-  var poolFree: int                   // container-pool budget, free count (ADR-0011)
+  var poolFree: int                   // container-pool census budget, free count (ADR-0011)
+  var globalPoolFree: int             // MC-global pool ledger, free count — the hardware row the census cannot see (ADR-0011; plan-rollback design D2/D9)
   var fdbFree: int                    // dpsw FDB budget, free count (V-DPSW-2)
   var verdict: Verdict                // admission verdict for the compiled plan
   var refused: Family -> bool         // typed whole-intent refusal recorded (ADR-0023 design D5/D10)
@@ -141,12 +142,12 @@ module orchestration {
   type State = {
     status: Family -> Status, pending: Family -> int,
     occ: Occupancy, censusOcc: Occupancy, portWired: bool,
-    poolFree: int, fdbFree: int, verdict: Verdict, refused: Family -> bool,
+    poolFree: int, globalPoolFree: int, fdbFree: int, verdict: Verdict, refused: Family -> bool,
     journal: List[JEntry], policy: Policy, residue: int, reverted: bool,
   }
   val cur: State = {
     status: status, pending: pending, occ: occ, censusOcc: censusOcc,
-    portWired: portWired, poolFree: poolFree, fdbFree: fdbFree,
+    portWired: portWired, poolFree: poolFree, globalPoolFree: globalPoolFree, fdbFree: fdbFree,
     verdict: verdict, refused: refused,
     journal: journal, policy: policy, residue: residue, reverted: reverted,
   }
@@ -163,9 +164,15 @@ module orchestration {
   // The family carries no consuming pass (the Unimplemented disposition).
   pure def isUnimplemented(f: Family): bool = execKind(f) == None
 
+  // The families with a proven MC-global pool row (ADR-0011; plan-rollback design D2): bp (dpbp)
+  // now — V-CEIL-1, V-DPRC-7 rev 2. dpcon/dpmcp join only with their own proving
+  // observations. A create of such a family draws the global ledger of its family.
+  pure val GLOBAL_ROWS: Set[Family] = Set(Dpbp)
+  pure def drawsGlobal(f: Family): bool = GLOBAL_ROWS.contains(f)
+
   // The firmware enforces the real budget at dispatch, so this guard is
   // census-read (ADR-0023 design D9): a stale read costs one refused verb.
-  pure def budgetOkOn(s: State, f: Family): bool =
+  pure def budgetOkOn(s: State, f: Family): bool = and {
     match execKind(f) {
       | None => true
       | Some(k) => match k {
@@ -174,7 +181,11 @@ module orchestration {
         | PlainCreate => true
         | NoCreate => true
       }
-    }
+    },
+    // The MC-global pool row of the family (plan-rollback design D2/D9): a hardware-side
+    // drain refuses the create even when the census row shows headroom (ADR-0011).
+    drawsGlobal(f) implies s.globalPoolFree > 0,
+  }
   def budgetOk(f: Family): bool = budgetOkOn(cur, f)
 
   // Companions precede their object (ADR-0023 design D4 ordering-as-guards): the
@@ -202,6 +213,12 @@ module orchestration {
     TABLE_FAMS.filter(f => execKind(f) == Some(PoolDraw) and f != Dpio).fold(0, (a, f) => a + pend.get(f))
   pure def grossFdbDraw(pend: Family -> int): int =
     TABLE_FAMS.filter(f => execKind(f) == Some(FdbDraw)).fold(0, (a, f) => a + pend.get(f))
+  // The MC-global pool draw: the pending creates of the families with a proven global
+  // row (bp now; plan-rollback design D2/D9). Admission judges it against `globalPoolFree`,
+  // so a pending bp create refuses at planning time when the global row cannot cover it even
+  // with census headroom — closing the rev-3 blindness (ADR-0011; the census-blind admission).
+  pure def grossGlobalDraw(pend: Family -> int): int =
+    TABLE_FAMS.filter(f => drawsGlobal(f)).fold(0, (a, f) => a + pend.get(f))
 
   // ---- pass enablement ----
 
@@ -311,6 +328,9 @@ module orchestration {
     // gross pool draw is 3, dpio exempt (spent headroom, ADR-0003 §7). Four free
     // leaves one slot of headroom an eaten-pool squeeze consumes (ADR-0023 design D8).
     poolFree' = 4,
+    // The MC-global bp pool starts with its own free count (plan-rollback design D2/D9);
+    // the hardware drain moves it apart from the census row (ADR-0011).
+    globalPoolFree' = 4,
     fdbFree' = 2,
     verdict' = Unjudged,
     refused' = TABLE_FAMS.mapBy(f => false),
@@ -330,7 +350,7 @@ module orchestration {
     censusOcc' = occ,
     verdict' = Unjudged,
     status' = status, pending' = pending, occ' = occ, portWired' = portWired,
-    poolFree' = poolFree, fdbFree' = fdbFree, refused' = refused,
+    poolFree' = poolFree, globalPoolFree' = globalPoolFree, fdbFree' = fdbFree, refused' = refused,
     // A new loop is a new run: empty journal, revert flag cleared. Residue is grow-only
     // across loops (plan-rollback design D7); the policy persists until re-chosen.
     journal' = [], reverted' = false, policy' = policy, residue' = residue,
@@ -339,7 +359,11 @@ module orchestration {
   // ---- admission (ADR-0023 design D5/D8: gross draw vs observed headroom) ----
 
   action admit = {
+    // Admission reads both ledgers (plan-rollback design D2/D9): the census rows (pool, FDB)
+    // and the MC-global pool row of each family that proves one (bp). A pending bp create is
+    // refused at planning time when the global row cannot cover it even with census headroom.
     val fits = grossPoolDraw(pending) <= poolFree and grossFdbDraw(pending) <= fdbFree
+               and grossGlobalDraw(pending) <= globalPoolFree
     all {
       verdict == Unjudged,
       verdict' = if (fits) Admitted else AdmissionRefused,
@@ -349,7 +373,7 @@ module orchestration {
                  else TABLE_FAMS.fold(refused, (acc, f) =>
                         if (isCreate(f) and pending.get(f) > 0) acc.set(f, true) else acc),
       status' = status, pending' = pending, occ' = occ, censusOcc' = censusOcc,
-      portWired' = portWired, poolFree' = poolFree, fdbFree' = fdbFree,
+      portWired' = portWired, poolFree' = poolFree, globalPoolFree' = globalPoolFree, fdbFree' = fdbFree,
       // Admission is the re-judgement: it clears the revert flag (the drained budget is
       // re-judged here), carrying the journal/policy/residue (plan-rollback design D6).
       journal' = journal, policy' = policy, residue' = residue, reverted' = false,
@@ -372,6 +396,9 @@ module orchestration {
     status: s.status.set(f, Converged),
     pending: s.pending.set(f, s.pending.get(f) - 1),
     poolFree: if (execKind(f) == Some(PoolDraw) and f != Dpio) s.poolFree - 1 else s.poolFree,
+    // A root create lowers both the census row and the MC-global row of its family
+    // (plan-rollback design D2/D9): the two ledgers move together on a root draw.
+    globalPoolFree: if (drawsGlobal(f)) s.globalPoolFree - 1 else s.globalPoolFree,
     fdbFree: if (execKind(f) == Some(FdbDraw)) s.fdbFree - 1 else s.fdbFree,
     journal: s.journal.append(JCreate(f)),
   }
@@ -387,6 +414,9 @@ module orchestration {
   pure def applyPrune(s: State, f: Family): State = { ...s,
     status: s.status.set(f, Missing),
     poolFree: if (execKind(f) == Some(PoolDraw) and f != Dpio) s.poolFree + 1 else s.poolFree,
+    // Teardown returns the MC-global row symmetrically with the census row (bp moves
+    // symmetrically to the object, V-DPRC-7 rev 2; plan-rollback design D2/D9).
+    globalPoolFree: if (drawsGlobal(f)) s.globalPoolFree + 1 else s.globalPoolFree,
     fdbFree: if (execKind(f) == Some(FdbDraw)) s.fdbFree + 1 else s.fdbFree,
   }
 
@@ -413,18 +443,29 @@ module orchestration {
   //     budget draw (the forward ordering guards reversed collapse to one atomic status step
   //     in the census projection);
   //   - the irreversible JCreate(Dpio) is spent headroom that never returns (ADR-0003 §7), so
-  //     it contributes typed residue instead of undoing (its object and drawn-down plan stand).
+  //     it contributes typed residue instead of undoing (its object and drawn-down plan stand);
+  //   - a container JCreate(Dprc) is left unreversed while a resident still stands (ORCH-I7; the
+  //     MC refuses a dprc destroy with live residents — plan-rollback design D5 ResidentsDrained
+  //     reversed-ordering plus plan-rollback design D6 unreversed-and-continue), so an irreversible
+  //     dpio seat strands its dprc Converged too: containment holds, a resident never outlives its dprc.
   pure def undoOne(s: State, e: JEntry): State =
     match e {
       | JWire => { ...s, portWired: false }
       | JCreate(f) =>
         if (f == Dpio)
           { ...s, residue: s.residue + 1 }
+        else if (f == Dprc and childLive(s.status))
+          // The container's teardown is blocked while a resident stands: dprc stays Converged with
+          // its create unreversed — no status/plan/budget return — mirroring `pruneEnabled(Dprc)`'s
+          // all-children-Missing guard (ORCH-I7; plan-rollback design D5/D6).
+          s
         else
           { ...s,
             status: s.status.set(f, Missing),
             pending: s.pending.set(f, s.pending.get(f) + 1),
             poolFree: if (execKind(f) == Some(PoolDraw)) s.poolFree + 1 else s.poolFree,
+            // The reverse journal returns the MC-global draw too (plan-rollback design D2/D9).
+            globalPoolFree: if (drawsGlobal(f)) s.globalPoolFree + 1 else s.globalPoolFree,
             fdbFree: if (execKind(f) == Some(FdbDraw)) s.fdbFree + 1 else s.fdbFree,
           }
     }
@@ -454,6 +495,7 @@ module orchestration {
     censusOcc' = ns.censusOcc,
     portWired' = ns.portWired,
     poolFree' = ns.poolFree,
+    globalPoolFree' = ns.globalPoolFree,
     fdbFree' = ns.fdbFree,
     verdict' = ns.verdict,
     refused' = ns.refused,
@@ -485,7 +527,7 @@ module orchestration {
     verdict == Unjudged,
     policy' = p,
     status' = status, pending' = pending, occ' = occ, censusOcc' = censusOcc,
-    portWired' = portWired, poolFree' = poolFree, fdbFree' = fdbFree,
+    portWired' = portWired, poolFree' = poolFree, globalPoolFree' = globalPoolFree, fdbFree' = fdbFree,
     verdict' = verdict, refused' = refused,
     journal' = journal, residue' = residue, reverted' = reverted,
   }
@@ -499,7 +541,7 @@ module orchestration {
     occ == Free, not(portWired),
     occ' = MacHeld,
     status' = status, pending' = pending, censusOcc' = censusOcc,
-    portWired' = portWired, poolFree' = poolFree, fdbFree' = fdbFree,
+    portWired' = portWired, poolFree' = poolFree, globalPoolFree' = globalPoolFree, fdbFree' = fdbFree,
     verdict' = verdict, refused' = refused,
     journal' = journal, policy' = policy, residue' = residue, reverted' = reverted,
   }
@@ -509,7 +551,7 @@ module orchestration {
     occ != Free,
     occ' = Free,
     status' = status, pending' = pending, censusOcc' = censusOcc,
-    portWired' = portWired, poolFree' = poolFree, fdbFree' = fdbFree,
+    portWired' = portWired, poolFree' = poolFree, globalPoolFree' = globalPoolFree, fdbFree' = fdbFree,
     verdict' = verdict, refused' = refused,
     journal' = journal, policy' = policy, residue' = residue, reverted' = reverted,
   }
@@ -520,7 +562,7 @@ module orchestration {
     occ == Free, portWired,
     occ' = SwitchHeld,
     status' = status, pending' = pending, censusOcc' = censusOcc,
-    portWired' = portWired, poolFree' = poolFree, fdbFree' = fdbFree,
+    portWired' = portWired, poolFree' = poolFree, globalPoolFree' = globalPoolFree, fdbFree' = fdbFree,
     verdict' = verdict, refused' = refused,
     journal' = journal, policy' = policy, residue' = residue, reverted' = reverted,
   }
@@ -534,7 +576,7 @@ module orchestration {
     (f == Dprc) implies not(childLive(status)),
     status' = status.set(f, Drifted),
     pending' = pending, occ' = occ, censusOcc' = censusOcc, portWired' = portWired,
-    poolFree' = poolFree, fdbFree' = fdbFree, verdict' = verdict, refused' = refused,
+    poolFree' = poolFree, globalPoolFree' = globalPoolFree, fdbFree' = fdbFree, verdict' = verdict, refused' = refused,
     journal' = journal, policy' = policy, residue' = residue, reverted' = reverted,
   }
 
@@ -545,7 +587,7 @@ module orchestration {
     (f == Dprc) implies not(childLive(status)),
     status' = status.set(f, Orphan),
     pending' = pending, occ' = occ, censusOcc' = censusOcc, portWired' = portWired,
-    poolFree' = poolFree, fdbFree' = fdbFree, verdict' = verdict, refused' = refused,
+    poolFree' = poolFree, globalPoolFree' = globalPoolFree, fdbFree' = fdbFree, verdict' = verdict, refused' = refused,
     journal' = journal, policy' = policy, residue' = residue, reverted' = reverted,
   }
 
@@ -555,19 +597,29 @@ module orchestration {
   action envEatPool = all {
     poolFree > 0, poolFree' = poolFree - 1,
     status' = status, pending' = pending, occ' = occ, censusOcc' = censusOcc,
-    portWired' = portWired, fdbFree' = fdbFree, verdict' = verdict, refused' = refused,
+    portWired' = portWired, globalPoolFree' = globalPoolFree, fdbFree' = fdbFree, verdict' = verdict, refused' = refused,
     journal' = journal, policy' = policy, residue' = residue, reverted' = reverted,
   }
   action envEatFdb = all {
     fdbFree > 0, fdbFree' = fdbFree - 1,
     status' = status, pending' = pending, occ' = occ, censusOcc' = censusOcc,
-    portWired' = portWired, poolFree' = poolFree, verdict' = verdict, refused' = refused,
+    portWired' = portWired, poolFree' = poolFree, globalPoolFree' = globalPoolFree, verdict' = verdict, refused' = refused,
+    journal' = journal, policy' = policy, residue' = residue, reverted' = reverted,
+  }
+
+  // A create in another container draws the MC-global pool without moving the root
+  // census (plan-rollback design D2/D9): the hardware-side drain the census cannot
+  // see, so admission's census rows stay blind to it (ADR-0011; rev-3 finding).
+  action envEatGlobalPool = all {
+    globalPoolFree > 0, globalPoolFree' = globalPoolFree - 1,
+    status' = status, pending' = pending, occ' = occ, censusOcc' = censusOcc,
+    portWired' = portWired, poolFree' = poolFree, fdbFree' = fdbFree, verdict' = verdict, refused' = refused,
     journal' = journal, policy' = policy, residue' = residue, reverted' = reverted,
   }
 
   action stutter = all {
     status' = status, pending' = pending, occ' = occ, censusOcc' = censusOcc,
-    portWired' = portWired, poolFree' = poolFree, fdbFree' = fdbFree,
+    portWired' = portWired, poolFree' = poolFree, globalPoolFree' = globalPoolFree, fdbFree' = fdbFree,
     verdict' = verdict, refused' = refused,
     journal' = journal, policy' = policy, residue' = residue, reverted' = reverted,
   }
@@ -576,7 +628,7 @@ module orchestration {
     envOccMac, envOccFree, envOccSwitch,
     nondet f = TABLE_FAMS.oneOf() envDrift(f),
     nondet f = TABLE_FAMS.oneOf() envOrphan(f),
-    envEatPool, envEatFdb,
+    envEatPool, envEatFdb, envEatGlobalPool,
   }
 
   action step = any {
@@ -614,17 +666,22 @@ module orchestration {
   // state becomes reachable).
   val ORCH_I2: bool = (occ == MacHeld) implies not(portWired)
 
-  // ORCH-I3 admission soundness, restated under rollback (plan-rollback design D6): dispatch
-  // never overdraws a budget (the verdict enum makes admitted-and-refused unrepresentable),
-  // AND a rolled-back run cannot re-dispatch before it is re-judged — `reverted` (raised by a
-  // rollback) forbids any verdict but Unjudged, so the next admission re-judges the drained
-  // budget and refuses at planning time, no apply/rollback oscillation. The retro-oracle's
-  // re-apply-without-re-admission variant (keeps the verdict Admitted) turns this red; the
-  // shipped rollback resets to Unjudged and stays green. Net identity holds up to the typed
-  // residue (`residue`), the one effect a rolled-back run leaves — `overcommitRollbackTest`
-  // and `overcommitAbortTest` witness the dispositions end-to-end.
+  // ORCH-I3 admission soundness, restated under rollback (plan-rollback design D6/D9): dispatch
+  // never overdraws a budget — neither the census rows (pool, FDB) NOR the MC-global pool row
+  // (`globalPoolFree >= 0`, the hardware vector) — the verdict enum making admitted-and-refused
+  // unrepresentable. AND a rolled-back run cannot re-dispatch before it is re-judged: `reverted`
+  // (raised by a rollback) forbids any verdict but Unjudged, so the next admission re-judges the
+  // drained budget — census or global — and refuses at planning time, no apply/rollback oscillation.
+  // Two retro variants turn this red: the re-apply-without-re-admission variant (keeps the verdict
+  // Admitted) and the masked-global-row variant (`doRollbackGlobalBlind`: census-blind re-admission
+  // re-admits the global-drained plan, the rev-3 oscillation); the shipped rollback resets to
+  // Unjudged and reads the global row, so both stay green. Net identity holds up to the typed
+  // residue (`residue`) and the container a standing resident blocks from teardown (an irreversible
+  // dpio seat strands its dprc Converged, ORCH-I7) — the effects a rolled-back run leaves;
+  // `overcommitRollbackTest` (the global-ledger drain) and `overcommitAbortTest` (the census drain)
+  // witness the dispositions.
   val ORCH_I3: bool =
-    poolFree >= 0 and fdbFree >= 0 and (reverted implies verdict == Unjudged)
+    poolFree >= 0 and fdbFree >= 0 and globalPoolFree >= 0 and (reverted implies verdict == Unjudged)
 
   // ORCH-I5 quiescence / no churn: no engine pass is enabled without observable
   // drift — at the fixed point nothing fires.
@@ -831,55 +888,70 @@ module orchestration {
       .then(doPrune(Dprc))
       .expect(status.get(Dprc) == Missing)
 
-  // ORCH-I3 restated — the overcommit-rollback lane (plan-rollback design D6; the spec
-  // scenario "the rollback action unwinds the journal projection"): admission passes, the
-  // prefix dprc/dpbp/dpio executes and journals, then a concurrent writer drains the pool
-  // below the next create's draw — the overcommit discovered at dispatch. Under the rollback
-  // policy the run unwinds: the reversible rows (dprc/dpbp) net to identity — status back to
-  // Missing, their plan entries restored, dpbp's draw returned — while the irreversible dpio
-  // seat stands as typed residue (ADR-0003 §7). The revert flag plus Unjudged verdict force a
-  // re-admission, which re-judges the still-drained budget and refuses at planning time: no
-  // apply/rollback oscillation. NOTE: frozen with group 5 (plan-rollback), NOT re-frozen into
-  // models/traces/orchestration/ here — see plan-rollback design D7.
+  // ORCH-I3 restated — the overcommit-rollback lane on the HARDWARE vector (plan-rollback design D2/D9;
+  // the spec scenario "the rollback action unwinds the journal projection"): admission passes,
+  // the prefix dprc/dpio/dpsw plus the wire executes and journals, then a concurrent create in
+  // ANOTHER container drains the MC-global bp row (`envEatGlobalPool`) without moving the root census
+  // — the hardware-side drain the census cannot see. A pending dpbp create then overcommits on the
+  // global row though its census row has headroom (the mid-run guard bites on the global ledger
+  // alone). Under the rollback policy the run unwinds: the reversible dpsw create and the wire net
+  // to identity — status back to Missing, plan entry restored, dpsw's FDB draw returned, portWired
+  // false — while the irreversible dpio seat stands as typed residue (ADR-0003 §7) and strands its
+  // container dprc Converged (ORCH-I7; the MC refuses a dprc destroy with a live resident). The
+  // revert flag plus Unjudged verdict force a re-admission, which re-judges the still-drained GLOBAL
+  // row and refuses at planning time on it (census still has headroom): no apply/rollback oscillation.
+  // NOTE: frozen with group 5 (plan-rollback), NOT re-frozen into models/traces/orchestration/ here —
+  // see plan-rollback design D7.
   run overcommitRollbackTest =
     init
       .then(doRefuse(Dpseci))
       .then(admit)
       .expect(verdict == Admitted)
       .then(doCreate(Dprc))
-      .then(doCreate(Dpbp))
       .then(doCreate(Dpio))
       .then(doCreate(Dpsw))
       .then(doWire)
-      // The journal witnesses every executed actuation — the four creates AND the wire.
+      // The journal witnesses every executed actuation — the three creates AND the wire. dpbp is
+      // deliberately NOT created: it is the pending create the global drain overcommits.
       .expect(and {
-        journal == [JCreate(Dprc), JCreate(Dpbp), JCreate(Dpio), JCreate(Dpsw), JWire],
-        poolFree == 3, fdbFree == 1, portWired,
+        journal == [JCreate(Dprc), JCreate(Dpio), JCreate(Dpsw), JWire],
+        poolFree == 4, fdbFree == 1, globalPoolFree == 4, portWired,
       })
-      .then(envEatPool)
-      .then(envEatPool)
-      .then(envEatPool)
-      // The pool is drained below dpcon/dpmcp's draw — the overcommit discovered at
-      // dispatch: their creates are no longer enabled though every other guard holds.
+      .then(envEatGlobalPool)
+      .then(envEatGlobalPool)
+      .then(envEatGlobalPool)
+      .then(envEatGlobalPool)
+      // The MC-global bp row is drained to zero while the census pool is untouched — the overcommit
+      // discovered at dispatch: the pending dpbp create is no longer enabled though its census row
+      // shows headroom and every other guard holds (the hardware vector, rev-3).
       .expect(and {
-        poolFree == 0, anyOvercommit, verdict == Admitted,
-        not(execEnabled(Dpcon)), not(execEnabled(Dpmcp)),
+        globalPoolFree == 0, poolFree == 4, fdbFree == 1,
+        anyOvercommit, verdict == Admitted,
+        overcommitAt(cur, Dpbp), not(execEnabled(Dpbp)),
       })
       .then(doRollback)
-      // Net identity up to the dpio residue: the reversible creates and the wire unwind —
-      // portWired back to false, dpsw's FDB draw returned — while the irreversible dpio seat
-      // stands as typed residue. (poolFree 1 reflects the env's persisting 3-unit drain.)
+      // Net identity up to the dpio residue AND its stranded container: the reversible dpsw create
+      // and the wire unwind — portWired false, dpsw's FDB draw returned — while the irreversible
+      // dpio seat stands as typed residue. That live resident blocks its container's teardown
+      // (ORCH-I7; the MC refuses a dprc destroy with a resident), so dprc stays Converged with its
+      // create unreversed — containment holds: dpio Converged implies dprc Converged. The census
+      // pool is untouched; the global drain persists.
       .expect(and {
         reverted, verdict == Unjudged, journal == [], residue == 1,
         portWired == false,
-        status.get(Dprc) == Missing, status.get(Dpbp) == Missing, status.get(Dpsw) == Missing,
-        pending.get(Dprc) == 1, pending.get(Dpbp) == 1, pending.get(Dpsw) == 1,
-        status.get(Dpio) == Converged,
-        poolFree == 1, fdbFree == 2,
+        status.get(Dpio) == Converged, status.get(Dprc) == Converged, pending.get(Dprc) == 0,
+        status.get(Dpsw) == Missing, pending.get(Dpsw) == 1, pending.get(Dpbp) == 1,
+        poolFree == 4, fdbFree == 2, globalPoolFree == 0,
       })
       .then(observe)
       .then(admit)
-      .expect(verdict == AdmissionRefused and refused.get(Dpbp) and refused.get(Dpcon))
+      // Re-admission refuses on the GLOBAL row while the drain holds: the census rows would admit
+      // (gross pool draw fits poolFree), but the global row cannot cover the pending bp create.
+      .expect(and {
+        verdict == AdmissionRefused, refused.get(Dpbp),
+        grossPoolDraw(pending) <= poolFree,
+        grossGlobalDraw(pending) > globalPoolFree,
+      })
 
   // ORCH-I3 restated — the abort disposition (plan-rollback design D5): same overcommit, but
   // under the abort policy the run stops and leaves the executed prefix standing (no undo, no
@@ -908,4 +980,24 @@ module orchestration {
       .then(observe)
       .then(admit)
       .expect(verdict == AdmissionRefused and refused.get(Dpcon))
+
+  // Witness (plan-rollback design D2/D9; the rev-3 finding, ADR-0011): a hardware-side drain
+  // empties the MC-global bp row while the per-container census pool row still shows headroom —
+  // the blindness state is representable. A pending dpbp create then refuses on the global row
+  // though its census row has room (the mid-run guard bites on the global ledger alone). Scope
+  // note: re-framing the overcommit trace and ORCH-I3's re-proof are plan-rollback task 8.2, not here.
+  run globalDrainBlindTest =
+    init
+      .then(doRefuse(Dpseci))
+      .then(admit)
+      .expect(verdict == Admitted)
+      .then(doCreate(Dprc))
+      .then(envEatGlobalPool)
+      .then(envEatGlobalPool)
+      .then(envEatGlobalPool)
+      .then(envEatGlobalPool)
+      .expect(and {
+        globalPoolFree == 0, poolFree == 4,
+        overcommitAt(cur, Dpbp), not(budgetOk(Dpbp)),
+      })
 }

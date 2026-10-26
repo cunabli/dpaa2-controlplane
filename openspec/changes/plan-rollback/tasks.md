@@ -103,7 +103,7 @@
 
 ## 8. Orchestration model: the second ledger and re-proof
 
-- [ ] 8.1 Add the MC-global pool ledger to `models/orchestration/` as a
+- [x] 8.1 Add the MC-global pool ledger to `models/orchestration/` as a
   second budget counter beside the per-container census budget: the
   environment-adversary action and any container's creates draw it, and
   a create's mid-run guard refuses on the global row of its family even
@@ -111,7 +111,7 @@
   cannot see; ADR-0011, ADR-0023 Consequences). Verify: quint typecheck
   and the existing invariant suite stay green; a witness reaches a state
   where the global row is drained while the census row is not.
-- [ ] 8.2 Re-frame the overcommit action and re-prove ORCH-I3 under the
+- [x] 8.2 Re-frame the overcommit action and re-prove ORCH-I3 under the
   second ledger: the drain hits the global ledger (a concurrent create
   in another container draws the global pool without moving the root
   census), and after the rollback the next admission refuses on the
@@ -121,7 +121,7 @@
   retro-oracle masks the global row (admission reads only the census)
   and the restated ORCH-I3 goes red — the rev-3 blindness as the red
   witness, green with the row present.
-- [ ] 8.3 Re-freeze the trace set with the re-framed overcommit-rollback
+- [x] 8.3 Re-freeze the trace set with the re-framed overcommit-rollback
   trace (admission passes, the environment drains the global ledger, the
   run unwinds, the next admission refuses on the global row). Verify:
   `pnpm model:freeze-orch` regenerates byte-stably (9/9) and the

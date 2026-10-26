@@ -20,6 +20,11 @@
 //     `doRollback` over the shared `applyRollback` twin but leaves the verdict Admitted —
 //     re-applying the drained plan without re-admission — and `stepReapply` swaps
 //     `doRollback` for it, turning pipeline `ORCH_I3` (ORCH-I3 restated) red.
+//   - the masked-global seam (plan-rollback design D2/D9): `doRollbackGlobalBlind` mirrors
+//     pipeline `doRollback` over the same twin but re-admits CENSUS-BLIND (the rev-3 face
+//     that lacks the MC-global row, ADR-0011) — so a global-drained plan re-admits while the
+//     census shows headroom, re-opening the apply/rollback oscillation — and `stepGlobalBlind`
+//     swaps `doRollback` for it, turning pipeline `ORCH_I3` red; green with the global row present.
 //
 // The oracle driver is models/helpers/orch-retro-oracle.py: it runs every check
 // and asserts the baseline (unmasked / live-read-in-place) stays green while
@@ -139,6 +144,47 @@ module retro_oracle {
     nondet f = TABLE_FAMS.oneOf() doRefuse(f),
     doWire,
     doRollbackReapply,
+    doAbort,
+    nondet p = Set(Rollback, Abort).oneOf() setPolicy(p),
+    doEnv,
+    stutter,
+  }
+
+  // ---- plan-rollback: the masked-global-row pair (plan-rollback design D2/D9; the rev-3 blindness) ----
+
+  // Mirrors pipeline `doRollback` over the SHARED `applyRollback` twin, but re-judges the unwound
+  // run with a CENSUS-BLIND admission — the rev-3 face that lacks the MC-global row (ADR-0011), so
+  // re-admission reads the census ledger alone. When the overcommit was a global-row drain the
+  // census still shows headroom, so the blind face re-admits (Admitted) the same global-drained plan
+  // with the revert flag still raised — the apply/rollback oscillation pipeline `ORCH_I3` forbids
+  // (the mid-run guard keeps the real global row, so the re-dispatch overcommits and rolls back
+  // again, forever: the rev-3 thrash). When the drain was census-visible instead, the blind face
+  // still sees it and refuses, so the run settles cleanly (revert cleared) exactly as shipped — no
+  // false red. With the global row present in admission (shipped `doRollback`) re-admission refuses
+  // and the verdict stays Unjudged — green.
+  action doRollbackGlobalBlind = {
+    val rolled = applyRollback(cur)
+    val censusFits = grossPoolDraw(rolled.pending) <= rolled.poolFree
+                     and grossFdbDraw(rolled.pending) <= rolled.fdbFree
+    val rejudged = if (censusFits) { ...rolled, verdict: Admitted }
+                   else { ...rolled, reverted: false }
+    all {
+      anyOvercommit,
+      policy == Rollback,
+      commitState(rejudged),
+    }
+  }
+
+  // Mirrors pipeline `step` with `doRollback` swapped for `doRollbackGlobalBlind`.
+  action stepGlobalBlind = any {
+    observe,
+    admit,
+    nondet f = TABLE_FAMS.oneOf() doCreate(f),
+    nondet f = TABLE_FAMS.oneOf() doReconcile(f),
+    nondet f = TABLE_FAMS.oneOf() doPrune(f),
+    nondet f = TABLE_FAMS.oneOf() doRefuse(f),
+    doWire,
+    doRollbackGlobalBlind,
     doAbort,
     nondet p = Set(Rollback, Abort).oneOf() setPolicy(p),
     doEnv,

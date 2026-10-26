@@ -67,7 +67,11 @@ with its reason, where the alphabet is stated.
   create's guard refuses mid-run under the rollback policy
 - **THEN** the rollback action is enabled, replays the run-journal
   projection in reverse, and the reached state equals the pre-run
-  state up to the irreversible rows' residue
+  state up to the irreversible rows' residue and any container a
+  standing resident blocks from teardown (the MC refuses a dprc
+  destroy with live residents, so that create is reported unreversed
+  and the container stands — ORCH-I7 containment holds through the
+  unwind)
 
 ### Requirement: The model checks the named orchestration invariants
 

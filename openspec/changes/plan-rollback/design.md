@@ -128,7 +128,15 @@ The model gains a run-journal projection (executed actuations of the
 current run) and a rollback action enabled on a mid-run guard refusal
 under the rollback policy; its effect folds the reverse journal onto
 the census state, irreversible rows contributing residue. ORCH-I3 is
-restated as net-identity-up-to-residue plus planning-time refusal
+restated as net-identity-up-to-residue — residue that can strand its
+container: a standing resident blocks the container's teardown, so
+that create is reported unreversed and the dprc stays (ORCH-I7
+containment through the unwind). The engine never reaches that exact
+pairing — root-homed residue never homes in a destroyable container
+and child residents are reclaimable (ADR-0020 §3); the model's
+single-container abstraction conflates the two homes, and the guard
+conservatively encodes the MC's real refusal of a non-empty
+container destroy — plus planning-time refusal
 while the drain holds — the no-oscillation claim. The unwind order is
 the reverse journal, so ORCH-I6 gains no scheduler choice. The trace
 set is re-frozen with the overcommit-rollback trace, and the replay
@@ -175,10 +183,15 @@ to its `TRACES` list exactly; the new ITF plus its `TRACES` row land
 together in group 5. The model half verified it generates by emitting to
 a scratch path.
 
-The existing eight-trace set is re-frozen from the updated model via the
-standing rung `pnpm model:freeze-orch` (8/8 passing). The regeneration is
-byte-stable against the committed ITFs and the twin replay suite
-(`orchestration_replay`) stays green over the re-frozen set.
+The nine-trace set is re-frozen from the updated model via the standing
+rung `pnpm model:freeze-orch` (9/9 passing). Regeneration is
+content-stable: two consecutive runs agree on every trace up to the ITF
+`#meta` generation timestamp. The twin replay suite
+(`orchestration_replay`) is green over the set once the engine's
+capacity face carries the MC-global rows (groups 9–10); while the face
+is census-only, the re-framed overcommit trace's global-row verdicts
+are not derivable from the census alone and the replay names that step
+red — the same blindness the retro-oracle masks.
 
 ### D11 — Offline twins: the fake's second counter
 

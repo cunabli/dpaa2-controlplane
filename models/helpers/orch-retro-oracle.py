@@ -44,9 +44,15 @@ RETRO = "models/orchestration/retro_oracle.qnt"
 # Same bound as the orchestration model's `model:simulate` gate.
 BOUND = ["--max-steps=20", "--max-samples=200"]
 
-# (label, model, main, invariant, step, expect_green). step=None uses the
+# The masked-global-row pair searches a widened horizon: the global-drain oscillation
+# is a deep witness — four concurrent global draws must precede the pending bp create
+# — so the shared 200-sample bound is too sparse to hit it reliably (plan-rollback
+# design D2/D9). The shipped step stays green at this bound too, so the A/B is clean.
+GLOBAL_BOUND = ["--max-steps=30", "--max-samples=2000"]
+
+# (label, model, main, invariant, step, expect_green[, bound]). step=None uses the
 # module's default `step`. expect_green True => must report [ok]; False => must
-# report [violation].
+# report [violation]. bound overrides the shared BOUND for deep-witness lanes.
 CHECKS = [
     # task 2.1 baselines (must be green — the loud-failure guard)
     ("shipped stateInvariants (baseline)", PIPELINE, "orchestration",
@@ -79,14 +85,25 @@ CHECKS = [
      "ORCH_I3", "step", True),
     ("ORCH-I3 rollback re-applies w/o re-admission", RETRO, "retro_oracle",
      "ORCH_I3", "stepReapply", False),
+    # plan-rollback: the masked-global-row pair (ORCH-I3 restated, the rev-3 blindness,
+    # plan-rollback design D2/D9). With the global row present, the shipped rollback
+    # resets to Unjudged and re-admission reads the global row, so a global-drained plan
+    # settles into a planning-time refusal (green). The masked variant re-admits CENSUS-
+    # BLIND — the rev-3 face that lacks the global row — so a global-drained plan re-admits
+    # while the census shows headroom, re-opening the apply/rollback oscillation (reverted
+    # while Admitted) the instant doRollbackGlobalBlind fires. Widened bound: deep witness.
+    ("ORCH-I3 global row present (baseline)", RETRO, "retro_oracle",
+     "ORCH_I3", "step", True, GLOBAL_BOUND),
+    ("ORCH-I3 global row masked re-opens oscillation", RETRO, "retro_oracle",
+     "ORCH_I3", "stepGlobalBlind", False, GLOBAL_BOUND),
 ]
 
 
-def run_check(label, model, main, invariant, step, expect_green):
+def run_check(label, model, main, invariant, step, expect_green, bound=None):
     """Run one `quint run --invariant` and judge its outcome against the
     expectation. Returns True iff the run matched expect_green."""
     cmd = ["pnpm", "exec", "quint", "run", model, f"--main={main}",
-           f"--invariant={invariant}", *BOUND]
+           f"--invariant={invariant}", *(bound if bound is not None else BOUND)]
     if step is not None:
         cmd.append(f"--step={step}")
     proc = subprocess.run(cmd, cwd=REPO, capture_output=True, text=True)
