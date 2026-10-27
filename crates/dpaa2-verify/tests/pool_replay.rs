@@ -29,9 +29,24 @@ use dpaa2_api::families::pool_lifecycle::{
 };
 use dpaa2_verify::intent::pool_itf::{PoolStep, PoolWorld, parse_pool_trace};
 
-/// The dpbp representative family and its board ceiling (`dpbp.qnt` `CEILING = 3`; DPBP-I7).
+/// The dpbp representative family. The model's `dpbp.qnt` `CEILING = 3` is a STATIC capacity
+/// bracket the population grows into (the model carries no external drain, so `poolPopulation <
+/// CEILING` is its admit law and `population <= CEILING` its invariant), so the twin honors it
+/// as [`Ceiling::Observed`], not the board's live-free [`Ceiling::Counted`] — bead
+/// dpaa2-controlplane-b4c split the two semantics, and under that split only `Observed`
+/// reproduces the model's `population < CEILING` verdict the frozen traces were cut under (no
+/// trace is re-frozen; the live-free Counted semantic is exercised by the `pool_lifecycle` unit
+/// tests and the V-CEIL-1 board suite, which the model does not represent).
 const FAMILY: PoolFamily = PoolFamily::Dpbp;
-const CEILING: Ceiling = Ceiling::Counted(3);
+
+/// The model's static capacity bracket as a [`Ceiling`] (DPBP-I7). `Observed` carries a
+/// `String` provenance so it cannot be a `const`.
+fn ceiling() -> Ceiling {
+    Ceiling::Observed {
+        n: 3,
+        provenance: "dpbp.qnt CEILING (model static bracket)".to_owned(),
+    }
+}
 
 /// The DPL-born boot object present in every state (`pool_itf::BORN_ORDINAL`; `pool_lifecycle` `born`): `dpbp` at ordinal 0.
 const BORN: (dpaa2_api::core::family::Family, u32) = (dpaa2_api::core::family::Family::Dpbp, 0);
@@ -147,7 +162,7 @@ fn check_state(file: &str, i: usize, w: &PoolWorld) {
         w.derived_req < w.census.drawn_managed(),
         "{file} step {i}: shrink-below-draw is `requirement < drawn_managed` (the DPL-born nets out, V-POOL-6)"
     );
-    match drift_disposition(FAMILY, w.census, w.derived_req, &CEILING, w.scope) {
+    match drift_disposition(FAMILY, w.census, w.derived_req, &ceiling(), w.scope) {
         Ok(d) => {
             assert!(
                 !w.refusal,
@@ -208,11 +223,11 @@ fn check_transition(file: &str, i: usize, prev: &PoolWorld, w: &PoolWorld) {
     let dpop = w.census.population() - prev.census.population();
     if dpop > 0 {
         // A create fired: the census ceiling gate admitted it (DPBP-I7).
-        if !prev.census.admits_create(&CEILING) {
+        if !prev.census.admits_create(&ceiling()) {
             finding(file, i, "a create fired past the disabled census gate");
         }
         if w.managed_count > prev.managed_count
-            && !prev.census.grow_enabled(prev.derived_req, &CEILING)
+            && !prev.census.grow_enabled(prev.derived_req, &ceiling())
         {
             finding(file, i, "a managed grow fired without an enabled deficit");
         }
@@ -233,8 +248,14 @@ fn check_transition(file: &str, i: usize, prev: &PoolWorld, w: &PoolWorld) {
                 }
             }
         } else {
-            let d = drift_disposition(FAMILY, prev.census, prev.derived_req, &CEILING, prev.scope)
-                .unwrap_or_else(|_| finding(file, i, "a prune fired at a refusing census"));
+            let d = drift_disposition(
+                FAMILY,
+                prev.census,
+                prev.derived_req,
+                &ceiling(),
+                prev.scope,
+            )
+            .unwrap_or_else(|_| finding(file, i, "a prune fired at a refusing census"));
             let prunable = match prev.scope {
                 CustodyScope::ChildScope => prev.census.foreign_free(),
                 CustodyScope::RootScope => prev.census.foreign_free_unplugged(),
@@ -299,11 +320,11 @@ fn census_refuses_at_the_ceiling() {
     .unwrap();
     let w = last_world(&steps);
     assert!(
-        !w.census.admits_create(&CEILING),
+        !w.census.admits_create(&ceiling()),
         "the population is at the ceiling, so a create is disabled"
     );
     assert!(
-        !w.census.grow_enabled(w.derived_req, &CEILING),
+        !w.census.grow_enabled(w.derived_req, &ceiling()),
         "no grow fires past the census gate"
     );
 }
@@ -324,7 +345,7 @@ fn shrink_below_draw_refuses_by_name_and_count() {
             _ => None,
         })
         .expect("the run reaches the refusal flag");
-    let err = drift_disposition(FAMILY, w.census, w.derived_req, &CEILING, w.scope)
+    let err = drift_disposition(FAMILY, w.census, w.derived_req, &ceiling(), w.scope)
         .expect_err("a requirement below draw refuses");
     assert_eq!(
         err,
@@ -348,7 +369,7 @@ fn drawn_individual_is_never_a_shrink_victim() {
     .unwrap();
     let w = last_world(&steps);
     assert!(w.census.drawn() > 0, "the run holds a drawn individual");
-    let d = drift_disposition(FAMILY, w.census, w.derived_req, &CEILING, w.scope)
+    let d = drift_disposition(FAMILY, w.census, w.derived_req, &ceiling(), w.scope)
         .expect("a free shrink, not a refusal");
     assert!(d.destroy > 0, "the surplus shrinks");
     assert!(
@@ -382,7 +403,7 @@ fn born_drawn_nets_out_of_the_draw_guard() {
         "a requirement of 0 raises no refusal once the born draw is netted"
     );
     assert!(
-        drift_disposition(FAMILY, w.census, w.derived_req, &CEILING, w.scope).is_ok(),
+        drift_disposition(FAMILY, w.census, w.derived_req, &ceiling(), w.scope).is_ok(),
         "drift accepts: the un-netted census would refuse, the netted one does not"
     );
 }
@@ -423,7 +444,7 @@ fn replay_detects_a_diverging_world() {
     let steps =
         parse_pool_trace(&load("dpbp_lifecycle::pool_lifecycle::convergenceGrowTest")).unwrap();
     let w = last_world(&steps);
-    let frozen = drift_disposition(FAMILY, w.census, w.derived_req, &CEILING, w.scope);
+    let frozen = drift_disposition(FAMILY, w.census, w.derived_req, &ceiling(), w.scope);
     let c = w.census;
     let tampered = PoolCensus::new(
         c.population() + 1,
@@ -435,7 +456,7 @@ fn replay_detects_a_diverging_world() {
     );
     assert_ne!(
         frozen,
-        drift_disposition(FAMILY, tampered, w.derived_req, &CEILING, w.scope),
+        drift_disposition(FAMILY, tampered, w.derived_req, &ceiling(), w.scope),
         "an extra foreign-free object must diverge from the converged world"
     );
 }

@@ -82,11 +82,14 @@ fn reserved_reason(id: DpmacId) -> Option<&'static str> {
 
 /// ADR-0011's per-family ceiling policy, transcribed once (task 3.5). It is *not* a
 /// plain "listed pool ⇒ [`Ceiling::Counted`]" rule: only dpbp's `bp` pool is a true
-/// count (decision 1); dpmcp's `mcp` pool is a per-boot budget the listing reports
-/// but destroy never returns, so it is [`Ceiling::Observed`] (decision 3); dpni's
-/// ceiling of 18 is measured but *unlisted* (decision 2); every other derived family
-/// was never measured and stays [`Ceiling::Unknown`]. This never invents a number —
-/// the two `Observed` values are the ones ADR-0011/`REF_INVENTORY` record.
+/// count (decision 1) — and it is the LIVE FREE count the listing reports, a shrinking
+/// headroom, not a static cap (bead dpaa2-controlplane-b4c; the V-CEIL-1 law), so
+/// [`Ceiling::Counted`] carries free units the admission/grow paths read as headroom
+/// directly, never compared to population. dpmcp's `mcp` pool is a per-boot budget the
+/// listing reports but destroy never returns, so it is [`Ceiling::Observed`] (decision 3), a
+/// static bracket; dpni's ceiling of 18 is measured but *unlisted* (decision 2); every other
+/// derived family was never measured and stays [`Ceiling::Unknown`]. This never invents a
+/// number — the two `Observed` values are the ones ADR-0011/`REF_INVENTORY` record.
 fn ceiling_of(family: Family, pools: &BTreeMap<String, i64>) -> Ceiling {
     match family {
         Family::Dpbp => pools

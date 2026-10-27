@@ -464,9 +464,19 @@ impl PoolCensus {
         self.free - self.born - self.foreign_free
     }
 
-    /// Whether the population is below the ceiling, so a create is admitted — the
-    /// model's `censusAdmitsCreate` (`poolPopulation < CEILING`; DPBP-I7, ADR-0011).
-    /// The refusal is a disabled create, never a recorded over-ceiling state.
+    /// Whether a create is admitted against the ceiling — the model's `censusAdmitsCreate`
+    /// (`poolPopulation < CEILING`; DPBP-I7, ADR-0011). The refusal is a disabled create,
+    /// never a recorded over-ceiling state.
+    ///
+    /// The two measured variants carry different arithmetic because they measure different
+    /// things (bead dpaa2-controlplane-b4c):
+    /// - [`Ceiling::Counted`] is a **live free count** (dpbp's `bp` pool row, ADR-0011
+    ///   decision 1) — the remaining headroom itself, which shrinks as objects exist. A
+    ///   create admits while any unit is free: `n > 0`, at any population (the V-CEIL-1 law —
+    ///   the board refuses a dpbp create exactly at zero free). Population is NOT compared to
+    ///   it: on an aged board population can exceed the free count while units remain.
+    /// - [`Ceiling::Observed`] is a **static bracket** (dpmcp per-boot budget, dpni 18) the
+    ///   population grows into: a create admits while `population < n`.
     ///
     /// [`Ceiling::Unknown`] has no model counterpart (the model's `CEILING` is always an
     /// int). This follows the intent-layer posture for an unknown ceiling: admit and
@@ -475,7 +485,8 @@ impl PoolCensus {
     #[must_use]
     pub fn admits_create(self, ceiling: &Ceiling) -> bool {
         match ceiling {
-            Ceiling::Counted(n) | Ceiling::Observed { n, .. } => self.population < *n,
+            Ceiling::Counted(n) => *n > 0,
+            Ceiling::Observed { n, .. } => self.population < *n,
             Ceiling::Unknown => true,
         }
     }
@@ -646,9 +657,10 @@ impl PoolDeltas {
 ///
 /// Otherwise it emits [`PoolDeltas`]:
 /// - `create` = the deficit (`requirement - managed`, floored at 0) capped by the ceiling
-///   headroom (`ceiling - population` for [`Ceiling::Counted`]/[`Ceiling::Observed`],
-///   unbounded for [`Ceiling::Unknown`] — the admit-and-warn posture). A ceiling-capped grow
-///   converges the remainder on a later pass (level-triggered).
+///   headroom: the live free count `n` directly for [`Ceiling::Counted`] (the free units ARE
+///   the headroom; bead dpaa2-controlplane-b4c), the static bracket `n - population` for
+///   [`Ceiling::Observed`], unbounded for [`Ceiling::Unknown`] (the admit-and-warn posture). A
+///   ceiling-capped grow converges the remainder on a later pass (level-triggered).
 /// - `destroy` = the surplus (`managed - requirement`, floored at 0) capped by the free
 ///   managed count — free individuals only, the drawn ones are never candidates and a
 ///   surplus beyond the free count waits for returns.
@@ -694,9 +706,10 @@ pub fn drift_disposition(
     }
     let deficit = (requirement - census.managed()).max(0);
     let create = match ceiling {
-        Ceiling::Counted(n) | Ceiling::Observed { n, .. } => {
-            deficit.min((n - census.population()).max(0))
-        }
+        // Counted is the live free count: it is the headroom directly (bead dpaa2-controlplane-b4c).
+        Ceiling::Counted(n) => deficit.min((*n).max(0)),
+        // Observed is a static bracket: headroom is the bracket minus the population.
+        Ceiling::Observed { n, .. } => deficit.min((n - census.population()).max(0)),
         Ceiling::Unknown => deficit,
     };
     let (destroy, prune) = match scope {
@@ -1035,25 +1048,35 @@ mod tests {
 
     // ---- the ceiling gate (censusRefusesAtCeilingTest; DPBP-I7, ADR-0011) ----
 
+    /// Counted is the live free count: a create admits while any unit is free, at ANY
+    /// population, and refuses exactly at zero free (the V-CEIL-1 law, bead
+    /// dpaa2-controlplane-b4c). Observed is a static bracket: population below it admits.
     #[test]
     fn census_refuses_at_ceiling_admits_below() {
-        // At the ceiling a create is disabled; below it is admitted (born + 2 == CEILING 3).
-        let ceiling = Ceiling::Counted(3);
         assert!(
-            PoolCensus::new(2, 2, 0, 0, 0, 0).admits_create(&ceiling),
-            "below admits"
+            PoolCensus::new(2, 2, 0, 0, 0, 0).admits_create(&Ceiling::Counted(3)),
+            "free units remain ⇒ admits"
         );
         assert!(
-            !PoolCensus::new(3, 3, 0, 0, 0, 0).admits_create(&ceiling),
-            "at ceiling refuses"
+            PoolCensus::new(59, 5, 54, 0, 0, 0).admits_create(&Ceiling::Counted(5)),
+            "an aged board (population 59, free 5) still admits — free is not population"
         );
-        // An Observed ceiling gates the same way.
+        assert!(
+            !PoolCensus::new(2, 0, 2, 0, 0, 0).admits_create(&Ceiling::Counted(0)),
+            "zero free refuses, whatever the population"
+        );
         let obs = Ceiling::Observed {
             n: 3,
             provenance: "test".to_owned(),
         };
-        assert!(PoolCensus::new(2, 2, 0, 0, 0, 0).admits_create(&obs));
-        assert!(!PoolCensus::new(3, 3, 0, 0, 0, 0).admits_create(&obs));
+        assert!(
+            PoolCensus::new(2, 2, 0, 0, 0, 0).admits_create(&obs),
+            "below bracket admits"
+        );
+        assert!(
+            !PoolCensus::new(3, 3, 0, 0, 0, 0).admits_create(&obs),
+            "at bracket refuses"
+        );
     }
 
     #[test]
@@ -1071,13 +1094,11 @@ mod tests {
 
     #[test]
     fn grow_enabled_at_a_deficit_the_ceiling_admits() {
-        let ceiling = Ceiling::Counted(3);
-        // Deficit (managed 0 < req 2) and below ceiling ⇒ grow.
-        assert!(PoolCensus::new(1, 1, 0, 1, 0, 0).grow_enabled(2, &ceiling));
-        // At the requirement ⇒ no grow.
+        let ceiling = Ceiling::Counted(3); // three free units
+        assert!(PoolCensus::new(1, 1, 0, 1, 0, 0).grow_enabled(2, &ceiling)); // deficit + free ⇒ grow
         assert!(!PoolCensus::new(3, 3, 0, 1, 0, 0).grow_enabled(2, &ceiling)); // managed 2 == req 2
-        // Deficit but at ceiling ⇒ no grow (the census gate wins).
-        assert!(!PoolCensus::new(3, 3, 0, 0, 0, 0).grow_enabled(5, &ceiling));
+        // Deficit but zero free ⇒ no grow (the census gate wins, at any population).
+        assert!(!PoolCensus::new(0, 0, 0, 0, 0, 0).grow_enabled(5, &Ceiling::Counted(0)));
     }
 
     #[test]
@@ -1235,12 +1256,14 @@ mod tests {
         );
     }
 
-    // The grow is capped at the ceiling headroom; Ceiling::Unknown never caps
-    // (admit-and-warn). A capped grow leaves the remainder for a later pass.
+    /// The grow is capped at the ceiling headroom; [`Ceiling::Unknown`] never caps
+    /// (admit-and-warn). [`Ceiling::Counted`] and [`Ceiling::Observed`] cap differently (bead
+    /// dpaa2-controlplane-b4c): Counted's free count IS the headroom (deficit 4, `Counted(3)` ⇒
+    /// create 3), Observed's bracket subtracts the population (deficit 4, `Observed{3}` at
+    /// population 1 ⇒ create 2).
     #[test]
     fn drift_disposition_caps_grow_at_headroom_and_unknown_is_uncapped() {
         let c = PoolCensus::new(1, 1, 0, 0, 0, 0); // managed 1, population 1
-        // Counted(3): deficit 4, headroom 3-1=2 ⇒ create 2.
         let capped = drift_disposition(
             PoolFamily::Dpbp,
             c,
@@ -1249,7 +1272,7 @@ mod tests {
             CustodyScope::ChildScope,
         )
         .expect("caps");
-        assert_eq!(capped.create, 2);
+        assert_eq!(capped.create, 3);
         let obs = Ceiling::Observed {
             n: 3,
             provenance: "test".to_owned(),
@@ -1270,6 +1293,57 @@ mod tests {
         )
         .expect("uncapped");
         assert_eq!(uncapped.create, 4);
+    }
+
+    /// The spec scenario "An aged board still plans the draw" (capacity-census spec; the
+    /// V-ROLLBACK-1 rev4b shape, bead dpaa2-controlplane-b4c): population meets or exceeds the
+    /// live free count while the intent needs more and free units remain — the draw is planned
+    /// (up to the free count), never silently dropped. The old conflation (population < n) read
+    /// grow off and planned create 0, vanishing the draw from dry-run/admission.
+    #[test]
+    fn an_aged_board_still_plans_the_draw() {
+        // population 59, free 5 (drawn 54), managed 59; intent needs 65 ⇒ deficit 6.
+        let aged = PoolCensus::new(59, 5, 54, 0, 0, 0);
+        assert_eq!(aged.managed(), 59);
+        assert!(
+            aged.admits_create(&Ceiling::Counted(5)),
+            "free units remain ⇒ a create is admitted despite population > free"
+        );
+        assert!(
+            aged.grow_enabled(65, &Ceiling::Counted(5)),
+            "deficit 6 with free units ⇒ grow enabled"
+        );
+        let d = drift_disposition(
+            PoolFamily::Dpbp,
+            aged,
+            65,
+            &Ceiling::Counted(5),
+            CustodyScope::ChildScope,
+        )
+        .expect("grows");
+        assert_eq!(
+            d.create, 5,
+            "creates min(deficit 6, free 5) — the draw never vanishes"
+        );
+        // Zero free is the one refusal: a create is disabled and the grow plans nothing.
+        let dry = PoolCensus::new(59, 0, 59, 0, 0, 0);
+        assert!(
+            !dry.admits_create(&Ceiling::Counted(0)),
+            "zero free refuses"
+        );
+        assert_eq!(
+            drift_disposition(
+                PoolFamily::Dpbp,
+                dry,
+                65,
+                &Ceiling::Counted(0),
+                CustodyScope::ChildScope,
+            )
+            .expect("no refusal, just a disabled grow")
+            .create,
+            0,
+            "zero free ⇒ create 0"
+        );
     }
 
     // freeOnlyShrinkTest: a surplus emits destroys, bounded by the free managed count.

@@ -37,8 +37,12 @@ use dpaa2_api::families::pool_lifecycle::{CustodyScope, PoolCensus};
 use crate::itf::{field, int64, obj_ref, opt_obj_ref, set_items, state_var, tag};
 
 /// dpbp is the representative pool twin; the pool container is the Linux root `dprc.1`, the
-/// DPL-born boot object is ordinal 0 (`pool_lifecycle` `born`), and the ceiling is the
-/// board's free count (`dpbp.qnt` `CEILING = 3`; DPBP-I7).
+/// DPL-born boot object is ordinal 0 (`pool_lifecycle` `born`), and the ceiling is the model's
+/// static capacity bracket — `population <= CEILING` is its invariant, population never exceeds
+/// it (`dpbp.qnt` `CEILING = 3`; DPBP-I7). This is the model's fixed capacity, distinct from the
+/// board's live-free [`Ceiling::Counted`](dpaa2_api::core::inventory::Ceiling::Counted) the
+/// admission face reads (bead dpaa2-controlplane-b4c);
+/// the model carries no external drain, so the two coincide only here.
 const POOL_FAMILY: Family = Family::Dpbp;
 const POOL_CONTAINER: (Family, u32) = (Family::Dprc, 1);
 const BORN_ORDINAL: u32 = 0;

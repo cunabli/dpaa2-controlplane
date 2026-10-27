@@ -199,8 +199,29 @@
   no dpcon global row ships until it proves out. Verify: the row renders
   and dry-runs offline; `sh -n` and shellcheck clean.
 
+## 12. Sitting findings pulled in pre-archive
+
+- [x] 12.1 The shim tolerates a busy root portal (bead
+  dpaa2-controlplane-f59): bounded retry on the restool portal-open
+  failure in `run_verb`, the distinct `PortalBusy` give-up, the honest
+  mid-run render voice, and the four discrimination tests; supersession
+  notes on the V-ROLLBACK-1 shape-(a) header and ledger row. Verify:
+  the ScriptedRunner/SequencedRunner tests prove retry-recovers,
+  bounded give-up, guard-not-retried, status-never-retried.
+- [x] 12.2 A live free count is headroom, never a population bracket
+  (bead dpaa2-controlplane-b4c; spec delta `capacity-census`):
+  `admits_create` admits a `Counted` family while any unit is free and
+  plans `min(deficit, free)`, `Observed` keeps the static
+  `population < n` bracket; every `Ceiling::Counted` consumer swept,
+  the replay oracle's static CEILING re-typed `Observed`, frozen traces
+  replay byte-identical. Verify: the aged-board regression test plans
+  the draw (population 59, free 5), zero free refuses.
+
 ## Workflow follow-up
 
 - Board sitting execution and verdict recording (operator-gated,
   V-ROLLBACK-1 rev 4 and the dpcon disambiguation sitting), then
-  `/opsx:archive plan-rollback` after review.
+  `/opsx:archive plan-rollback` after review. [SUPERSEDED in part by
+  ADR-0024: the dpcon sitting's verdict is recorded (V-DPCON-2); the
+  V-ROLLBACK-1 re-sit requirement is retired to the ADR's revisit
+  triggers (bead dpaa2-controlplane-275).]

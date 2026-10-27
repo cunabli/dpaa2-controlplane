@@ -79,12 +79,21 @@ pub struct DpmacOffer {
 ///
 /// Feasibility refuses against [`Ceiling::Counted`] and [`Ceiling::Observed`] and
 /// warns on [`Ceiling::Unknown`]; nothing here invents a number.
+///
+/// [`Ceiling::Counted`] and [`Ceiling::Observed`] carry DIFFERENT semantics the admission
+/// and grow paths must not conflate (bead dpaa2-controlplane-b4c): a `Counted` value is a
+/// LIVE FREE COUNT (the remaining headroom, which shrinks as objects exist), a create admits
+/// while it is above zero at any population; an `Observed` value is a STATIC BRACKET the
+/// population grows into, a create admits while population is below it. See
+/// [`PoolCensus::admits_create`](crate::families::pool_lifecycle::PoolCensus::admits_create).
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub enum Ceiling {
-    /// The listed pool is the ceiling (dpbp, ADR-0011 decision 1).
+    /// The listed pool's live FREE count — the remaining headroom itself, not a cap the
+    /// population counts up to (dpbp's `bp` pool row, ADR-0011 decision 1; the V-CEIL-1 law
+    /// — a create refuses exactly at zero free, at any population).
     Counted(i64),
     /// An unlisted ceiling the board measured, with its provenance (dpni at 18,
-    /// ADR-0011 decision 2).
+    /// ADR-0011 decision 2). A static bracket the population grows into.
     Observed {
         /// The measured ceiling.
         n: i64,
