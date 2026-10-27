@@ -99,6 +99,19 @@
       "refusals": []
     }
   },
+  "V-DPCON-2": {
+    "V-DPCON-2-rev1": {
+      "pass": true,
+      "date": "2026-10-27",
+      "kind": "batch",
+      "revision": 1,
+      "steps": "1/1",
+      "source_hash": "fnv1a64:fe12f667f5ed2b22",
+      "hook": null,
+      "archive": null,
+      "refusals": []
+    }
+  },
   "V-DPDBG-1": {
     "V-DPDBG-1/probes": {
       "pass": false,
