@@ -43,6 +43,24 @@ pub enum Error {
         detail: String,
     },
 
+    /// restool could not open the MC portal device after bounded retries: a concurrent
+    /// opener held the root `/dev/dprc.N` for the whole window. The kernel admits one
+    /// opener at a time, so a second restool fails at `open()` before any command reaches
+    /// the MC (V-CONC-1 rev 1; ADR-0006 single-writer). Because nothing reached the MC the
+    /// shim retried the identical verb (ADR-0018 — retry policy lives in `dpaa2-mc`); this
+    /// is the honest give-up once the window did not clear, never a fabricated MC verdict.
+    /// Distinct from [`Error::RestoolGuard`]: a guard is a decided refusal, this is a
+    /// transient an operator can re-run.
+    #[error(
+        "MC portal busy: restool could not open the device after {attempts} attempts: {detail}"
+    )]
+    PortalBusy {
+        /// How many opens were attempted before giving up.
+        attempts: u32,
+        /// The verbatim restool open-failure diagnostic (e.g. `open() failed : Invalid argument`).
+        detail: String,
+    },
+
     /// An I/O error occurred.
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),

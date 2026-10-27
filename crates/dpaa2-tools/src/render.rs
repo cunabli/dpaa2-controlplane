@@ -1248,16 +1248,25 @@ pub fn render_failure_policy(policy: FailurePolicy) -> String {
 /// Overcommit (the firmware's no-resources status `0x8`) is rendered distinct from a planning-time
 /// headroom refusal: admission passed, but a concurrent writer drained the budget mid-run, and under
 /// rollback the report ends stating re-apply refuses until headroom returns (plan-rollback design D5).
+///
+/// A portal-busy give-up (restool could not open the root portal before the shim's attempt bound —
+/// the single-opener collision, ADR-0006; bead dpaa2-controlplane-f59) is rendered in honest mid-run
+/// voice, never the refusal voice: nothing reached the MC, so it is a transient the operator re-runs,
+/// not a decided refusal.
 #[must_use]
 pub fn render_failure_disposition(failure: &Error, disposition: &FailureDisposition) -> String {
     // 0x8 is the only status classified here; the fuller attribution matrix stays core-side.
     let overcommit = matches!(failure, Error::McStatus { status: 0x8 });
+    let portal_busy = matches!(failure, Error::PortalBusy { .. });
     let mut out = String::new();
     if overcommit {
         let _ = writeln!(
             out,
             "refused: overcommit — admission passed, but a concurrent writer drained the resource budget mid-run"
         );
+    } else if portal_busy {
+        // A busy portal never reached the MC: honest mid-run voice, not "refused" (bead dpaa2-controlplane-f59).
+        let _ = writeln!(out, "mid-run failure: {failure}");
     } else {
         // Error's Display is already operator text.
         let _ = writeln!(out, "refused: a verb failed mid-run: {failure}");

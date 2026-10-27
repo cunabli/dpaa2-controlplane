@@ -32,6 +32,7 @@
 #   (a) a suite-owned background writer that drains the raced family after the
 #       run's first actuation, and
 #   (b) the kernel probe itself as the concurrent consumer (DPSW-I9's draw).
+# [SUPERSEDED IN PART by bead dpaa2-controlplane-f59: V-CONC-1's single-opener law means the writer and engine collide on the root portal, so the dpaa2-mc shim now retries portal-open EINVAL and a lost race is a benign skip, not a false failure; decisiveness of shape (a) remains open on bead dpaa2-controlplane-3qv.]
 # This suite takes (a) for the DRAIN because it is decisive — the writer drains
 # a runtime-derived handful of the root dpbp pool on a deterministic signal, so the run's next
 # dpbp create provably refuses — where the kernel probe's draw is asynchronous

@@ -63,6 +63,35 @@ fn overcommit_rollback_report_is_actionable() {
     insta::assert_snapshot!(text);
 }
 
+/// A portal-busy give-up (the single-opener collision, bead dpaa2-controlplane-f59) under rollback:
+/// the first line is honest mid-run voice naming the busy portal, never the refusal voice, while the
+/// disposition lines render exactly as any other rollback (plan-rollback design D5; ADR-0006).
+#[test]
+fn portal_busy_renders_honest_not_refused() {
+    let report = RollbackReport {
+        unwound: vec![ActuationRecord::DpniCreated {
+            dpni: DpniId::new(7),
+            container: None,
+        }],
+        residue: vec![],
+        unreversed: vec![],
+    };
+    let failure = Error::PortalBusy {
+        attempts: 5,
+        detail: "open() failed : Invalid argument".to_owned(),
+    };
+    let text = render_failure_disposition(&failure, &FailureDisposition::RolledBack(report));
+    assert!(text.contains("portal"), "names the portal: {text}");
+    assert!(text.contains("busy"), "names busy: {text}");
+    assert!(!text.contains("refused"), "never the refusal voice: {text}");
+    assert!(
+        text.contains("unwound: created dpni dpni.7"),
+        "disposition lines stay: {text}"
+    );
+    assert!(!text.contains("ADR"), "no process anchors: {text}");
+    assert!(!text.contains("::"), "no internal type names: {text}");
+}
+
 /// A non-overcommit failure under abort, with a two-record executed prefix: the plain refusal line
 /// and the standing prefix in observed terms, no drained-budget framing (plan-rollback design D5).
 #[test]

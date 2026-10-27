@@ -48,6 +48,21 @@ use crate::runner::{RestoolRunner, Runner};
 /// The default fsl-mc root container.
 pub const DEFAULT_CONTAINER: &str = "dprc.1";
 
+/// The substring that marks a restool client-side portal-open failure — the single-opener
+/// collision [`RestoolMc::run_verb`](RestoolMc) retries (V-CONC-1 rev 1; bead
+/// dpaa2-controlplane-f59). The board message is `open() failed : Invalid argument`; the
+/// discriminant is the `open()` syscall name alone, so the EINVAL wording may drift.
+const PORTAL_OPEN_FAILURE: &str = "open() failed";
+
+/// How many times [`RestoolMc::run_verb`](RestoolMc) opens the portal before giving up with
+/// [`Error::PortalBusy`] — the identical verb, since nothing reached the MC (ADR-0006).
+const PORTAL_OPEN_ATTEMPTS: u32 = 5;
+
+/// The pause between portal-open attempts. Short on purpose: the concurrent opener is a
+/// restool command that releases the portal in well under this window, and the exhaustion
+/// path stays sub-second. ponytail: fixed backoff; a named knob to raise if a board needs it.
+const PORTAL_OPEN_BACKOFF: std::time::Duration = std::time::Duration::from_millis(20);
+
 /// The MC's own container, aliased `mc.global` by restool; only `dprc show` (and
 /// its `--resources` variant) is accepted against it (`dprc.md` mc.global section).
 const MC_GLOBAL: &str = "mc.global";
@@ -1118,33 +1133,57 @@ impl<R: Runner> RestoolMc<R> {
     /// is a transport failure, reported [`Error::Backend`] (review M10; PASS3-F8). The
     /// adapter reports; classifying *which* refusal a status means lives core-side
     /// (`dprc::Refusal`/`dprc_plan::attribute_mc`).
+    ///
+    /// One token-less guard is retried, and only one: a restool client-side `open()`
+    /// failure on the root portal. The kernel admits a single opener of `/dev/dprc.N` at
+    /// a time, so a concurrent restool (any operator command during a converge) fails at
+    /// `open()` with no MC command issued (V-CONC-1 rev 1; ADR-0006 single-writer). Retry
+    /// is sound *here and only here* — the command never reached the MC, so there is no
+    /// double-create hazard — so the shim re-runs the identical verb after a short backoff
+    /// up to [`PORTAL_OPEN_ATTEMPTS`], then gives up with the distinct [`Error::PortalBusy`]
+    /// (portal busy, never a fabricated verdict). Retry policy lives in `dpaa2-mc`, not the
+    /// policy-free HAL (ADR-0018). Every other token-less guard — the plugged-move pre-check
+    /// (DPRC-I3) — stays a hard, un-retried [`Error::RestoolGuard`]; an [`Error::McStatus`]
+    /// is never retried (a status means a command DID reach the MC).
     fn run_verb(&self, args: &[&str]) -> Result<String, Error> {
-        let out = self.runner.run_capture(args)?;
-        if out.code == Some(0) {
-            return Ok(out.stdout);
+        let mut attempt = 0u32;
+        loop {
+            attempt += 1;
+            let out = self.runner.run_capture(args)?;
+            if out.code == Some(0) {
+                return Ok(out.stdout);
+            }
+            // No exit code means a signal killed restool: transport failure, not a refusal (review M10; PASS3-F8).
+            if out.code.is_none() {
+                return Err(Error::Backend(format!(
+                    "restool {} died by signal: {}",
+                    args.join(" "),
+                    out.stderr.trim()
+                )));
+            }
+            // restool prints its diagnostic to stderr; fall back to stdout if empty.
+            let diag = if out.stderr.trim().is_empty() {
+                out.stdout.as_str()
+            } else {
+                out.stderr.as_str()
+            };
+            if let Some(status) = parse::parse_mc_status(diag) {
+                return Err(Error::McStatus { status });
+            }
+            let detail = diag.trim().to_owned();
+            // A token-less `open()` failure is the single-opener collision (V-CONC-1); retry it, nothing else.
+            if detail.contains(PORTAL_OPEN_FAILURE) {
+                if attempt < PORTAL_OPEN_ATTEMPTS {
+                    std::thread::sleep(PORTAL_OPEN_BACKOFF);
+                    continue;
+                }
+                return Err(Error::PortalBusy {
+                    attempts: PORTAL_OPEN_ATTEMPTS,
+                    detail,
+                });
+            }
+            return Err(Error::RestoolGuard { detail });
         }
-        // No exit code means a signal killed restool: transport failure, not a refusal (review M10; PASS3-F8).
-        if out.code.is_none() {
-            return Err(Error::Backend(format!(
-                "restool {} died by signal: {}",
-                args.join(" "),
-                out.stderr.trim()
-            )));
-        }
-        // restool prints its diagnostic to stderr; fall back to stdout if empty.
-        let diag = if out.stderr.trim().is_empty() {
-            out.stdout.as_str()
-        } else {
-            out.stderr.as_str()
-        };
-        parse::parse_mc_status(diag).map_or_else(
-            || {
-                Err(Error::RestoolGuard {
-                    detail: diag.trim().to_owned(),
-                })
-            },
-            |status| Err(Error::McStatus { status }),
-        )
     }
 }
 
@@ -1918,7 +1957,7 @@ impl<R: Runner> McControl for RestoolMc<R> {
 #[cfg(test)]
 mod tests {
     use std::cell::RefCell;
-    use std::collections::HashMap;
+    use std::collections::{HashMap, VecDeque};
 
     use dpaa2_api::core::model::MacAddr;
     use dpaa2_api::families::dpni::Profile;
@@ -1990,6 +2029,55 @@ mod tests {
                 Error::Backend(format!("no scripted outcome for `{}`", args.join(" ")))
             })
         }
+    }
+
+    /// A [`Runner`] that replays a fixed sequence of outcomes in call order (ignoring the
+    /// verb) and records every call, so a retry's attempt-by-attempt shape is scriptable —
+    /// the open()-EINVAL recovery path the verb-keyed [`ScriptedRunner`] cannot express
+    /// (bead dpaa2-controlplane-f59).
+    struct SequencedRunner {
+        outcomes: RefCell<VecDeque<RunOutcome>>,
+        calls: RefCell<Vec<Vec<String>>>,
+    }
+
+    impl SequencedRunner {
+        fn new(seq: Vec<RunOutcome>) -> Self {
+            Self {
+                outcomes: RefCell::new(seq.into_iter().collect()),
+                calls: RefCell::new(Vec::new()),
+            }
+        }
+
+        fn calls(&self) -> Vec<Vec<String>> {
+            self.calls.borrow().clone()
+        }
+    }
+
+    impl Runner for SequencedRunner {
+        fn run(&self, args: &[&str]) -> Result<String, Error> {
+            let out = self.run_capture(args)?;
+            if out.code == Some(0) {
+                Ok(out.stdout)
+            } else {
+                Err(Error::Backend(out.stderr))
+            }
+        }
+
+        fn run_capture(&self, args: &[&str]) -> Result<RunOutcome, Error> {
+            self.calls
+                .borrow_mut()
+                .push(args.iter().map(|s| (*s).to_owned()).collect());
+            self.outcomes
+                .borrow_mut()
+                .pop_front()
+                .ok_or_else(|| Error::Backend("scripted sequence exhausted".to_owned()))
+        }
+    }
+
+    /// The board's token-less portal-open refusal (V-ROLLBACK-1 rev4g, 2026-10-27): a second
+    /// restool collides with the single opener of `/dev/dprc.1` and fails at `open()`.
+    fn portal_einval() -> RunOutcome {
+        refused("error: open() failed : Invalid argument")
     }
 
     // ---- dprc verb surface (dprc-encapsulation task 3.1) ----
@@ -2540,6 +2628,76 @@ mod tests {
             mc.dprc_destroy(DprcId::new(2)).expect_err("signal death"),
             Error::Backend(_)
         ));
+    }
+
+    #[test]
+    fn the_portal_open_einval_is_retried_until_it_clears() {
+        // A concurrent restool held /dev/dprc.1 for one open, then released it: the shim
+        // re-runs the identical verb and the second open succeeds (V-CONC-1; bead f59).
+        let runner = SequencedRunner::new(vec![portal_einval(), ok("")]);
+        let mc = RestoolMc::with_runner(runner, DEFAULT_CONTAINER);
+        mc.dprc_destroy(DprcId::new(2)).expect("retry recovers");
+        assert_eq!(mc.runner().calls().len(), 2, "one retry, one success");
+    }
+
+    #[test]
+    fn the_portal_open_einval_gives_up_busy_not_refused() {
+        // The opener never releases: the shim exhausts its bounded attempts and surfaces
+        // the distinct portal-busy error — honest, never a fabricated MC verdict (bead f59).
+        let runner =
+            SequencedRunner::new((0..PORTAL_OPEN_ATTEMPTS).map(|_| portal_einval()).collect());
+        let mc = RestoolMc::with_runner(runner, DEFAULT_CONTAINER);
+        let err = mc.dprc_destroy(DprcId::new(2)).expect_err("busy");
+        assert!(
+            matches!(err, Error::PortalBusy { attempts, .. } if attempts == PORTAL_OPEN_ATTEMPTS),
+            "got {err:?}"
+        );
+        let rendered = err.to_string();
+        assert!(rendered.contains("busy"), "names busy: {rendered}");
+        assert!(rendered.contains("attempts"), "names attempts: {rendered}");
+        assert!(!rendered.contains("refused"), "never refused: {rendered}");
+        assert_eq!(
+            mc.runner().calls().len(),
+            PORTAL_OPEN_ATTEMPTS as usize,
+            "bounded give-up"
+        );
+    }
+
+    #[test]
+    fn the_plugged_move_guard_is_not_retried() {
+        // DPRC-I3's plugged-move pre-check is a decided client-side refusal, not the
+        // single-opener collision: it stays RestoolGuard, invoked exactly once (bead f59).
+        let guard =
+            "error: cannot be moved because it is currently in plugged state; unplug it first";
+        let runner = ScriptedRunner::new(vec![("dprc destroy dprc.2", refused(guard))]);
+        let mc = RestoolMc::with_runner(runner, DEFAULT_CONTAINER);
+        let err = mc.dprc_destroy(DprcId::new(2)).expect_err("guard");
+        match err {
+            Error::RestoolGuard { detail } => assert!(detail.contains("plugged state")),
+            other => panic!("expected RestoolGuard, got {other:?}"),
+        }
+        assert_eq!(mc.runner().calls().len(), 1, "guard is not retried");
+    }
+
+    #[test]
+    fn the_mc_create_status_is_not_retried() {
+        // A 0x8 status means a create DID reach the MC: retrying risks a double-create, so
+        // McStatus is never retried — one invocation, raw byte surfaced (bead f59).
+        let runner = ScriptedRunner::new(vec![(
+            "dprc destroy dprc.2",
+            refused("error: dprc_destroy() failed: resources exhausted (0x8)"),
+        )]);
+        let mc = RestoolMc::with_runner(runner, DEFAULT_CONTAINER);
+        let err = mc.dprc_destroy(DprcId::new(2)).expect_err("status");
+        assert!(
+            matches!(err, Error::McStatus { status: 0x8 }),
+            "got {err:?}"
+        );
+        assert_eq!(
+            mc.runner().calls().len(),
+            1,
+            "an MC status is never retried"
+        );
     }
 
     // dpmac info bodies shaped after models/board/baselines/reference.json. `ep` is
