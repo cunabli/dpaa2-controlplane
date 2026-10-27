@@ -191,7 +191,7 @@
   offline; `sh -n` and shellcheck clean; the operand pins stay offline
   (`crates/dpaa2-tools/tests/vrollback1_intents.rs`); sitting is
   operator-launched.
-- [ ] 11.2 Scope and stage the dpcon channel-pool disambiguation sitting
+- [x] 11.2 Scope and stage the dpcon channel-pool disambiguation sitting
   (cqch/swpch semantics unproven): a reviewable board row that reads the
   dpcon global rows under create-until-refused, so a dpcon global row can
   join the face with its own proving observation. Operator-gated:
