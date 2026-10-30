@@ -16,7 +16,7 @@
 //     `wireEnabled`/`doWire` with the one live-read of `occ`
 //     replaced by the dormant `censusOcc` snapshot — the seam pipeline's header
 //     calls out — and `stepCensus` swaps `doWire` for it.
-//   - the re-apply seam (plan-rollback design D6): `doRollbackReapply` mirrors pipeline
+//   - the re-apply seam (plan-rollback design D8): `doRollbackReapply` mirrors pipeline
 //     `doRollback` over the shared `applyRollback` twin but leaves the verdict Admitted —
 //     re-applying the drained plan without re-admission — and `stepReapply` swaps
 //     `doRollback` for it, turning pipeline `ORCH_I3` (ORCH-I3 restated) red.
@@ -120,7 +120,7 @@ module retro_oracle {
     stutter,
   }
 
-  // ---- plan-rollback: the re-apply-without-re-admission pair (plan-rollback design D6) ----
+  // ---- plan-rollback: the re-apply-without-re-admission pair (plan-rollback design D8) ----
 
   // Mirrors pipeline `doRollback` over the SHARED `applyRollback` twin, but relicenses the
   // drained plan to re-dispatch by leaving the verdict Admitted instead of forcing

@@ -70,7 +70,7 @@ const TRACES: &[(&str, &str)] = &[
     ),
     (
         "overcommitRollbackTest",
-        "ORCH-I3 (plan-rollback design D6): admission passes, the environment drains the pool below the next create's draw — the overcommit — the run rolls back to Unjudged, and the next admission re-judges the still-drained budget and refuses, no apply/rollback oscillation (both verdicts re-derived by check_pair)",
+        "ORCH-I3 (plan-rollback design D8): admission passes, the environment drains the MC-global bp row while the census shows headroom — the overcommit — the run rolls back to Unjudged, and the next admission re-judges the still-drained budget and refuses, no apply/rollback oscillation (both verdicts re-derived by check_pair)",
     ),
 ];
 

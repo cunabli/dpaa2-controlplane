@@ -1,4 +1,4 @@
-//! The rollback executor and the mid-run failure-policy application (plan-rollback design D5/D7;
+//! The rollback executor and the mid-run failure-policy application (plan-rollback design D6/D10;
 //! spec "Rollback unwinds the journal in reverse order", "The mid-run failure policy is a
 //! planning-time choice").
 //!
@@ -16,32 +16,32 @@ use crate::plan::rollback::{
     ActuationRecord, FailurePolicy, Precondition, Residue, Reversal, RunJournal, UndoVerb, reverse,
 };
 
-/// The typed outcome of a reverse-order unwind (plan-rollback design D4/D7): the rows the
+/// The typed outcome of a reverse-order unwind (plan-rollback design D5/D10): the rows the
 /// executor reversed, the residue it could not reclaim, and the rows whose undo the environment
 /// refused. All three are in unwind (reverse-journal) order.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct RollbackReport {
     /// Actuations whose undo verb (after its preconditions) dispatched successfully.
     pub unwound: Vec<ActuationRecord>,
-    /// Typed reboot-named residue from the irreversible rows (plan-rollback design D4; ADR-0020, ADR-0003 §7).
+    /// Typed reboot-named residue from the irreversible rows (plan-rollback design D5; ADR-0020, ADR-0003 §7).
     pub residue: Vec<Residue>,
-    /// Actuations whose undo (or a precondition verb) failed; reported, never retried — the next loop re-observes (plan-rollback design D5).
+    /// Actuations whose undo (or a precondition verb) failed; reported, never retried — the next loop re-observes (plan-rollback design D6).
     pub unreversed: Vec<ActuationRecord>,
 }
 
 /// Replays `journal` in reverse order through the reversal table, dispatching each undo verb from
-/// its observed values through the injected seams (plan-rollback design D4; spec "Rollback unwinds
+/// its observed values through the injected seams (plan-rollback design D5; spec "Rollback unwinds
 /// the journal in reverse order").
 ///
 /// Reverse order discharges the forward ordering guards for free: a reversible child resident
 /// unwinds before its container, so [`Precondition::ResidentsDrained`] needs no verb (plan-rollback
-/// design D4; ADR-0020 §3). A resident the walk cannot drain is left to the MC's refusal of the
-/// non-empty destroy — the row reports unreversed (plan-rollback design D5/D6). [`Precondition::Unbound`] is
+/// design D5; ADR-0020 §3). A resident the walk cannot drain is left to the MC's refusal of the
+/// non-empty destroy — the row reports unreversed (plan-rollback design D6/D8). [`Precondition::Unbound`] is
 /// realized before the destroy (unbind for a dpni, `unbind_current` for an object).
 ///
 /// An [`Reversal::Irreversible`] row reports its residue and the unwind continues; a failed undo
 /// (or precondition) verb is reported unreversed and the unwind continues — no in-run retry, the
-/// next level-triggered loop re-judges (plan-rollback design D5). An empty journal dispatches
+/// next level-triggered loop re-judges (plan-rollback design D6). An empty journal dispatches
 /// nothing and reports an empty unwind — the identity fixpoint (process rule 6).
 #[must_use]
 pub fn execute<M: McControl, K: KernelControl>(
@@ -58,7 +58,7 @@ pub fn execute<M: McControl, K: KernelControl>(
             // the model undoes the wire as its own row, not via the dpsw teardown. So the edge is
             // covered only when its dpsw was created this run: the later destroy_dpsw row clears it,
             // so count it unwound with no verb. On a pre-existing dpsw the edge is undispatchable and
-            // must surface unreversed, never silently vanish — the next loop re-judges (plan-rollback design D4).
+            // must surface unreversed, never silently vanish — the next loop re-judges (plan-rollback design D5).
             Reversal::Reversible {
                 undo: UndoVerb::DisconnectSwitchPort { dpsw, .. },
                 ..
@@ -81,7 +81,7 @@ pub fn execute<M: McControl, K: KernelControl>(
     report
 }
 
-/// The dpsw objects this run created (plan-rollback design D4): a switch-port edge whose dpsw is in
+/// The dpsw objects this run created (plan-rollback design D5): a switch-port edge whose dpsw is in
 /// this set is cleared by that dpsw's own teardown row, so the edge's no-verb undo is complete.
 fn switches_created_this_run(journal: &RunJournal) -> BTreeSet<ObjectRef> {
     journal
@@ -94,7 +94,7 @@ fn switches_created_this_run(journal: &RunJournal) -> BTreeSet<ObjectRef> {
 }
 
 /// How a mid-run verb failure was handled under the run's [`FailurePolicy`], folded into the run's
-/// typed refusal (plan-rollback design D5; spec "The mid-run failure policy is a planning-time
+/// typed refusal (plan-rollback design D6; spec "The mid-run failure policy is a planning-time
 /// choice").
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FailureDisposition {
@@ -108,7 +108,7 @@ pub enum FailureDisposition {
     },
 }
 
-/// Applies the run's planning-time [`FailurePolicy`] to a mid-run verb failure (plan-rollback design D5):
+/// Applies the run's planning-time [`FailurePolicy`] to a mid-run verb failure (plan-rollback design D6):
 /// under [`FailurePolicy::Rollback`] it runs [`execute`] over the journal; under
 /// [`FailurePolicy::Abort`] it dispatches no undo verb and names the executed prefix. The policy
 /// is uniform over every failure class — no per-class branching and no in-run retry. The match
@@ -128,9 +128,9 @@ pub fn apply_failure_policy<M: McControl, K: KernelControl>(
     }
 }
 
-/// Realizes the ordering preconditions then dispatches the undo verb (plan-rollback design D4). A
+/// Realizes the ordering preconditions then dispatches the undo verb (plan-rollback design D5). A
 /// failed precondition or undo verb short-circuits to `Err`; the caller reports the row unreversed
-/// and moves on — no retry (plan-rollback design D5).
+/// and moves on — no retry (plan-rollback design D6).
 fn unwind_one<M: McControl, K: KernelControl>(
     undo: &UndoVerb,
     preconditions: &[Precondition],
@@ -139,9 +139,9 @@ fn unwind_one<M: McControl, K: KernelControl>(
 ) -> Result<(), Error> {
     for pc in preconditions {
         match pc {
-            // Unbind precedes destroy: the dpni driver or the object's root device (plan-rollback design D4; ADR-0008 §8).
+            // Unbind precedes destroy: the dpni driver or the object's root device (plan-rollback design D5; ADR-0008 §8).
             Precondition::Unbound => unbind_for(undo, kernel)?,
-            // Reverse order drains reversible children (ADR-0020 §3); what stands is the MC's to refuse — the row reports unreversed (plan-rollback design D5/D6).
+            // Reverse order drains reversible children (ADR-0020 §3); what stands is the MC's to refuse — the row reports unreversed (plan-rollback design D6/D8).
             Precondition::ResidentsDrained => {}
         }
     }
@@ -149,7 +149,7 @@ fn unwind_one<M: McControl, K: KernelControl>(
 }
 
 /// The unbind that realizes [`Precondition::Unbound`] for `undo`'s target: a dpni driver detach, or
-/// the driver-agnostic root-device detach for an object (plan-rollback design D4). Only the three
+/// the driver-agnostic root-device detach for an object (plan-rollback design D5). Only the three
 /// undo verbs the reversal table pairs with [`Precondition::Unbound`] carry one.
 fn unbind_for<K: KernelControl>(undo: &UndoVerb, kernel: &K) -> Result<(), Error> {
     match undo {
@@ -161,7 +161,7 @@ fn unbind_for<K: KernelControl>(undo: &UndoVerb, kernel: &K) -> Result<(), Error
     }
 }
 
-/// Dispatches one undo verb through the seams (plan-rollback design D4). `DisconnectSwitchPort` is
+/// Dispatches one undo verb through the seams (plan-rollback design D5). `DisconnectSwitchPort` is
 /// handled in [`execute`] by journal context (no trait verb severs a switch-port edge today), never
 /// here, so its arm is unreachable — a regression that routes it here is a loud panic, not a silent
 /// success.
@@ -288,7 +288,7 @@ mod tests {
         );
     }
 
-    // plan-rollback design D4: a switch-port edge whose dpsw was created this run is cleared by the
+    // plan-rollback design D5: a switch-port edge whose dpsw was created this run is cleared by the
     // later destroy_dpsw row, so it counts unwound with no switch-port verb of its own.
     #[test]
     fn switch_port_on_same_run_dpsw_counts_unwound_no_extra_verb() {
@@ -324,7 +324,7 @@ mod tests {
         );
     }
 
-    // plan-rollback design D4: a switch-port edge on a pre-existing dpsw (no DpswCreated row) is
+    // plan-rollback design D5: a switch-port edge on a pre-existing dpsw (no DpswCreated row) is
     // undispatchable — it surfaces unreversed, never silently vanishes, and the unwind continues.
     #[test]
     fn switch_port_on_pre_existing_dpsw_is_unreversed() {
@@ -362,7 +362,7 @@ mod tests {
         assert_eq!(backend.audit(), Vec::<String>::new());
     }
 
-    // plan-rollback design D4: a container reversal drains residents by reverse order alone, so it
+    // plan-rollback design D5: a container reversal drains residents by reverse order alone, so it
     // issues the destroy with no extra unbind verb for ResidentsDrained.
     #[test]
     fn container_reversal_issues_only_the_destroy() {

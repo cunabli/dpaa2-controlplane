@@ -1,5 +1,5 @@
 //! Snapshot tests over the mid-run failure-policy preview and the rollback-disposition render
-//! (plan-rollback design D5; spec "Rollback outcomes are rendered in operator data terms"). The
+//! (plan-rollback design D6; spec "Rollback outcomes are rendered in operator data terms"). The
 //! rendered text is the operator's data vocabulary, board-free: inputs are hand-built public
 //! values, no backend. Each disposition render is also asserted free of internal type names
 //! (`::`) and process anchors (`ADR`), the operator-data-terms contract.
@@ -25,7 +25,7 @@ fn failure_policy_abort_line() {
 
 /// An overcommit (MC status `0x8`) rollback report with one unwound actuation, a residue of each
 /// variant, and one unreversed row: the drained-budget framing and the re-apply-refuses-until-
-/// headroom sentence must both appear, in operator data terms (plan-rollback design D5).
+/// headroom sentence must both appear, in operator data terms (plan-rollback design D6).
 #[test]
 fn overcommit_rollback_report_is_actionable() {
     let report = RollbackReport {
@@ -65,7 +65,7 @@ fn overcommit_rollback_report_is_actionable() {
 
 /// A portal-busy give-up (the single-opener collision, bead dpaa2-controlplane-f59) under rollback:
 /// the first line is honest mid-run voice naming the busy portal, never the refusal voice, while the
-/// disposition lines render exactly as any other rollback (plan-rollback design D5; ADR-0006).
+/// disposition lines render exactly as any other rollback (plan-rollback design D6; ADR-0006).
 #[test]
 fn portal_busy_renders_honest_not_refused() {
     let report = RollbackReport {
@@ -93,7 +93,7 @@ fn portal_busy_renders_honest_not_refused() {
 }
 
 /// A non-overcommit failure under abort, with a two-record executed prefix: the plain refusal line
-/// and the standing prefix in observed terms, no drained-budget framing (plan-rollback design D5).
+/// and the standing prefix in observed terms, no drained-budget framing (plan-rollback design D6).
 #[test]
 fn aborted_run_leaves_the_prefix_standing() {
     let prefix = vec![

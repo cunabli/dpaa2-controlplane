@@ -2,7 +2,7 @@
 // resource-aware-orchestration change design D1). Actions are the engine's
 // passes plus an observation action, an adversarial environment action, and a
 // rollback action over a run-journal projection (the executed creates of the
-// current loop, in execution order; plan-rollback design D6). The
+// current loop, in execution order; plan-rollback design D8). The
 // state is the census-schema projection (ADR-0023 design D11), NOT the core
 // object machine — per-construct status, the switch-port edge, dpmac driver
 // occupancy, the two board-proven budget counts (container pools, dpsw FDB), and
@@ -69,13 +69,13 @@ module orchestration {
   // type-unrepresentable (ADR-0023 design D5).
   type Verdict = Unjudged | Admitted | AdmissionRefused
 
-  // The per-run mid-run failure policy (plan-rollback design D5): `Rollback` (the
+  // The per-run mid-run failure policy (plan-rollback design D6): `Rollback` (the
   // default) unwinds the run journal; `Abort` stops and leaves the executed prefix
   // for the next loop to re-judge. `Continue` is the named deferred variant and is
   // deliberately NOT a model value.
   type Policy = Rollback | Abort
 
-  // A run-journal entry (plan-rollback design D6): a faithful witness of an executed
+  // A run-journal entry (plan-rollback design D8): a faithful witness of an executed
   // actuation, not only its budget draw. `JCreate(f)` is a family create (draws, so undo
   // returns the draw); `JWire` is the switch-port wire (draws no FDB unit, V-DPSW-2, so undo
   // returns nothing and only clears the edge). The Rust twin (group 5) journals wires/binds
@@ -125,11 +125,11 @@ module orchestration {
   var fdbFree: int                    // dpsw FDB budget, free count (V-DPSW-2)
   var verdict: Verdict                // admission verdict for the compiled plan
   var refused: Family -> bool         // typed whole-intent refusal recorded (ADR-0023 design D5/D10)
-  // The run-journal projection (plan-rollback design D6): the current loop's executed
+  // The run-journal projection (plan-rollback design D8): the current loop's executed
   // actuations (creates and the switch-port wire) in execution order — a faithful witness,
   // not just the budget-drawing subset. Reset at each loop boundary (`observe`); unwound by `doRollback`.
   var journal: List[JEntry]
-  var policy: Policy                  // the per-run mid-run failure policy (plan-rollback design D5)
+  var policy: Policy                  // the per-run mid-run failure policy (plan-rollback design D6)
   var residue: int                    // typed irreversible residue: spent dpio seats (ADR-0003 §7)
   // Set by a rollback, cleared by the re-admission (`observe`/`admit`): forbids any
   // re-dispatch of a rolled-back run before it is re-judged (ORCH-I3 restated, no oscillation).
@@ -334,7 +334,7 @@ module orchestration {
     fdbFree' = 2,
     verdict' = Unjudged,
     refused' = TABLE_FAMS.mapBy(f => false),
-    // Empty journal, the Default policy (plan-rollback design D5), no residue, no pending revert.
+    // Empty journal, the Default policy (plan-rollback design D6), no residue, no pending revert.
     journal' = [],
     policy' = Rollback,
     residue' = 0,
@@ -352,7 +352,7 @@ module orchestration {
     status' = status, pending' = pending, occ' = occ, portWired' = portWired,
     poolFree' = poolFree, globalPoolFree' = globalPoolFree, fdbFree' = fdbFree, refused' = refused,
     // A new loop is a new run: empty journal, revert flag cleared. Residue is grow-only
-    // across loops (plan-rollback design D7); the policy persists until re-chosen.
+    // across loops (plan-rollback design D5); the policy persists until re-chosen.
     journal' = [], reverted' = false, policy' = policy, residue' = residue,
   }
 
@@ -375,7 +375,7 @@ module orchestration {
       status' = status, pending' = pending, occ' = occ, censusOcc' = censusOcc,
       portWired' = portWired, poolFree' = poolFree, globalPoolFree' = globalPoolFree, fdbFree' = fdbFree,
       // Admission is the re-judgement: it clears the revert flag (the drained budget is
-      // re-judged here), carrying the journal/policy/residue (plan-rollback design D6).
+      // re-judged here), carrying the journal/policy/residue (plan-rollback design D8).
       journal' = journal, policy' = policy, residue' = residue, reverted' = false,
     }
   }
@@ -389,7 +389,7 @@ module orchestration {
   // (resource-aware-orchestration task 7.1).
 
   // Create/converge a construct, draining one plan entry and its budget draw, and
-  // recording the actuation in the run journal (plan-rollback design D6). The journal
+  // recording the actuation in the run journal (plan-rollback design D8). The journal
   // witnesses executed actuations, so a create is recorded here and the wire in `applyWire`;
   // reconcile/prune/refuse are not forward actuations of the run and stay unrecorded.
   pure def applyCreate(s: State, f: Family): State = { ...s,
@@ -429,15 +429,15 @@ module orchestration {
 
   // Wire the switch port (ADR-0023 design D9); the SwitchHeld move is the
   // kernel's, so `occ` is untouched here — the env effects it. The wire is an executed
-  // actuation, so it is journaled (plan-rollback design D6) and unwound on rollback.
+  // actuation, so it is journaled (plan-rollback design D8) and unwound on rollback.
   pure def applyWire(s: State): State = { ...s,
     portWired: true,
     journal: s.journal.append(JWire),
   }
 
-  // ---- rollback / abort dispositions (plan-rollback design D5/D6) ----
+  // ---- rollback / abort dispositions (plan-rollback design D6/D8) ----
 
-  // Undo one journaled actuation. The reversal table (plan-rollback design D4) is total:
+  // Undo one journaled actuation. The reversal table (plan-rollback design D5) is total:
   //   - JWire returns nothing (a wire draws no FDB unit, V-DPSW-2) and only clears the edge;
   //   - a reversible JCreate destroys the construct, restores its plan entry, and returns its
   //     budget draw (the forward ordering guards reversed collapse to one atomic status step
@@ -471,17 +471,17 @@ module orchestration {
     }
 
   // The journal in reverse (the foldl-prepend idiom, models/intent/main.qnt): the fixed
-  // unwind order plan-rollback design D6 mandates, so ORCH-I6 gains no scheduler choice.
+  // unwind order plan-rollback design D8 mandates, so ORCH-I6 gains no scheduler choice.
   pure def reversed(l: List[JEntry]): List[JEntry] = l.foldl([], (acc, e) => [e].concat(acc))
 
-  // Rollback (plan-rollback design D6): fold the reverse journal onto the census, then end
+  // Rollback (plan-rollback design D8): fold the reverse journal onto the census, then end
   // the run — journal emptied, verdict reset to Unjudged (forcing re-admission), and the
   // revert flag raised so no re-dispatch slips through before the next admission re-judges.
   pure def applyRollback(s: State): State =
     val undone = reversed(s.journal).foldl(s, (acc, e) => undoOne(acc, e))
     { ...undone, journal: [], verdict: Unjudged, reverted: true }
 
-  // Abort (plan-rollback design D5): stop, keep the executed prefix on the board, end the
+  // Abort (plan-rollback design D6): stop, keep the executed prefix on the board, end the
   // run so the next loop re-judges. No undo, no residue — the prefix is left standing.
   pure def applyAbort(s: State): State = { ...s,
     journal: [], verdict: Unjudged, reverted: false,
@@ -512,16 +512,16 @@ module orchestration {
   action doWire = all { wireEnabled, commitState(applyWire(cur)) }
 
   // The rollback disposition: enabled on a mid-run overcommit under the rollback policy
-  // (plan-rollback design D6). Unwinds the reverse journal via the shared `applyRollback`
+  // (plan-rollback design D8). Unwinds the reverse journal via the shared `applyRollback`
   // twin, so no hand-copied effect can drift from the retro re-apply variant.
   action doRollback = all { anyOvercommit, policy == Rollback, commitState(applyRollback(cur)) }
 
   // The abort disposition: enabled on a mid-run overcommit under the abort policy; stops
-  // and leaves the executed prefix for the next loop (plan-rollback design D5).
+  // and leaves the executed prefix for the next loop (plan-rollback design D6).
   action doAbort = all { anyOvercommit, policy == Abort, commitState(applyAbort(cur)) }
 
   // The caller chooses the per-run failure policy at planning time, i.e. at the loop
-  // boundary before admission (plan-rollback design D5). Modeled as a free choice over the
+  // boundary before admission (plan-rollback design D6). Modeled as a free choice over the
   // two values; `Continue` is deferred and has no action.
   action setPolicy(p: Policy): bool = all {
     verdict == Unjudged,
@@ -666,7 +666,7 @@ module orchestration {
   // state becomes reachable).
   val ORCH_I2: bool = (occ == MacHeld) implies not(portWired)
 
-  // ORCH-I3 admission soundness, restated under rollback (plan-rollback design D6/D9): dispatch
+  // ORCH-I3 admission soundness, restated under rollback (plan-rollback design D8/D9): dispatch
   // never overdraws a budget — neither the census rows (pool, FDB) NOR the MC-global pool row
   // (`globalPoolFree >= 0`, the hardware vector) — the verdict enum making admitted-and-refused
   // unrepresentable. AND a rolled-back run cannot re-dispatch before it is re-judged: `reverted`
@@ -707,7 +707,7 @@ module orchestration {
   // engine-pass alphabet: a create/reconcile/prune/refuse per family-table row
   // plus the single switch-port wire. The adversary (`doEnv`), the loop boundary
   // (`observe`/`admit`/`setPolicy`), the mid-run dispositions (`doRollback`/`doAbort`, whose
-  // unwind order is the fixed reverse journal — no scheduler choice, plan-rollback design D6)
+  // unwind order is the fixed reverse journal — no scheduler choice, plan-rollback design D8)
   // and `stutter` are not scheduler-ordered engine passes, so they are out of the alphabet.
   type Pass = PCreate(Family) | PReconcile(Family) | PPrune(Family) | PRefuse(Family) | PWire
 
@@ -900,8 +900,8 @@ module orchestration {
   // container dprc Converged (ORCH-I7; the MC refuses a dprc destroy with a live resident). The
   // revert flag plus Unjudged verdict force a re-admission, which re-judges the still-drained GLOBAL
   // row and refuses at planning time on it (census still has headroom): no apply/rollback oscillation.
-  // NOTE: frozen with group 5 (plan-rollback), NOT re-frozen into models/traces/orchestration/ here —
-  // see plan-rollback design D7.
+  // NOTE: frozen in models/traces/orchestration/ and re-frozen with the global vector, replayed by
+  // orchestration_replay.rs — see plan-rollback design D10.
   run overcommitRollbackTest =
     init
       .then(doRefuse(Dpseci))
@@ -953,7 +953,7 @@ module orchestration {
         grossGlobalDraw(pending) > globalPoolFree,
       })
 
-  // ORCH-I3 restated — the abort disposition (plan-rollback design D5): same overcommit, but
+  // ORCH-I3 restated — the abort disposition (plan-rollback design D6): same overcommit, but
   // under the abort policy the run stops and leaves the executed prefix standing (no undo, no
   // residue); the next loop re-judges the drained budget and refuses at planning time.
   run overcommitAbortTest =

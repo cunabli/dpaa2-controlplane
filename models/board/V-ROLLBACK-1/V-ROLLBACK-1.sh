@@ -18,7 +18,7 @@
 # §7); only a reboot reclaims those. The closing reboot is the operator's.
 #
 # WHAT THIS WITNESSES (plan-rollback spec "The board program witnesses rollback
-# under kernel probing"; plan-rollback design D1/D6/D7; the offline twin is
+# under kernel probing"; plan-rollback design D1/D8/D10; the offline twin is
 # crates/dpaa2-verify/tests/rollback_overcommit.rs). Admission is lockless and
 # check-without-reservation (ADR-0023 design D5/D7/D8): it reads the observed
 # budgets ONCE at run start and never reserves. This suite makes a LATER create

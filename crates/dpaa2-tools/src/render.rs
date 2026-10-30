@@ -1216,7 +1216,7 @@ fn render_counters(out: &mut String, counters: &CounterReadout) {
 }
 
 /// Renders the one-line mid-run failure-policy preview the dry-run prints last.
-/// Anchor: plan-rollback design D5; spec "The dry-run output SHALL state the run's selected
+/// Anchor: plan-rollback design D6; spec "The dry-run output SHALL state the run's selected
 /// policy" — the operator sees the failure disposition the run would execute under beside the
 /// plan. Pure text, operator data terms, no type names.
 #[must_use]
@@ -1233,13 +1233,13 @@ pub fn render_failure_policy(policy: FailurePolicy) -> String {
                 .to_owned()
         }
         // FailurePolicy is #[non_exhaustive]; the deferred `continue` variant lands by adding an
-        // arm here with its own preview wording (plan-rollback design D5).
+        // arm here with its own preview wording (plan-rollback design D6).
         _ => "on failure: a policy with no preview wording yet\n".to_owned(),
     }
 }
 
 /// Renders a mid-run failure and how the run's failure policy disposed of it.
-/// Anchor: plan-rollback design D5; spec "Rollback outcomes are rendered in operator data terms".
+/// Anchor: plan-rollback design D6; spec "Rollback outcomes are rendered in operator data terms".
 /// The failure class, then — under
 /// rollback — the reverse-order unwind (the actuations undone, each typed reboot residue, and any row
 /// the environment left unreversed), or — under abort — the executed prefix left standing for the next
@@ -1247,7 +1247,7 @@ pub fn render_failure_policy(policy: FailurePolicy) -> String {
 ///
 /// Overcommit (the firmware's no-resources status `0x8`) is rendered distinct from a planning-time
 /// headroom refusal: admission passed, but a concurrent writer drained the budget mid-run, and under
-/// rollback the report ends stating re-apply refuses until headroom returns (plan-rollback design D5).
+/// rollback the report ends stating re-apply refuses until headroom returns (plan-rollback design D6).
 ///
 /// A portal-busy give-up (restool could not open the root portal before the shim's attempt bound —
 /// the single-opener collision, ADR-0006; bead dpaa2-controlplane-f59) is rendered in honest mid-run
@@ -1304,7 +1304,7 @@ pub fn render_failure_disposition(failure: &Error, disposition: &FailureDisposit
     out
 }
 
-/// Describes one journaled actuation in the operator's data vocabulary (plan-rollback design D5). A
+/// Describes one journaled actuation in the operator's data vocabulary (plan-rollback design D6). A
 /// total match over the actuation record, full-word naming, never an internal type name.
 fn describe_actuation(record: &ActuationRecord) -> String {
     match record {
@@ -1352,7 +1352,7 @@ fn describe_container(container: Option<DprcId>) -> String {
 }
 
 /// Describes a typed reboot residue in plain words, naming the object and that a reboot reclaims it
-/// (plan-rollback design D5; spec "Residue names its remedy"). A total match over the residue.
+/// (plan-rollback design D6; spec "Residue names its remedy"). A total match over the residue.
 fn describe_residue(residue: &Residue) -> String {
     match residue {
         Residue::RootPopulation { object } => {

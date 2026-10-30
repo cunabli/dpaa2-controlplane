@@ -77,7 +77,7 @@ CHECKS = [
     ("ORCH-I2 handover live-read removed (census)", RETRO, "retro_oracle",
      "handoverSafe", "stepCensus", False),
     # plan-rollback: the re-apply-without-re-admission pair (ORCH-I3 restated,
-    # plan-rollback design D6). The shipped rollback resets the verdict to Unjudged,
+    # plan-rollback design D8). The shipped rollback resets the verdict to Unjudged,
     # so a rolled-back run must be re-admitted before it re-dispatches (green); the
     # re-apply variant leaves the verdict Admitted, so ORCH_I3's reverted-implies-
     # Unjudged conjunct goes red the instant doRollbackReapply fires.

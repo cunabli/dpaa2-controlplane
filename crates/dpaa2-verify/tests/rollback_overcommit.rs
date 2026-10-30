@@ -1,4 +1,4 @@
-//! Fake-MC overcommit rollback simulation (plan-rollback task 5.2; design D6/D7): offline,
+//! Fake-MC overcommit rollback simulation (plan-rollback task 5.2; design D8/D10): offline,
 //! against the in-memory `FakeBackend` through the `Recording` layer. A run whose admission
 //! passes executes a prefix, a concurrent writer drains the budget, and the next create refuses
 //! mid-run — the overcommit (plan-rollback design D1), discovered at dispatch. The two tests
@@ -8,7 +8,7 @@
 //!
 //! The budget drain is expressed by composing the fake's existing one-shot
 //! `with_dprc_create_refusal` seam at the mid-run create — no new fake surface is added
-//! (plan-rollback design D7 fake-MC budget simulation): the prefix verbs succeed, and the create
+//! (plan-rollback design D10 fake-MC budget simulation): the prefix verbs succeed, and the create
 //! that discovers the drain bounces the MC no-space refusal.
 
 use std::cell::RefCell;
@@ -39,7 +39,7 @@ fn dpio_cfg() -> DpioCfg {
 }
 
 /// A capacity face with pool headroom for the prefix draw, so the planning-time admission admits
-/// before the mid-run drain (plan-rollback design D6 "admission passes"). The fake models no
+/// before the mid-run drain (plan-rollback design D8 "admission passes"). The fake models no
 /// budget of its own, so this is the admission anchor; the drain itself is the mid-run create
 /// refusal below.
 fn admitting_face() -> CapacityFace {
@@ -80,9 +80,9 @@ struct Overcommit {
 /// (a root dpni create, its bind, and a root dpio seat) executes and journals through the
 /// `Recording` layer, then a concurrent writer has drained the budget so the next create — a child
 /// container — refuses mid-run. The drain is the fake's one-shot `with_dprc_create_refusal` fired
-/// at that create (plan-rollback design D7). Captures the pre-run board before the prefix.
+/// at that create (plan-rollback design D10). Captures the pre-run board before the prefix.
 fn run_overcommit() -> Overcommit {
-    // The planning-time admission passes against headroom (plan-rollback design D6).
+    // The planning-time admission passes against headroom (plan-rollback design D8).
     let draw = GrossDraw::from_pending(&BTreeMap::from([(Family::Dpbp, 1)]));
     assert!(
         admit(&admitting_face(), &draw).is_ok(),
@@ -107,7 +107,7 @@ fn run_overcommit() -> Overcommit {
         .map(|o| o.object)
         .collect();
 
-    // The executed prefix: each verb journals its observed actuation (plan-rollback design D3).
+    // The executed prefix: each verb journals its observed actuation (plan-rollback design D4).
     let lbl = ConstructName::from("port");
     let dpni = backend.create_dpni(&lbl, &DpniCfg::defaults()).unwrap();
     backend.bind(dpni).unwrap();
@@ -170,7 +170,7 @@ fn overcommit_rollback_unwinds_prefix_to_pre_run_board_up_to_residue() {
         panic!("the rollback policy rolls back");
     };
     // The reversible rows unwind in reverse journal order; the root dpio seat is irreversible, so
-    // it reports typed residue and never enters the unwound set (plan-rollback design D4).
+    // it reports typed residue and never enters the unwound set (plan-rollback design D5).
     assert_eq!(
         report.unwound,
         vec![
@@ -202,7 +202,7 @@ fn overcommit_rollback_unwinds_prefix_to_pre_run_board_up_to_residue() {
 /// Spec "Abort leaves the prefix for the loop": under the abort policy no undo verb fires and the
 /// typed refusal names the executed prefix in forward order. The abort disposition provably
 /// dispatches nothing, so a fresh fake is a sufficient witness for the empty undo audit — its
-/// board is immaterial because abort never touches it (plan-rollback design D5).
+/// board is immaterial because abort never touches it (plan-rollback design D6).
 #[test]
 fn overcommit_abort_fires_no_undo_and_names_the_prefix() {
     let oc = run_overcommit();
@@ -233,7 +233,7 @@ fn overcommit_abort_fires_no_undo_and_names_the_prefix() {
 }
 
 /// A pre-seeded plugged orphan in the child (never journaled) blocks the container destroy: the
-/// row reports unreversed and the walk continues (plan-rollback design D5/D6; ORCH-I7). The root
+/// row reports unreversed and the walk continues (plan-rollback design D6/D8; ORCH-I7). The root
 /// dpio residue is an independent fact — root residue never strands a container, a child dpio is
 /// reversible (ADR-0020 §3; ADR-0003 §7) — so the model's stranded-container shape is not mirrored
 /// literally.

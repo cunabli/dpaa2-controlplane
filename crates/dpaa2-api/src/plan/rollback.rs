@@ -1,6 +1,6 @@
 //! The rollback vocabulary: the run journal, the mid-run failure policy, and the
 //! compile-checked total reversal table over the actuation vocabulary (plan-rollback
-//! design D3/D4/D5; ADR-0023). Pure and sans-io — the undo side is a typed *description*
+//! design D4/D5/D6; ADR-0023). Pure and sans-io — the undo side is a typed *description*
 //! of a teardown verb, dispatched later by the `dpaa2-mc` executor, never a backend
 //! closure here.
 //!
@@ -18,7 +18,7 @@
 //!
 //! The journal records *constructive* actuations only — the forward build a mid-run
 //! failure must unwind (the model journals exactly these: creates and the switch-port
-//! wire, `models/COVERAGE.md` plan-rollback D5/D6). Each successful mutating verb of
+//! wire, `models/COVERAGE.md` plan-rollback D6/D8). Each successful mutating verb of
 //! [`McControl`](crate::contract::McControl)/[`KernelControl`](crate::contract::KernelControl)
 //! maps to exactly one place:
 //!
@@ -58,13 +58,13 @@ use crate::core::family::Family;
 use crate::core::model::{DpniId, DprcId, ObjectRef};
 
 /// The per-run mid-run failure policy, chosen by the caller at planning time and never
-/// prompted mid-run (plan-rollback design D5; spec "The mid-run failure policy is a
+/// prompted mid-run (plan-rollback design D6; spec "The mid-run failure policy is a
 /// planning-time choice"). Declared `#[non_exhaustive]` so a later policy joins without
 /// breaking callers.
 ///
 /// `Continue` — skip the failed verb and its guard-dependents, converge the rest, and let
 /// the next loop finish — is the named deferred variant: its semantics are agreed, its
-/// implementation is not licensed here (plan-rollback design D5), so it is documented but
+/// implementation is not licensed here (plan-rollback design D6), so it is documented but
 /// not declared.
 #[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -78,7 +78,7 @@ pub enum FailurePolicy {
 }
 
 /// One journaled actuation, carrying the *observed* result (the MC-assigned handle and its
-/// home container) — never the intended value (plan-rollback design D3; spec "The journal
+/// home container) — never the intended value (plan-rollback design D4; spec "The journal
 /// records observations, not intent"). A create whose MC-assigned id differs from the
 /// intended one is recorded by the id that exists, so a later rollback addresses the real
 /// object.
@@ -156,7 +156,7 @@ pub enum ActuationRecord {
 
 /// The run journal: a run-scoped, append-only, in-memory record of the run's observed
 /// actuations, created at execution start and dying with the run (plan-rollback design
-/// D3). ADR-0008 is untouched — nothing persists past the run and nothing is reserved.
+/// D4). ADR-0008 is untouched — nothing persists past the run and nothing is reserved.
 ///
 /// The type is deliberately minimal: append plus ordered iteration. It holds no shared
 /// handle and no interior mutability — dispatch is serialized, so the group-4 recording
@@ -194,7 +194,7 @@ impl RunJournal {
     }
 
     /// Iterates the records in append order. The rollback executor consumes `.rev()` for
-    /// the reverse-order unwind (plan-rollback design D4; the reverse is deterministic, so
+    /// the reverse-order unwind (plan-rollback design D5; the reverse is deterministic, so
     /// ORCH-I6 gains no scheduler choice).
     pub fn iter(&self) -> std::slice::Iter<'_, ActuationRecord> {
         self.records.iter()
@@ -211,7 +211,7 @@ impl<'a> IntoIterator for &'a RunJournal {
 }
 
 /// An ordering guard the unwind honors — the forward dependency reversed, a
-/// plan-rollback design D4 guard (spec "Reversal honors ordering in reverse"). The
+/// plan-rollback design D5 guard (spec "Reversal honors ordering in reverse"). The
 /// executor realizes each guard with the appropriate verb before it fires the destroy undo.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Precondition {
@@ -229,7 +229,7 @@ const NO_PRECONDITION: &[Precondition] = &[];
 
 /// Irreversible residue: a grow-only hardware population a runtime unwind cannot reclaim,
 /// reported as a reboot-named disposition rather than pretending reversal — the
-/// plan-rollback design D4 irreversible row (spec "Irreversible work becomes residue, not
+/// plan-rollback design D5 irreversible row (spec "Irreversible work becomes residue, not
 /// pretense").
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Residue {
@@ -248,7 +248,7 @@ pub enum Residue {
 }
 
 /// A typed description of a teardown verb the rollback executor will dispatch from observed
-/// values (plan-rollback design D4). Sans-io: this names the verb and its observed
+/// values (plan-rollback design D5). Sans-io: this names the verb and its observed
 /// operands, it is not a closure over a backend.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UndoVerb {
@@ -295,7 +295,7 @@ pub enum UndoVerb {
     VfioUnbind(DprcId),
 }
 
-/// A reversal-table row (plan-rollback design D4): a reversible actuation names its undo
+/// A reversal-table row (plan-rollback design D5): a reversible actuation names its undo
 /// verb and the ordering guards the unwind honors in reverse; an irreversible one names its
 /// typed reboot residue.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -314,7 +314,7 @@ pub enum Reversal {
     },
 }
 
-/// The reversal table: the undo of one journaled actuation (plan-rollback design D4;
+/// The reversal table: the undo of one journaled actuation (plan-rollback design D5;
 /// ADR-0023 design D10). The exhaustive `match` has no wildcard arm, so a new
 /// [`ActuationRecord`] kind without a row fails the build — omission is a compile error,
 /// never a runtime discovery (spec "A new actuation kind without a row cannot ship").

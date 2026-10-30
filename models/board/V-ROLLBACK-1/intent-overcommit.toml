@@ -7,7 +7,7 @@
 # That trailing child-population dpbp create is the verb the suite drains out
 # from under, so it refuses MC status 0x8 (No resources) WHILE the kernel dpni
 # is bound and probing — the mid-run overcommit the rollback policy unwinds
-# (plan-rollback design D1/D6/D7; the twin stages the same drain offline in
+# (plan-rollback design D1/D8/D10; the twin stages the same drain offline in
 # crates/dpaa2-verify/tests/rollback_overcommit.rs).
 #
 # Lives in the suite dir, not models/intent/scenarios/, for the V-MVP-1 /

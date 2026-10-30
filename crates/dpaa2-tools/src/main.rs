@@ -69,10 +69,10 @@ impl From<AllowArg> for Class {
     }
 }
 
-/// The `--on-failure` mid-run failure policy (plan-rollback design D5): what a run does when a verb
+/// The `--on-failure` mid-run failure policy (plan-rollback design D6): what a run does when a verb
 /// fails mid-run. A CLI-side mirror of [`FailurePolicy`] so `dpaa2-api` stays free of the `clap`
 /// dependency. The value set grows with the policy enum — the deferred `continue` variant
-/// (plan-rollback design D5) lands by adding an arm here.
+/// (plan-rollback design D6) lands by adding an arm here.
 #[derive(Clone, Copy, Debug, Default, ValueEnum)]
 enum OnFailureArg {
     /// Unwind this run's recorded actuations in reverse order (the default).
@@ -116,7 +116,7 @@ enum Command {
         /// Directory to write generated `.link` files into.
         #[arg(long, default_value = link::RUNTIME_NETWORK_DIR)]
         link_dir: PathBuf,
-        /// What a mid-run verb failure does (plan-rollback design D5): `rollback` (default) unwinds
+        /// What a mid-run verb failure does (plan-rollback design D6): `rollback` (default) unwinds
         /// this run's recorded actuations in reverse order; `abort` leaves the executed prefix
         /// standing for the next run.
         #[arg(long, value_enum, default_value_t = OnFailureArg::Rollback)]
@@ -143,7 +143,7 @@ enum Command {
         /// (dprc-hardening design D8).
         #[arg(long)]
         prune: bool,
-        /// The mid-run failure policy to preview beside the plan (plan-rollback design D5); a
+        /// The mid-run failure policy to preview beside the plan (plan-rollback design D6); a
         /// dry-run actuates nothing, so this only names the disposition the run would execute under.
         #[arg(long, value_enum, default_value_t = OnFailureArg::Rollback)]
         on_failure: OnFailureArg,
@@ -292,7 +292,7 @@ fn run(cli: &Cli) -> Result<ExitCode, Error> {
             // the exact set `ensure` judges, a dry-run dispatches nothing.
             print!("{}", render::render_switches(&compiled.plan, &switch_work));
             // The mid-run failure policy the run would execute under, previewed last; a dry-run
-            // actuates nothing, so this only names the disposition (plan-rollback design D5).
+            // actuates nothing, so this only names the disposition (plan-rollback design D6).
             print!("{}", render::render_failure_policy((*on_failure).into()));
             Ok(ExitCode::SUCCESS)
         }
@@ -318,7 +318,7 @@ fn run(cli: &Cli) -> Result<ExitCode, Error> {
 }
 
 /// Runs one `ensure` under the recording layer and the run's mid-run failure policy
-/// (plan-rollback design D2/D5). It wraps both composed backends in one [`Recording`] so the
+/// (plan-rollback design D3/D6). It wraps both composed backends in one [`Recording`] so the
 /// run journals its actuations, then runs `ensure`; a mid-run verb error — the one seam every
 /// converge phase's `?` bubbles to — applies the planning-time policy over the journal here,
 /// not per phase. The policy is the `--on-failure` flag's value, threaded from the `ensure` arm.
@@ -340,7 +340,7 @@ fn run_ensure(
     let kernel = Recording::new(kernel, Rc::clone(&journal));
     match ensure(&mc, &kernel, cli, deadline, prune, allow, no_link, link_dir) {
         Ok(code) => code,
-        // The next level-triggered loop re-observes and re-judges (plan-rollback design D5).
+        // The next level-triggered loop re-observes and re-judges (plan-rollback design D6).
         Err(failure) => {
             // Snapshot the journal so the executor's undo dispatch never aliases the live handle.
             let recorded = journal.borrow().clone();
@@ -830,7 +830,7 @@ mod tests {
 
     use super::{Cli, Command, OnFailureArg};
 
-    /// The `--on-failure` flag defaults to rollback on `ensure` (plan-rollback design D5).
+    /// The `--on-failure` flag defaults to rollback on `ensure` (plan-rollback design D6).
     #[test]
     fn ensure_defaults_to_rollback_on_failure() {
         let cli = Cli::try_parse_from(["dpaa2ctl", "ensure"]).expect("ensure parses");
@@ -840,7 +840,7 @@ mod tests {
         assert!(matches!(on_failure, OnFailureArg::Rollback));
     }
 
-    /// The `--on-failure` flag defaults to rollback on `dry-run` (plan-rollback design D5).
+    /// The `--on-failure` flag defaults to rollback on `dry-run` (plan-rollback design D6).
     #[test]
     fn dry_run_defaults_to_rollback_on_failure() {
         let cli = Cli::try_parse_from(["dpaa2ctl", "dry-run"]).expect("dry-run parses");
@@ -850,7 +850,7 @@ mod tests {
         assert!(matches!(on_failure, OnFailureArg::Rollback));
     }
 
-    /// `--on-failure=abort` parses on `ensure` (plan-rollback design D5).
+    /// `--on-failure=abort` parses on `ensure` (plan-rollback design D6).
     #[test]
     fn ensure_accepts_abort_on_failure() {
         let cli = Cli::try_parse_from(["dpaa2ctl", "ensure", "--on-failure=abort"])
@@ -861,7 +861,7 @@ mod tests {
         assert!(matches!(on_failure, OnFailureArg::Abort));
     }
 
-    /// `--on-failure=abort` parses on `dry-run` (plan-rollback design D5).
+    /// `--on-failure=abort` parses on `dry-run` (plan-rollback design D6).
     #[test]
     fn dry_run_accepts_abort_on_failure() {
         let cli = Cli::try_parse_from(["dpaa2ctl", "dry-run", "--on-failure=abort"])

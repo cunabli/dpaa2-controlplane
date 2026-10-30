@@ -1,14 +1,14 @@
 //! The transparent recording layer: a decorator over the southbound control traits that
-//! journals each successful mutating actuation as it is observed (plan-rollback design D2/D3).
+//! journals each successful mutating actuation as it is observed (plan-rollback design D3/D4).
 //! It forwards every verb unchanged — it never alters, reorders, or refuses one, and
 //! never inspects an argument beyond what the record needs.
 //!
-//! The wrapper lives with the trait seams it wraps (plan-rollback design D3) and is a per-trait
+//! The wrapper lives with the trait seams it wraps (plan-rollback design D4) and is a per-trait
 //! decorator, not a generic middleware/layer trait: a uniform call shape would need a verb-enum
 //! funnel that erases the typestate at the exact seam this project types, so that promotion is
-//! refused until a second cross-cutting layer earns it (plan-rollback design D2).
+//! refused until a second cross-cutting layer earns it (plan-rollback design D3).
 //!
-//! **Ordering law (plan-rollback design D2):** recording sits *inside* retry — the wrapped
+//! **Ordering law (plan-rollback design D3):** recording sits *inside* retry — the wrapped
 //! backend verbs carry their own retries (`dpaa2-mc`), so a row is appended only once a verb
 //! finally returns `Ok`, and a verb that errors appends nothing. The journal therefore holds
 //! the actuation that succeeded, never a failed attempt.
@@ -40,11 +40,11 @@ use crate::plan::dprc::ObservedContainer;
 use crate::plan::rollback::{ActuationRecord, RunJournal};
 
 /// A single-threaded shared handle to the run journal. Dispatch is serialized, so interior
-/// mutability under `Rc<RefCell<_>>` suffices — no `Mutex` (plan-rollback design D2).
+/// mutability under `Rc<RefCell<_>>` suffices — no `Mutex` (plan-rollback design D3).
 pub type JournalHandle = Rc<RefCell<RunJournal>>;
 
 /// Wraps a southbound backend `B`, forwarding every verb to it and appending each successful
-/// mutating actuation to a shared [`RunJournal`] (plan-rollback design D2/D3). One generic
+/// mutating actuation to a shared [`RunJournal`] (plan-rollback design D3/D4). One generic
 /// struct serves both seams: it is [`McControl`] when `B` is, and [`KernelControl`] when `B`
 /// is, so a composed backend records both sides against one journal.
 pub struct Recording<B> {
