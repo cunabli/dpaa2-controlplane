@@ -31,7 +31,7 @@ use dpaa2_api::plan::admission::{GrossDraw, admit};
 use dpaa2_api::plan::capacity::{CapacityFace, FdbBudget, GlobalBudget, PoolBudget, PoolHeadroom};
 use dpaa2_api::plan::dispatch::{self, Disposition};
 use dpaa2_verify::intent::orchestration_itf::{
-    OrchState, Status, Verdict, parse_orchestration_trace, row_set_findings,
+    Occupancy, OrchState, Status, Verdict, parse_orchestration_trace, row_set_findings,
 };
 
 /// Every committed trace under `models/traces/orchestration/`, with the behavior it pins.
@@ -96,9 +96,11 @@ fn row_for(f: Family) -> Option<&'static Disposition> {
 /// from the prior state and re-judged. The model carries two scalar budgets (`poolFree`/`fdbFree`),
 /// so the reclaimable pool draws fold onto one `Free(poolFree)` row while dpio keeps its `Spent`
 /// row — its draw never refuses (ADR-0003 §7), the exemption this group proves — and the FDB
-/// bracket is `Observed(fdbFree)` against a zero observed draw. The MC-global bp row
-/// (`globalPoolFree`) is judged beside the census row, so a global-drained verdict is derivable
-/// (plan-rollback design D9). Returns true iff the plan admits.
+/// bracket is `Observed(fdbFree)` against a zero observed draw. The `poolFree` fold rides the
+/// dpmcp key, which has no global row, while the MC-global bp row (`globalPoolFree`) is judged
+/// on bp's own pending only (`GLOBAL_ROWS = Set(Dpbp)`), so a global-drained verdict is
+/// derivable without over-counting (plan-rollback design D9; plan-rollback review M5; bead
+/// dpaa2-controlplane-97v). Returns true iff the plan admits.
 fn rust_admits(prev: &OrchState) -> bool {
     let base = GrossDraw::from_pending(&prev.pending);
     let reclaimable: i64 = base
@@ -107,15 +109,22 @@ fn rust_admits(prev: &OrchState) -> bool {
         .filter(|(f, _)| **f != Family::Dpio)
         .map(|(_, n)| *n)
         .sum();
+    let dpbp = base.pool.get(&Family::Dpbp).copied().unwrap_or(0);
     let dpio = base.pool.get(&Family::Dpio).copied().unwrap_or(0);
+    // dpmcp stays out of the globals ledger for good (ADR-0011 listing lag), so the fold key
+    // never collides with a joined global row; dpcon joined under bead dpaa2-controlplane-qry.
     let draw = GrossDraw {
-        pool: BTreeMap::from([(Family::Dpbp, reclaimable), (Family::Dpio, dpio)]),
+        pool: BTreeMap::from([
+            (Family::Dpmcp, reclaimable),
+            (Family::Dpbp, dpbp),
+            (Family::Dpio, dpio),
+        ]),
         fdb: base.fdb,
     };
     let face = CapacityFace {
         pools: vec![
             PoolBudget {
-                family: Family::Dpbp,
+                family: Family::Dpmcp,
                 headroom: PoolHeadroom::Free(prev.pool_free),
             },
             PoolBudget {
@@ -305,4 +314,39 @@ fn every_committed_trace_is_listed() {
         TRACES.len(),
         "an unlisted trace file is present"
     );
+}
+
+/// A minimal prior census for the [`rust_admits`] cases: only the budget fields are read.
+fn census(pending: &[(Family, i64)], pool_free: i64, global_free: i64) -> OrchState {
+    OrchState {
+        status: BTreeMap::new(),
+        pending: pending.iter().copied().collect(),
+        refused: BTreeMap::new(),
+        verdict: Verdict::Unjudged,
+        occ: Occupancy::Free,
+        census_occ: Occupancy::Free,
+        port_wired: false,
+        pool_free,
+        fdb_free: 0,
+        global_free,
+    }
+}
+
+/// Plan-rollback review M5 (bead dpaa2-controlplane-97v): the global bp row prices bp's own
+/// pending only, so partial global headroom admits a census-fitting draw.
+#[test]
+fn global_row_prices_only_bp_pending() {
+    let prev = census(
+        &[(Family::Dpbp, 1), (Family::Dpcon, 1), (Family::Dpmcp, 1)],
+        4,
+        2,
+    );
+    assert!(rust_admits(&prev));
+}
+
+/// The negative twin: bp's own pending still refuses on a drained global row.
+#[test]
+fn drained_global_row_refuses_bp_pending() {
+    let prev = census(&[(Family::Dpbp, 1)], 4, 0);
+    assert!(!rust_admits(&prev));
 }
