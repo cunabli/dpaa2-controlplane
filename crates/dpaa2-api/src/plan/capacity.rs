@@ -5,7 +5,7 @@
 //!
 //! Admission reads two independently-moving ledgers (plan-rollback design D2;
 //! V-ROLLBACK-1 rev 3): the per-container census pool rows ([`CapacityFace::pools`]) and
-//! the MC-global hardware pool budget rows ([`CapacityFace::globals`], bp only now). A
+//! the MC-global hardware pool budget rows ([`CapacityFace::globals`], bp and dpcon). A
 //! create verb a container cannot seat is refused by the global pools too, so a
 //! hardware-side drain the census cannot see still refuses against the global row.
 //!
@@ -50,7 +50,8 @@ pub struct PoolBudget {
 /// (V-ROLLBACK-1 rev 3).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct GlobalBudget {
-    /// The MC-global pool family this row budgets (bp only now; ADR-0011).
+    /// The MC-global pool family this row budgets — bp (V-CEIL-1 + V-DPRC-7) or dpcon
+    /// (`swpch.2wq`, V-DPCON-2; ADR-0011).
     pub family: Family,
     /// The observed MC-global free count for the family.
     pub free: i64,
@@ -95,10 +96,11 @@ pub struct CapacityFace {
     /// The four container-pool rows (dpbp/dpmcp/dpcon free, dpio spent).
     pub pools: Vec<PoolBudget>,
     /// The MC-global pool budget rows — the second ledger (plan-rollback design D2). Bp
-    /// only now under the monotonic-growth rule: a dpbp create refuses exactly at the bp
-    /// free count and bp moves symmetrically to the object (V-CEIL-1 + V-DPRC-7 rev 2).
-    /// dpcon and dpmcp rows join only with their own proving observations, and no mcp row
-    /// is scoped behind the ADR-0011 listing-lag question.
+    /// and dpcon join under the monotonic-growth rule: a dpbp create refuses exactly at the
+    /// bp free count and bp moves symmetrically to the object (V-CEIL-1 + V-DPRC-7 rev 2);
+    /// a dpcon create draws one `swpch.2wq` unit at the fixed two-priority operand and
+    /// destroy credits it back (V-DPCON-2 rev 1). The dpmcp row stays out behind the
+    /// ADR-0011 listing-lag question.
     pub globals: Vec<GlobalBudget>,
     /// The dpsw FDB budget row.
     pub fdb: FdbBudget,

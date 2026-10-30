@@ -1346,6 +1346,23 @@ mod tests {
         );
     }
 
+    /// The aged-board rule on dpcon's minted `swpch.2wq` count (V-DPCON-2; bead
+    /// dpaa2-controlplane-qry): 64 dpcon stand and the listing reads 48 free, so free !=
+    /// total - population (112 - 64). The grow prices the live free alone, never a bracket.
+    #[test]
+    fn an_aged_board_prices_the_dpcon_live_free_alone() {
+        let aged = PoolCensus::new(64, 0, 64, 0, 0, 0);
+        let d = drift_disposition(
+            PoolFamily::Dpcon,
+            aged,
+            128,
+            &Ceiling::Counted(48),
+            CustodyScope::ChildScope,
+        )
+        .expect("grows");
+        assert_eq!(d.create, 48, "min(deficit 64, live free 48)");
+    }
+
     // freeOnlyShrinkTest: a surplus emits destroys, bounded by the free managed count.
     #[test]
     fn drift_disposition_shrinks_the_surplus() {

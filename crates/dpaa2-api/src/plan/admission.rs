@@ -98,7 +98,7 @@ impl GrossDraw {
 /// The admission verdict (ADR-0023 design D5/D8): the complete set of budgets the gross draw
 /// overdraws, else admit. A per-family draw is judged against two independent ledgers
 /// (plan-rollback design D2; V-ROLLBACK-1 rev 3): the per-container census pool row and the
-/// MC-global free row (bp only now). A reclaimable census row ([`PoolHeadroom::Free`]) refuses
+/// MC-global free row (bp and dpcon). A reclaimable census row ([`PoolHeadroom::Free`]) refuses
 /// when the draw exceeds it; dpio's spent row ([`PoolHeadroom::Spent`], ADR-0003 §7
 /// non-reclaimable) and an unobserved family carry no free count, so their draws take the
 /// refusal-free path (the spec's "a budget row joins only with the change that proves its
@@ -298,6 +298,56 @@ mod tests {
                 family: Family::Dpbp,
                 draw: 2,
                 headroom: 0,
+            }]
+        );
+    }
+
+    // A face carrying a census dpcon free count and an MC-global dpcon `swpch.2wq` free row
+    // (V-DPCON-2; bead dpaa2-controlplane-qry).
+    fn face_dpcon(dpcon_free: i64, global_dpcon_free: i64) -> CapacityFace {
+        let mut f = face(0, Ceiling::Unknown, 0);
+        f.pools.push(PoolBudget {
+            family: Family::Dpcon,
+            headroom: PoolHeadroom::Free(dpcon_free),
+        });
+        f.globals = vec![GlobalBudget {
+            family: Family::Dpcon,
+            free: global_dpcon_free,
+        }];
+        f
+    }
+
+    fn dpcon_draw(n: i64) -> GrossDraw {
+        GrossDraw::from_pending(&BTreeMap::from([(Family::Dpcon, n)]))
+    }
+
+    #[test]
+    fn exhausted_dpcon_global_row_refuses_though_census_has_headroom() {
+        // Census dpcon free 4 admits, the MC-global `swpch.2wq` row at 0 refuses the same
+        // draw (V-DPCON-2: one unit per dpcon create at the fixed two-priority operand).
+        let err = admit(&face_dpcon(4, 0), &dpcon_draw(2)).unwrap_err();
+        assert_eq!(
+            err,
+            vec![AdmissionRefusal::GlobalPool {
+                family: Family::Dpcon,
+                draw: 2,
+                headroom: 0,
+            }]
+        );
+    }
+
+    #[test]
+    fn an_aged_board_prices_the_dpcon_global_live_free_alone() {
+        // Aged board (bd aged-board-fixture-rule): the listing reads `swpch.2wq` 48 with 64
+        // dpcon already standing, so free != total - population (112 - 64). The row prices
+        // the live free alone: 48 creates admit, the 49th refuses at headroom 48.
+        assert!(admit(&face_dpcon(64, 48), &dpcon_draw(48)).is_ok());
+        assert_eq!(
+            admit(&face_dpcon(64, 48), &dpcon_draw(49)).unwrap_err(),
+            vec![AdmissionRefusal::GlobalPool {
+                family: Family::Dpcon,
+                draw: 49,
+                headroom: 48,
             }]
         );
     }

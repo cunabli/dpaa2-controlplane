@@ -1294,10 +1294,12 @@ pub struct Admission {
 /// changes nothing, the dispatch-time census stays the truth (ADR-0023 design D7).
 ///
 /// The capacity face's second ledger — the MC-global pool rows (plan-rollback design D2) —
-/// is derived from the same snapshot: a [`Ceiling::Counted`] on the `Dpbp` family is the
-/// live MC-global bp free count the listing reports (V-CEIL-1), so it maps to a lone
-/// `(Dpbp, n)` global row; any other variant (absent/`Unknown`/`Observed`) yields no row.
-/// Bp only now under the monotonic-growth rule — no number is invented from `Observed`.
+/// is derived from the same snapshot: a [`Ceiling::Counted`] on the `Dpbp` or `Dpcon` family
+/// is a live MC-global free count the listing reports, so it maps to a `(family, n)` global
+/// row; any other variant (absent/`Unknown`/`Observed`) yields no row. Bp (V-CEIL-1) and dpcon
+/// join under the monotonic-growth rule: dpcon's row is the `swpch.2wq` free count at draw 1
+/// per pending dpcon create for the fixed `--num-priorities=2` operand (V-DPCON-2 rev 1; bead
+/// dpaa2-controlplane-qry). No number is invented from `Observed`.
 ///
 /// One snapshot, one judgment: a single inventory read feeds the face, the pending draw, and the
 /// switch work, and the returned wide carrier lets `dry-run` render those sections re-read-free.
@@ -1329,10 +1331,13 @@ pub fn plan_admission<'a, M: McControl>(
             .count(),
     )
     .unwrap_or(i64::MAX);
-    let globals: Vec<(Family, i64)> = match inventory.ceilings.get(&Family::Dpbp) {
-        Some(Ceiling::Counted(n)) => vec![(Family::Dpbp, *n)],
-        _ => vec![],
-    };
+    let globals: Vec<(Family, i64)> = [Family::Dpbp, Family::Dpcon]
+        .into_iter()
+        .filter_map(|family| match inventory.ceilings.get(&family) {
+            Some(Ceiling::Counted(n)) => Some((family, *n)),
+            _ => None,
+        })
+        .collect();
     let face = capacity_face(
         &pools,
         drift.dpio_observed,

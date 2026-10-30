@@ -229,7 +229,7 @@ offline first rather than on the board.
 
 | Law | Name | CI rung | Anchors / ties |
 |-----|------|---------|----------------|
-| Census floor | POOL_CENSUS + `censusRefusesAtCeilingTest` | simulate + apalache + itf-replay | object-model.md §4; ADR-0011 census-first; DPBP-I7; the model stays static-bracket — the live-free `Counted` ceiling (dpbp's `bp` row is headroom, never a population bracket; plan-rollback capacity-census delta) deliberately has no model twin, and the `pool_lifecycle` unit tests plus V-CEIL-1 cover it |
+| Census floor | POOL_CENSUS + `censusRefusesAtCeilingTest` | simulate + apalache + itf-replay | object-model.md §4; ADR-0011 census-first; DPBP-I7; the model stays static-bracket — the live-free `Counted` ceiling (dpbp's `bp` row is headroom, never a population bracket; plan-rollback capacity-census delta) deliberately has no model twin, and the `pool_lifecycle` unit tests plus V-CEIL-1 cover it; the dpcon `swpch.2wq` global row is Rust-face-only, its model twin deferred (V-DPCON-2; bead dpaa2-controlplane-qry) |
 | Custody edge | POOL_CUSTODY | simulate + apalache + itf-replay | object-model.md §3; DPBP-I2 pool-entry precondition |
 | DPL-born survive | POOL_DPL_SURVIVES + `prunePreservesDplBornTest` | simulate + apalache + itf-replay | pool-objects design D3; roadmap #14 (boot objects foreign); formal-models req 2 |
 | Managed honesty | POOL_MANAGED_LIVE | simulate + apalache + itf-replay | pool-objects design D2 (count↔individual boundary) |

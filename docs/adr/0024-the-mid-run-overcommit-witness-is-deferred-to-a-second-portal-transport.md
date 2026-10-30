@@ -61,9 +61,11 @@ and the global-ledger rows on real hardware:
   symmetric credit-back.
 - V-DPCON-2 — the `dpcon` draw on the MC-global hardware ledger (the
   `swpch.2wq` draw at one unit per dpcon for the engine's fixed
-  `--num-priorities=2` operand). Its verdict lives in the hardware ledger
-  only: no dpcon row is in the capacity face until it joins under the
-  monotonic-growth rule (ADR-0023).
+  `--num-priorities=2` operand). The `swpch.2wq` row is joined to the
+  capacity face under the monotonic-growth rule (ADR-0023) at one unit per
+  create for the fixed operand (bead `dpaa2-controlplane-qry`) — in the
+  Rust face only; the model's global row set stays bp-only pending a
+  frozen dpcon-drain trace.
 
 Suite V-ROLLBACK-1 keeps its **machinery verdict** — the precondition gate,
 the drain writer, convergence under drain, and the teardown cascade are

@@ -165,8 +165,11 @@ module orchestration {
   pure def isUnimplemented(f: Family): bool = execKind(f) == None
 
   // The families with a proven MC-global pool row (ADR-0011; plan-rollback design D2): bp (dpbp)
-  // now — V-CEIL-1, V-DPRC-7 rev 2. dpcon/dpmcp join only with their own proving
-  // observations. A create of such a family draws the global ledger of its family.
+  // — V-CEIL-1, V-DPRC-7 rev 2. The Rust face also carries the proven dpcon `swpch.2wq` row
+  // (V-DPCON-2), but the single `globalPoolFree` scalar cannot carry two independent rows, so
+  // this set stays bp-only until a dpcon-drain transition is worth freezing (after the
+  // per-family replay pricing, bead dpaa2-controlplane-97v). dpmcp stays out. A create of
+  // such a family draws the global ledger of its family.
   pure val GLOBAL_ROWS: Set[Family] = Set(Dpbp)
   pure def drawsGlobal(f: Family): bool = GLOBAL_ROWS.contains(f)
 

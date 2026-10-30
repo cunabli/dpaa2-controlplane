@@ -81,9 +81,12 @@ fn reserved_reason(id: DpmacId) -> Option<&'static str> {
 }
 
 /// ADR-0011's per-family ceiling policy, transcribed once (task 3.5). It is *not* a
-/// plain "listed pool ⇒ [`Ceiling::Counted`]" rule: only dpbp's `bp` pool is a true
-/// count (decision 1) — and it is the LIVE FREE count the listing reports, a shrinking
-/// headroom, not a static cap (bead dpaa2-controlplane-b4c; the V-CEIL-1 law), so
+/// plain "listed pool ⇒ [`Ceiling::Counted`]" rule: only dpbp's `bp` pool (decision 1)
+/// and dpcon's `swpch.2wq` pool are true counts — dpcon's at one unit per create at the
+/// engine's fixed two-priority operand (DPCON-I3), credited back symmetrically on destroy
+/// (V-DPCON-2 rev 1; bead dpaa2-controlplane-qry). Each is the LIVE FREE count the listing
+/// reports, a shrinking headroom, not a static cap (bead dpaa2-controlplane-b4c; the
+/// V-CEIL-1 law), so
 /// [`Ceiling::Counted`] carries free units the admission/grow paths read as headroom
 /// directly, never compared to population. dpmcp's `mcp` pool is a per-boot budget the
 /// listing reports but destroy never returns, so it is [`Ceiling::Observed`] (decision 3), a
@@ -94,6 +97,9 @@ fn ceiling_of(family: Family, pools: &BTreeMap<String, i64>) -> Ceiling {
     match family {
         Family::Dpbp => pools
             .get("bp")
+            .map_or(Ceiling::Unknown, |&n| Ceiling::Counted(n)),
+        Family::Dpcon => pools
+            .get("swpch.2wq")
             .map_or(Ceiling::Unknown, |&n| Ceiling::Counted(n)),
         Family::Dpmcp => pools
             .get("mcp")
@@ -2730,7 +2736,7 @@ mod tests {
         s
     }
 
-    const RESOURCES: &str = "bp: 63\nmcp: 203\nswp: 49\nfq: 1981\n";
+    const RESOURCES: &str = "bp: 63\nmcp: 203\nswp: 49\nswpch.2wq: 48\nfq: 1981\n";
 
     #[test]
     fn read_inventory_assembles_offers_availability_and_ceilings() {
@@ -2768,7 +2774,8 @@ mod tests {
         assert_eq!(inv.dpmacs[&DpmacId::new(4)].avail, Availability::Free);
         assert_eq!(inv.dpmacs[&DpmacId::new(4)].max_rate, 25_000);
 
-        // ADR-0011 per-family ceilings: dpbp counted, dpmcp/dpni observed, rest unknown.
+        // ADR-0011 per-family ceilings: dpbp/dpcon counted (V-DPCON-2), dpmcp/dpni
+        // observed, rest unknown.
         assert_eq!(inv.ceilings[&Family::Dpbp], Ceiling::Counted(63));
         assert!(matches!(
             inv.ceilings[&Family::Dpmcp],
@@ -2779,7 +2786,12 @@ mod tests {
             Ceiling::Observed { n: 18, .. }
         ));
         assert_eq!(inv.ceilings[&Family::Dpio], Ceiling::Unknown);
-        assert_eq!(inv.ceilings[&Family::Dpcon], Ceiling::Unknown);
+        assert_eq!(inv.ceilings[&Family::Dpcon], Ceiling::Counted(48));
+        // An absent listing key mints nothing.
+        assert_eq!(
+            ceiling_of(Family::Dpcon, &BTreeMap::new()),
+            Ceiling::Unknown
+        );
 
         // ADR-0010 §4: the unlabelled dpni.0 reports an empty label verbatim.
         assert_eq!(inv.labels.get(&(Family::Dpni, 0)), Some(&String::new()));

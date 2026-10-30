@@ -136,13 +136,19 @@ fn converged_intent_re_admits_against_zero_free() {
 
 /// A converged intent re-admits against the global rows too (plan-rollback task 9.3, process
 /// rule 6 instance A): the pending draw is empty, so admission admits even when the MC-global bp
-/// row reads zero free — the judgment applied to its own converged output yields the identity
-/// verdict for the second ledger (V-ROLLBACK-1 rev 3).
+/// and dpcon `swpch.2wq` rows read zero free — the judgment applied to its own converged output
+/// yields the identity verdict for the second ledger (V-ROLLBACK-1 rev 3; V-DPCON-2).
 #[test]
 fn converged_intent_re_admits_against_zero_global_free() {
     let draw = GrossDraw::from_pending(&BTreeMap::new());
     assert!(draw.pool.is_empty() && draw.fdb == 0);
     assert!(admit(&face_g(0, 0), &draw).is_ok());
+    let mut both = face_g(0, 0);
+    both.globals.push(GlobalBudget {
+        family: Family::Dpcon,
+        free: 0,
+    });
+    assert!(admit(&both, &draw).is_ok());
 }
 
 /// The spec scenario "A hardware-side drain is bounded too": a pending bp create with census

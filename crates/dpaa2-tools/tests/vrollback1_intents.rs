@@ -211,6 +211,41 @@ fn the_operator_staged_board_admits_the_intent_and_renders_the_admitted_row() {
     );
 }
 
+/// The dpcon MC-global row joins the face from a `Counted` dpcon ceiling (V-DPCON-2; bead
+/// dpaa2-controlplane-qry): an inventory minting `swpch.2wq` free 1 yields a `(Dpcon, 1)`
+/// global row, the pool grow prices that same live free (the pending dpcon create is capped
+/// at 1, the bp dual-service precedent), and the row renders in the generic `mc-global`
+/// voice. Test-local inventory: `ref_inventory` mirrors the model's `REF_INVENTORY`, whose
+/// dpcon ceiling stays Unknown.
+#[test]
+fn a_counted_dpcon_ceiling_joins_the_global_row_in_the_face() {
+    let compiled = compile_operand("intent-overcommit.toml");
+    let mut inventory = ref_inventory(CPUS);
+    inventory
+        .ceilings
+        .insert(Family::Dpcon, Ceiling::Counted(1));
+    let mc = FakeBackend::new().with_inventory(inventory);
+    let (admission, _drift, _switches) = dpaa2_tools::engine::plan_admission(&compiled.plan, &mc)
+        .expect("admission judges the operand");
+
+    assert!(
+        admission.face.globals.contains(&GlobalBudget {
+            family: Family::Dpcon,
+            free: 1,
+        }),
+        "the dpcon global row is in the face: {:?}",
+        admission.face.globals
+    );
+    assert_eq!(admission.draw.pool.get(&Family::Dpcon), Some(&1));
+    let table = dpaa2_tools::render::render_admission(&admission);
+    assert!(
+        table
+            .lines()
+            .any(|l| l.trim_start() == "mc-global dpcon draw=1 headroom=1 [admitted]"),
+        "the dpcon global row renders generically:\n{table}"
+    );
+}
+
 #[test]
 fn the_compiled_plan_stages_the_kernel_companions_in_root_and_the_tenant_in_a_child() {
     let compiled = compile_operand("intent-overcommit.toml");

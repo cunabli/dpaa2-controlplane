@@ -246,7 +246,9 @@ and pairwise, with full treatment deferred behind a revisit trigger.
   the finding): the MC-global pools join the capacity face as their own
   budget rows under the monotonic-growth rule above — bp first, proven
   by ADR-0011's observation that a dpbp create refuses exactly at the bp
-  free count and bp moves symmetrically to the object — with pending
+  free count and bp moves symmetrically to the object; dpcon joins under
+  the same rule as the `swpch.2wq` row, one unit per create at the fixed
+  two-priority operand (V-DPCON-2) — with pending
   creates judged against the global rows while the census rows keep
   judging draws.
 - The dpsw-typestate reachability-traffic witness is deferred to the
