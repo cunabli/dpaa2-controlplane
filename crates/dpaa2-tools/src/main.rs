@@ -448,10 +448,6 @@ fn ensure<M: McControl, K: KernelControl>(
             );
             return Ok(ExitCode::FAILURE);
         }
-        ContainerOutcome::Refused { label, attribution } => {
-            println!("refused: the child DPRC for `{label}` was denied: {attribution:?}");
-            return Ok(ExitCode::FAILURE);
-        }
     }
 
     // Populate each declared child container after it exists (pool-objects design D11;
@@ -504,7 +500,7 @@ fn ensure<M: McControl, K: KernelControl>(
         }
         // A locked or still-plugged candidate could not be torn down; it survives (docs/baseline/dprc.md DPRC-I11 lock face / DPRC-I2).
         PruneOutcome::Refused { id, attribution } => {
-            println!("refused: undeclared container {id} could not be pruned: {attribution:?}");
+            println!("refused: undeclared container {id} could not be pruned: {attribution}");
             return Ok(ExitCode::FAILURE);
         }
     }

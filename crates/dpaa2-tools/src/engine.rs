@@ -131,15 +131,6 @@ pub enum ContainerOutcome {
         /// The maximum class the run allowed.
         allowed: Class,
     },
-    /// A dispatched container verb was refused; the typed cause is attributed
-    /// (design D4; ADR-0003) and the refusal shapes (0x6/0x8/0x4, or a restool client guard) stay
-    /// discriminated — never collapsed into one denial.
-    Refused {
-        /// The container whose create was refused.
-        label: ConstructName,
-        /// The discriminated cause the reconciler reports.
-        attribution: Attribution,
-    },
 }
 
 /// The outcome of the undeclared-consumer prune pass (reconciler spec "Undeclared
@@ -232,12 +223,15 @@ fn pair_containers<'a>(
 /// candidate alone (dpni-typestate design D5), never a full root rescan. A
 /// second run against the post-converged state plans zero steps and returns
 /// [`ContainerOutcome::Converged`] without dispatching. A typed shim refusal
-/// (`Error::McStatus`/`Error::RestoolGuard`) becomes a discriminated
-/// [`ContainerOutcome::Refused`]; any other error propagates.
+/// (`Error::McStatus`/`Error::RestoolGuard`) is a mid-run verb failure: its attributed cause
+/// rides the propagated error to the run's one failure seam, so the `--on-failure` policy
+/// applies uniformly over every mid-run failure class (plan-rollback review M1; bead
+/// dpaa2-controlplane-985; rollback spec policy uniformity).
 ///
 /// # Errors
-/// Propagates a backend read/dispatch error that is not a typed container refusal, and
-/// reports a post-dispatch divergence (a container that failed to converge) as an error.
+/// Propagates a backend read/dispatch error; a typed container refusal propagates as an
+/// [`Error::Backend`] naming the attributed cause. Reports a post-dispatch divergence (a
+/// container that failed to converge) as an error.
 pub fn converge_containers<M: McControl>(
     plan: &CompiledPlan,
     mc: &M,
@@ -279,13 +273,15 @@ pub fn converge_containers<M: McControl>(
                 Ok(Some(id)) => touched.push((object, id)),
                 Ok(None) => {}
                 Err(e) => {
-                    return match attribute_refusal(&e, c.container.options, Verb::SpawnChild) {
-                        Some(attribution) => Ok(ContainerOutcome::Refused {
-                            label: c.container.label.clone(),
-                            attribution,
-                        }),
-                        None => Err(e),
-                    };
+                    return Err(
+                        match attribute_refusal(&e, c.container.options, Verb::SpawnChild) {
+                            Some(attribution) => Error::Backend(format!(
+                                "the child DPRC for `{}` was denied: {attribution}",
+                                c.container.label
+                            )),
+                            None => e,
+                        },
+                    );
                 }
             }
         }

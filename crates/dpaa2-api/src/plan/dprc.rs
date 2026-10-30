@@ -193,6 +193,37 @@ pub enum Attribution {
     },
 }
 
+/// Renders the attributed cause in plain operator terms, one line, so a refusal folded into a
+/// propagated error keeps its discrimination (plan-rollback review M1; bead dpaa2-controlplane-985).
+impl core::fmt::Display for Attribution {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::PermissionGap { bit } => {
+                let bit = match bit {
+                    OptionBit::Spawn => "spawn",
+                    OptionBit::Alloc => "allocation",
+                    OptionBit::TopologyChanges => "topology-changes",
+                };
+                write!(f, "permission gap: the {bit} option is withheld")
+            }
+            Self::PoolExhaustion => {
+                f.write_str("overcommit: the resource pool was exhausted at dispatch")
+            }
+            Self::LockGate => {
+                f.write_str("the sub-hierarchy is locked, so structural verbs are refused")
+            }
+            Self::PluggedMove => f.write_str("a plugged resident cannot move"),
+            Self::FaceNotAssignable => f.write_str("the container face is not assignable"),
+            Self::ResidentPlugged => {
+                f.write_str("a resident is still plugged, so the destroy was refused")
+            }
+            Self::RestoolClientGuard { detail } => {
+                write!(f, "restool refused client-side: {detail}")
+            }
+        }
+    }
+}
+
 /// The refused MC operation; connect gates on topology, structural verbs on the lock (review M7; `docs/baseline/dprc.md` permission matrix).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Verb {

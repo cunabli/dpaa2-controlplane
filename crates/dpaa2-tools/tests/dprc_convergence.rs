@@ -7,10 +7,12 @@
 //! — derived options/label/placement, no companion-population steps — the second run
 //! plans zero actions, and the dry-run shows per-object provenance.
 
+use std::cell::RefCell;
 use std::collections::BTreeMap;
+use std::rc::Rc;
 
-use dpaa2_api::contract::McControl;
 use dpaa2_api::contract::fake::FakeBackend;
+use dpaa2_api::contract::{JournalHandle, McControl, Recording};
 use dpaa2_api::core::error::Error;
 use dpaa2_api::core::family::Family;
 use dpaa2_api::core::model::{DpmacId, DpniId, DprcId, MacMode, ObjectRef, ObservedDpni};
@@ -21,11 +23,15 @@ use dpaa2_api::families::pool_lifecycle::{
 };
 use dpaa2_api::intent::compiled::{BindingRegime, Container};
 use dpaa2_api::intent::refuse::{Compiled, compile};
-use dpaa2_api::intent::{Dataplane, Intent, Isolation, Port, Tenant, TenantRef};
+use dpaa2_api::intent::{
+    Dataplane, Intent, Isolation, KERNEL, Port, Tenant, TenantRef, kernel_tenant,
+};
 use dpaa2_api::plan::Class;
 use dpaa2_api::plan::dprc::{
     Attribution, ContainerVerdict, ObservedContainer, OptionBit, PruneBucket, plan_prune,
 };
+use dpaa2_api::plan::rollback::{FailurePolicy, RunJournal};
+use dpaa2_api::plan::rollback_exec::{FailureDisposition, apply_failure_policy};
 use dpaa2_api::testkit::ref_inventory;
 use dpaa2_tools::engine::{
     self, ContainerOutcome, ConvergeConfig, PoolOutcome, PoolPass, PopulationOutcome, PruneOutcome,
@@ -57,6 +63,37 @@ fn compiled_router() -> Compiled {
         ..Intent::empty()
     };
     compile(&intent, &ref_inventory(16)).expect("router intent must compile")
+}
+
+/// The router consumer plus a kernel-terminated root port: the root kernel interface derives
+/// root pool companions, so the grow phase dispatches before the child-DPRC create.
+fn compiled_router_with_kernel_port() -> Compiled {
+    let mut intent = Intent {
+        tenants: vec![
+            kernel_tenant(16),
+            Tenant {
+                name: "router".into(),
+                dataplane: Dataplane::UserspacePoll,
+                max_cores: 4,
+                isolation: Isolation::Isolated,
+                renamed: None,
+                priority: None,
+            },
+        ],
+        ..Intent::empty()
+    };
+    for (name, dpmac, tenant) in [("wan0", 7, "router"), ("lan0", 9, KERNEL)] {
+        intent.ports.push(Port {
+            name: name.into(),
+            dpmac: DpmacId::new(dpmac),
+            rate: 10_000,
+            tenant: TenantRef::from_name(tenant.into()),
+            mac: None,
+            mac_mode: MacMode::Assert,
+            renamed: None,
+        });
+    }
+    compile(&intent, &ref_inventory(16)).expect("router-with-kernel intent must compile")
 }
 
 fn disruptive_cfg() -> ConvergeConfig {
@@ -130,24 +167,69 @@ fn dry_run_shows_container_plan_and_per_object_provenance() {
 
 #[test]
 fn a_refused_create_is_attributed_and_does_not_converge() {
-    // A typed MC status refusal (0x6, SPAWN absent) flows to the typed attribution and
-    // the run reports a discriminated permission gap — never a collapsed denial, never a
-    // convergence (design D4; ADR-0003; the CLI exits non-zero on this outcome).
+    // A typed MC status refusal (0x6, SPAWN absent) reaches the run's one failure seam as an
+    // error naming the discriminated permission gap — never a collapsed denial, never a
+    // convergence (design D4; ADR-0003; plan-rollback review M1; bead dpaa2-controlplane-985).
     let compiled = compiled_router();
     let backend = FakeBackend::new().with_dprc_create_refusal(Error::McStatus { status: 0x6 });
-    let outcome = engine::converge_containers(&compiled.plan, &backend, disruptive_cfg()).unwrap();
-    assert_eq!(
-        outcome,
-        ContainerOutcome::Refused {
-            label: "router".into(),
-            attribution: Attribution::PermissionGap {
-                bit: OptionBit::Spawn
-            },
-        }
+    let err = engine::converge_containers(&compiled.plan, &backend, disruptive_cfg()).unwrap_err();
+    let text = err.to_string();
+    assert!(
+        text.contains("the child DPRC for `router` was denied")
+            && text.contains(
+                &Attribution::PermissionGap {
+                    bit: OptionBit::Spawn
+                }
+                .to_string()
+            )
+            && text.contains("spawn"),
+        "the error carries the attributed spawn permission gap: {text}"
     );
     assert!(
         backend.observe_containers().unwrap().is_empty(),
         "a refused create leaves no container"
+    );
+}
+
+/// The acceptance of bead dpaa2-controlplane-985 (plan-rollback review M1; rollback spec "An
+/// overcommit unwinds the executed prefix"): a successful pool grow then a child-DPRC create
+/// bouncing `McStatus{0x8}` reaches the run's one failure seam as an error, and the default policy
+/// unwinds the journal the grow wrote.
+#[test]
+fn a_mid_run_container_overcommit_reaches_the_failure_seam_and_rolls_back() {
+    let compiled = compiled_router_with_kernel_port();
+    let journal: JournalHandle = Rc::new(RefCell::new(RunJournal::new()));
+    let mc = Recording::new(
+        FakeBackend::new().with_dprc_create_refusal(Error::McStatus { status: 0x8 }),
+        Rc::clone(&journal),
+    );
+
+    engine::converge_pools(&compiled.plan, &mc, disruptive_cfg(), PoolPass::Grow).unwrap();
+    let grown = journal.borrow().len();
+    assert!(grown > 0, "the grow phase journals an executed prefix");
+
+    let text = engine::converge_containers(&compiled.plan, &mc, disruptive_cfg())
+        .unwrap_err()
+        .to_string();
+    assert!(
+        text.contains("the child DPRC for `router` was denied") && text.contains("overcommit"),
+        "0x8 with allocation allowed reads as overcommit: {text}"
+    );
+
+    let recorded = journal.borrow().clone();
+    assert_eq!(recorded.len(), grown, "the refused create adds no row");
+    let FailureDisposition::RolledBack(report) =
+        apply_failure_policy(FailurePolicy::default(), &recorded, &mc, &mc)
+    else {
+        panic!("the default policy rolls back");
+    };
+    // Root pool objects are grow-only (ADR-0020): every grown row is typed residue.
+    assert!(report.unwound.is_empty(), "no root pool row is reversible");
+    assert!(report.unreversed.is_empty(), "no undo verb failed");
+    assert_eq!(
+        report.residue.len(),
+        grown,
+        "every journaled row is accounted for"
     );
 }
 
