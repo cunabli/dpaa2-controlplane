@@ -1246,8 +1246,9 @@ pub fn render_failure_policy(policy: FailurePolicy) -> String {
 /// run. Every line is the operator's data vocabulary, never an internal type name or status code.
 ///
 /// Overcommit (the firmware's no-resources status `0x8`) is rendered distinct from a planning-time
-/// headroom refusal: admission passed, but a concurrent writer drained the budget mid-run, and under
-/// rollback the report ends stating re-apply refuses until headroom returns (plan-rollback design D6).
+/// headroom refusal: admission passed, but the budget was exhausted at dispatch — the status does not
+/// say by whom (plan-rollback review M6; bead dpaa2-controlplane-b2g) — and under rollback the report
+/// ends stating re-apply refuses until headroom returns (plan-rollback design D6).
 ///
 /// A portal-busy give-up (restool could not open the root portal before the shim's attempt bound —
 /// the single-opener collision, ADR-0006; bead dpaa2-controlplane-f59) is rendered in honest mid-run
@@ -1262,7 +1263,7 @@ pub fn render_failure_disposition(failure: &Error, disposition: &FailureDisposit
     if overcommit {
         let _ = writeln!(
             out,
-            "refused: overcommit — admission passed, but a concurrent writer drained the resource budget mid-run"
+            "refused: overcommit — admission passed, but the resource budget was exhausted mid-run"
         );
     } else if portal_busy {
         // A busy portal never reached the MC: honest mid-run voice, not "refused" (bead dpaa2-controlplane-f59).
@@ -1285,6 +1286,13 @@ pub fn render_failure_disposition(failure: &Error, disposition: &FailureDisposit
                     "  not reversed, the next run re-judges: {}",
                     describe_actuation(record)
                 );
+            }
+            // An empty journal still reports its unwind (review PASS3-F3; bead dpaa2-controlplane-b2g).
+            if report.unwound.is_empty()
+                && report.residue.is_empty()
+                && report.unreversed.is_empty()
+            {
+                let _ = writeln!(out, "  nothing was recorded; nothing to unwind");
             }
             if overcommit {
                 let _ = writeln!(out, "re-apply refuses until headroom returns.");

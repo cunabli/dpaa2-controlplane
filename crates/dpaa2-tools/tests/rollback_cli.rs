@@ -111,3 +111,23 @@ fn aborted_run_leaves_the_prefix_standing() {
     assert!(!text.contains("::"), "no internal type names: {text}");
     insta::assert_snapshot!(text);
 }
+
+/// A failure before any actuation under rollback: the empty journal reports an empty unwind in
+/// operator data terms (review PASS3-F3; bead dpaa2-controlplane-b2g).
+#[test]
+fn empty_rollback_report_says_nothing_to_unwind() {
+    let report = RollbackReport {
+        unwound: vec![],
+        residue: vec![],
+        unreversed: vec![],
+    };
+    let failure = Error::Backend("the dpni create verb failed".to_owned());
+    let text = render_failure_disposition(&failure, &FailureDisposition::RolledBack(report));
+    assert!(
+        text.contains("nothing was recorded; nothing to unwind"),
+        "{text}"
+    );
+    assert!(!text.contains("ADR"), "no process anchors: {text}");
+    assert!(!text.contains("::"), "no internal type names: {text}");
+    insta::assert_snapshot!(text);
+}

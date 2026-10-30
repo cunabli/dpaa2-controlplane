@@ -247,7 +247,8 @@ fn the_suite_grep_strings_re_derive_from_the_shipped_renderers() {
     // The literals are copied verbatim from models/board/V-ROLLBACK-1/V-ROLLBACK-1.sh, so a
     // drift on EITHER the renderer side or the suite side breaks this assertion.
     const DRY_RUN_POLICY: &str = "on failure: rollback";
-    const OVERCOMMIT_CLASS: &str = "refused: overcommit — admission passed, but a concurrent writer drained the resource budget mid-run";
+    const OVERCOMMIT_CLASS: &str =
+        "refused: overcommit — admission passed, but the resource budget was exhausted mid-run";
     const UNWOUND_PREFIX: &str = "  unwound: ";
     const RESIDUE_PREFIX: &str = "  residue: ";
     const REAPPLY_CLOSE: &str = "re-apply refuses until headroom returns.";

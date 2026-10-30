@@ -332,7 +332,7 @@ wait "$WRITER_PID" 2>/dev/null || true
 WRITER_PID=""
 DRAINED="$(cat "$RESULTS/writer-drained.txt" 2>/dev/null || echo 0)"
 if [ "$rc2" != 0 ] \
-  && grep -qF 'refused: overcommit — admission passed, but a concurrent writer drained the resource budget mid-run' "$RESULTS/step-2-out.txt" \
+  && grep -qF 'refused: overcommit — admission passed, but the resource budget was exhausted mid-run' "$RESULTS/step-2-out.txt" \
   && grep -q '^  unwound: ' "$RESULTS/step-2-out.txt" \
   && grep -qF 're-apply refuses until headroom returns.' "$RESULTS/step-2-out.txt"; then
   log "PASS step 2: ensure overcommits mid-run ($rc2), unwinds the prefix, and names re-apply refusal"

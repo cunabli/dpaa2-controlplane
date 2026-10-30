@@ -1,0 +1,6 @@
+---
+source: crates/dpaa2-tools/tests/rollback_cli.rs
+expression: text
+---
+refused: a verb failed mid-run: backend failure: the dpni create verb failed
+  nothing was recorded; nothing to unwind

@@ -2,7 +2,7 @@
 source: crates/dpaa2-tools/tests/rollback_cli.rs
 expression: text
 ---
-refused: overcommit — admission passed, but a concurrent writer drained the resource budget mid-run
+refused: overcommit — admission passed, but the resource budget was exhausted mid-run
   unwound: created dpni dpni.7 in the root container
   residue: root pool object dpbp.1: the kernel claims it on plug and frees it only at reboot
   residue: dpio seat dpio.16: the kernel claims it on plug and frees it only at reboot
