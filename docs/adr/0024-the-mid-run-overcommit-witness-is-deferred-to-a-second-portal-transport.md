@@ -59,12 +59,19 @@ and the global-ledger rows on real hardware:
 - V-CEIL-1 and V-DPRC-7 — the global `bp` budget row joining the capacity
   face, proven by a dpbp create refusing exactly at the `bp` free count with
   symmetric credit-back.
-- V-DPCON-2 — the `dpcon` global row (the `swpch.2wq` draw at one unit per
-  dpcon for the engine's fixed `--num-priorities=2` operand).
+- V-DPCON-2 — the `dpcon` draw on the MC-global hardware ledger (the
+  `swpch.2wq` draw at one unit per dpcon for the engine's fixed
+  `--num-priorities=2` operand). Its verdict lives in the hardware ledger
+  only: no dpcon row is in the capacity face until it joins under the
+  monotonic-growth rule (ADR-0023).
 
 Suite V-ROLLBACK-1 keeps its **machinery verdict** — the precondition gate,
 the drain writer, convergence under drain, and the teardown cascade are
-board-proven. Its **re-sit requirement is retired** (bead
+board-proven (rev 3). That verdict is recorded by the suite's ledger row in
+the board-suite README and by this record, deliberately with no
+`VERDICTS.json` entry: the suite's latest revision ended at a precondition,
+and the latest-revision-only ingest convention yields nothing ingestible
+from it. Its **re-sit requirement is retired** (bead
 `dpaa2-controlplane-275`): no further sitting is required of it on the restool
 transport, because the witness it was staged to land is unreachable there.
 
@@ -92,8 +99,9 @@ machinery.
   offline re-admission behavior and the global-row machinery are proven; only
   the mid-run live landing of that bound awaits a revisit trigger.
 - Bead `dpaa2-controlplane-b4c` (the `admits_create` ceiling-versus-live-free
-  conflation) is adjacent but separate from this deferral and stays tracked on
-  its own.
+  conflation) is adjacent but separate from this deferral; the capacity-census
+  delta (`plan-rollback` task 12.2) resolves it: a live free count is
+  headroom, never a population bracket.
 
 ## References
 
@@ -108,6 +116,6 @@ machinery.
 - bead `dpaa2-controlplane-f59` (the shim's bounded portal-open retry that
   makes the collision benign), bead `dpaa2-controlplane-275` (the retired
   V-ROLLBACK-1 re-sit requirement), bead `dpaa2-controlplane-3qv` (the shape
-  question this record settles), bead `dpaa2-controlplane-b4c` (the adjacent,
-  separately tracked ceiling conflation)
+  question this record settles), bead `dpaa2-controlplane-b4c` (the adjacent
+  ceiling conflation, resolved by the `plan-rollback` capacity-census delta)
 - suites V-ROLLBACK-1, V-ADMIT-1, V-CEIL-1, V-DPRC-7, V-DPCON-2

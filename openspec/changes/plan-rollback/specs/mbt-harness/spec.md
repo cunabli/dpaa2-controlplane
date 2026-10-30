@@ -46,24 +46,28 @@ census-visible lane.
 - **THEN** admission refuses on the census row exactly as before — the
   second counter adds a lane, it does not alter the census one
 
-### Requirement: The board program witnesses rollback under kernel probing
+### Requirement: The board program carries the rollback row under kernel probing
 
 The board program SHALL carry a rollback row inside the safety
-envelope: a run is driven into mid-run overcommit on a live board
-while the kernel probes (the DPSW-I9 race class), and the witness
-asserts the unwind completes, residue is reported typed, and the
-follow-on admission refuses. The rev-4 row SHALL gate on the MC-global
-bp row and grep the refusal in the global-budget voice. The row SHALL
-follow the suite conventions (reviewable script, expectations inline,
-envelope-gated).
+envelope that drives a run toward mid-run overcommit while the kernel
+probes (the DPSW-I9 race class). The rev-4 row SHALL gate on the
+MC-global bp row and grep the refusal in the global-budget voice, and
+SHALL follow the suite conventions (reviewable script, expectations
+inline, envelope-gated). The live mid-run witness is deferred per
+ADR-0024: the restool transport cannot place a drain inside the run
+window.
 
-#### Scenario: Rollback converges under a live kernel race
+#### Scenario: Rollback converges under a live kernel race (deferred, ADR-0024)
 
 - **WHEN** the board row drains a budget mid-run while kernel probing
   holds the race window open
 - **THEN** the unwind completes without wedging an object mid-reversal
   and the final observed census matches the pre-run census up to the
   row's declared residue
+- **AND** this scenario binds only at an ADR-0024 revisit trigger; on
+  the restool transport the row's machinery (precondition gate, drain
+  writer, convergence under drain, teardown cascade) is board-proven
+  at rev 3 and the mid-run landing is not reachable
 
 #### Scenario: The refusal is the board's own verdict
 
@@ -71,7 +75,7 @@ envelope-gated).
 - **THEN** the recorded verdict re-derives from observed board state,
   not from the driver's expectations alone
 
-#### Scenario: The re-run refuses in the global-budget voice
+#### Scenario: The re-run refuses in the global-budget voice (deferred, ADR-0024)
 
 - **WHEN** the rollback row re-runs admission while the drained
   MC-global bp pool still holds (the step-1 gate having read the global
@@ -80,3 +84,6 @@ envelope-gated).
 - **THEN** the run refuses at planning time in the global-budget voice
   and dispatches nothing — the step-4 grep lands on the global row, not
   the census one
+- **AND** this scenario binds only at an ADR-0024 revisit trigger; the
+  step-1 gate and the step-4 grep ship staged, and the planning-time
+  global-row refusal is proven offline

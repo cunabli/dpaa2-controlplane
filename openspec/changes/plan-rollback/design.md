@@ -112,7 +112,10 @@ licensed here. The CLI renders the enum as one flag
 (`--on-failure=rollback|abort`); dry-run prints the selected policy.
 The policy is uniform over failure classes: no per-class branching, no
 in-run retry (a failed undo verb is reported unreversed and the unwind
-continues — the loop re-judges).
+continues — the loop re-judges). [Scoped: a dispatch-time `McStatus` on
+the child-DPRC create resolves as `ContainerOutcome::Refused` and does
+not reach the one failure seam; the carve-out is tracked by bead
+dpaa2-controlplane-985.]
 
 ### D7 — CLI render: the global budget rows beside the census rows
 
@@ -210,7 +213,12 @@ dry-run global row and never hardcoded, so the writer needs only a
 handful of drains inside the ~5s kernel-bind-to-child-create window;
 step 4's grep moves to the global-budget planning-time refusal voice.
 The sitting stays operator-launched and the commit-before-run rule
-holds.
+holds. [SUPERSEDED in part by ADR-0024: the row's machinery is
+board-proven (rev 3); the live mid-run witness is deferred to ADR-0024's
+revisit triggers and the re-sit requirement is retired (bead
+dpaa2-controlplane-275). The aged-board ceiling conflation (bead
+dpaa2-controlplane-b4c) is resolved by the capacity-census delta (task
+12.2).]
 
 ## Risks / Trade-offs
 
@@ -221,6 +229,9 @@ holds.
 - [Undo verbs race the same environment that caused the overcommit] →
   failed undos are reported unreversed, never retried; the next loop
   re-observes. The board row witnesses exactly this race class.
+  [SUPERSEDED in part by ADR-0024: the row's machinery is board-proven
+  (rev 3); the live mid-run witness of this race is deferred per
+  ADR-0024.]
 - [Vocabulary churn — overcommit replacing shortfall touches ADR
   prose] → one amendment clause, atemporal style, grep-verified
   repo-wide ("shortfall" count goes to zero outside archives).

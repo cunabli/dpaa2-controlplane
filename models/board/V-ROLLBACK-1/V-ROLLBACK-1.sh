@@ -34,6 +34,7 @@
 #   (b) the kernel probe itself as the concurrent consumer (DPSW-I9's draw).
 # [SUPERSEDED IN PART by bead dpaa2-controlplane-f59: V-CONC-1's single-opener law means the writer and engine collide on the root portal, so the dpaa2-mc shim now retries portal-open EINVAL and a lost race is a benign skip, not a false failure; decisiveness of shape (a) remains open on bead dpaa2-controlplane-3qv.]
 # [SETTLED by ADR-0024: the shape question is decided — the mid-run witness is not reachable on the restool transport and is deferred to the ioctl-portal trigger; this suite keeps its machinery verdict and its re-sit requirement is retired (bead dpaa2-controlplane-275).]
+# [RETRACTED by ADR-0024: the paragraph below is the pre-ADR-0024 staging rationale. The writer's draw cannot be placed deterministically between two engine verbs on the restool transport, so the drain is NOT decisive; the machinery is board-proven (rev 3), the live mid-run witness is deferred per ADR-0024, and the aged-board ceiling conflation (bead dpaa2-controlplane-b4c) is resolved by the plan-rollback capacity-census delta (task 12.2).]
 # This suite takes (a) for the DRAIN because it is decisive — the writer drains
 # a runtime-derived handful of the root dpbp pool on a deterministic signal, so the run's next
 # dpbp create provably refuses — where the kernel probe's draw is asynchronous
@@ -99,8 +100,9 @@
 # own objects are unwound by the rollback policy itself; its grow-only residue is
 # left standing for the closing reboot, never torn down here.
 #
-# Operand derivation is to be pinned offline by the follow-up pin test; this
-# script never validates the operand against /sys itself.
+# Operand derivation is pinned offline by the vrollback1_intents pin test
+# (crates/dpaa2-tools/tests/vrollback1_intents.rs); this script never validates
+# the operand against /sys itself.
 set -u
 RESULTS="${1:?usage: $0 <results-dir>}"
 # A relative results dir is anchored to the operator's cwd before the cd below.

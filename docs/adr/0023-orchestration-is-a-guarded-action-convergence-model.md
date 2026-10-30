@@ -152,8 +152,10 @@ not apply. Scope: mid-run compensation only — the same-run rebuild
 refusal (pool-objects design D12) is unaffected. The implementing change
 carries the journal seam, the reversal table, the unwalk executor, the
 model's compensation action, the re-proof of stable refusal under
-compensation side effects, and the board witness for compensation under
+compensation side effects, and the board suite for compensation under
 kernel probing (change `plan-rollback`, bead `dpaa2-controlplane-axq`).
+That suite's machinery is board-proven; its live mid-run overcommit
+witness is deferred to a second portal transport (ADR-0024).
 
 **The model's state is the census schema** (interface projection):
 per-construct status, edge status, dpmac driver occupancy, budget
@@ -260,6 +262,7 @@ and pairwise, with full treatment deferred behind a revisit trigger.
   class; bead `dpaa2-controlplane-dbf.19`)
 - ADR-0002 (Quint first), ADR-0008 (level-triggered, no persisted
   state), ADR-0018 (sans-io shell/plan split), ADR-0019 (family model
-  patterns), ADR-0003 §7 (grow-only dpio seats)
+  patterns), ADR-0003 §7 (grow-only dpio seats), ADR-0024 (the mid-run
+  overcommit witness deferred to a second portal transport)
 - docs/upstream/phylink-dpni-churn-crash.md (the dpmac handover-window
   use-after-free the driver-occupancy guard refuses)

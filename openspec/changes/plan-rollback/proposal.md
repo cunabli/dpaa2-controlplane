@@ -52,7 +52,9 @@ journal by default, under a caller-chosen policy.
   traces are re-frozen including an overcommit-rollback trace.
 - A **fake-MC budget simulation** drives the overcommit path offline,
   and a new **board row** witnesses rollback under live kernel probing
-  (the DPSW-I9 race-class lesson).
+  (the DPSW-I9 race-class lesson). [SUPERSEDED in part by ADR-0024: the
+  row's machinery is board-proven (V-ROLLBACK-1 rev 3); the live mid-run
+  witness is deferred to ADR-0024's revisit triggers.]
 - **In-change detour — the two-ledger capacity face**: V-ROLLBACK-1
   rev 3 exposed that admission's capacity face reads the per-container
   free-object census while create verbs are refused by the MC-global
@@ -65,7 +67,11 @@ journal by default, under a caller-chosen policy.
   capacity face as a second ledger of budget rows (bp first under the
   monotonic-growth rule, proven by V-CEIL-1 + V-DPRC-7 rev 2), with the
   model, CLI render, offline twins, and the V-ROLLBACK-1 rev-4 witness
-  closing the blindness end to end. dpcon joins only after a scoped
+  closing the blindness end to end. [SUPERSEDED in part by ADR-0024: the
+  blindness closes offline and in the admission face; the rev-4 live
+  witness is deferred per ADR-0024. The adjacent aged-board ceiling
+  conflation (bead dpaa2-controlplane-b4c) is resolved by the
+  capacity-census delta (task 12.2).] dpcon joins only after a scoped
   disambiguation sitting; mcp stays behind the ADR-0011 listing-lag
   question.
 
@@ -129,6 +135,9 @@ What rollback preserves, restates, and cannot promise:
 - `provisioning-cli`: the planning surface carries the per-run
   mid-run failure policy (rollback default, abort opt-out) and renders
   residue in operator data terms.
+- `capacity-census`: a live free count is headroom, never a population
+  bracket, and an unsatisfiable draw refuses rather than planning a
+  silent zero-create (task 12.2, bead dpaa2-controlplane-b4c).
 
 ## Impact
 

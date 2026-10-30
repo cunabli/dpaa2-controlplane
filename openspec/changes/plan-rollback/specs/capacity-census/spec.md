@@ -8,14 +8,24 @@ A family whose ceiling observation is a live free count (dpbp's `bp`
 pool row, ADR-0011 decision 1) SHALL be judged by that count alone: the
 free units are the remaining headroom, a create plan admits while the
 count is above zero, and a growth plan draws at most the observed free
-count (the V-CEIL-1 law — the board refuses a dpbp create exactly at
-zero free, at any population). Population SHALL be compared only
-against static brackets (`Observed` ceilings: the per-boot dpmcp
-budget, the measured dpni ceiling). No plan SHALL silently drop a
-required draw because population outgrew the remaining free units: an
-unsatisfiable draw surfaces as a refusal naming the budget, the draw,
-and the headroom (the established refusal voice), never as a
-zero-create plan.
+count. Population SHALL be compared only against static brackets
+(`Observed` ceilings: the per-boot dpmcp budget, the measured dpni
+ceiling).
+
+#### Scenario: Zero free refuses at any population
+
+- **WHEN** a family's observed live free count is zero and the intent
+  requires another object of that family
+- **THEN** admission refuses the create naming the budget, the draw,
+  and the zero headroom, whatever the family's population (the
+  V-CEIL-1 law — the board refuses a dpbp create exactly at zero free)
+
+### Requirement: An unsatisfiable draw refuses, never a silent zero-create plan
+
+No plan SHALL silently drop a required draw because population outgrew
+the remaining free units: an unsatisfiable draw surfaces as a refusal
+naming the budget, the draw, and the headroom (the established refusal
+voice), never as a zero-create plan.
 
 #### Scenario: An aged board still plans the draw
 
