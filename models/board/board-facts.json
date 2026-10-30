@@ -1,0 +1,29 @@
+{
+  "about": "Kernel-facing literals the board suites may use, each with the in-repo record that observed it on the board. Pinned offline by crates/dpaa2-verify/tests/board_facts_pins.rs (bead dpaa2-controlplane-28o).",
+  "driver_basenames": {
+    "fsl_dpaa2_eth": "V-ROLLBACK-1 rev4e: dmesg 'fsl_dpaa2_eth dpni.1: Probed interface eth1' (quoted in models/board/V-ROLLBACK-1/V-ROLLBACK-1.sh eth_count); bare-boot driver links in models/board/baselines/reference.json and docs/baseline/reference-environment.md",
+    "fsl_dpaa2_mac": "bare-boot driver links (8 dpmacs) in models/board/baselines/reference.json and docs/baseline/reference-environment.md",
+    "fsl_dpaa2_ptp": "bare-boot driver link (dprtc.0) in models/board/baselines/reference.json and docs/baseline/reference-environment.md; V-DPRTC-3 probes.json unbind step",
+    "fsl_mc_allocator": "bare-boot driver links (69 dpbp/dpcon/dpmcp) in models/board/baselines/reference.json and docs/baseline/reference-environment.md",
+    "fsl_mc_dpio": "bare-boot driver links (16 dpio) in models/board/baselines/reference.json and docs/baseline/reference-environment.md",
+    "fsl_mc_dprc": "finding 54 (docs/upstream/findings.md, docs/upstream/fsl-mc-no-autobind-child-dprc.md): V-DPSW-5 rev 7 manual probe binding dprc.2 via drivers/fsl_mc_dprc/bind",
+    "vfio-fsl-mc": "V-DPRC-8 rev 1 (models/board/README.md suite ledger): driver symlink to vfio-fsl-mc after override + bind of the scratch child"
+  },
+  "tolerated_fallbacks": {
+    "dpaa2-eth": {
+      "partner": "fsl_dpaa2_eth",
+      "why": "the pre-rename mainline basename kept as a match fallback beside the observed fsl_dpaa2_eth (V-ROLLBACK-1 rev4e)"
+    }
+  },
+  "kernel_symbols": {
+    "fsl_mc_bus_dpdbg_type": "docs/baseline/dpdbg.md Kernel-side: bus type registered, no driver; used by models/board/V-DPDBG-2/V-DPDBG-2.sh step (e)",
+    "fsl_mc_get_endpoint": "docs/baseline/dpmac.md: returns -EPERM across the container boundary; used by models/board/V-DPMAC-3/V-DPMAC-3.sh step 5 (dpmac-typestate task 4.1)"
+  },
+  "sysfs_prefixes": [
+    "/sys/bus/fsl-mc/devices",
+    "/sys/bus/fsl-mc/drivers/",
+    "/sys/bus/fsl-mc/drivers_probe",
+    "/sys/bus/fsl-mc/rescan",
+    "/sys/bus/fsl-mc/autorescan"
+  ]
+}

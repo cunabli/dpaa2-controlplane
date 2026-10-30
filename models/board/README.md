@@ -301,7 +301,12 @@ converge its intents end to end against the fake backend; any typed
 refusal kills the sitting before it starts (dpsw-hardening, review
 synthesis rule R1 — the V-DPSW-5 missing-dispatch class, where the
 engine had no switch pass and only the offline pre-check caught it
-before a board slot was spent).
+before a board slot was spent). The offline pre-checks also pin every
+suite-authored kernel-facing literal (driver basename, kernel symbol,
+`/sys/bus/fsl-mc` path shape) against `models/board/board-facts.json` via
+`crates/dpaa2-verify/tests/board_facts_pins.rs`; a newly board-observed
+basename, symbol or path shape is recorded there with its provenance
+before a sitting (bead dpaa2-controlplane-28o).
 
 Each module's header records its freeze command. Then:
 
